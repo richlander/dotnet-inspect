@@ -16,3 +16,28 @@ public readonly struct JsExportOperatorFixture
         JsExportOperatorFixture left,
         JsExportOperatorFixture right) => default;
 }
+
+[SupportedOSPlatform("browser")]
+public static class GenericJsExportFixture
+{
+    [JSExport]
+    public static T Echo<T>(T value) => value;
+}
+
+[SupportedOSPlatform("browser")]
+public static class FilteredJsExportFixture
+{
+    public static int Value
+    {
+        [JSExport]
+        get => 42;
+    }
+
+    public static int InvokeLocal()
+    {
+        [JSExport]
+        static int Local() => 42;
+
+        return Local();
+    }
+}

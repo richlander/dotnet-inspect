@@ -96,6 +96,12 @@ public static class JsonWireMemberRules
 
     static bool IsSerializedProperty(ApiMember member)
     {
+        int? indexParameterCount =
+            member.IndexParameterCount
+            ?? member.SignatureModel?.ParameterCount;
+        if (indexParameterCount != 0)
+            return false;
+
         if (member.HasGetter is false)
             return false;
 

@@ -68,6 +68,11 @@ public static class JsExportSurfaceBuilder
         var functionTokens = new Dictionary<JsExportFunction, int>();
         foreach (ApiType type in surface.Types)
         {
+            foreach (FilteredRuntimeJsExportFact fact
+                in type.FilteredRuntimeJsExportFacts)
+            {
+                ValidateFilteredJsExportEvidence(fact);
+            }
             foreach (ApiMember member in type.Members)
             {
                 if (!HasJsExportEvidence(member))
@@ -84,6 +89,12 @@ public static class JsExportSurfaceBuilder
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
                         "JS exports must be static");
+                }
+                if (member.GenericArity != 0)
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "generic JS exports have no runtime wrapper");
                 }
 
                 if (member.IsUnsafe)
@@ -486,6 +497,24 @@ public static class JsExportSurfaceBuilder
         }
     }
 
+    static void ValidateFilteredJsExportEvidence(
+        FilteredRuntimeJsExportFact fact)
+    {
+        string location = $"member 0x{fact.MetadataToken:X8}";
+        if (fact.AttributeCount != 1
+            || fact.HasMalformedRow
+            || !fact.HasValidRow)
+        {
+            throw new UnsupportedJsExportSurfaceException(
+                location,
+                "JSExport metadata is malformed or declares duplicate authentic rows");
+        }
+
+        throw new UnsupportedJsExportSurfaceException(
+            location,
+            "JS exports on filtered MethodDefs are not ordinary API methods");
+    }
+
     static string FormatTypeLocation(ApiType type) =>
         type.MetadataToken is { } token
             ? $"type 0x{token:X8}"
@@ -528,6 +557,7 @@ public static class JsExportSurfaceBuilder
             StringComparer.Ordinal);
         var ambiguousPropertyNames = new HashSet<string>(
             StringComparer.Ordinal);
+        var unnamedUnsupportedRoots = new List<ApiJsonSerializableRoot>();
         foreach (ApiJsonSerializableRoot root in context.JsonSerializableRoots)
         {
             string? propertyName = root.TypeInfoPropertyName
@@ -535,8 +565,9 @@ public static class JsExportSurfaceBuilder
             if (propertyName is null && root.Type is null)
             {
                 // The row itself is authentic and retained as unsupported
-                // evidence. It can only block generation if a generated
-                // property with a known identity reaches an export.
+                // evidence. It can only block generation if an otherwise
+                // unmatched trusted getter in this context reaches an export.
+                unnamedUnsupportedRoots.Add(root);
                 continue;
             }
             if (string.IsNullOrEmpty(propertyName))
@@ -554,7 +585,10 @@ public static class JsExportSurfaceBuilder
                 ambiguousPropertyNames.Add(propertyName);
             }
         }
-        return new(roots, ambiguousPropertyNames);
+        return new(
+            roots,
+            ambiguousPropertyNames,
+            unnamedUnsupportedRoots);
     }
 
     static RegisteredRootPropertyMatch TryGetRegisteredRootForProperty(
@@ -572,14 +606,23 @@ public static class JsExportSurfaceBuilder
         {
             return RegisteredRootPropertyMatch.Unsupported;
         }
-        if (!registeredRootProperties.Roots.TryGetValue(
-                member.Name,
-                out ApiJsonSerializableRoot? candidate)
-            || !TryGetTrustedJsonTypeInfoArgument(
+        if (!TryGetTrustedJsonTypeInfoArgument(
                 signature,
                 out ApiTypeShape? propertyRoot))
         {
             return RegisteredRootPropertyMatch.None;
+        }
+        if (!registeredRootProperties.Roots.TryGetValue(
+                member.Name,
+                out ApiJsonSerializableRoot? candidate))
+        {
+            if (registeredRootProperties.UnnamedUnsupportedRoots.Count == 0)
+                return RegisteredRootPropertyMatch.None;
+
+            root = registeredRootProperties.UnnamedUnsupportedRoots.Count == 1
+                ? registeredRootProperties.UnnamedUnsupportedRoots[0]
+                : null;
+            return RegisteredRootPropertyMatch.Unsupported;
         }
 
         root = candidate;
@@ -807,7 +850,8 @@ public static class JsExportSurfaceBuilder
 
     sealed record RegisteredRootProperties(
         IReadOnlyDictionary<string, ApiJsonSerializableRoot> Roots,
-        IReadOnlySet<string> AmbiguousPropertyNames);
+        IReadOnlySet<string> AmbiguousPropertyNames,
+        IReadOnlyList<ApiJsonSerializableRoot> UnnamedUnsupportedRoots);
 
     static bool HasTopLevelDefinitionName(
         MetadataTypeDefinitionName? definitionName,

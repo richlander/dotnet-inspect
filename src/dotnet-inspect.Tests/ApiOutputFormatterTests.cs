@@ -2409,15 +2409,31 @@ public class ApiOutputFormatterTests
         var type = new ApiType
         {
             Name = "Exports",
+            FilteredRuntimeJsExportFacts =
+            [
+                new(
+                    "<Run>g__Local|0_0",
+                    0x06000002,
+                    AttributeCount: 1,
+                    HasValidRow: true,
+                    HasMalformedRow: false),
+            ],
             Members =
             [
                 new ApiMember
                 {
                     Name = "Run",
                     Kind = "method",
+                    GenericArity = 1,
                     HasRuntimeJsExport = true,
                     RuntimeJsExportAttributeCount = 2,
                     HasMalformedRuntimeJsExportAttribute = true,
+                },
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    IndexParameterCount = 0,
                 },
             ],
         };
@@ -2428,7 +2444,14 @@ public class ApiOutputFormatterTests
         ApiType restored = JsonSerializer.Deserialize(
             json,
             ApiTypeJsonContext.Default.ApiType)!;
-        ApiMember evidence = Assert.Single(restored.Members);
+        ApiMember evidence = Assert.Single(
+            restored.Members,
+            member => member.Name == "Run");
+        ApiMember property = Assert.Single(
+            restored.Members,
+            member => member.Name == "Value");
+        FilteredRuntimeJsExportFact filtered = Assert.Single(
+            restored.FilteredRuntimeJsExportFacts);
 
         Assert.Contains("\"has_runtime_js_export\": true", json, StringComparison.Ordinal);
         Assert.Contains(
@@ -2439,9 +2462,24 @@ public class ApiOutputFormatterTests
             "\"has_malformed_runtime_js_export_attribute\": true",
             json,
             StringComparison.Ordinal);
+        Assert.Contains("\"generic_arity\": 1", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"index_parameter_count\": 0",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"filtered_runtime_js_export_facts\":",
+            json,
+            StringComparison.Ordinal);
         Assert.True(evidence.HasRuntimeJsExport);
         Assert.Equal(2, evidence.RuntimeJsExportAttributeCount);
         Assert.True(evidence.HasMalformedRuntimeJsExportAttribute);
+        Assert.Equal(1, evidence.GenericArity);
+        Assert.Equal(0, property.IndexParameterCount);
+        Assert.Equal("<Run>g__Local|0_0", filtered.MethodName);
+        Assert.Equal(1, filtered.AttributeCount);
+        Assert.True(filtered.HasValidRow);
+        Assert.False(filtered.HasMalformedRow);
     }
 
     [Fact]

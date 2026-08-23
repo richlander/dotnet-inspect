@@ -99,9 +99,13 @@ structural generic argument lists: leading, doubled, and trailing delimiters
 are rejected, and the sum of canonical `MetadataNameArity` segments must equal
 the argument count. This keeps a malformed serialized name from projecting the
 same shape as a valid registration while preserving assembly-qualified nested
-generic identities. `JsonSerializableAttributeTests.ReadJsonSerializableRoots_ParsesAssemblyQualifiedNestedGenerics` and
+generic identities. Primitive shapes additionally require a platform-signed
+core contract assembly name; a same-named type from another signed assembly
+remains a named shape rather than aliasing an intrinsic primitive.
+`JsonSerializableAttributeTests.ReadJsonSerializableRoots_ParsesAssemblyQualifiedNestedGenerics`,
 `ReadJsonSerializableRoots_RejectsMalformedGenericDelimitersAndArity` gate
-that contract.
+and `ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly` gate that
+contract.
 
 #### `ILInspector.Analysis`
 

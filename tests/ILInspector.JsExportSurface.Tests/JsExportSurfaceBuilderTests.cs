@@ -329,7 +329,67 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void SourceGeneratedJsExport_EmitsOrdinaryWrapperButNotOperatorWrapper()
+    public void Build_RejectsGenericJsExportWithoutRuntimeWrapper()
+    {
+        string path = typeof(GenericJsExportFixture).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(GenericJsExportFixture));
+        ApiMember method = Assert.Single(
+            fixture.Members,
+            member => member.Name == nameof(GenericJsExportFixture.Echo));
+        apiSurface.Types = [fixture];
+
+        Assert.True(method.HasRuntimeJsExport);
+        Assert.Equal(1, method.GenericArity);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "generic JS exports have no runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence()
+    {
+        string path = typeof(FilteredJsExportFixture).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FilteredJsExportFixture));
+        apiSurface.Types = [fixture];
+
+        Assert.Equal(2, fixture.FilteredRuntimeJsExportFacts.Count);
+        Assert.Contains(
+            fixture.FilteredRuntimeJsExportFacts,
+            fact => fact.MethodName == "get_Value"
+                && fact.AttributeCount == 1
+                && fact.HasValidRow
+                && !fact.HasMalformedRow);
+        Assert.Contains(
+            fixture.FilteredRuntimeJsExportFacts,
+            fact => fact.MethodName.StartsWith(
+                    "<InvokeLocal>g__Local",
+                    StringComparison.Ordinal)
+                && fact.AttributeCount == 1
+                && fact.HasValidRow
+                && !fact.HasMalformedRow);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+        Assert.Contains(
+            "filtered MethodDefs",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers()
     {
         string[] ordinaryMethodNames = ReadMethodNames(
             typeof(ScalarContextOptionsFixtureExports).Assembly.Location);
@@ -346,6 +406,24 @@ public sealed class JsExportSurfaceBuilderTests
             name => name.StartsWith(
                 "__Wrapper_op_Addition_",
                 StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            operatorMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_Echo_",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            operatorMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_get_Value_",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            operatorMethodNames,
+            name => name.Contains(
+                "InvokeLocal",
+                StringComparison.Ordinal)
+                && name.StartsWith(
+                    "__Wrapper_",
+                    StringComparison.Ordinal));
     }
 
     [Theory]
@@ -743,6 +821,42 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_BindsUnnamedMalformedRootToReachedTrustedGetter()
+    {
+        ApiSurface apiSurface = ExtractFixtureApiSurface();
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FixtureJsonContext));
+        int rootIndex = context.JsonSerializableRoots.FindIndex(
+            root => root.Type?.Definition?.DefinitionName?.Segments
+                is [nameof(WidgetDto)]);
+        Assert.True(rootIndex >= 0);
+        context.JsonSerializableRoots[rootIndex] =
+            context.JsonSerializableRoots[rootIndex] with
+            {
+                Type = null,
+                UnsupportedReason =
+                    "serializer root type shape is unsupported",
+            };
+
+        Assert.NotNull(JsExportSurfaceBuilder.Build(apiSurface));
+
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+
+        Assert.Contains(
+            "serializer root type shape is unsupported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_RejectsReachedUnsupportedScalarContextOptions()
     {
         string path =
@@ -1069,13 +1183,14 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Build_WidgetDtoExposesAllFourDeclaredProperties()
+    public void Build_WidgetDtoSerializesFourPropertiesAndExcludesIndexer()
     {
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         ApiType widgetDto = surface.Records.Single(r => r.Name == "WidgetDto");
         var propertyNames = widgetDto.Members
-            .Where(m => m.Kind == "property")
+            .Where(m => m.Kind == "property"
+                && JsonWireMemberRules.IsSerialized(m))
             .Select(m => m.Name)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -1084,6 +1199,11 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("Count", propertyNames);
         Assert.Contains("Tags", propertyNames);
         Assert.Contains("Owner", propertyNames);
+        ApiMember indexer = Assert.Single(
+            widgetDto.Members,
+            member => member.Kind == "property"
+                && member.IndexParameterCount == 1);
+        Assert.False(JsonWireMemberRules.IsSerialized(indexer));
     }
 
     [Fact]

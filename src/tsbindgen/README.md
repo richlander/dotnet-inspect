@@ -66,7 +66,11 @@ partial context is not a registration.
 The root and property argument are compared as one structured shape: primitive
 codes, array rank, named/generic identities, and every generic argument remain
 distinct. This avoids special string or name fallback paths for `int`, `int[]`,
-`byte[]`, and closed generic roots. For a default name STJ uses the leaf
+`byte[]`, and closed generic roots. A serialized primitive is intrinsic only
+when its defining assembly is a platform-signed core contract assembly
+(`System.Private.CoreLib`, `System.Runtime`, `mscorlib`, or `netstandard`);
+another platform-signed assembly cannot alias `System.Int32` or another
+primitive. For a default name STJ uses the leaf
 metadata segment (plus generic arguments and array suffixes), so a nested
 `Outer.Leaf` root is `Leaf`, not `OuterLeaf`. A nested/top-level leaf collision
 is retained as ambiguous evidence and stops generation only when its context
@@ -81,6 +85,11 @@ shape remain required. Multidimensional roots are still unsupported because
 System.Text.Json does not serialize them at runtime:
 they are retained as getter-scoped failure evidence, while an unrelated vector
 root remains usable.
+An authentic malformed root whose default property name cannot be recovered is
+retained against otherwise-unmatched, trusted `JsonTypeInfo<T>` getters in that
+same context. It therefore fails only when body evidence reaches such a getter
+instead of disappearing as an absent registration or poisoning unrelated
+contexts.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
@@ -109,6 +118,10 @@ gate the generated-name and exact-shape boundaries.
 `Build_DoesNotNormalizeNonDefaultMultidimensionalArrayBounds`, and
 `SourceGeneratedJson_MultidimensionalRootRemainsUnsupportedAtRuntime` gate the
 array-name, reached-failure, and runtime-boundary contracts.
+`JsonSerializableAttributeTests.ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly`
+and
+`JsExportSurfaceBuilderTests.Build_BindsUnnamedMalformedRootToReachedTrustedGetter`
+gate primitive provenance and unnamed malformed-root reachability.
 
 Serialized generic root arguments use a strict structural grammar. Leading,
 doubled, and trailing delimiters are unsupported, and the sum of canonical
@@ -137,13 +150,21 @@ Generated interfaces include properties with an accessible getter and
 context. Private, private-protected, and protected members remain excluded,
 matching the source generator's `SYSLIB1038` boundary; internal, protected
 internal, and public members are accessible. Write-only properties remain
-excluded even when annotated. The same wire-member rule drives transitive DTO
+excluded even when annotated. Indexed properties are also excluded because
+System.Text.Json does not include indexers in object contracts; extracted
+surfaces persist the property index-parameter count, while older or
+hand-composed surfaces without equivalent signature evidence fail closed. The
+same wire-member rule drives transitive DTO
 discovery and declaration emission so a discovered edge cannot become an
 orphaned or incomplete TypeScript shape;
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
 gate that shared-rule invariant against the real source generator.
+`JsonWireMemberRulesTests.ExtractedCompilerIndexerIsExcludedFromJsonContract`
+and
+`JsExportSurfaceBuilderTests.Build_WidgetDtoSerializesFourPropertiesAndExcludesIndexer`
+gate indexer extraction and projection.
 
 ### Directional `[JsonIgnore]`
 
@@ -177,7 +198,9 @@ members, so a directional declaration can never reference an undeclared type.
 `JsonPropertyNameAttributeTests.JsonIgnoreConditionValuesMatchSystemTextJson`
 pins the condition values to System.Text.Json's own enum and
 `DirectionalJsonIgnoreConditionsAreDecodedFromCompiledMetadata` gates decoding
-from compiled metadata.
+from compiled metadata. The serialized enum type must itself carry authentic
+platform-signed System.Text.Json assembly provenance;
+`JsonIgnoreConditionFromUntrustedEnumAssemblyIsMalformed` gates that boundary.
 `JsonWireMemberRulesTests.DirectionalIgnoreConditionsSelectDirections` gates
 the table above,
 `JsExportSurfaceBuilderTests.Build_RecordsSerializeOnlyDirectionForReturnOnlyDto`
@@ -424,6 +447,11 @@ constructor and value contract. Authentic JSExport rows retain a count and
 malformed marker through the `ApiMember` JSON contract: malformed-only,
 valid-plus-malformed, and duplicate-valid evidence stop before declaration or
 wrapper emission, while untrusted lookalikes remain absent.
+MethodDefs deliberately filtered from the declarable API inventory retain the
+same evidence separately on their containing type, so an attributed accessor
+or compiler-generated local function cannot disappear as absence. Method
+generic arity is likewise persisted: the runtime generator emits no generic
+method wrapper, so a generic `[JSExport]` is rejected before publication.
 `JsExportSurfaceBuilderTests.Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`,
 `Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
 `ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`
@@ -432,7 +460,9 @@ The runtime generator publishes ordinary method declarations, not operators or
 other `ApiMember.Kind` values. An authentic non-method `[JSExport]` therefore
 fails before declarations or wrappers are emitted.
 `JsExportSurfaceBuilderTests.Build_RejectsAuthenticJsExportOperatorBeforePublication`,
-`SourceGeneratedJsExport_EmitsOrdinaryWrapperButNotOperatorWrapper`, and
+`Build_RejectsGenericJsExportWithoutRuntimeWrapper`,
+`Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence`,
+`SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers`, and
 `TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` are the
 gates.
 `Extract_ChargesSerializedConverterTypeNameBeforeDecode` gates bounded

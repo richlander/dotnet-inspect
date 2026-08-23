@@ -1258,6 +1258,11 @@ public static partial class AttributeReader
             _ => (ApiPrimitiveType)(-1),
         };
         return primitive != (ApiPrimitiveType)(-1)
+            && assembly.Name is
+                "System.Private.CoreLib"
+                or "System.Runtime"
+                or "mscorlib"
+                or "netstandard"
             && PlatformKeys.IsPlatform(assembly.PublicKeyToken);
     }
 
@@ -1397,7 +1402,7 @@ public static partial class AttributeReader
                 attribute.Constructor,
                 FrameworkConstructorKind.Marker,
                 beforeMaterialize)
-            || AttributeDecoder.TryDecode(
+            || AttributeDecoder.TryDecodePreservingSerializedTypeNames(
                 reader,
                 attribute,
                 beforeMaterialize) is not
@@ -1414,7 +1419,9 @@ public static partial class AttributeReader
             || argument.Kind
                 != CustomAttributeNamedArgumentKind.Property
             || argument.Name != "Condition"
-            || argument.Type != JsonIgnoreConditionTypeName
+            || !IsExpectedSerializedOptionType(
+                argument.Type,
+                JsonIgnoreConditionTypeName)
             || !TryReadInt32(argument.Value, out int rawValue)
             || rawValue is < 0 or > 5)
         {

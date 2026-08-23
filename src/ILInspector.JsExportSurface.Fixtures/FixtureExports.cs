@@ -222,7 +222,14 @@ public static partial class FixtureExports
     public static string QueryPackage(string packageId) => packageId;
 }
 
-public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? Owner);
+public sealed record WidgetDto(
+    string Name,
+    int Count,
+    int[] Tags,
+    WidgetOwner? Owner)
+{
+    public int this[int index] => Tags[index];
+}
 
 public sealed record WidgetOwner(string DisplayName);
 

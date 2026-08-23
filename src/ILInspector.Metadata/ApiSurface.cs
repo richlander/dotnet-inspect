@@ -695,6 +695,25 @@ public sealed record FilteredJsonPropertyNameFact(
     int MetadataToken,
     List<string?> PropertyNames);
 
+/// <summary>
+/// Authentic <c>[JSExport]</c> evidence retained from a MethodDef that API
+/// surface extraction deliberately omits, such as an accessor or local
+/// function. Keeping this outside <see cref="ApiType.Members"/> preserves the
+/// API model while preventing a runtime export claim from disappearing.
+/// </summary>
+/// <remarks>
+/// <c>JsExportSurfaceBuilderTests.Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence</c>
+/// and
+/// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+/// gate extraction and persistence.
+/// </remarks>
+public sealed record FilteredRuntimeJsExportFact(
+    string MethodName,
+    int MetadataToken,
+    int AttributeCount,
+    bool HasValidRow,
+    bool HasMalformedRow);
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -702,7 +721,7 @@ public class ApiType
 
     [JsonIgnore]
     public int? MetadataToken { get; set; }
-    
+
     /// <summary>
     /// The exact metadata name, preserving literal '+' characters and using '+'
     /// to delimit nested types, matching how TypeRef constructs its names.
@@ -802,6 +821,20 @@ public class ApiType
     [JsonIgnore]
     public List<FilteredJsonPropertyNameFact> FilteredJsonPropertyNameFacts
         { get; set; } = [];
+
+    [JsonIgnore]
+    public List<FilteredRuntimeJsExportFact> FilteredRuntimeJsExportFacts
+        { get; set; } = [];
+
+    [JsonPropertyName("filtered_runtime_js_export_facts")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FilteredRuntimeJsExportFact>? FilteredRuntimeJsExportEvidence
+    {
+        get => FilteredRuntimeJsExportFacts.Count == 0
+            ? null
+            : FilteredRuntimeJsExportFacts;
+        set => FilteredRuntimeJsExportFacts = value ?? [];
+    }
 
     public bool IsSealed { get; set; }
     public bool IsAbstract { get; set; }
@@ -932,6 +965,19 @@ public class ApiMember
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
+    /// Number of index parameters on a property. Null means older or
+    /// hand-composed evidence could not prove the property is non-indexed.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsonWireMemberRulesTests.ExtractedCompilerIndexerIsExcludedFromJsonContract</c>
+    /// and
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+    /// gate extraction and persistence.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? IndexParameterCount { get; set; }
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>
@@ -942,6 +988,20 @@ public class ApiMember
     /// Used for stable body evidence lookups such as call-site sections.
     /// </summary>
     public int? MetadataToken { get; set; }
+
+    /// <summary>
+    /// Method generic arity from the MethodDef. Runtime JSExport does not
+    /// publish generic methods, so consumers must not infer a wrapper from the
+    /// rendered signature alone.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsGenericJsExportWithoutRuntimeWrapper</c>
+    /// and
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+    /// are the gates.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int GenericArity { get; set; }
 
     /// <summary>
     /// PropertyDef or FieldDef token used to identify declaration-scoped

@@ -799,15 +799,28 @@ public static class ApiSurfaceExtractor
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
-                    continue;
-
+                var methodCustomAttributes =
+                    method.GetCustomAttributes();
                 string methodName = DecodeString(
                     reader,
                     method.Name,
                     observeDecodeWork);
+                RuntimeJsExportAttributeEvidence jsExportEvidence =
+                    AttributeReader.ReadRuntimeJsExportAttributes(
+                        reader,
+                        methodCustomAttributes,
+                        observeDecodeWork);
+                var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
+                    continue;
+                }
 
                 // Ordinary MethodSemantics accessors are omitted from the method
                 // list. A private MethodImpl accessor is the C#/VB explicit-
@@ -818,24 +831,45 @@ public static class ApiSurfaceExtractor
                 if (accessorMethods.Contains(methodHandle)
                     && !(isExplicitInterfaceImplementation
                         && methodAccess == MethodAttributes.Private))
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
                     continue;
+                }
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<"))
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
                     continue;
+                }
 
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
                 if (!includeAll
                     && !isExplicitInterfaceImplementation
                     && AttributeReader.HasEditorBrowsableNeverAttribute(
                         reader,
-                        method.GetCustomAttributes(),
+                        methodCustomAttributes,
                         observeDecodeWork))
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
                     continue;
+                }
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
                     reader,
-                    method.GetCustomAttributes(),
+                    methodCustomAttributes,
                     out var obsoleteMessage,
                     observeDecodeWork);
 
@@ -844,7 +878,7 @@ public static class ApiSurfaceExtractor
                     && (methodAttributes & MethodAttributes.Static) != 0
                     && AttributeReader.HasExtensionAttribute(
                         reader,
-                        method.GetCustomAttributes(),
+                        methodCustomAttributes,
                         observeDecodeWork);
                 var signature = GetMethodSignature(
                     reader,
@@ -889,11 +923,6 @@ public static class ApiSurfaceExtractor
                             method,
                             observeDecodeWork));
 
-                RuntimeJsExportAttributeEvidence jsExportEvidence =
-                    AttributeReader.ReadRuntimeJsExportAttributes(
-                        reader,
-                        method.GetCustomAttributes(),
-                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -928,10 +957,12 @@ public static class ApiSurfaceExtractor
                     // round-tripped ApiSurface (where SignatureModel is gone).
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
+                    GenericArity =
+                        method.GetGenericParameters().Count,
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
-                            method.GetCustomAttributes(),
+                            methodCustomAttributes,
                             observeDecodeWork),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
@@ -944,7 +975,7 @@ public static class ApiSurfaceExtractor
                         jsExportEvidence.HasMalformedRow,
                     Attributes = RenderMemberAttributes(
                         reader,
-                        method.GetCustomAttributes(),
+                        methodCustomAttributes,
                         observeText,
                         observeAttributeMaterialize)
                 };
@@ -1067,6 +1098,8 @@ public static class ApiSurfaceExtractor
                         MetadataTokens.GetToken(propHandle),
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
+                    IndexParameterCount =
+                        propertySignature.Model?.ParameterCount,
                     SignatureDecodeStatus = propertySignature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
@@ -4673,6 +4706,23 @@ public static class ApiSurfaceExtractor
         }
     }
 
+    static void RetainFilteredRuntimeJsExportFact(
+        ApiType type,
+        string methodName,
+        MethodDefinitionHandle methodHandle,
+        RuntimeJsExportAttributeEvidence evidence)
+    {
+        if (evidence.Count == 0 && !evidence.HasMalformedRow)
+            return;
+
+        type.FilteredRuntimeJsExportFacts.Add(new(
+            methodName,
+            MetadataTokens.GetToken(methodHandle),
+            evidence.Count,
+            evidence.HasValidRow,
+            evidence.HasMalformedRow));
+    }
+
     /// <summary>
     /// Checks if a method signature contains unsafe constructs (pointers). This
     /// catches members whose signature renders a pointer; members declared
@@ -4720,6 +4770,11 @@ public static class ApiSurfaceExtractor
             AddText(ref count, fact.AssociatedMemberName);
             foreach (string? propertyName in fact.PropertyNames)
                 AddText(ref count, propertyName);
+        }
+        foreach (FilteredRuntimeJsExportFact fact
+            in type.FilteredRuntimeJsExportFacts)
+        {
+            AddText(ref count, fact.MethodName);
         }
         foreach (TypeParameter parameter in type.TypeParameters)
             AddText(ref count, parameter);

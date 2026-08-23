@@ -658,6 +658,7 @@ public sealed class DtsEmitterTests
                     Kind = "property",
                     HasGetter = true,
                     ReturnType = "int",
+                    IndexParameterCount = 0,
                     JsonConverterAttributeCount = 1,
                 },
                 new ApiMember
@@ -665,6 +666,7 @@ public sealed class DtsEmitterTests
                     Name = "Ignored",
                     Kind = "property",
                     HasGetter = true,
+                    IndexParameterCount = 0,
                     JsonIgnoreConditions =
                         [JsonWireIgnoreCondition.Always],
                     ReturnType = "int",
@@ -1543,6 +1545,7 @@ public sealed class DtsEmitterTests
                     Name = unsafeName,
                     Kind = "property",
                     ReturnType = "string",
+                    IndexParameterCount = 0,
                     DeclarationMetadataToken = 0x17000001,
                 },
             ],
@@ -1573,12 +1576,14 @@ public sealed class DtsEmitterTests
                     Name = "Name",
                     Kind = "property",
                     ReturnType = "string",
+                    IndexParameterCount = 0,
                 },
                 new ApiMember
                 {
                     Name = "Other",
                     Kind = "property",
                     ReturnType = "string",
+                    IndexParameterCount = 0,
                     JsonPropertyName = "Name",
                 },
             ],
@@ -1611,6 +1616,7 @@ public sealed class DtsEmitterTests
                     Name = "Value",
                     Kind = "property",
                     ReturnType = "string",
+                    IndexParameterCount = 0,
                     JsonPropertyName = "left\u202Eright",
                 },
             ],
@@ -1647,6 +1653,7 @@ public sealed class DtsEmitterTests
                     Name = memberName,
                     Kind = "property",
                     ReturnType = "string",
+                    IndexParameterCount = 0,
                 },
             ],
         };

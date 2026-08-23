@@ -75,6 +75,21 @@ public sealed class JsonSerializableAttributeTests
         }
     }
 
+    [Fact]
+    public void ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly()
+    {
+        ApiTypeShape root = Assert.IsType<ApiTypeShape>(
+            ReadRoot(
+                "System.Int32, Bogus, Version=1.0.0.0, Culture=neutral, "
+                + "PublicKeyToken=cc7b13ffcd2ddd51").Type);
+
+        Assert.Equal(ApiTypeShapeKind.Named, root.Kind);
+        Assert.Equal("Bogus", root.Definition?.Assembly.Name);
+        Assert.Equal(
+            ["Int32"],
+            root.Definition?.DefinitionName?.Segments);
+    }
+
     static string Qualified(string typeName) =>
         $"{typeName}, {ProbeAssemblyIdentity}";
 

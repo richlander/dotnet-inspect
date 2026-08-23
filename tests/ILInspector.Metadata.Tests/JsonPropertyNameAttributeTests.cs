@@ -184,6 +184,32 @@ public sealed class JsonPropertyNameAttributeTests
     }
 
     [Fact]
+    public void JsonIgnoreConditionFromUntrustedEnumAssemblyIsMalformed()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                "JsonIgnoreAttribute",
+                markerConstructor: true,
+                ignoreCondition:
+                    (int)JsonWireIgnoreCondition.WhenReading,
+                ignoreConditionTypeName:
+                    "System.Text.Json.Serialization.JsonIgnoreCondition, "
+                    + "Bogus, Version=10.0.0.0, Culture=neutral, "
+                    + "PublicKeyToken=cc7b13ffcd2ddd51"),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.Equal(
+            [null],
+            AttributeReader.ReadJsonIgnoreConditions(
+                reader,
+                type.GetCustomAttributes()));
+    }
+
+    [Fact]
     public void UntrustedJsonIgnoreAttributeIsIgnoredRatherThanMalformed()
     {
         using var stream = new MemoryStream(
@@ -662,7 +688,8 @@ public sealed class JsonPropertyNameAttributeTests
             "System.Text.Json.Serialization",
         string assemblyName = "System.Text.Json",
         bool nestedAttributeType = false,
-        int? ignoreCondition = null)
+        int? ignoreCondition = null,
+        string? ignoreConditionTypeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -765,7 +792,11 @@ public sealed class JsonPropertyNameAttributeTests
                     value.WriteByte(0x54);
                     value.WriteByte(0x55);
                     value.WriteSerializedString(
-                        "System.Text.Json.Serialization.JsonIgnoreCondition");
+                        ignoreConditionTypeName
+                        ?? "System.Text.Json.Serialization.JsonIgnoreCondition, "
+                            + "System.Text.Json, Version=10.0.0.0, "
+                            + "Culture=neutral, "
+                            + "PublicKeyToken=cc7b13ffcd2ddd51");
                     value.WriteSerializedString("Condition");
                     value.WriteInt32(condition);
                 }

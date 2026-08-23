@@ -1,3 +1,5 @@
+using System.Reflection.PortableExecutable;
+using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -12,6 +14,7 @@ public sealed class JsonWireMemberRulesTests
             Kind = "property",
             HasGetter = true,
             ReturnType = "int",
+            IndexParameterCount = 0,
             JsonIgnoreConditions = [.. conditions],
         };
 
@@ -107,5 +110,38 @@ public sealed class JsonWireMemberRulesTests
             JsonWireMemberRules.IsSerialized(
                 member,
                 JsonWireDirection.Serialize));
+    }
+
+    [Fact]
+    public void IndexersAndUnprovenPropertySignaturesRemainExcluded()
+    {
+        ApiMember indexer = Property();
+        indexer.IndexParameterCount = 1;
+        ApiMember unproven = Property();
+        unproven.IndexParameterCount = null;
+
+        Assert.False(JsonWireMemberRules.IsSerialized(indexer));
+        Assert.False(JsonWireMemberRules.IsSerialized(unproven));
+        Assert.True(JsonWireMemberRules.IsSerialized(Property()));
+    }
+
+    [Fact]
+    public void ExtractedCompilerIndexerIsExcludedFromJsonContract()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(WidgetDto).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiMember indexer = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                type => type.Name == nameof(WidgetDto))
+                .Members,
+            member => member.Kind == "property"
+                && member.IndexParameterCount == 1);
+
+        Assert.False(JsonWireMemberRules.IsSerialized(indexer));
     }
 }
