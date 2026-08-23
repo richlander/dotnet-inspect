@@ -128,17 +128,19 @@ overlay that is only ever read on its own does not need to be an overlay.
 Two rules govern composition. They describe the graph the product is to build,
 not every outcome the current resolver can produce:
 
-- **A designated overlay owns its filename in the composed graph.** The caller
-  named that exact file as the replacement, so references selecting that
-  assembly slot must see the overlay rather than the platform copy. Directly
-  opening the file already reads the named file; cross-assembly resolution does
-  not yet enforce the same choice. Today an earlier candidate may win, the
-  reference may remain unresolved, or the overlay may be selected. Those are
-  implementation accidents, not separate cases in the product contract.
-  Enforcing the rule is **#4593**.
-- **The overlay does not extend its authority beyond that filename.** It does
-  not become the platform, and it does not entitle its siblings — directory
-  membership is not designation. This half is real: a sibling reached by
+- **Designation selects the artifact for the workspace participant bound to
+  its decoded assembly identity.** The filename is acquisition evidence, not
+  the binding key; assembly identity comes from metadata, and the workspace's
+  binding policy decides which participant satisfies a reference. References
+  bound to that participant must see the designated artifact rather than the
+  platform artifact. Directly opening the file already reads the designated
+  artifact; cross-assembly resolution does not yet enforce the same choice.
+  Today an earlier candidate may win, the reference may remain unresolved, or
+  the overlay may be selected. Those are implementation accidents, not
+  separate cases in the product contract. Enforcing the rule is **#4593**.
+- **Designation applies only to that artifact.** It does not become the
+  platform, and it does not entitle nearby artifacts — directory membership is
+  not designation. This half is real: a sibling reached by
   discovery carries `LocalAsset`, which `MayMint` denies. The denial of a
   resolved `LocalAsset` is gated by
   `PlantedCoreLibraryIdentityTests.PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity`,
@@ -148,11 +150,11 @@ not every outcome the current resolver can produce:
   **not** separately gated.
 
 Together, the rules construct one intentional graph: the base supplies a
-closure built as a unit, designation substitutes one named member, and that
-substitution grants no authority to nearby files. Constraining composition this
-way reduces the incoherence surface when acquisition systems combine; it does
-not prove that the replacement still *fits*. That is the separate coherence
-question below.
+closure built as a unit, designation substitutes one workspace participant,
+and that substitution grants no authority to nearby artifacts. Constraining
+composition this way reduces the incoherence surface when acquisition systems
+combine; it does not prove that the replacement still *fits*. That is the
+separate coherence question below.
 
 ## Coherence is a property of the pair
 
@@ -194,12 +196,14 @@ candidate may be used and says nothing about *which* of two entitled candidates
 to prefer. Load a platform and a designated build copy of the same assembly, and
 both can satisfy the same reference.
 
-The precedence rule for this case is simple: **designation wins the assembly
-slot it names**. That gives every acquisition system the same well-defined graph
-to compose with; it does not require specifying the current resolver's
-case-by-case accidents. Any other tie between entitled candidates needs its own
-stated rule or a diagnostic rather than a silent pick. The current resolver does
-not yet enforce this contract; tracked as **#4593**.
+The precedence rule for this case is simple: **for the decoded assembly identity
+selected by the workspace's binding policy, the designated artifact supplies
+the participant instead of the platform artifact**. That gives every
+acquisition system the same well-defined graph to compose with; it does not
+require specifying the current resolver's case-by-case accidents. Any other tie
+between entitled candidates needs its own stated rule or a diagnostic rather
+than a silent pick. The current resolver does not yet enforce this contract;
+tracked as **#4593**.
 
 ## Related
 
