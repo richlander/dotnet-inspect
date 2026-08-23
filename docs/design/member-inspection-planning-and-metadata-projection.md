@@ -140,6 +140,7 @@ permission to reinterpret raw metadata semantics.
 
 | State | Meaning | May authorize work? |
 | --- | --- | --- |
+| Static structural route | For commandless static schema, one syntax-proven command/view/catalog or labeled cross-command alternatives | No |
 | Parsed intent | The user's inspection surface, gesture, selectors, requested projection, and output mode | No |
 | Demand classification | Selector matches reduced to canonical semantic-section target requirements only | No |
 | Structural selection | Names resolved against one final catalog, or labeled static alternatives | No |
@@ -393,26 +394,46 @@ reports the type/member-list schema without attempting a lookup-based prefix
 fallback. An explicit `member` surface reports the overload-inventory or
 detail schema from its syntactic selector kind.
 
-Commandless static schema is a structural route query over every destination
-the hidden router can choose, not only over the four type/member catalogs. The
-CLI owns a closed router-destination registry whose entries reference the
-command-owned static catalogs:
+Commandless static schema is a structural route query over every view the
+hidden router can choose, not only over command names or the four type/member
+catalogs. A destination command is not a catalog identity: the package command
+can render its package view, one embedded library, or an all-libraries
+aggregation. The CLI therefore owns a closed structural-view registry:
 
-| Router destination | Static catalog owner |
-| --- | --- |
-| Package | `PackageSectionDescriptors` |
-| Library | `LibrarySections` |
-| Type list or exact type | `ApiTypeSectionDescriptors` or `ApiMemberSectionDescriptors` |
-| Member inventory or detail | `ApiMemberOverloadSectionDescriptors` or `ApiMemberDetailSectionDescriptors` |
+| Structural view | Destination command | Static catalog owner |
+| --- | --- | --- |
+| Package inspection | Package | `PackageSectionDescriptors` |
+| Package single-library | Package, then library adapter | `LibrarySections` |
+| Package all-libraries | Package aggregation | `LibrarySections` |
+| Direct library | Library | `LibrarySections` |
+| Type list or exact type | Type | `ApiTypeSectionDescriptors` or `ApiMemberSectionDescriptors` |
+| Member inventory or detail | Member | `ApiMemberOverloadSectionDescriptors` or `ApiMemberDetailSectionDescriptors` |
 
-Syntax-only precedence may select one destination when the gesture contains an
-unambiguous command marker, such as a package-version form, library file form,
-explicit member selector, or package-plus-type form. A bare dotted target that
+Each entry declares its syntax marker, precedence, destination command, view
+mode, and catalog identity. The declarations are shared by
+`ArgumentPreprocessor`, `RouterTokenRewriter`, and the destination command's
+post-parse structural classifier; a command rewrite cannot silently change the
+view. Declaration order preserves the realized syntax precedence: file forms,
+explicit member selectors, package-scoped `--library` or `--all-libraries`,
+package-plus-type forms, and package-version forms are classified before any
+lookup. In particular, `--library` and `--all-libraries` select library catalog
+views even though execution enters `PackageCommand`.
+
+Syntax-only precedence selects one structural view when a marker proves it.
+This includes explicit package-library gestures and direct `.nupkg --library`
+preprocessing paths as well as hidden-router paths. A bare dotted target that
 still requires platform, package, type, member, facade, or prefix lookup
 returns `StructuralCatalogAlternatives` containing every syntactically
-possible `[destination, catalog]` pair. That includes package and library
-alongside the applicable assembly-type-list, type/member-list, and member
-catalogs; lookup-dependent prefix fallback is not silently discarded.
+possible `[destination, view, catalog]` tuple. That includes package and direct
+library alongside the applicable assembly-type-list, type/member-list, and
+member catalogs; lookup-dependent prefix fallback is not silently discarded.
+
+The static structural route precedes this proposal's type/member parsed intent.
+A deterministic type/member view lowers into `ParsedInspectionIntent`; a
+deterministic package or library view returns its command-owned schema; labeled
+cross-command alternatives remain an outer structural result. Package and
+library execution plans never enter the type/member plan merely because their
+catalogs appeared in that result.
 
 The alternatives are not a union and cannot satisfy single-section, shape,
 producer, or authorization decisions. Each labeled alternative may carry its
@@ -423,14 +444,16 @@ must not pretend it learned which destination or interpretation exists.
 
 Commandless structural intent is classified before hidden-router target
 resolution. `ArgumentPreprocessor` may preserve the syntactic rewrite to
-`router`, but it must retain the structural gesture. `RouterCommandDefinition` must dispatch that typed structural intent directly
-to the router-destination registry before `RouterTokenRewriter` can perform
-platform resolution, facade classification, package existence checks,
-all-framework searches, package acquisition, or type/member lookup. The
-resulting deterministic command-owned catalog or labeled alternatives follow
-the same no-producer rule as explicit-command static schema. This registry
-composes existing package and library schemas; it does not move their planning
-or execution ownership into the type/member path.
+`router`, but it must retain the structural gesture. `RouterCommandDefinition`
+must dispatch that typed structural intent directly to the structural-view
+registry before `RouterTokenRewriter` can perform platform resolution, facade
+classification, package existence checks, all-framework searches, package
+acquisition, or type/member lookup. The resulting deterministic command-owned
+catalog or labeled alternatives follow the same no-producer rule as
+explicit-command static schema. This registry composes existing package and
+library schemas and makes package-library static schema return before package
+resolution or extraction; it does not move their planning or execution
+ownership into the type/member path.
 
 There is no `MemberSelectionNeedsFinalization` Boolean in the target model.
 Code that requires resolved selection accepts only the resolved plan type.
@@ -841,10 +864,17 @@ retains enough signature information to distinguish overloads and indexers;
 dropping parameters or collapsing accessor identity is not a fallback.
 
 Fallback rendering treats every artifact-authored name and signature fragment
-as inert data. It escapes or removes controls and other active terminal or
-markup syntax while retaining safe identifying text; strict diagnostics do
-not echo the artifact payload. `MDP015` is the gate for contained fallback
-identity, signature discrimination, and inert rendering.
+as inert data through the existing
+[InertText](inert-text.md) boundary. Identity and comparison use the original
+typed facts; presentation applies the sink's closed `TextPolicy` and carries
+the result as `InertString`. `VisualEncoder` re-spells refused scalars in its
+canonical, total, injective, lossless, and invertible form. Removal,
+replacement, or a fallback-local escape vocabulary is forbidden because it
+can collapse distinct declaration identities. Format-specific Markdown, JSON,
+TSV, or other structural escaping runs after visual encoding and does not
+replace it. Strict diagnostics do not echo the artifact payload. `MDP015` is
+the gate for contained fallback identity, signature discrimination, and inert
+rendering.
 
 A Metadata declaration retained with `SignatureDecodeStatus.Degraded` becomes
 `Degraded`; CSharp may preserve its bounded diagnostic evidence but cannot
@@ -963,7 +993,7 @@ the design authority.
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
-| `ArgumentPreprocessor` and `RouterCommandDefinition` commandless target resolution | Retain syntactic routing, but move structural-gesture classification before `RouterTokenRewriter` acquisition in slice 2 |
+| `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | Shared Metadata validators already used by every projection | Retain |
 | Validators duplicated across full, summary, focused, or C# paths | Move to the Metadata declaration owner |
 | C# fixes based on Metadata-owned typed semantics | Retain |
@@ -988,9 +1018,10 @@ Depends on: none.
 
 - Add a single matrix test that records discovery mode, active catalog,
   producer demand, and capability authorization.
-- Enumerate every realized package, library, assembly-type-list,
-  type/member-list, overload-inventory, exact-member-detail, and hidden-router
-  route in that matrix.
+- Enumerate every realized package, package single-library, package
+  all-libraries, direct-library, assembly-type-list, type/member-list,
+  overload-inventory, exact-member-detail, and hidden-router route in that
+  matrix.
 - Add parity fixtures that run the same declarations through full, summary,
   and focused projections.
 - Make no behavior change.
@@ -1008,9 +1039,12 @@ Depends on: slice 1.
 - Move commandless structural classification ahead of
   `RouterTokenRewriter`; static schema must complete before any platform,
   facade, package-existence, all-framework, type, or member resolution.
-- Compose package, library, and type/member command-owned static catalogs
-  through the router-destination registry; return labeled alternatives when
-  syntax alone cannot select one.
+- Compose package, package-library, direct-library, and type/member
+  command-owned static catalogs through the structural-view registry; return
+  labeled alternatives when syntax alone cannot select one.
+- Make explicit package `--library`/`--all-libraries`, commandless equivalents,
+  and direct `.nupkg --library` preprocessing return the `LibrarySections`
+  static schema before package resolution or extraction.
 - Resolve the active catalog only after target/member resolution.
 - Move shape validation to the resolved plan.
 - Preserve current address precedence and diagnostics for non-static execution
@@ -1018,6 +1052,9 @@ Depends on: slice 1.
 - Intentionally replace commandless static-schema resolution notes and
   target-chosen catalogs with deterministic syntax-only catalogs or labeled
   alternatives; update command help and compatibility tests in this slice.
+- Intentionally add target-free static schema for package single-library and
+  all-libraries views that currently defer or reject discovery; preserve their
+  render behavior and document the new structural query.
 - Keep an adapter to current command execution while all other behavior remains
   byte-for-byte stable.
 
@@ -1147,12 +1184,12 @@ test method name, but the PR must map each test to its gate ID.
 
 | Gate | Property | Required evidence |
 | --- | --- | --- |
-| `MIP001` | Static schema chooses only syntax-proven catalogs and runs no target or producer work | Explicit package/library/type/member gestures prove deterministic command-owned catalogs; commandless package-version, library-file, member-selector, and package-plus-type forms prove syntax-only precedence; ambiguous `System.Text.Json` and `System.String.Substring` forms return labeled package/library/type/member catalog alternatives with per-alternative selector results; a router close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
+| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, and catalog identity; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return `LibrarySections` before resolution/extraction; explicit package/library/type/member gestures prove their deterministic command-owned catalogs; commandless package-version, library-file, member-selector, and package-plus-type forms prove syntax-only precedence; ambiguous `System.Text.Json` and `System.String.Substring` forms return labeled package/library/type/member catalog alternatives with per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
 | `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, and commandless structural alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; and artifact-owner lease revalidation |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | Set equality between the router-destination registry and package/library/type/member static catalog owners, and between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless static alternatives, unavailable detail sections, and overload/digest/arity cases |
+| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |
@@ -1174,7 +1211,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8 |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
-| `MDP015` | `FallbackRequired` preserves contained type/member identity and renders artifact text inertly | Types retain namespace/nesting/name, kind/arity, accessibility/modifiers, constraints, base, interfaces, and kind-specific header facts; an unsupported-base/interface type-shell fixture proves a valid unrepresentable fact becomes typed fallback instead of `null` or omission; methods, properties, events, accessors, overloads, and indexers retain discriminating declaring-type/member/signature facts; paired indexers with different parameter types remain distinct; hostile names and signature fragments retain safe identifying text without terminal controls, active markup, or uncontained diagnostic payloads |
+| `MDP015` | `FallbackRequired` preserves contained type/member identity and renders artifact text through `InertString` | Types retain namespace/nesting/name, kind/arity, accessibility/modifiers, constraints, base, interfaces, and kind-specific header facts; an unsupported-base/interface type-shell fixture proves a valid unrepresentable fact becomes typed fallback instead of `null` or omission; methods, properties, events, accessors, overloads, and indexers retain discriminating declaring-type/member/signature facts; paired indexers with different parameter types remain distinct; declaration-derived sink closure accepts only policy-produced `InertString`; round-trip and pairwise injectivity fixtures for hostile type names, member names, and signature fragments prove canonical visual encoding preserves the exact artifact text while emitting no live controls, with format-specific structural escaping applied afterward |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
