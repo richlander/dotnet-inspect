@@ -243,6 +243,43 @@ test("a stale loading request does not show the scanning status", () => {
   assert.match(html, /Loading…/);
 });
 
+test("a stale result belonging to another scan scope is not rendered as current", () => {
+  // One guard carries staleness for all three live variants, but only the `loading` case
+  // was tested. Narrowing it to `status === "loading" && key !== signature` left the whole
+  // suite green while another scope's opportunity table rendered under this scope's heading.
+  const stale = renderPackageOpportunities({
+    ...baseOptions,
+    resource: {
+      status: "ready",
+      key: "stale",
+      data: {
+        categories: [],
+        totalOpportunities: 41,
+        inspectionError: null,
+      },
+    },
+  });
+
+  assert.doesNotMatch(stale, /No integration opportunities/);
+  assert.doesNotMatch(stale, /41/);
+  assert.match(stale, /Loading…/);
+});
+
+test("a stale failure belonging to another scan scope is not rendered as current", () => {
+  const stale = renderPackageOpportunities({
+    ...baseOptions,
+    resource: {
+      status: "failed",
+      key: "stale",
+      error: "another scope failed",
+    },
+  });
+
+  assert.doesNotMatch(stale, /Opportunity scan failed/);
+  assert.doesNotMatch(stale, /another scope failed/);
+  assert.match(stale, /Loading…/);
+});
+
 test("a fresh scan error shows the failure message, escaped", () => {
   const html = renderPackageOpportunities({
     ...baseOptions,

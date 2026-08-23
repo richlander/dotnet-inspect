@@ -588,12 +588,24 @@ test("opportunity requests occupy one explicit lifecycle state", async () => {
     key: "current",
   });
 
-  await coordinator.loadOpportunities(packageItem, "current", null);
+  // The duplicate must *join* the live request, not report a completion that has not
+  // happened. Awaiting it here used to pass only because the coordinator returned early
+  // while the request was still running.
+  let duplicateSettled = false;
+  const duplicate = coordinator
+    .loadOpportunities(packageItem, "current", null)
+    .then(() => { duplicateSettled = true; });
   assert.equal(queries, 1);
+  await Promise.resolve();
+  assert.equal(
+    duplicateSettled,
+    false,
+    "a duplicate caller completed before the request it deduplicated");
 
   const result = opportunitiesResult();
   request.resolve(result);
-  await load;
+  await Promise.all([load, duplicate]);
+  assert.equal(duplicateSettled, true);
   assert.deepEqual(state.packageOpportunities, {
     status: "ready",
     key: "current",
@@ -691,6 +703,49 @@ test("a re-requested scope keeps the newest result when the abandoned one lands 
     data: { ...opportunitiesResult(), totalOpportunities: 99 },
   });
 });
+
+test("a re-requested scope keeps the newest result when the abandoned one fails late",
+  async () => {
+    // The reject path is a separate guard from the resolve path, and round 1 fixed only the
+    // resolve one. The existing failure test changes the key between requests, so key
+    // equality and identity give the same answer there and it cannot tell them apart. This
+    // is the A->B->A shape, where the abandoned request carries the *same* key as the live
+    // one: without identity ownership, a good current opportunity table is replaced by an
+    // error banner from a scan the user already navigated away from -- and, because a
+    // `failed` resource short-circuits the loader's dedupe, it never retries.
+    const packageItem = packageModel();
+    const first = deferred<BrowserPackageOpportunities>();
+    const second = deferred<BrowserPackageOpportunities>();
+    const other = deferred<BrowserPackageOpportunities>();
+    const pending = [first, second];
+    const state = inspectionState();
+    const coordinator = createPackageInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryPackageOpportunities: async ({ id }) =>
+          id === packageItem.id
+            ? (pending.shift() ?? first).promise
+            : other.promise,
+      }));
+
+    const abandoned = coordinator.loadOpportunities(packageItem, "scope-a", null);
+
+    const otherPackage = packageModel({ id: "Example.Other" });
+    const otherLoad = coordinator.loadOpportunities(otherPackage, "scope-b", null);
+    other.resolve(opportunitiesResult());
+    await otherLoad;
+
+    const reloaded = coordinator.loadOpportunities(packageItem, "scope-a", null);
+    second.resolve({ ...opportunitiesResult(), totalOpportunities: 99 });
+    await reloaded;
+
+    first.reject(new Error("abandoned scan failed"));
+    await abandoned;
+    assert.deepEqual(state.packageOpportunities, {
+      status: "ready",
+      key: "scope-a",
+      data: { ...opportunitiesResult(), totalOpportunities: 99 },
+    });
+  });
 
 test("stale package lens rejection cannot overwrite newer state", async () => {
   const packageItem = packageModel();

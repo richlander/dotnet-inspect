@@ -1069,7 +1069,12 @@ request is one `AsyncResource` state: idle, loading, ready, or failed. Loading
 owns its request object, so a stale completion cannot publish into a newer
 state, and data/error fields exist only on their applicable variants.
 `test/package-inspection.test.ts` gates those transitions, same-request reuse,
-and stale-result suppression.
+and stale-result suppression. A second caller of an in-flight request joins it
+rather than returning early, so it reports completion only once the request has
+actually settled -- including when that request rejects.
+`test/async-resource-state.test.ts` derives the converted lenses from their
+declared type and fails if one regains a parallel `…Loading`/`…Error`/`…Key`
+field on either the coordinator state or the initial state.
 `test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
 the idle/loading/ready/failed states (fresh versus stale scope), the
 no-opportunities and inspection-error banners, the category summary counts,

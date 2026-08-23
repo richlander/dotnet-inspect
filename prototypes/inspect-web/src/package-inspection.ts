@@ -148,6 +148,50 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
 
+  // The completion of the opportunity request that owns the live `loading` resource. A
+  // duplicate caller has to await this rather than returning: a `loading` resource means the
+  // work is still running, and returning told the caller it had finished. Joining is keyed
+  // on the *identity* of that resource as well as the signature -- the signature alone could
+  // join a request that was already abandoned and will publish nothing.
+  let opportunitiesInFlight: {
+    readonly resource: AsyncResource<BrowserPackageOpportunities>;
+    readonly completion: Promise<void>;
+  } | null = null;
+
+  // Never rejects: every outcome is published as a resource state, so a joining caller
+  // awaits a promise that always settles.
+  const publishOpportunities = async (
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null | undefined,
+    pending: AsyncResource<BrowserPackageOpportunities>,
+  ): Promise<void> => {
+    try {
+      const coordinates = packageModel.isRuntimePack
+        ? platformCoordinates(packageModel, scopedLibrary ?? "")
+        : null;
+      const result = coordinates
+        ? await dependencies.queryPlatformOpportunities(
+            coordinates.framework,
+            coordinates.assemblyFileName,
+            coordinates.pack)
+        : await dependencies.queryPackageOpportunities(packageModel);
+      if (state.packageOpportunities === pending) {
+        state.packageOpportunities = { status: "ready", key: signature, data: result };
+      }
+    } catch (error) {
+      if (state.packageOpportunities === pending) {
+        state.packageOpportunities = {
+          status: "failed",
+          key: signature,
+          error: dependencies.describeError(error),
+        };
+      }
+    } finally {
+      dependencies.render();
+    }
+  };
+
   const platformCoordinates = (
     packageModel: AppPackage,
     scopedLibrary: string,
@@ -297,41 +341,30 @@ export function createPackageInspectionCoordinator(
 
     async loadOpportunities(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageOpportunities.status !== "idle"
-        && state.packageOpportunities.key === signature) {
+      const current = state.packageOpportunities;
+      if (current.status !== "idle" && current.key === signature) {
+        // A settled resource is the finished answer, so returning is correct. A `loading`
+        // one is not finished, and returning reported a completion that had not happened.
+        const joined = current.status === "loading"
+          && opportunitiesInFlight?.resource === current
+          ? opportunitiesInFlight.completion
+          : null;
         dependencies.render();
+        if (joined) await joined;
         return;
       }
       const pending = { status: "loading", key: signature } as const;
       state.packageOpportunities = pending;
-      dependencies.render();
+      const completion = publishOpportunities(
+        packageModel, signature, scopedLibrary, pending);
+      opportunitiesInFlight = { resource: pending, completion };
       try {
-        const coordinates = packageModel.isRuntimePack
-          ? platformCoordinates(packageModel, scopedLibrary ?? "")
-          : null;
-        const result = coordinates
-          ? await dependencies.queryPlatformOpportunities(
-              coordinates.framework,
-              coordinates.assemblyFileName,
-              coordinates.pack)
-          : await dependencies.queryPackageOpportunities(packageModel);
-        if (state.packageOpportunities === pending) {
-          state.packageOpportunities = {
-            status: "ready",
-            key: signature,
-            data: result,
-          };
-        }
-      } catch (error) {
-        if (state.packageOpportunities === pending) {
-          state.packageOpportunities = {
-            status: "failed",
-            key: signature,
-            error: dependencies.describeError(error),
-          };
-        }
-      } finally {
+        // `render()` is inside the `try`, so a throwing render cannot strand the in-flight
+        // record and leave later same-signature callers awaiting a request nobody clears.
         dependencies.render();
+        await completion;
+      } finally {
+        if (opportunitiesInFlight?.resource === pending) opportunitiesInFlight = null;
       }
     },
 
