@@ -187,24 +187,24 @@ Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
 
-### Green and mergeable is your job, best effort
+### Claiming ready to merge
 
 Getting CI green and the branch mergeable is part of finishing the work. Pursue
-both — it is not somebody else's problem, and handing over a red or conflicted
-PR you could have fixed is not a handover.
+both; handing over a red or conflicted PR you could have fixed is not a handover.
 
-**Best effort, though, because main moves.** Rebasing onto a main that is
-landing PRs faster than you can reconcile is not a race you win by rebasing
-harder, and every extra pass costs a round you could have spent on the change
-itself. When conflicts keep reappearing on the same PR, or a green run goes red
-again on a base you never touched, stop reconciling and say so: name what you
-are racing in `Blocked:` and recommend `Wait`. Sequencing work against a busy
-main is an operator call. Handing it over is the correct move, not a concession.
+**This section is about what you may claim, not about when you may integrate.**
+Integration cadence is already specified and this does not modify it: the two
+integrations per round in [the round flow](#canonical-round-flow), and — for the
+narrow case where a required review is already clean at the current head and
+`origin/main` has since moved — [Clean reviews are not spent by main
+moving](#clean-reviews-are-not-spent-by-main-moving), which is stop-and-ask and
+a possible carry-forward, never an integration you launch on your own
+initiative.
 
 What you assert **readiness** on is dual-clean reviews and mergeability. A green
-run is evidence toward that, not the definition of it — checks go red for
-reasons that have nothing to do with your change, and a change is not ready
-merely because they passed.
+run is evidence toward that, not the definition of it: checks go red for reasons
+that have nothing to do with your change, and a change is not ready merely
+because they passed.
 
 Two claims have to be earned rather than assumed:
 
@@ -283,9 +283,9 @@ Whenever you stop and wait on a human decision, raise a flag that persists and
 send one nudge that does not:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "HELP: rebase pr4405 onto main, or close it?"
+tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
 tmux display-message -d 10000 -t "$TMUX_PANE" \
-  "HELP pr4405 in w#{window_index}: rebase onto main, or close it?"
+  "HELP pr4405 in w#{window_index}: integrate main, or close it?"
 ```
 
 The `HELP` prefix marks your window with `!` in the window list, so you are
