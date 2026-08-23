@@ -1,3 +1,4 @@
+using System.CodeDom.Compiler;
 using System.Runtime.CompilerServices;
 
 namespace ILInspector.Analysis.ClassicAsyncFixtures;
@@ -102,6 +103,102 @@ public static class ClassicAsyncSiblingFixture
             return items;
         };
 
+    internal static Func<Task<object>>
+        ScopedAsyncLocalAllocationOwner()
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            return new object();
+        }
+
+        return BuildAsync;
+    }
+
+    internal static IEnumerable<Task<object>>
+        ScopedIteratorAsyncLocalAllocationOwner()
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            return new object();
+        }
+
+        yield return BuildAsync();
+    }
+
+    internal static Func<Task<object>>
+        ScopedIndirectAsyncLocalAllocationOwner()
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            return new object();
+        }
+
+        return async () =>
+        {
+            await Task.Yield();
+            return await BuildAsync();
+        };
+    }
+
+    internal static Func<Task<object>>
+        ScopedNestedAsyncLocalAllocationOwner()
+    {
+        Func<Task<object>> BuildFactory()
+        {
+            async Task<object> BuildAsync()
+            {
+                await Task.Yield();
+                return new object();
+            }
+
+            return BuildAsync;
+        }
+
+        return BuildFactory();
+    }
+
+    internal static IEnumerable<Task<object>>
+        ScopedIteratorFinallyAsyncLocalAllocationOwner()
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            return new object();
+        }
+
+        try
+        {
+            yield return Task.FromResult<object>(new object());
+        }
+        finally
+        {
+            GC.KeepAlive(BuildAsync());
+        }
+    }
+
+    internal static IEnumerable<Task<object>>
+        ScopedGenericIteratorFinallyAsyncLocalAllocationOwner<T>()
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            return new object();
+        }
+
+        try
+        {
+            yield return Task.FromResult<object>(
+                typeof(T));
+        }
+        finally
+        {
+            GC.KeepAlive(BuildAsync());
+        }
+    }
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 
@@ -109,6 +206,46 @@ public static class ClassicAsyncSiblingFixture
     {
         int Core(int v) => ReadValue(v);
         return Core(value);
+    }
+
+    internal static class GenericIteratorOwner<T>
+    {
+        internal static IEnumerable<Task<object>>
+            ScopedIteratorFinallyAsyncLocalAllocationOwner()
+        {
+            async Task<object> BuildAsync()
+            {
+                await Task.Yield();
+                return new object();
+            }
+
+            try
+            {
+                yield return Task.FromResult<object>(
+                    typeof(T));
+            }
+            finally
+            {
+                GC.KeepAlive(BuildAsync());
+            }
+        }
+    }
+
+    [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]
+    internal static class GeneratedAsyncIteratorOwner
+    {
+        internal static async IAsyncEnumerable<object>
+            StreamAsync()
+        {
+            async Task<object> BuildAsync()
+            {
+                await Task.Yield();
+                return new object();
+            }
+
+            await Task.Yield();
+            yield return await BuildAsync();
+        }
     }
 
     public static int CallsThroughSiblingLocalFunctions(int value)
