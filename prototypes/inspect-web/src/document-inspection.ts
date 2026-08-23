@@ -1,4 +1,4 @@
-import type { DocViewerMeta } from "./doc-viewer.ts";
+import type { DocViewerMeta, RenderDocViewerOptions } from "./doc-viewer.ts";
 import type {
   BrowserPackageDocument,
   BrowserPackageDocumentContent,
@@ -28,6 +28,41 @@ export type DocumentViewerState =
       request: PackageDocumentRequest;
       error: string;
     };
+
+export type OpenDocumentViewerState =
+  Exclude<DocumentViewerState, { status: "closed" }>;
+
+// The union guarantees that `error` and `html` exist only on the variants that own them,
+// but nothing about that stops a projection from declining to pass the error along. That
+// is a real gap rather than a hypothetical one: adversarial review mutated the previous
+// inline projection to `error: ""` and the whole suite stayed green, so a document that
+// had failed to load rendered as an empty article that looked like a successful, empty
+// document.
+//
+// So the projection is a named pure function rather than five ternaries at the call site,
+// which is what makes it reachable from a test. It is a `default`-less switch in a
+// value-returning function, so `noImplicitReturns` rejects a new union member here until
+// it says what it renders -- the same exhaustiveness the `assertNever` dispatches get,
+// without this module taking a dependency on `data.ts` for it.
+export function docViewerOptions(
+  viewer: OpenDocumentViewerState,
+): Omit<RenderDocViewerOptions, "escapeHtml"> {
+  const doc = viewer.request.document;
+  switch (viewer.status) {
+    case "loading":
+      return { doc, meta: null, loading: true, error: "", html: "" };
+    case "ready":
+      return {
+        doc,
+        meta: viewer.meta,
+        loading: false,
+        error: "",
+        html: viewer.html,
+      };
+    case "failed":
+      return { doc, meta: null, loading: false, error: viewer.error, html: "" };
+  }
+}
 
 export interface DocumentInspectionDependencies {
   state: DocumentInspectionState;

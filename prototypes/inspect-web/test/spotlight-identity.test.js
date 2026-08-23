@@ -1120,7 +1120,46 @@ test("typed document inspection owns package document request coordination", () 
   assert.match(
     documentInspectionSource,
     /async open\(request: PackageDocumentRequest\)[\s\S]*const pending = \{ status: "loading", request \} as const;[\s\S]*if \(state\.docViewer !== pending\) return;/);
-  assert.doesNotMatch(documentInspectionSource, /docViewerSeq/);
+
+  // The ownership property is "every await re-checks ownership before writing state",
+  // and it has to be checked that way round. An earlier version of this gate asserted
+  // that *one* `!== pending` guard existed and banned the literal spelling
+  // `docViewerSeq`; adversarial review defeated it by keeping the first identity guard
+  // and replacing the other three with a counter under a different name, which passed.
+  //
+  // So derive the requirement from the awaits instead of restating a count: split the
+  // body at each `await` and require that every resumption point re-establishes
+  // ownership before it assigns to `state.docViewer`. Adding an await without a guard
+  // now fails here, whatever the guard is named.
+  const openBody =
+    documentInspectionSource.match(
+      /async open\(request: PackageDocumentRequest\)[\s\S]*?\n {4}\},\n/)?.[0]
+    ?? "";
+  assert.ok(openBody, "could not isolate the document open() body");
+  const resumptions = openBody.split("await ").slice(1);
+  assert.ok(
+    resumptions.length >= 3,
+    `expected the loader to await at least 3 times, saw ${resumptions.length}`);
+  for (const [index, segment] of resumptions.entries()) {
+    const guard = segment.indexOf("state.docViewer !== pending");
+    const write = segment.indexOf("state.docViewer =");
+    assert.notEqual(
+      guard, -1,
+      `resumption ${index} after an await does not re-check request ownership`);
+    if (write !== -1)
+      assert.ok(
+        guard < write,
+        `resumption ${index} writes state.docViewer before re-checking ownership`);
+  }
+  // The catch path is a resumption too: a rejection from a superseded request must not
+  // be allowed to overwrite the live request's state with a failure.
+  const catchBody = openBody.match(/\} catch \(error\) \{[\s\S]*?\n {6}\}/)?.[0] ?? "";
+  assert.match(catchBody, /state\.docViewer !== pending/);
+
+  // Ownership is object identity, not a counter. A counter can be renamed, so ban the
+  // mechanism rather than one spelling of it.
+  assert.doesNotMatch(
+    documentInspectionSource, /docViewer\w*(Seq|Sequence|Generation|Counter)/i);
 });
 
 test("typed catalog requests own release and package-version coordination", () => {

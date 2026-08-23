@@ -155,6 +155,7 @@ import {
 } from "./call-graph-inspection.ts";
 import {
   createDocumentInspectionCoordinator,
+  docViewerOptions,
   type DocumentViewerState,
 } from "./document-inspection.ts";
 import {
@@ -7835,17 +7836,14 @@ function closeDocViewer() {
   documentInspection.close();
 }
 
+// The projection from the union to the renderer's options lives in
+// `document-inspection.ts` as `docViewerOptions`, which is exhaustive and testable.
+// Keeping it out of here is the point: as an inline set of ternaries it was reachable
+// from no test, and mutating it to drop the error message left the suite green.
 function renderDocViewer() {
   const viewer = state.docViewer;
   if (viewer.status === "closed") return "";
-  return renderDocViewerPure({
-    doc: viewer.request.document,
-    meta: viewer.status === "ready" ? viewer.meta : null,
-    loading: viewer.status === "loading",
-    error: viewer.status === "failed" ? viewer.error : "",
-    html: viewer.status === "ready" ? viewer.html : "",
-    escapeHtml,
-  });
+  return renderDocViewerPure({ ...docViewerOptions(viewer), escapeHtml });
 }
 
 // The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the

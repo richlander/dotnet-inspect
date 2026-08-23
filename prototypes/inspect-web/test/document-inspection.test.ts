@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createDocumentInspectionCoordinator,
+  docViewerOptions,
   type DocumentInspectionDependencies,
   type DocumentInspectionState,
   type DocumentViewerState,
@@ -797,4 +798,69 @@ test("closing replaces every document surface with a closed state", () => {
 
   assertViewerClosed(state);
   assert.equal(renders, 1);
+});
+
+// The union decides which fields *exist*; this projection decides which ones the renderer
+// is actually told about, and the two are not the same property. Adversarial review made
+// the point concretely by rewriting the old inline projection to pass `error: ""`: every
+// one of the 497 tests still passed, and a document that had failed to load rendered as an
+// empty `<article>` -- a failure wearing the shape of a successful, empty document.
+//
+// These cover the mapping itself, so dropping any field's route to the renderer is red.
+const projectionDocument: BrowserPackageDocument = {
+  kind: "doc",
+  name: "README.md",
+  path: "docs/README.md",
+  size: 10,
+};
+
+const projectionRequest = {
+  packageId: "Example.Package",
+  version: "1.2.3",
+  document: projectionDocument,
+} as const;
+
+test("a loading document projects as loading, with nothing else claimed", () => {
+  assert.deepEqual(
+    docViewerOptions({ status: "loading", request: projectionRequest }),
+    {
+      doc: projectionDocument,
+      meta: null,
+      loading: true,
+      error: "",
+      html: "",
+    });
+});
+
+test("a ready document projects its html and metadata", () => {
+  const meta = { name: "Example", version: "1.2.3", descriptionHtml: "<p>d</p>" };
+  assert.deepEqual(
+    docViewerOptions({
+      status: "ready",
+      request: projectionRequest,
+      html: "<p>body</p>",
+      meta,
+    }),
+    {
+      doc: projectionDocument,
+      meta,
+      loading: false,
+      error: "",
+      html: "<p>body</p>",
+    });
+});
+
+test("a failed document projects its error and claims no content", () => {
+  const options = docViewerOptions({
+    status: "failed",
+    request: projectionRequest,
+    error: "the document could not be read",
+  });
+  // The error has to survive the projection, or the renderer takes its success branch and
+  // shows an empty article instead of the failure.
+  assert.equal(options.error, "the document could not be read");
+  assert.equal(options.loading, false);
+  // And it must not simultaneously offer content, which would render *both* as a success.
+  assert.equal(options.html, "");
+  assert.equal(options.meta, null);
 });
