@@ -3498,13 +3498,10 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.True(
-                result.BodyComplete,
-                string.Join(
-                    Environment.NewLine,
-                    result.FullBodies.Select(
-                        body =>
-                            $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Equal(
                 2,
                 result.FullBodies.Count(
@@ -3519,6 +3516,14 @@ public class ReturnToSenderPrototypeTests
                         body.Member == "Row.op_Inequality"
                         && body.Status
                             == MemberBodyProductionStatus.Complete));
+            Assert.DoesNotContain(
+                result.FullBodies,
+                static body =>
+                    body.Member is
+                        "Row.op_Equality"
+                        or "Row.op_Inequality"
+                    && body.Status
+                        != MemberBodyProductionStatus.Complete);
             Assert.Contains("return left.Value == right;", result.Source);
             Assert.Contains("return left.Value != right;", result.Source);
             Assert.Contains("return left.Value == 7;", result.Source);
@@ -3557,13 +3562,10 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.True(
-                result.BodyComplete,
-                string.Join(
-                    Environment.NewLine,
-                    result.FullBodies.Select(
-                        body =>
-                            $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Equal(
                 2,
                 result.FullBodies.Count(
@@ -3571,6 +3573,12 @@ public class ReturnToSenderPrototypeTests
                         body.Member == "Money.op_Implicit"
                         && body.Status
                             == MemberBodyProductionStatus.Complete));
+            Assert.DoesNotContain(
+                result.FullBodies,
+                static body =>
+                    body.Member == "Money.op_Implicit"
+                    && body.Status
+                        != MemberBodyProductionStatus.Complete);
             Assert.Contains("return value.Value;", result.Source);
             Assert.Contains("return \"money\";", result.Source);
         }
