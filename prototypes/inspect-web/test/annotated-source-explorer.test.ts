@@ -217,6 +217,14 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   assert.match(sourceHtml, /Findings at this node/);
   assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="false"/);
   assert.doesNotMatch(sourceHtml, /selected semantic/);
+  assert.match(
+    styles,
+    /\.annotated-span\.selected\.semantic\s*\{[^}]*linear-gradient\(180deg,[^}]*var\(--accent\) 16%[^}]*text-shadow:[^}]*var\(--accent\) 65%/,
+  );
+  assert.match(
+    styles,
+    /:root\[data-theme="light"\] \.annotated-span\.selected\.semantic\s*\{[^}]*var\(--accent\) 12%[^}]*text-shadow:[^}]*var\(--accent\) 68%/,
+  );
 
   const kind = reduceAnnotatedSourceExplorerState(
     sampleDocument,
