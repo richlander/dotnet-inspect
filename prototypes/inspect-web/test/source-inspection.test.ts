@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   closedGraphSource,
   createSourceInspectionCoordinator,
+  graphSourceAutoLoad,
   type SourceInspectionDependencies,
   type SourceInspectionState,
 } from "../src/source-inspection.ts";
@@ -387,6 +388,16 @@ test("an empty engine rejection settles as a failure, not as unattempted work", 
   assert.equal(
     state.graphSource.status === "failed" ? state.graphSource.error : null,
     "");
+
+  // The disclosed lifecycle change, gated rather than only described. The predecessor
+  // left `loading=false`, `source=null`, `error=""` for a message-less rejection, and its
+  // auto-load predicate read that as work never attempted -- so it reissued on every
+  // render, forever. Settling as `failed` ends that loop, and this is the assertion that
+  // says so rather than a comment claiming it.
+  assert.equal(
+    graphSourceAutoLoad(state.graphSource),
+    null,
+    "an empty-message rejection settles instead of retrying on every render");
 });
 
 test("a missing source payload settles without dereferencing it", async () => {
@@ -416,4 +427,136 @@ test("a missing source payload settles without dereferencing it", async () => {
   assert.equal(
     state.graphSource.status === "failed" ? state.graphSource.error : null,
     "");
+
+  // The second route to the same divergence, and the one round 2 review measured:
+  // `oldWouldReload: true` against `currentWouldReload: false`. A falsy payload used to
+  // look identical to unattempted work, so it retried on every render too.
+  assert.equal(
+    graphSourceAutoLoad(state.graphSource),
+    null,
+    "a falsy payload settles instead of retrying on every render");
+});
+
+// A -> B -> A, on both settlement paths.
+//
+// Ownership of the graph modal is the identity of the pending state object, not the
+// identity of the request. Round 2 review (GPT-5.6 Sol) weakened both guards to compare
+// requests instead -- rejecting a late result only when a *different* request had taken
+// over -- and the whole suite stayed green, because nothing reopened the same request.
+// That is the exact shape a user produces by opening a member's graph, opening another,
+// and coming back: the first attempt's late result lands on the third attempt's modal.
+//
+// Two attempts at the same request are two different pieces of work, and the first one's
+// answer is stale even though it "matches". These tests say that by outcome, which makes
+// the source-text assertion about the guard's spelling unnecessary.
+function settle<T>(
+  queries: readonly ReturnType<typeof deferred<T>>[],
+  index: number,
+): ReturnType<typeof deferred<T>> {
+  const query = queries[index];
+  assert.ok(query, `no graph query was started at index ${index}`);
+  return query;
+}
+
+// Read the modal's payload without narrowing `state.graphSource` for the rest of the test:
+// a status assertion narrows the field permanently, and these tests assert on it more than
+// once as later attempts settle.
+function graphSourceText(graphSource: SourceInspectionState["graphSource"]): string | null {
+  return graphSource.status === "ready" ? graphSource.source.text : null;
+}
+
+function graphRequest(member: string) {
+  return {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member,
+    selectorKey: `method:${member}`,
+    metadataToken: 42,
+  };
+}
+
+test("a superseded graph request does not publish its result over a later attempt "
+  + "at the same request", async () => {
+  const queries: Array<ReturnType<typeof deferred<BrowserSource>>> = [];
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => {
+        const query = deferred<BrowserSource>();
+        queries.push(query);
+        return query.promise;
+      },
+    }));
+
+  // The same request object throughout, so a guard that compares requests sees a match
+  // on every resumption and a guard that compares pending states does not.
+  const a = graphRequest("Build");
+  const b = graphRequest("Dispose");
+
+  const firstA = coordinator.openGraphSource(a, "Widget.Build");
+  const openB = coordinator.openGraphSource(b, "Widget.Dispose");
+  const secondA = coordinator.openGraphSource(a, "Widget.Build");
+  assert.equal(state.graphSource.status, "loading");
+
+  // Settle each stage before starting the next, so "the first attempt resolves last" is a
+  // fact about the test rather than about microtask ordering.
+  settle(queries, 1).resolve(source("B source"));
+  await openB;
+  settle(queries, 2).resolve(source("second A source"));
+  await secondA;
+  assert.equal(
+    graphSourceText(state.graphSource),
+    "second A source",
+    "the attempt the user is waiting on publishes its own result");
+
+  // The first attempt's answer arrives long after the user moved away and came back.
+  settle(queries, 0).resolve(source("first A source"));
+  await firstA;
+
+  assert.equal(state.graphSource.status, "ready");
+  assert.equal(
+    graphSourceText(state.graphSource),
+    "second A source",
+    "a superseded attempt does not overwrite the attempt that replaced it");
+});
+
+test("a superseded graph request does not publish its rejection over a later attempt "
+  + "at the same request", async () => {
+  const queries: Array<ReturnType<typeof deferred<BrowserSource>>> = [];
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryGraphSource: async () => {
+        const query = deferred<BrowserSource>();
+        queries.push(query);
+        return query.promise;
+      },
+    }));
+
+  const a = graphRequest("Build");
+  const b = graphRequest("Dispose");
+
+  const firstA = coordinator.openGraphSource(a, "Widget.Build");
+  const openB = coordinator.openGraphSource(b, "Widget.Dispose");
+  const secondA = coordinator.openGraphSource(a, "Widget.Build");
+
+  settle(queries, 1).reject(new Error("B failed"));
+  settle(queries, 0).reject(new Error("first A failed"));
+  // Deliberately not awaiting `secondA`: the point of this test is what the modal shows
+  // while the third attempt is still in flight.
+  await Promise.all([firstA, openB]);
+
+  // The third attempt is still in flight. A stale rejection must not paint an error over
+  // it -- the user would see a failure for work that has not finished.
+  assert.equal(
+    state.graphSource.status,
+    "loading",
+    "a stale rejection does not settle the attempt still running");
+
+  settle(queries, 2).resolve(source("second A source"));
+  await secondA;
+  assert.equal(state.graphSource.status, "ready");
 });

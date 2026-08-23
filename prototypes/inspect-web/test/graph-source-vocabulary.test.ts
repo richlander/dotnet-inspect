@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { graphSourceStatuses, type GraphSourceStatus } from "../src/data.ts";
-import type { GraphSourceState } from "../src/source-inspection.ts";
+import {
+  graphSourceAutoLoad,
+  type GraphSourceState,
+} from "../src/source-inspection.ts";
+import type { BrowserSource } from "../src/inspect-web-engine.d.ts";
+
+function source(text: string): BrowserSource {
+  return {
+    provider: "pdb",
+    provenance: "SourceLink",
+    url: "https://example.test/source.cs",
+    pdbSourceLimitation: null,
+    text,
+  };
+}
 
 // `data.ts` owns the graph-source status vocabulary so that visibility and cancellation
 // can reason about the modal without depending on its request and payload types, while
@@ -50,4 +64,73 @@ test("the graph source union and its vocabulary describe the same statuses", () 
   assert.ok(
     graphSourceStatuses.includes("closed"),
     "a closed status the modal can return to");
+});
+
+// The auto-load decision, tested by outcome for every variant of the union.
+//
+// Round 2 review (GPT-5.6 Sol) defeated the source-text gate this replaces. That gate
+// isolated the auto-load branch and collected `state.graphSource.status === "..."`
+// comparisons, requiring the set to be exactly `["cancelled"]`. Writing the widening
+// Yoda-style -- `"failed" === state.graphSource.status` -- added `failed` to the branch
+// without adding a match, and the whole suite stayed green while a settled failure
+// rendered, was treated as reloadable, and started another request forever.
+//
+// A regex over one comparison spelling can only ever pin that spelling. Asking the
+// decision itself removes the spelling from the question.
+test("the graph modal auto-loads exactly the state that has no result coming", () => {
+  const request = {
+    packageId: "Contoso.Widgets",
+    version: "1.0.0",
+    framework: "net10.0",
+    assembly: "Contoso.Widgets.dll",
+    type: "Contoso.Widgets.Widget",
+    member: "Build",
+    selectorKey: "method:Build",
+    metadataToken: 100663297,
+  };
+  const title = "Widget.Build";
+
+  // One representative state per status, and the answer expected for it. `satisfies`
+  // rather than a type annotation so the members stay literal and a status that is not in
+  // the union is a compile error here, not a silently accepted extra row.
+  const decisions = {
+    closed: [{ status: "closed" }, false],
+    loading: [{ status: "loading", request, title }, false],
+    ready: [
+      { status: "ready", request, title, source: source("class Widget {}") },
+      false,
+    ],
+    failed: [{ status: "failed", request, title, error: "engine failed" }, false],
+    cancelled: [{ status: "cancelled", request, title }, true],
+  } satisfies Record<GraphSourceStatus, readonly [GraphSourceState, boolean]>;
+
+  // `satisfies Record<GraphSourceStatus, ...>` already makes a missing status a compile
+  // error, but only while every key is spelled statically. Assert the coverage at runtime
+  // too, so the table cannot be rebuilt dynamically and quietly shrink.
+  assert.deepEqual(
+    Object.keys(decisions).sort(),
+    [...graphSourceStatuses].sort(),
+    "auto-load decisions cover the graph-source vocabulary",
+  );
+
+  for (const [status, [state, expected]] of Object.entries(decisions)) {
+    const reload = graphSourceAutoLoad(state);
+    assert.equal(
+      reload !== null,
+      expected,
+      `graphSourceAutoLoad reloads ${status}`,
+    );
+    if (reload) {
+      // The reload has to carry the request the state belongs to. Returning the work
+      // rather than a boolean is what keeps the caller from picking its own.
+      assert.equal(reload.request, request, `${status} reloads its own request`);
+      assert.equal(reload.title, title, `${status} reloads its own title`);
+    }
+  }
+
+  // Non-vacuity: the table above is only evidence if at least one status answers each
+  // way. A table that said `false` everywhere would pass every assertion in the loop.
+  const answers = Object.values(decisions).map(([, expected]) => expected);
+  assert.ok(answers.includes(true), "some status auto-loads");
+  assert.ok(answers.includes(false), "some status does not auto-load");
 });

@@ -1,4 +1,5 @@
 import {
+  assertNever,
   beginSourceRequestState,
   cancelSourceRequestState,
   sourceRequestNeedsLoad,
@@ -75,6 +76,39 @@ export type GraphSourceState =
   };
 
 export const closedGraphSource: GraphSourceState = { status: "closed" };
+
+// Whether the auto-load pass -- which runs at the end of *every* render -- should reissue
+// this request. `cancelled` is the one state that has no result coming: open, unsettled,
+// nothing in flight, nothing to show. Every other variant is either still loading or
+// already settled, and reissuing a settled one is the retry loop this union was
+// introduced to end.
+//
+// This is a function rather than a condition at the call site because round 2 review
+// (GPT-5.6 Sol) defeated the source-text gate that guarded that condition: writing the
+// added comparison Yoda-style (`"failed" === state.graphSource.status`) restored the
+// user-visible retry loop with the whole suite green. A decision that can be called can be
+// tested for every variant of the union, and `assertNever` makes a new variant declare its
+// answer instead of inheriting one.
+//
+// It returns the work rather than a boolean so the caller has nothing left to decide: with
+// a boolean the caller still needs its own comparison to reach `request` and `title`, and
+// that comparison is free to disagree with this answer. Handing back the arguments removes
+// the second opinion.
+export function graphSourceAutoLoad(
+  graphSource: GraphSourceState,
+): { readonly request: GraphSourceRequest; readonly title: string } | null {
+  switch (graphSource.status) {
+    case "cancelled":
+      return { request: graphSource.request, title: graphSource.title };
+    case "closed":
+    case "loading":
+    case "ready":
+    case "failed":
+      return null;
+    default:
+      return assertNever(graphSource, "GraphSourceState");
+  }
+}
 
 export interface MemberSourceLoadRequest extends MemberSourceQuery {
   signature: string;
@@ -247,8 +281,17 @@ export function createSourceInspectionCoordinator(
         // The engine's `.d.ts` is hand-written and promises a source, but the previous
         // renderer guarded the payload with a truthiness check and drew "No source was
         // returned." when it was absent. A `failed` variant with no message renders that
-        // same string, so an empty payload keeps its old behavior rather than reaching
+        // same string, so an empty payload draws what it always drew rather than reaching
         // `source.provider` on nothing.
+        //
+        // What it renders is unchanged; what it *does* afterwards is not, and round 2
+        // review (GPT-5.6 Sol) measured the difference. The predecessor left
+        // `loading=false`, `source=null`, and `error=""`, which its auto-load predicate
+        // read as work never attempted -- so it reissued the request on the next render,
+        // and on every render after that. Recording `failed` settles it, and
+        // `graphSourceAutoLoad` does not reload a settled state. A falsy payload now
+        // stops instead of retrying forever. That is the same retry loop the empty-error
+        // case fixed, reached by a second route.
         state.graphSource = source
           ? { status: "ready", request, title, source }
           : { status: "failed", request, title, error: "" };

@@ -140,6 +140,7 @@ import {
 import {
   createSourceInspectionCoordinator,
   closedGraphSource,
+  graphSourceAutoLoad,
   type GraphSourceRequest,
   type GraphSourceState,
 } from "./source-inspection.ts";
@@ -2420,12 +2421,13 @@ function render() {
 function maybeAutoLoadVisibleSource() {
   const kind = activeSourceOperationKind(state);
   if (kind === "graph") {
-    // "cancelled" is exactly the open-but-unsettled state a competing source request
-    // leaves behind: no load in flight, no result, and no error to show. Every other open
-    // variant is either still loading or already settled.
-    if (state.graphSource.status === "cancelled") {
+    // `graphSourceAutoLoad` owns which states have no result coming, and gates that
+    // decision for every variant of the union. It hands back the request so there is no
+    // second comparison here to drift from its answer.
+    const reload = graphSourceAutoLoad(state.graphSource);
+    if (reload) {
       observeAsync(
-        openGraphSource(state.graphSource.request, state.graphSource.title),
+        openGraphSource(reload.request, reload.title),
         "Loading graph source");
     }
     return;

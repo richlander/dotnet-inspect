@@ -5004,8 +5004,15 @@ test("the graph source modal owns its request by identity, not a counter", () =>
   // two competing answers to "is this result still wanted?" -- which is the condition
   // the union was meant to end.
   //
-  // Derive the ownership requirement from the awaits rather than counting guards, so an
-  // await added without a guard fails here whatever the guard is named.
+  // The proof that ownership works is now behavioral: `test/source-inspection.test.ts`
+  // runs A -> B -> A on both the resolve and the reject path and fails if a superseded
+  // attempt publishes. Round 2 review showed why that was needed -- this scan checks that
+  // the guard's *text* is present and ordered, and review kept the text while gutting its
+  // meaning, so the suite stayed green through both races.
+  //
+  // What remains here is structural cover the outcome tests cannot give: it is derived
+  // from the awaits, so an await added later without a guard fails immediately, before
+  // anyone has written the scenario that would expose it.
   const openBody = sourceInspectionSource.match(
     /async openGraphSource\(request, title\)[\s\S]*?\n {4}\},\n/)?.[0] ?? "";
   assert.ok(openBody, "could not isolate the openGraphSource() body");
@@ -5031,36 +5038,15 @@ test("the graph source modal owns its request by identity, not a counter", () =>
   const catchBody = openBody.match(/\} catch \(error\) \{[\s\S]*?\n {6}\}/)?.[0] ?? "";
   assert.match(catchBody, /state\.graphSource !== pending/);
 
-  // Ban the mechanism rather than one spelling of it. This is deliberately scoped to
-  // graph-source names: `sourceRequestGeneration` is the *shared* cancellation authority
-  // for member and type source requests, which this slice does not convert and which
-  // remains legitimate.
-  for (const { path, source } of productionTypeScriptSources) {
-    assert.doesNotMatch(
-      source,
-      /graphSource\w*(Seq|Sequence|Generation|Counter)/i,
-      `${String(path)} reintroduces a graph source counter`);
-  }
+  // The counter ban that lived here listed the spellings `Seq`, `Sequence`, `Generation`,
+  // and `Counter`. Round 2 review walked past it with a live `graphSourceEpoch`. A
+  // vocabulary of suffixes bans only the suffixes someone thought of, so the ban now lives
+  // in `test/async-resource-state.test.ts`, derived from the lens's own name: any state
+  // field or mutable binding named after a converted lens is a second authority, whatever
+  // it is called.
 });
 
-test("the graph modal auto-reloads only the state that has no result coming", () => {
-  // The old guard asked `!loading && !result && !error`, and an engine rejection with an
-  // empty message satisfied all three -- so a settled failure looked like unattempted
-  // work and the auto-reload, which runs at the end of every render, re-issued it
-  // forever. `cancelled` is the state that condition was reaching for: open, unsettled,
-  // nothing in flight, nothing to show.
-  //
-  // Pin the branch to that one status. Widening it back to a payload-and-error test is
-  // how the retry loop comes back.
-  const branch = appSource.match(
-    /if \(kind === "graph"\) \{[\s\S]*?\n {4}\}/)?.[0] ?? "";
-  assert.ok(branch, "could not isolate the graph auto-reload branch");
-
-  // Check exclusivity, not presence. Asserting only that `cancelled` appears is defeated
-  // by widening the condition to `cancelled || failed`, which is most of the way back to
-  // the loop. So collect every status the branch tests and require it to be that one.
-  const tested = [...branch.matchAll(/state\.graphSource\.status === "([a-z]+)"/g)]
-    .map(match => match[1]);
-  assert.deepEqual(tested, ["cancelled"], "statuses the graph auto-reload acts on");
-  assert.doesNotMatch(branch, /sourceRequestNeedsLoad/);
-});
+// The graph auto-reload exclusivity gate that lived here read the auto-reload branch out
+// of the source and collected the statuses it compared against. Round 2 review walked past
+// it with a Yoda-style comparison. `test/graph-source-vocabulary.test.ts` now asks
+// `graphSourceAutoLoad` for its answer on every variant of the union instead.

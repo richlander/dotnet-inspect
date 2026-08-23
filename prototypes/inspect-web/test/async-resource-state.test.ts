@@ -1,19 +1,8 @@
-// A request lifecycle union holds its whole lifecycle in one state field.
-// The parallel `…Loading`/`…Error`/`…Key` fields it replaces are gone -- but nothing proved
-// they were gone, and adversarial review (GPT-5.6 Sol, Claude Opus 5) resurrected them two
-// ways with the suite and the analyzer silent:
-//
-//   * adding optional legacy fields to `PackageInspectionState`, and
-//   * adding all three concrete fields beside the resource in `initialState`.
-//
-// Neither is caught by the type system. `AppState` is derived *from* the `initialState`
-// literal, so extra properties simply join the type, and `state` reaches the coordinator as
-// a non-fresh value, so no excess-property check applies. Neither oxlint nor knip sees an
-// object property as unused.
-//
-// A literal search for the three old names would restate today's roster. This derives the
-// converted lenses from the state type instead, so converting the next lens extends the
-// check automatically and a resurrected parallel field is red on either surface.
+// A request lifecycle union holds its whole lifecycle in one state field. Nothing in the
+// type system stops a parallel loading flag, error, key, or counter from being added beside
+// it and becoming a second authority. This gate derives lifecycle fields from their declared
+// types, then rejects every parallel field on coordinator state, root initial state, and
+// module-level mutable bindings.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -28,6 +17,8 @@ import {
   type PropertyKey,
   type TSInterfaceDeclaration,
   type TSPropertySignature,
+  type TSTypeAliasDeclaration,
+  type TSTypeLiteral,
 } from "oxc-parser";
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -67,6 +58,17 @@ function inspectionState(
   return declaration;
 }
 
+function typeAliases(program: Program): TSTypeAliasDeclaration[] {
+  return program.body.flatMap(node => {
+    const declaration = node.type === "ExportNamedDeclaration"
+      ? node.declaration
+      : node;
+    return declaration?.type === "TSTypeAliasDeclaration"
+      ? [declaration]
+      : [];
+  });
+}
+
 function propertyName(key: PropertyKey, computed: boolean): string {
   if (key.type === "Identifier" && !computed) return key.name;
   if (key.type === "Literal" && typeof key.value === "string") return key.value;
@@ -78,13 +80,51 @@ function stateProperties(declaration: TSInterfaceDeclaration): TSPropertySignatu
     (member): member is TSPropertySignature => member.type === "TSPropertySignature");
 }
 
-function lifecycleFields(declaration: TSInterfaceDeclaration): string[] {
+function isStatusVariant(type: TSTypeLiteral): boolean {
+  return type.members.some(member => {
+    if (member.type !== "TSPropertySignature"
+      || propertyName(member.key, member.computed) !== "status") {
+      return false;
+    }
+    const annotation = member.typeAnnotation?.typeAnnotation;
+    return annotation?.type === "TSLiteralType"
+      && annotation.literal.type === "Literal"
+      && typeof annotation.literal.value === "string";
+  });
+}
+
+// A status-discriminated object union is another lifecycle owner, just like
+// `AsyncResource<T>`. Discovering it from the AST means a new status spelling or variant
+// cannot walk past a hand-written suffix or member roster.
+function stateUnionTypes(programs: readonly Program[]): ReadonlySet<string> {
+  const found = new Set<string>();
+  for (const program of programs) {
+    for (const alias of typeAliases(program)) {
+      const annotation = alias.typeAnnotation;
+      if (annotation.type === "TSUnionType"
+        && annotation.types.length >= 2
+        && annotation.types.every(
+          type => type.type === "TSTypeLiteral" && isStatusVariant(type))) {
+        found.add(alias.id.name);
+      }
+    }
+  }
+  return found;
+}
+
+function lifecycleFields(
+  declaration: TSInterfaceDeclaration,
+  unionTypes: ReadonlySet<string>,
+): string[] {
   return stateProperties(declaration)
     .filter(property => {
       const annotation = property.typeAnnotation?.typeAnnotation;
-      return annotation?.type === "TSTypeReference"
-        && annotation.typeName.type === "Identifier"
-        && ["AsyncResource", "DocumentViewerState"].includes(annotation.typeName.name);
+      if (annotation?.type !== "TSTypeReference"
+        || annotation.typeName.type !== "Identifier") {
+        return false;
+      }
+      return annotation.typeName.name === "AsyncResource"
+        || unionTypes.has(annotation.typeName.name);
     })
     .map(property => propertyName(property.key, property.computed));
 }
@@ -141,48 +181,81 @@ function objectPropertyNames(
   return names;
 }
 
+function mutableBindingNames(program: Program): string[] {
+  return program.body.flatMap(statement => {
+    const declaration = statement.type === "ExportNamedDeclaration"
+      ? statement.declaration
+      : statement;
+    if (declaration?.type !== "VariableDeclaration"
+      || declaration.kind === "const") {
+      return [];
+    }
+    return declaration.declarations.flatMap(binding =>
+      binding.id.type === "Identifier" ? [binding.id.name] : []);
+  });
+}
+
+interface LifecycleOwner {
+  file: string;
+  name: string;
+  program: Program;
+  declaration: TSInterfaceDeclaration;
+}
+
+function lifecycleOwners(): LifecycleOwner[] {
+  return [
+    ["package-inspection.ts", "PackageInspectionState"],
+    ["document-inspection.ts", "DocumentInspectionState"],
+    ["source-inspection.ts", "SourceInspectionState"],
+  ].map(([file, name]) => {
+    assert.ok(file);
+    assert.ok(name);
+    const program = parse(file);
+    return {
+      file,
+      name,
+      program,
+      declaration: inspectionState(program, name),
+    };
+  });
+}
+
 test("a request lifecycle union keeps exactly one state field", () => {
-  const coordinatorProgram = parse("package-inspection.ts");
-  const coordinatorState = inspectionState(
-    coordinatorProgram,
-    "PackageInspectionState");
-  const documentState = inspectionState(
-    parse("document-inspection.ts"),
-    "DocumentInspectionState");
+  const owners = lifecycleOwners();
   const rootProgram = parse("dotnet-inspect.ts");
-  const declarations = objectDeclarations(rootProgram);
-  const initialState = declarations.get("initialState");
+  const rootDeclarations = objectDeclarations(rootProgram);
+  const initialState = rootDeclarations.get("initialState");
   assert.ok(initialState, "initialState must be a statically inspectable object");
 
-  const converted = [
-    ...lifecycleFields(coordinatorState),
-    ...lifecycleFields(documentState),
-  ];
+  const unions = stateUnionTypes(owners.map(owner => owner.program));
+  const converted = owners.flatMap(owner =>
+    lifecycleFields(owner.declaration, unions));
   assert.ok(
     converted.length > 0,
-    "no AsyncResource state field was found, so the anchor has stopped resolving");
+    "no converted state field was found, so the anchor has stopped resolving");
 
   const surfaces: readonly (readonly [string, readonly string[]])[] = [
-    [
-      "PackageInspectionState",
-      stateProperties(coordinatorState)
+    ...owners.map(owner => [
+      owner.name,
+      stateProperties(owner.declaration)
         .map(property => propertyName(property.key, property.computed)),
-    ],
-    [
-      "DocumentInspectionState",
-      stateProperties(documentState)
-        .map(property => propertyName(property.key, property.computed)),
-    ],
-    ["initialState", objectPropertyNames(initialState, declarations)],
+    ] as const),
+    ["initialState", objectPropertyNames(initialState, rootDeclarations)],
+    ...[
+      ...owners.map(owner => [owner.file, owner.program] as const),
+      ["dotnet-inspect.ts", rootProgram] as const,
+    ].map(([file, program]) => [
+      `${file} (module scope)`,
+      mutableBindingNames(program),
+    ] as const),
   ];
 
   const survivors: string[] = [];
   for (const [surface, names] of surfaces) {
     for (const name of names) {
-      for (const lens of converted) {
-        // `packageOpportunitiesKey` beside `packageOpportunities` is a parallel field;
-        // `packageOpportunities` itself is the resource.
-        if (name !== lens && name.startsWith(lens)) survivors.push(`${surface}.${name}`);
+      for (const lifecycle of converted) {
+        if (name !== lifecycle && name.startsWith(lifecycle))
+          survivors.push(`${surface}.${name}`);
       }
     }
   }
@@ -192,39 +265,33 @@ test("a request lifecycle union keeps exactly one state field", () => {
     [],
     "a request lifecycle union also has a parallel state field. "
     + "The union is the single source of truth for that request; a second field beside "
-    + "it can disagree with it.");
+    + "it -- a counter, a key, or a cached copy -- can disagree with it.");
 });
 
-test("the parallel-field gate sees every lifecycle surface", () => {
-  // Non-vacuity, and the specific shape of the two mutations that were silent: a gate that
-  // reads only one surface, or whose property scan stops matching, would pass above while
-  // proving nothing.
-  const coordinatorProgram = parse("package-inspection.ts");
-  const coordinatorState = inspectionState(
-    coordinatorProgram,
-    "PackageInspectionState");
-  const documentState = inspectionState(
-    parse("document-inspection.ts"),
-    "DocumentInspectionState");
+test("the parallel-field gate sees every surface and lifecycle shape", () => {
+  const owners = lifecycleOwners();
   const rootProgram = parse("dotnet-inspect.ts");
-  const declarations = objectDeclarations(rootProgram);
-  const initialState = declarations.get("initialState");
+  const rootDeclarations = objectDeclarations(rootProgram);
+  const initialState = rootDeclarations.get("initialState");
   assert.ok(initialState, "initialState must be a statically inspectable object");
 
+  const unions = stateUnionTypes(owners.map(owner => owner.program));
   assert.ok(
-    stateProperties(coordinatorState)
-      .some(property => propertyName(property.key, property.computed)
-        === "packageOpportunities"),
-    "the coordinator-state property scan no longer sees the converted lens");
+    unions.has("DocumentViewerState"),
+    "the document status union is no longer discovered");
   assert.ok(
-    stateProperties(documentState)
-      .some(property => propertyName(property.key, property.computed)
-        === "docViewer"),
-    "the document-state property scan no longer sees the converted viewer");
-  assert.ok(
-    objectPropertyNames(initialState, declarations).includes("packageOpportunities"),
-    "the initial-state property scan no longer sees the converted lens");
-  assert.ok(
-    objectPropertyNames(initialState, declarations).includes("docViewer"),
-    "the initial-state property scan no longer sees the converted viewer");
+    unions.has("GraphSourceState"),
+    "the graph-source status union is no longer discovered");
+
+  const expected = ["packageOpportunities", "docViewer", "graphSource"];
+  const converted = owners.flatMap(owner =>
+    lifecycleFields(owner.declaration, unions));
+  for (const field of expected) {
+    assert.ok(
+      converted.includes(field),
+      `${field} is no longer discovered as a lifecycle field`);
+    assert.ok(
+      objectPropertyNames(initialState, rootDeclarations).includes(field),
+      `initialState no longer exposes the ${field} lifecycle field`);
+  }
 });
