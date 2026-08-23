@@ -750,9 +750,7 @@ public class CommandErrorOwnershipTests
 
     internal static HashSet<string> ProjectPackageDependencies(string projectPath)
     {
-        HashSet<string> dependencies = new(
-            ProjectPreprocessedPackageReferences(projectPath),
-            StringComparer.OrdinalIgnoreCase);
+        HashSet<string> dependencies = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (Dictionary<string, string> package in EvaluatedItems(projectPath, "PackageReference"))
         {
@@ -776,117 +774,57 @@ public class CommandErrorOwnershipTests
         return dependencies;
     }
 
-    internal static HashSet<string> ProjectPreprocessedPackageReferences(string projectPath) =>
-        PreprocessedPackageReferences.GetOrAdd(
-            Path.GetFullPath(projectPath),
-            ReadPreprocessedPackageReferences);
+    internal static HashSet<string> EvaluatedProjectClosure(string projectPath)
+    {
+        return EvaluatedClosures.GetOrAdd(Path.GetFullPath(projectPath), Walk);
+
+        static HashSet<string> Walk(string start)
+        {
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            List<string> frontier = [start];
+
+            while (frontier.Count > 0)
+            {
+                List<string> current = [];
+                foreach (string project in frontier.Where(seen.Add))
+                {
+                    if (!File.Exists(project))
+                    {
+                        throw new FileNotFoundException(
+                            $"Could not inspect the Release project closure because {project} does not exist.",
+                            project);
+                    }
+
+                    current.Add(project);
+                }
+
+                ConcurrentBag<string> found = [];
+                Parallel.ForEach(current, project =>
+                {
+                    foreach (Dictionary<string, string> reference
+                        in EvaluatedItems(project, "ProjectReference"))
+                    {
+                        if (reference.GetValueOrDefault("FullPath") is not { Length: > 0 } full)
+                        {
+                            throw new InvalidOperationException(
+                                $"The Release ProjectReference evaluation for {project} "
+                                    + "returned an item without FullPath.");
+                        }
+
+                        found.Add(Path.GetFullPath(full));
+                    }
+                });
+
+                frontier = [.. found.Where(path => !seen.Contains(path))
+                    .Distinct(StringComparer.Ordinal)];
+            }
+
+            return seen;
+        }
+    }
 
     private static readonly ConcurrentDictionary<string, HashSet<string>>
-        PreprocessedPackageReferences = new(StringComparer.Ordinal);
-
-    private static HashSet<string> ReadPreprocessedPackageReferences(string projectPath)
-    {
-        string preprocessedPath = Path.Combine(
-            Path.GetTempPath(),
-            $"dotnet-inspect-{Guid.NewGuid():N}.xml");
-
-        try
-        {
-            using Process process = new()
-            {
-                StartInfo = new ProcessStartInfo("dotnet")
-                {
-                    ArgumentList =
-                    {
-                        "msbuild",
-                        projectPath,
-                        "-p:Configuration=Release",
-                        $"-preprocess:{preprocessedPath}",
-                        "-nologo",
-                    },
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                },
-            };
-
-            process.Start();
-            string output = process.StandardOutput.ReadToEnd();
-            string error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                throw new InvalidOperationException(
-                    $"Could not preprocess {projectPath} for its PackageReference declarations."
-                        + $"{Environment.NewLine}{output}{Environment.NewLine}{error}");
-            }
-
-            XDocument preprocessed = XDocument.Load(preprocessedPath);
-            return PackageReferencesFromPreprocessedProject(
-                projectPath,
-                RepositoryRoot(),
-                preprocessed);
-        }
-        finally
-        {
-            File.Delete(preprocessedPath);
-        }
-    }
-
-    internal static HashSet<string> PackageReferencesFromPreprocessedProject(
-        string projectPath,
-        string repositoryRoot,
-        XDocument preprocessed)
-    {
-        HashSet<string> references = new(StringComparer.OrdinalIgnoreCase);
-        string source = Path.GetFullPath(projectPath);
-
-        foreach (XNode node in preprocessed.DescendantNodes())
-        {
-            if (node is XComment comment
-                && PreprocessedSourcePath(comment) is { } sourcePath)
-            {
-                source = sourcePath;
-                continue;
-            }
-
-            if (node is XElement element
-                && IsRepositoryPath(repositoryRoot, source)
-                && element.Name.LocalName.Equals(
-                    "PackageReference",
-                    StringComparison.OrdinalIgnoreCase)
-                && element.Attributes().FirstOrDefault(
-                    attribute => attribute.Name.LocalName.Equals(
-                        "Include",
-                        StringComparison.OrdinalIgnoreCase))?.Value
-                    is { Length: > 0 } include)
-            {
-                AddPackageReferenceIncludes(references, include, source);
-            }
-        }
-
-        return references;
-    }
-
-    private static void AddPackageReferenceIncludes(
-        HashSet<string> references,
-        string include,
-        string source)
-    {
-        if (include.Contains("$(", StringComparison.Ordinal)
-            || include.Contains("@(", StringComparison.Ordinal)
-            || include.Contains("%(", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Could not determine the PackageReference closure declared by {source}: "
-                    + $"the preprocessed Include '{include}' retains an unevaluated MSBuild expression.");
-        }
-
-        references.UnionWith(
-            include.Split(
-                ';',
-                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-    }
+        EvaluatedClosures = new(StringComparer.Ordinal);
 
     internal static HashSet<string> PackageDependenciesFromAssets(JsonElement assets)
     {
@@ -905,32 +843,6 @@ public class CommandErrorOwnershipTests
 
         return dependencies;
     }
-
-    private static string? PreprocessedSourcePath(XComment comment)
-    {
-        string[] lines = comment.Value
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        if (!lines.Any(line => line.Length > 0 && line.All(character => character == '=')))
-        {
-            return null;
-        }
-
-        return lines.FirstOrDefault(Path.IsPathFullyQualified);
-    }
-
-    private static bool IsRepositoryPath(string repositoryRoot, string path)
-    {
-        string normalizedRoot = NormalizePreprocessedPath(Path.GetFullPath(repositoryRoot));
-        string normalizedPath = NormalizePreprocessedPath(Path.GetFullPath(path));
-        string relative = Path.GetRelativePath(normalizedRoot, normalizedPath);
-        return relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-            && !Path.IsPathRooted(relative);
-    }
-
-    private static string NormalizePreprocessedPath(string path) =>
-        path.Replace("--", "__", StringComparison.Ordinal);
 
     private static readonly ConcurrentDictionary<string, HashSet<string>> Closures = new(StringComparer.Ordinal);
 

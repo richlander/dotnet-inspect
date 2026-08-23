@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
-using System.Xml.Linq;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
@@ -37,7 +36,7 @@ public sealed class LayeringTests
             "DotnetInspector.AssemblyOnlyHost.Fixture",
             "DotnetInspector.AssemblyOnlyHost.Fixture.csproj");
         Assert.True(File.Exists(project), $"Assembly-only host project not found: {project}");
-        HashSet<string> closure = CommandErrorOwnershipTests.ProjectClosure(project);
+        HashSet<string> closure = CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
 
         Assert.Contains(Path.GetFullPath(project), closure);
         Assert.Contains(
@@ -45,7 +44,7 @@ public sealed class LayeringTests
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
         Assert.Contains(
             "Microsoft.CodeAnalysis.BannedApiAnalyzers",
-            CommandErrorOwnershipTests.ProjectPreprocessedPackageReferences(project));
+            CommandErrorOwnershipTests.ProjectPackageDependencies(project));
         AssertNoForbiddenImplementations(root, closure, PackageImplementationProjects);
     }
 
@@ -59,7 +58,7 @@ public sealed class LayeringTests
             "ILInspector.Metadata",
             "ILInspector.Metadata.csproj");
         Assert.True(File.Exists(project), $"Metadata project not found: {project}");
-        HashSet<string> closure = CommandErrorOwnershipTests.ProjectClosure(project);
+        HashSet<string> closure = CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
 
         Assert.Contains(Path.GetFullPath(project), closure);
         Assert.Contains(
@@ -69,31 +68,8 @@ public sealed class LayeringTests
     }
 
     [Fact]
-    public void PackageClosureReader_IncludesConditionHiddenImportsAndResolvedTransitivePackages()
+    public void PackageAssetsReader_IncludesResolvedTransitivePackages()
     {
-        string root = CommandErrorOwnershipTests.RepositoryRoot();
-        XDocument preprocessed = new(
-            new XElement(
-                "Project",
-                new XComment(
-                    $"{Environment.NewLine}===={Environment.NewLine}"
-                        + $"{Path.Combine(root, "Directory.Build.targets")}"
-                        + $"{Environment.NewLine}===={Environment.NewLine}"),
-                new XElement(
-                    "ItemGroup",
-                    new XAttribute("Condition", "'$(Configuration)' == 'Debug'"),
-                    new XElement(
-                        "PackageReference",
-                        new XAttribute("Include", "Build.Helper;NuGet.Versioning"))),
-                new XComment(
-                    $"{Environment.NewLine}===={Environment.NewLine}"
-                        + $"{Path.Combine(Path.GetTempPath(), "Sdk.targets")}"
-                        + $"{Environment.NewLine}===={Environment.NewLine}"),
-                new XElement(
-                    "ItemGroup",
-                    new XElement(
-                        "PackageReference",
-                        new XAttribute("Include", "NuGet.Protocol")))));
         using JsonDocument assets = JsonDocument.Parse(
             """
             {
@@ -106,73 +82,9 @@ public sealed class LayeringTests
             """);
 
         Assert.Equal(
-            ["Build.Helper", "NuGet.Versioning"],
-            CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
-                Path.Combine(root, "fixture.csproj"),
-                root,
-                preprocessed)
-                .Order(StringComparer.Ordinal));
-        Assert.Equal(
             ["Local.Transitive.Wrapper", "NuGet.Protocol"],
             CommandErrorOwnershipTests.PackageDependenciesFromAssets(assets.RootElement)
                 .Order(StringComparer.Ordinal));
-    }
-
-    [Theory]
-    [InlineData("$(PackageImpl)")]
-    [InlineData("@(PackageImpls)")]
-    [InlineData("%(PackageImpl.Identity)")]
-    public void PreprocessedPackageReader_RejectsUnevaluatedItemExpressions(
-        string include)
-    {
-        string root = CommandErrorOwnershipTests.RepositoryRoot();
-        string targets = Path.Combine(root, "Directory.Build.targets");
-        XDocument preprocessed = new(
-            new XElement(
-                "Project",
-                new XComment(
-                    $"{Environment.NewLine}===={Environment.NewLine}"
-                        + $"{targets}"
-                        + $"{Environment.NewLine}===={Environment.NewLine}"),
-                new XElement(
-                    "ItemGroup",
-                    new XElement(
-                        "PackageReference",
-                        new XAttribute("Include", include)))));
-
-        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
-            () => CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
-                Path.Combine(root, "fixture.csproj"),
-                root,
-                preprocessed));
-
-        Assert.Contains(targets, exception.Message);
-        Assert.Contains(include, exception.Message);
-    }
-
-    [Fact]
-    public void PreprocessedPackageReader_RecognizesMsBuildEscapedRepositoryPaths()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "repo--checkout");
-        XDocument preprocessed = new(
-            new XElement(
-                "Project",
-                new XComment(
-                    $"{Environment.NewLine}===={Environment.NewLine}"
-                        + $"{Path.Combine(root.Replace("--", "__"), "Directory.Build.targets")}"
-                        + $"{Environment.NewLine}===={Environment.NewLine}"),
-                new XElement(
-                    "ItemGroup",
-                    new XElement(
-                        "PackageReference",
-                        new XAttribute("Include", "NuGet.Versioning")))));
-
-        Assert.Equal(
-            ["NuGet.Versioning"],
-            CommandErrorOwnershipTests.PackageReferencesFromPreprocessedProject(
-                Path.Combine(root, "fixture.csproj"),
-                root,
-                preprocessed));
     }
 
     [Fact]
