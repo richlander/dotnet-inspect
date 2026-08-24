@@ -45,7 +45,6 @@ public class ApiCommand
         if (options.OverloadIndexExplicitlySet) return "--index";
         if (options.CtorOnly) return "--ctor";
         if (options.CallerScopeDirectories.Length > 0) return "--bin";
-        if (options.CallerScopeProjects.Length > 0) return "--project";
         if (options.CallerScopePackages.Length > 0) return "--caller-package";
         if (options.SourceRepositories.Length > 0) return "--repo";
         if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";

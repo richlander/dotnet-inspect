@@ -357,7 +357,7 @@ public class SharedParsersTests
     }
 
     [Fact]
-    public void ProcessMemberArguments_SimpleSuppliedTypeStripsQualifiedType()
+    public void ProcessMemberArguments_SimpleSuppliedTypeDefersQualifiedType()
     {
         var members =
             new[] { "System.Text.Json.JsonElement.GetProperty" };
@@ -369,7 +369,9 @@ public class SharedParsersTests
                 suppliedTypeName: "JsonElement");
 
         Assert.Null(typeFilter);
-        Assert.Equal("GetProperty", members[0]);
+        Assert.Equal(
+            "System.Text.Json.JsonElement.GetProperty",
+            members[0]);
     }
 
     [Fact]
@@ -406,6 +408,30 @@ public class SharedParsersTests
         Assert.Equal(
             "Other.Namespace.JsonElement.GetProperty",
             members[0]);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Text.Json.JsonElement.GetProperty",
+        "GetProperty")]
+    [InlineData(
+        "Text.Json.JsonElement.GetProperty",
+        "GetProperty")]
+    [InlineData(
+        "Other.Namespace.JsonElement.GetProperty",
+        "Other.Namespace.JsonElement.GetProperty")]
+    [InlineData(
+        "System.Collections.IList.IsReadOnly",
+        "System.Collections.IList.IsReadOnly")]
+    public void StripResolvedTypeQualifier_UsesResolvedIdentity(
+        string member,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            SharedParsers.StripResolvedTypeQualifier(
+                member,
+                "System.Text.Json.JsonElement"));
     }
 
     [Fact]

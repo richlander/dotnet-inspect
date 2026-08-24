@@ -1,3 +1,4 @@
+using DotnetInspector.CommandLine;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
@@ -172,6 +173,19 @@ public static class MemberCommand
                     unresolvedOptions = mergeOptions;
                 else
                     options = mergeOptions;
+            }
+
+            if (options.RouterDeferredTypeOrMember)
+            {
+                unresolvedOptions = NormalizeResolvedTypeQualifiers(
+                    unresolvedOptions,
+                    apiType.FullName);
+            }
+            else
+            {
+                options = NormalizeResolvedTypeQualifiers(
+                    options,
+                    apiType.FullName);
             }
 
             if (options.RouterDeferredTypeOrMember)
@@ -608,6 +622,22 @@ public static class MemberCommand
         options.RouterDeferredTypeMemberValues.Length == 0
         || type.DefinitionName?.Segments.Length is not 1;
 
+    private static MemberOptions NormalizeResolvedTypeQualifiers(
+        MemberOptions options,
+        string resolvedTypeName)
+    {
+        if (options.MemberFilter.Count == 0)
+            return options;
+
+        HashSet<string> memberFilter = new(
+            options.MemberFilter.Select(
+                member => SharedParsers.StripResolvedTypeQualifier(
+                    member,
+                    resolvedTypeName)),
+            StringComparer.OrdinalIgnoreCase);
+        return options with { MemberFilter = memberFilter };
+    }
+
     private static async Task<int> ExecuteDeferredTypeAsync(
         MemberOptions unresolvedOptions,
         ApiSourceResult source,
@@ -617,6 +647,13 @@ public static class MemberCommand
         {
             CommandError.Write(
                 "The type command's -m filter does not support generic arity selectors; use the member command.");
+            return 1;
+        }
+
+        if (unresolvedOptions.CallerScopeProjects.Length > 0)
+        {
+            CommandError.Write(
+                "--project cannot be combined with --package, --library, or --platform.");
             return 1;
         }
 

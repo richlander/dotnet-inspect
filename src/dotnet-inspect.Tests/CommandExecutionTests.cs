@@ -3293,6 +3293,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_OwnerQualifiedNestedGlob_PreservesMultipleMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "OrderedDictionary<TKey,TValue>.*Collection",
+            "--platform",
+            "System.Collections",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("KeyCollection", output);
+        Assert.Contains("ValueCollection", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3459,7 +3477,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_ExplicitMemberOptionOwnsNestedGenericTarget()
+    public async Task Router_ExplicitMemberOptionUsesNestedMetadataTypeIdentity()
     {
         const string target =
             "System.Collections.Generic.List`1.Enumerator";
@@ -3469,22 +3487,21 @@ public partial class CommandExecutionTests
             "MoveNext",
             "--platform",
             "System.Private.CoreLib",
-            "-S",
-            SectionNames.Signature,
-            "--count",
             "--tips",
             "q"
         ];
-        var direct = await RunAppAsync(["member", target, .. tail]);
+        var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Equal("1", routed.Output.Trim());
+        Assert.Contains(
+            "System.Collections.Generic.List<T>.Enumerator",
+            routed.Output);
     }
 
     [Fact]
-    public async Task Router_ExplicitMemberOptionOwnsSourcelessNestedMetadataGenericTarget()
+    public async Task Router_SourcelessMemberOptionUsesNestedMetadataTypeIdentity()
     {
         const string target =
             "System.Collections.Generic.List`1.Enumerator";
@@ -3492,18 +3509,17 @@ public partial class CommandExecutionTests
         [
             "-m",
             "MoveNext",
-            "-S",
-            SectionNames.Signature,
-            "--count",
             "--tips",
             "q"
         ];
-        var direct = await RunAppAsync(["member", target, .. tail]);
+        var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Equal("1", routed.Output.Trim());
+        Assert.Contains(
+            "System.Collections.Generic.List<T>.Enumerator",
+            routed.Output);
     }
 
     [Fact]
@@ -4316,6 +4332,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DeferredExactTypePreservesProjectSourceConflict()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Text.Json",
+            "--project",
+            "/tmp/missing.csproj",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["type", "System.Text.Json.JsonSerializer", .. tail]);
+        var routed = await RunAppAsync(
+            ["System.Text.Json.JsonSerializer", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            "--project cannot be combined",
+            routed.Error);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypePreservesSharedMemberFilter()
     {
         const string target =
@@ -4419,6 +4459,34 @@ public partial class CommandExecutionTests
         Assert.Equal(0, qualified.Exit);
         Assert.Equal("6", qualified.Output.Trim());
         Assert.Empty(qualified.Error);
+    }
+
+    [Fact]
+    public async Task Member_SimpleSuppliedTypeRetainsDifferentQualifiedType()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Text.Json",
+            "-m",
+            "Other.Namespace.JsonElement.GetProperty:1",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", "System.Text.Json.JsonElement", .. tail]);
+        var simple = await RunAppAsync(
+            ["member", "JsonElement", .. tail]);
+
+        Assert.Equal(direct, simple);
+        Assert.Equal(1, simple.Exit);
+        Assert.Contains(
+            "No members matched filter "
+                + "'Other.Namespace.JsonElement.GetProperty'",
+            simple.Error);
     }
 
     [Theory]

@@ -84,6 +84,9 @@ internal static class ApiTypeLookupService
         if (lookup.Match != null)
             return new ApiTypeLookupResult(typeName, lookup, api.Types.First(t => t.FullName == lookup.Match));
 
+        if (TypeMatcher.IsTypeGlobPattern(typeName))
+            return new ApiTypeLookupResult(typeName, lookup, null);
+
         // The query may be a Type.Member where the type portion is itself namespace-qualified
         // (e.g. "System.String.Length" or "System.Text.Json.JsonSerializer.Serialize"). The type
         // and member boundary is not knowable syntactically — "System.String" is a type while

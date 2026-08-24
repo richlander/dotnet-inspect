@@ -208,6 +208,35 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
+    public void LookupType_MultiMatchNestedGlob_DoesNotPeelMember()
+    {
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "OrderedDictionary`2.KeyCollection"
+                },
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "OrderedDictionary`2.ValueCollection"
+                }
+            ]
+        };
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            "OrderedDictionary<TKey,TValue>.*Collection");
+
+        Assert.False(result.Found);
+        Assert.Null(result.ImpliedMember);
+        Assert.Equal(2, result.Suggestions.Count);
+    }
+
+    [Fact]
     public void ValidateMemberFilters_RequiresEveryFilterToMatch()
     {
         var type = CreateSurface().Types[0];
