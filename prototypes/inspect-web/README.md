@@ -558,8 +558,10 @@ others. Clear removes every source and Finding caret. Caret descriptions use
 compact unnumbered rows aligned with the caret start rather than extending
 after the caret run. When source and Finding attribution share one exact node,
 the renderer emits one caret and stacks the distinct source and Finding chips
-beneath it. The `fact, source node, node-kind, and clear actions preserve
-distinct selection semantics` test gates that separation.
+beneath it. Inline source chips use the product kind and range without exposing
+the portable document's internal node number; the inspector retains that typed
+identity for detailed selection. The `fact, source node, node-kind, and clear
+actions preserve distinct selection semantics` test gates that separation.
 
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
 multi-line source constructs. CodeLens is globally on or off; its unnumbered

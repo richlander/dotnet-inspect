@@ -572,7 +572,7 @@ export function renderAnnotatedSourceExplorer(
       ...(nodeCaretAnnotations.get(line.start) ?? []),
       ...(findingCaretAnnotations.get(line.start) ?? []),
     ]).map(annotation => {
-      const planes = [...annotation.planes].join(" ");
+      const planes = [...annotation.planes].map(plane => `plane-${plane}`).join(" ");
       const caret = `<div class="annotated-node-caret ${planes}" aria-label="${escapeHtml(annotation.accessibleLabel)}">
         <span class="annotated-line-number"></span>
         ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
@@ -584,7 +584,7 @@ export function renderAnnotatedSourceExplorer(
           <span class="annotated-line-number"></span>
           ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
           <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<span class="annotated-caret-label-stack">${annotation.labels
-            .map(label => `<span class="annotated-caret-label ${label.plane}">${escapeHtml(label.text)}</span>`)
+            .map(label => `<span class="annotated-caret-label plane-${label.plane}">${escapeHtml(label.text)}</span>`)
             .join("")}</span></span>
         </div>`;
       return caret + detail;
@@ -729,7 +729,7 @@ function sourceNodeCaretAnnotations(
       if (start >= end) continue;
       const coordinates = `[${start}..${end})`;
       const label = labelPending
-        ? `#${node.id} ${kindLabel} · ${coordinates}`
+        ? `${kindLabel} · ${coordinates}`
         : "";
       labelPending = false;
       const annotation = {

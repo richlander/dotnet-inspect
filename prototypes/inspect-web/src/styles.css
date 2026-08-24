@@ -2066,9 +2066,9 @@ kbd {
 .annotated-caret-run { text-shadow: 0 0 6px color-mix(in srgb, var(--blue) 75%, transparent); }
 .annotated-caret-label-stack { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-left: -5px; vertical-align: top; }
 .annotated-caret-label { display: block; max-width: 76ch; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent); border-radius: 7px; background: color-mix(in srgb, var(--blue) 5%, transparent); color: color-mix(in srgb, var(--blue) 72%, var(--text)); font: 10px/1.25 var(--mono); overflow-wrap: anywhere; white-space: normal; }
-.annotated-node-caret.finding { color: var(--accent); }
-.annotated-caret-label.finding { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); color: color-mix(in srgb, var(--accent) 76%, var(--text)); }
-.annotated-node-caret.finding .annotated-caret-run { text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 75%, transparent), 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+.annotated-node-caret.plane-finding { color: var(--accent); }
+.annotated-caret-label.plane-finding { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); color: color-mix(in srgb, var(--accent) 76%, var(--text)); }
+.annotated-node-caret.plane-finding .annotated-caret-run { text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 75%, transparent), 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
 .annotated-text .token.comment { color: #6f7669; font-style: italic; }
 .annotated-text .token.keyword { color: #d98a70; }
 .annotated-text .token.class-name,

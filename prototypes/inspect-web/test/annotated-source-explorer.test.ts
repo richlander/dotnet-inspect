@@ -246,9 +246,9 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.match(html, /data-ase-codelens-toggle aria-pressed="true"/);
   assert.match(html, /finding available/);
   assert.deepEqual(state.activeFactIds, [0, 1]);
-  assert.equal([...html.matchAll(/class="annotated-node-caret finding"/g)].length, 2);
-  assert.match(html, /class="annotated-caret-detail finding"/);
-  assert.match(html, /annotated-caret-label finding">alloc\.new: object/);
+  assert.equal([...html.matchAll(/class="annotated-node-caret plane-finding"/g)].length, 2);
+  assert.match(html, /class="annotated-caret-detail plane-finding"/);
+  assert.match(html, /annotated-caret-label plane-finding">alloc\.new: object/);
   assert.match(html, /data-ase-fact="2" aria-pressed="false"/);
 });
 
@@ -272,8 +272,8 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   });
   assert.match(factHtml, /annotated-span addressable has-fact selected semantic/);
   assert.doesNotMatch(factHtml, /selected structural/);
-  assert.match(factHtml, /class="annotated-node-caret finding"/);
-  assert.match(factHtml, /class="annotated-caret-detail finding"/);
+  assert.match(factHtml, /class="annotated-node-caret plane-finding"/);
+  assert.match(factHtml, /class="annotated-caret-detail plane-finding"/);
   assert.match(factHtml, /alloc\.new:/);
   assert.match(factHtml, /<\/div><div class="annotated-node-caret/);
 
@@ -291,13 +291,14 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     subtitle: "public object Run()",
     escapeHtml,
   });
-  assert.match(sourceHtml, /class="annotated-node-caret source finding"/);
+  assert.match(sourceHtml, /class="annotated-node-caret plane-source plane-finding"/);
   assert.equal(
-    [...sourceHtml.matchAll(/class="annotated-node-caret source finding"/g)].length,
+    [...sourceHtml.matchAll(/class="annotated-node-caret plane-source plane-finding"/g)].length,
     1,
   );
-  assert.match(sourceHtml, /annotated-caret-label source">#1 ObjectCreationExpression · \[\d+\.\.\d+\)/);
-  assert.match(sourceHtml, /annotated-caret-label finding">alloc\.new: object/);
+  assert.match(sourceHtml, /annotated-caret-label plane-source">ObjectCreationExpression · \[\d+\.\.\d+\)/);
+  assert.match(sourceHtml, /annotated-caret-label plane-finding">alloc\.new: object/);
+  assert.doesNotMatch(sourceHtml, /annotated-caret-label plane-source">#1/);
   assert.doesNotMatch(sourceHtml, /1 finding: alloc\.new/);
   assert.match(sourceHtml, /Findings at this node/);
   assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="true"/);
@@ -317,7 +318,7 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     escapeHtml,
   });
   assert.equal(
-    [...secondSourceHtml.matchAll(/class="annotated-node-caret [^"]*source/g)].length,
+    [...secondSourceHtml.matchAll(/class="annotated-node-caret [^"]*plane-source/g)].length,
     2,
   );
   const secondSourceToggledOff = reduceAnnotatedSourceExplorerState(
@@ -520,7 +521,7 @@ test("product labels render as toggleable structural CodeLens annotations", () =
     escapeHtml,
     nodeKinds: [{ id: "ForStatement", label: "For loop" }],
   });
-  assert.doesNotMatch(selectedStructureHtml, /class="annotated-node-caret source"/);
+  assert.doesNotMatch(selectedStructureHtml, /class="annotated-node-caret plane-source"/);
   assert.doesNotMatch(selectedStructureHtml, /selected structural/);
 
   const disabled = reduceAnnotatedSourceExplorerState(
