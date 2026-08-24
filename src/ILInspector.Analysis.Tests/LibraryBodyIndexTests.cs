@@ -4742,6 +4742,77 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                nestedUnresolvedLiftedSource: true);
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "NestedUnresolvedLiftedSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+        MethodIdentity inner = Assert.Single(
+            full.Methods,
+            method => method.Name
+                == "<<Outer>b__0_0>b__0_1");
+        DirectCall call = Assert.Single(
+            full.DirectCalls,
+            candidate => candidate.EvidenceMethod == moveNext
+                && candidate.Callee.Name == "Read");
+
+        Assert.Equal(moveNext, call.Caller);
+        Assert.Equal(
+            inner,
+            full.ResolveDeclaredMethod(moveNext));
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "NestedUnresolvedLiftedSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        moveNext.DeclaringType));
+        Assert.Null(scoped.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            scoped.DirectCalls,
+            candidate => candidate.EvidenceMethod == moveNext
+                && candidate.Caller == moveNext
+                && candidate.Callee.Name == "Read");
+    }
+
+    [Fact]
+    public void
+        ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                malformedGeneratedLiftedSource: true);
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedLiftedSourceName.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity moveNext = Assert.Single(
+            index.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+
+        Assert.Null(index.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == moveNext
+                && call.Callee.Name == "Read");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MalformedParallelStateMapPreservesCalls()
     {
         byte[] image =
@@ -5220,6 +5291,8 @@ public class LibraryBodyIndexTests
         bool forgedStateMachineOwnerEvidence = false,
         bool forgedTopLevelOwnerEvidence = false,
         bool malformedTopLevelEntryPoint = false,
+        bool nestedUnresolvedLiftedSource = false,
+        bool malformedGeneratedLiftedSource = false,
         bool crossKindDuplicate = false,
         bool crossKindIteratorFirst = false,
         bool crossKindSynchronousIterator = false,
@@ -5283,6 +5356,13 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString(
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString("IAsyncStateMachine"));
+        TypeReferenceHandle compilerGeneratedAttribute =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "CompilerGeneratedAttribute"));
         TypeReferenceHandle systemType =
             metadata.AddTypeReference(
                 systemRuntime,
@@ -5353,6 +5433,16 @@ public class LibraryBodyIndexTests
         entryPointIl.WriteByte((byte)ILOpCode.Ret);
         int entryPointBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(entryPointIl),
+            maxStack: 1);
+        var outerLiftedIl = new BlobBuilder();
+        outerLiftedIl.WriteByte((byte)ILOpCode.Call);
+        outerLiftedIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(6)));
+        outerLiftedIl.WriteByte((byte)ILOpCode.Pop);
+        outerLiftedIl.WriteByte((byte)ILOpCode.Ret);
+        int outerLiftedBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(outerLiftedIl),
             maxStack: 1);
 
         BlobHandle taskSignature = metadata.GetOrAddBlob(
@@ -5426,14 +5516,18 @@ public class LibraryBodyIndexTests
                         ? MethodImplAttributes.Async
                         : 0),
                 metadata.GetOrAddString(
-                    forgedStateMachineOwnerEvidence
+                    nestedUnresolvedLiftedSource
+                        ? "<Outer>b__0_0"
+                        : forgedStateMachineOwnerEvidence
                         ? "<AnalyzeAsync>g__Local|0_0"
                         : forgedTopLevelOwnerEvidence
                             || malformedTopLevelEntryPoint
                             ? "<<Main>$>g__Local|0_0"
                         : "CompetingAsync"),
                 taskSignature,
-                AddRetBody(bodyEncoder),
+                nestedUnresolvedLiftedSource
+                    ? outerLiftedBody
+                    : AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle analyze =
             metadata.AddMethodDefinition(
@@ -5441,7 +5535,11 @@ public class LibraryBodyIndexTests
                     | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(
-                    unresolvedLiftedSource
+                    nestedUnresolvedLiftedSource
+                        ? "<<Outer>b__0_0>b__0_1"
+                        : malformedGeneratedLiftedSource
+                            ? "Noise>b__0_0"
+                        : unresolvedLiftedSource
                         ? "<Outer>b__0_0"
                         : forgedTopLevelOwnerEvidence
                             || malformedTopLevelEntryPoint
@@ -5586,6 +5684,12 @@ public class LibraryBodyIndexTests
                         (byte)CodedIndex.TypeDefOrRefOrSpec(
                             systemString),
                     }));
+        MemberReferenceHandle generatedAttributeConstructor =
+            metadata.AddMemberReference(
+                compilerGeneratedAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
         MemberReferenceHandle iteratorAttributeConstructor =
             crossKindDuplicate
                 ? metadata.AddMemberReference(
@@ -5654,6 +5758,14 @@ public class LibraryBodyIndexTests
                 ? malformedAttributeConstructor
                 : attributeConstructor,
             AnalyzeStateMachine);
+        if (malformedGeneratedLiftedSource)
+        {
+            metadata.AddCustomAttribute(
+                analyze,
+                generatedAttributeConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
         if (duplicateAnalyzeAttribute)
         {
             AddAsyncStateMachineAttribute(

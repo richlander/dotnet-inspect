@@ -5,6 +5,19 @@ namespace ILInspector.Analysis.Tests;
 
 public sealed class CompilerGeneratedNamesTests
 {
+    [Theory]
+    [InlineData("<Owner>b__0_0", true)]
+    [InlineData("<Owner>g__Local|0_0", true)]
+    [InlineData("<<Owner>b__0_0>b__0_1", true)]
+    [InlineData("Noise>b__0_0", false)]
+    [InlineData(">g__Local|0_0", false)]
+    public void IsLocalFunctionOrLambda_RequiresOpeningDelimiter(
+        string name,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            CompilerGeneratedNames.IsLocalFunctionOrLambda(name));
+
     [Fact]
     public void ContainingTypeDisplayName_UsesExactSegmentsAndConservativeFlatFallback()
     {

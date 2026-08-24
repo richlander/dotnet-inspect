@@ -41,8 +41,9 @@ public static class CompilerGeneratedNames
 
     /// <summary>Source-authored local-function and lambda method bodies.</summary>
     internal static bool IsLocalFunctionOrLambda(string methodName)
-        => methodName.Contains(">g__", StringComparison.Ordinal)
-            || methodName.Contains(">b__", StringComparison.Ordinal);
+        => methodName.StartsWith('<')
+            && (methodName.Contains(">g__", StringComparison.Ordinal)
+                || methodName.Contains(">b__", StringComparison.Ordinal));
 
     /// <summary>
     /// Returns the qualified display name of the immediate containing type for

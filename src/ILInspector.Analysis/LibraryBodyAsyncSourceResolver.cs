@@ -362,18 +362,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 DeclaredSourceMethodsByMoveNextToken();
         StateMachineExecutionMethods stateMachineExecutions =
             _stateMachineExecutionMethods.Value;
-        if (stateMachineExecutions.SourceByExecutionToken.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? executionSource))
-        {
-            if (includeGeneratedIntermediate)
-                return executionSource;
-            return actionableSources.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? actionableExecutionSource)
-                ? actionableExecutionSource
-                : null;
-        }
         if (executionMethods.RejectedStateMachines.Contains(
                 stateMachineType)
             || _ambiguousAsyncStateMachineTypes?.Contains(
@@ -388,12 +376,25 @@ internal sealed class LibraryBodyAsyncSourceResolver
             throw new BadImageFormatException(
                 "The state-machine source is invalid or ambiguous.");
         }
+        if (stateMachineExecutions.SourceByExecutionToken.TryGetValue(
+                physicalMethod.MetadataToken,
+                out MethodIdentity? executionSource))
+        {
+            if (includeGeneratedIntermediate)
+                return ValidateGeneratedIntermediate(
+                    executionSource);
+            return actionableSources.TryGetValue(
+                physicalMethod.MetadataToken,
+                out MethodIdentity? actionableExecutionSource)
+                ? actionableExecutionSource
+                : null;
+        }
         if (executionMethods.SourceByMoveNextToken.TryGetValue(
                 physicalMethod.MetadataToken,
                 out MethodIdentity? source))
         {
             if (includeGeneratedIntermediate)
-                return source;
+                return ValidateGeneratedIntermediate(source);
             return actionableSources.TryGetValue(
                     physicalMethod.MetadataToken,
                     out MethodIdentity? actionableSource)
@@ -407,6 +408,27 @@ internal sealed class LibraryBodyAsyncSourceResolver
             return source;
         }
         return null;
+    }
+
+    MethodIdentity ValidateGeneratedIntermediate(
+        MethodIdentity source)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(
+            source.MetadataToken);
+        if (handle.Kind == HandleKind.MethodDefinition
+            && !CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(source.Name)
+            && _primaryMetadataResolver
+                .HasCompilerGeneratedAttribute(
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle)
+                        .GetCustomAttributes()))
+        {
+            throw new BadImageFormatException(
+                "The generated state-machine source name is invalid.");
+        }
+
+        return source;
     }
 
     internal void Prewarm()

@@ -355,6 +355,9 @@ source when ultimate lifted-owner resolution fails; scoped publication and
 ownership-derived recommendations remain fail-closed.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
 gates that boundary, while
+`DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
+`ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` gate unresolved
+multi-hop caller projection and canonical generated-name admission.
 `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
 `ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
 async-owner shapes.

@@ -329,6 +329,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                 if (ownerResolution
                     == DeclaredOwnerResolution.Resolved)
                     result.DeclaredSource = ultimateOwner;
+                else if (ownerResolution
+                    == DeclaredOwnerResolution.Unresolved)
+                {
+                    result.DeclaredMethod = null;
+                }
                 opportunityOwnershipResolved =
                     ownerResolution
                         != DeclaredOwnerResolution.Unresolved;
