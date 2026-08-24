@@ -77,8 +77,8 @@ guessing.
 
 Work runs in many concurrent agent windows across several machines. Whoever is
 watching must be able to tell, without attaching to any of them, which PR each
-window is on and which one needs a person. Three conventions carry that. Use
-them.
+window is on and which one needs a person. These conventions carry that, along
+with one rule about what you are entitled to claim. Use them.
 
 ### Name the window for identity
 
@@ -129,11 +129,135 @@ Completing a round:
 > - Review feedback is: converging.
 > - Round start / end / duration.
 >
+> Reviews: 1/2 clean — GPT-5.6 Sol clean, Claude Opus 5 pending
+> Blocked: 4597, 4611
+> Recommendation: Wait
+>
 > Fix description: …
+
+Those three lines are the ones a reader cannot get anywhere else. Include them
+on every round completion, and omit `Blocked` only when it is genuinely empty.
+
+- **`Reviews: <clean>/<required>`** — the dual-clean count, and the actual bar
+  for done. **This is the one fact no tool can observe.** GitHub knows whether
+  CI passed and whether the branch merges; it has no idea that one reviewer came
+  back clean and the other has not reported. Without it nobody can tell a PR
+  that is one review from landing apart from one nobody has reviewed at all.
+- **`Blocked: <numbers>`** — PRs or issues you are waiting on that are **not
+  yours to fix**. Red CI attributable to something on this list is not a defect
+  in your PR, and no one should be dispatched at it. Naming them is what stops
+  several agents converging on one shared flake; behind a known blocker the
+  correct action for everyone is to wait, and an idle agent is the right outcome
+  there rather than a wasted one.
+
+  **Every entry must be a number someone can open, and it is your job to make
+  sure one exists.** If a flake is blocking you and no issue has been filed for
+  it, file the issue, then cite it. Being unable to point at what is blocking
+  you is the failure this field exists to prevent: an uncitable blocker cannot
+  be prioritised, cannot be deduplicated against the next agent that hits the
+  same flake, and leaves your `Wait` indistinguishable from a stall.
+- **`Recommendation:`** — exactly one of `Wait`, `Merge`, `Approve next rounds`,
+  or `Stop (reason)`: the disposition of this window, not a summary of your
+  progress. What separates them is whether the window needs a **decision**
+  before anything moves. Three of them do. `Wait` is the one that does not —
+  which is not the same as it being silent.
+
+  **`Wait` means "let me wait — what I listed in `Blocked:` is still
+  outstanding."** It is not idleness in need of explanation and not a request
+  for instructions: nobody should dispatch you, re-plan you, or send you at CI,
+  and you resume yourself when the blockers clear. What it does put in front of
+  the operator is the blocker list, because they may not know that a particular
+  PR or flake is holding work back and may decide to prioritise it. That is why
+  the entries have to be citable. `Wait` is also only coherent beside a
+  non-empty `Blocked:` — if nothing is blocking you then you are not waiting,
+  and one of the other three is the honest answer.
+
+  **`Stop (reason)` is a request, not a fait accompli.** You are asking to be
+  released from this work and naming why — superseded by another PR, approach
+  rejected, six rounds without convergence. Granting it is a decision with
+  follow-up attached: granted, you write a note on the PR recording why the work
+  stopped and then close it; declined, the work continues, possibly with
+  reframed goals, or becomes a `Wait` on whatever has to land first. Until you
+  have an answer, change nothing and close nothing.
+
+  **`Merge` and `Approve next rounds`** each need a person before anything moves
+  at all.
 
 Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
+
+### Claiming ready to merge
+
+Getting CI green and the branch mergeable is part of finishing the work. Pursue
+both; handing over a red or conflicted PR you could have fixed is not an effective handover.
+
+**This section is about what you may claim, not about when you may integrate.**
+Integration cadence is already specified and this does not modify it: the two
+integrations per round in [the round flow](#canonical-round-flow), and — for the
+narrow case where a required review is already clean at the current head and
+`origin/main` has since moved — [Clean reviews are not spent by main
+moving](#clean-reviews-are-not-spent-by-main-moving), which is stop-and-ask and
+a possible carry-forward, never an integration you launch on your own
+initiative.
+
+Ready to merge means two things: **the reviews are clean, and the branch
+merges.** Say it when both hold, and not before.
+
+Green CI is not a third condition. Chase it — it is useful evidence and part of
+finishing the work — but checks go red for reasons that have nothing to do with
+your change, so passing checks alone do not make a PR ready.
+
+Two claims have to be earned rather than assumed:
+
+- **Do not report `mergeable` from a local merge check.** GitHub computes
+  `mergeable_state` lazily — the first read after a change returns `unknown` and
+  only starts the calculation, so the answer arrives on a later read. A one-off
+  check of the open PRs found 18 of 32 answering `unknown` on the first read,
+  and two of those resolved to `dirty` — both on PRs whose agents had just
+  reported them as mergeable. Re-read until it is no longer `unknown`, and say `mergeability
+  unverified` rather than guessing.
+- **Do not report `ready to merge` while a round is still in flight.** The state
+  is the round, not the destination.
+
+A conflict found late costs a whole extra pass. Checking mergeability at the
+moment you claim it is what holds that to one.
+
+Accuracy here has a specific consequence worth knowing. When you report ready
+and CI or mergeability disagrees, that discrepancy is routed to the **operator**
+rather than back to you — nobody re-dispatches an agent that has declared itself
+done. An unearned "ready to merge" therefore does not cost you another round; it
+spends the attention of the one participant who cannot be automated.
+
+### Checking costs a budget you share
+
+Every agent draws on the same GitHub account, so there is one hourly request
+budget across all of them, on every host. Nothing divides it fairly and nothing
+warns you when it is gone — a starved agent simply gets errors back and stops
+being able to see its own PR.
+
+It is currently spent very unevenly. A one-off check found the account's GraphQL
+budget fully exhausted — 0 remaining, with more attempted than the hourly limit
+allows — while REST sat at 4,967 of 5,000, barely touched. An agent that cannot
+read its PR's state cannot move it forward, so this is a plausible reason some
+PRs advance steadily while others stall for no visible reason.
+
+Two habits recover most of it.
+
+**Prefer REST.** `gh pr view`, `gh pr checks`, and `gh pr list --json` are
+GraphQL, which is the exhausted half. These answer the same questions from the
+half that is idle:
+
+```sh
+gh api repos/{owner}/{repo}/pulls/{number}                 # state, mergeable_state, head
+gh api repos/{owner}/{repo}/commits/{sha}/check-runs       # checks on that head
+```
+
+**Check at a point, then set when you will check again.** Decide what you are
+waiting for, look once, and if it has not happened, pick a time to look again
+and stop until then. Do not sit in a query loop: re-asking about a head that has
+not moved cannot return anything new, and doing it on a timer is what drains the
+budget everyone else is also drawing on.
 
 ### Publish your state where tooling can read it
 
@@ -153,15 +277,47 @@ option; writing it directly would overwrite every other agent, the same way bare
 Omit your window number from the value — the bar already knows where it is.
 Update on real transitions, not on a timer.
 
+**Verify the write landed on your own window.** That `-t "$TMUX_PANE"` is the
+whole safety of this mechanism, and dropping it is not a theoretical risk: a
+one-off check of a live host found three windows all carrying an identical
+`@agent` that described a *fourth* window's PR, while that PR's own window held
+a newer value. One agent's writes had landed on three neighbours, making three
+agents appear to be working on a PR they had never touched. Read it back once
+after you set it, and fix it if it names someone else's PR.
+
+Alongside `@agent`, set a second option carrying the same state as fields.
+`@agent` is the sentence a person reads off the bar; `@agent_state` is the copy
+a tool reads, and because it is never rendered it is neither truncated nor
+abbreviated:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent_state \
+  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
+tmux show -w -t "$TMUX_PANE" @agent_state      # read back: must name YOUR pr
+```
+
+`pr` and `head` are always required, the rest when they apply. `rec` takes the
+same four values as `Recommendation`, lowercased, with `Approve next rounds`
+written `approve`. Values carry no spaces. Update it on the same transitions as
+`@agent` and clear it with `-u` when the window stops owning a PR.
+
+**Why an option rather than only your output.** This UI runs on the alternate
+screen, so tmux keeps no scrollback for it — `capture-pane -S -400` returns the
+same single screen as a plain capture. Once your report scrolls past the top it
+is unrecoverable by any tool and the window goes anonymous. A window option
+persists until you change it, outlives the report scrolling away, and cannot be
+garbled by line wrapping. Your output stays where a person reads the detail;
+this is what remains legible after it is gone.
+
 ### Signal when you need a person
 
 Whenever you stop and wait on a human decision, raise a flag that persists and
 send one nudge that does not:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "HELP: rebase pr4405 onto main, or close it?"
+tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
 tmux display-message -d 10000 -t "$TMUX_PANE" \
-  "HELP pr4405 in w#{window_index}: rebase onto main, or close it?"
+  "HELP pr4405 in w#{window_index}: integrate main, or close it?"
 ```
 
 The `HELP` prefix marks your window with `!` in the window list, so you are
@@ -1031,6 +1187,64 @@ it: report how many consecutive rounds produced no product finding, and
 recommend either a final round or stopping. Stopping still needs the user's
 waiver under invariant 5 — but asking for one, with that evidence, is the
 correct move rather than opening another round by reflex.
+
+## Lead with the demo
+
+Two clean adversarial reviews and a green suite establish that the change is
+**correct**. Neither establishes that it is **worth shipping**. The demo is the
+only part of a PR that shows the product actually got better, and it is the part
+someone reading this work back in six months will actually read.
+
+### Choose it before you are done, and say what it is
+
+Post the demo you intend to present — one line is enough — while there is still
+time to change it. Do not wait to be asked for one, and do not treat it as
+write-up performed after the work is finished. Three things come of choosing
+early:
+
+- **Calibration.** The operator can tell you a demo is not compelling *before*
+  you have finished building around it. That exchange costs one line and a reply,
+  and it is dramatically cheaper than discovering the mismatch at the end.
+- **Real-scenario validation.** A scenario a person would genuinely run exercises
+  paths that fixture-shaped tests do not. Turning up bugs at that point is the
+  system working. Turning them up *after* two clean reviews — which is what
+  happens when the demo is an afterthought — means the reviews were spent on a
+  version nobody had tried to use.
+- **A legible record.** These PRs are the archive. One that opens with a demo can
+  be read by somebody who was not there; one that opens with a list of test
+  invocations cannot.
+
+### Do not build to the demo
+
+The demo is a **sample of the space the change has to cover, never the definition
+of it.** The issue and its contract decide what you build; the demo shows one
+real path through it landing. Two smells that the two have been inverted: you
+special-cased an input so the demo would render, or you picked the scenario
+because it was the one you already knew worked.
+
+The self-check is to swap it. Take a neighbouring scenario a user would just as
+plausibly run, and confirm it behaves. If the demo is the only path that holds
+up, you have fit the demo rather than the problem — and choosing it early is
+what let you find that out while it was still cheap to fix.
+
+### What makes one compelling
+
+- **A real invocation and its real output**, pasted, not paraphrased or
+  reconstructed from memory.
+- **The canonical path** a user would take. A hidden alias or compatibility
+  selector demonstrates the seam, not the product; if the change is about the
+  primary path, lead with the primary path and add the alias only as a second
+  block.
+- **The before as well as the after, whenever the change is a fix.** A demo that
+  shows only the fixed output asks the reader to imagine the bug. The pair shows
+  it. This is the single largest difference between a demo that lands and one
+  that is merely present.
+- **One sentence naming what to notice**, because what is obvious to you after a
+  week inside the change is not obvious to anyone else.
+
+Put it in the PR body under a `## Demo` heading, **above** the validation list.
+Validation is the argument that the change is correct; the demo is the argument
+that it is worth having, and it should be read first.
 
 ## PR and CI discipline
 
