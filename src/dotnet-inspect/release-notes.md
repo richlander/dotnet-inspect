@@ -52,10 +52,11 @@
   when platform API shape comes from a reference assembly and source lookup
   uses a different runtime image (#4588).
 - Cross-image member source lookup now matches the selected MethodDef by its
-  stable API-member identity and method semantics, so reversed
-  reference/runtime overload order cannot select another member; absent or
-  ambiguous correspondence fails visibly instead of guessing by ordinal
-  (#4603).
+  stable API-member identity and complete normalized method semantics,
+  including required modifiers and function-pointer conventions, so reversed
+  reference/runtime overload order cannot select another member. Absent,
+  ambiguous, malformed, or over-budget correspondence fails visibly instead
+  of guessing by ordinal (#4603).
 
 ### Package acquisition and audit
 

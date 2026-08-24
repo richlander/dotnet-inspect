@@ -33,15 +33,18 @@ public static class MethodCorrespondenceResolver
 {
     /// <summary>
     /// Resolves by the stable API-member anchor used by selectors and API
-    /// inventories, with normalized return type, calling convention, and
+    /// inventories, with normalized signature shape, required custom
+    /// modifiers, nested function-pointer conventions, encoded arity, and
     /// parameter-direction semantics as close negatives. Assembly-reference
-    /// versions and TypeDef/TypeRef storage roles therefore do not become API
-    /// identity.
+    /// versions, optional modifiers outside function pointers, and
+    /// TypeDef/TypeRef storage roles therefore do not become API identity.
     /// <c>CommandExecutionTests.Member_PdbSource_CrossImageDependencyVersionUsesStableApiIdentity</c>
     /// gates the assembly-version distinction;
     /// <c>ResolveApiMember_ParameterDirectionMismatchIsAbsent</c>,
-    /// <c>ResolveApiMember_ReturnTypeMismatchIsAbsent</c>, and
-    /// <c>ResolveApiMember_InstanceMismatchIsAbsent</c> gate the close
+    /// <c>ResolveApiMember_ReturnTypeMismatchIsAbsent</c>,
+    /// <c>ResolveApiMember_RequiredReturnModifierMismatchIsAbsent</c>,
+    /// <c>ResolveApiMember_FunctionPointerCallingConventionMismatchIsAbsent</c>,
+    /// and <c>ResolveApiMember_InstanceMismatchIsAbsent</c> gate the close
     /// negatives.
     /// </summary>
     public static MethodCorrespondenceResult ResolveApiMember(
@@ -83,15 +86,24 @@ public static class MethodCorrespondenceResolver
                 MetadataSafetyPolicy.ReadStructuralString(
                     sourceReader,
                     sourceMethod.Name);
-            MethodAnchorInfo sourceAnchor =
-                ApiMemberIdentity.CreateMethodAnchorInfo(
+            int typeComparisonWork =
+                GetTypeComparisonWork(sourceTypeName);
+            int methodNameComparisonWork =
+                Math.Max(sourceMetadataName.Length, 64);
+            MethodCorrespondenceAnchorInfo sourceAnchor =
+                ApiMemberIdentity
+                .CreateMethodCorrespondenceAnchorInfo(
                 sourceReader,
                 sourceTypeHandle,
                 sourceMethod,
                 IsExtensionMethod(sourceReader, sourceType, sourceMethod));
-            MemberAnchor anchor = sourceAnchor.Anchor;
+            MemberAnchor anchor =
+                sourceAnchor.AnchorInfo.Anchor;
             ApiMethodSemantics sourceSemantics =
-                ReadApiMethodSemantics(sourceReader, sourceMethod);
+                ReadApiMethodSemantics(
+                    sourceReader,
+                    sourceMethod,
+                    sourceAnchor);
 
             List<MetadataMethodAddress> candidates = [];
             int targetAnchorWorkRemaining =
@@ -99,6 +111,8 @@ public static class MethodCorrespondenceResolver
             TypeDefinitionHandle previousTargetTypeHandle = default;
             MetadataTypeDefinitionNameMatch previousTypeMatch =
                 MetadataTypeDefinitionNameMatch.NoMatch;
+            MethodAnchorDeclaringTypeContext?
+                targetDeclaringType = null;
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod =
@@ -107,7 +121,15 @@ public static class MethodCorrespondenceResolver
                     targetMethod.GetDeclaringType();
                 if (targetTypeHandle != previousTargetTypeHandle)
                 {
+                    if (!TryCharge(
+                            ref targetAnchorWorkRemaining,
+                            typeComparisonWork))
+                    {
+                        return Failed(
+                            "target methods exceed the correspondence anchor work budget");
+                    }
                     previousTargetTypeHandle = targetTypeHandle;
+                    targetDeclaringType = null;
                     previousTypeMatch =
                         MetadataTypeDefinitionNameReader.Matches(
                             targetReader,
@@ -125,10 +147,15 @@ public static class MethodCorrespondenceResolver
                 if (previousTypeMatch == MetadataTypeDefinitionNameMatch.NoMatch)
                     continue;
 
-                if (!StringComparer.Ordinal.Equals(
-                        MetadataSafetyPolicy.ReadStructuralString(
-                            targetReader,
-                            targetMethod.Name),
+                if (!TryCharge(
+                        ref targetAnchorWorkRemaining,
+                        methodNameComparisonWork))
+                {
+                    return Failed(
+                        "target methods exceed the correspondence anchor work budget");
+                }
+                if (!targetReader.StringComparer.Equals(
+                        targetMethod.Name,
                         sourceMetadataName))
                 {
                     continue;
@@ -136,18 +163,36 @@ public static class MethodCorrespondenceResolver
 
                 var targetType =
                     targetReader.GetTypeDefinition(targetTypeHandle);
-                MethodAnchorInfo targetAnchor;
+                MethodCorrespondenceAnchorInfo targetAnchor;
                 try
                 {
-                    targetAnchor = ApiMemberIdentity.CreateMethodAnchorInfo(
-                        targetReader,
-                        targetTypeHandle,
-                        targetMethod,
-                        ref targetAnchorWorkRemaining,
-                        IsExtensionMethod(
-                            targetReader,
-                            targetType,
-                            targetMethod));
+                    targetDeclaringType ??=
+                        ApiMemberIdentity
+                            .CreateMethodAnchorDeclaringTypeContext(
+                                targetReader,
+                                targetTypeHandle,
+                                ref targetAnchorWorkRemaining);
+                    if (!StringComparer.Ordinal.Equals(
+                            targetDeclaringType.FullName,
+                            anchor.TypeFullName))
+                    {
+                        previousTypeMatch =
+                            MetadataTypeDefinitionNameMatch.NoMatch;
+                        continue;
+                    }
+                    targetAnchor =
+                        ApiMemberIdentity
+                            .CreateMethodCorrespondenceAnchorInfo(
+                                targetReader,
+                                targetTypeHandle,
+                                targetMethod,
+                                targetDeclaringType,
+                                sourceMetadataName,
+                                ref targetAnchorWorkRemaining,
+                                IsExtensionMethod(
+                                    targetReader,
+                                    targetType,
+                                    targetMethod));
                 }
                 catch (BadImageFormatException ex)
                     when (targetAnchorWorkRemaining <= 0
@@ -158,15 +203,20 @@ public static class MethodCorrespondenceResolver
                     return Failed(
                         "target methods exceed the correspondence anchor work budget");
                 }
-                if (targetAnchor.Anchor != anchor
+                if (targetAnchor.AnchorInfo.Anchor != anchor
                     || !StringComparer.Ordinal.Equals(
-                        targetAnchor.ReturnType,
-                        sourceAnchor.ReturnType))
+                        targetAnchor.CorrespondenceReturnType,
+                        sourceAnchor.CorrespondenceReturnType)
+                    || !targetAnchor.CorrespondenceParameterTypes
+                        .SequenceEqual(
+                            sourceAnchor.CorrespondenceParameterTypes,
+                            StringComparer.Ordinal))
                     continue;
                 if (!sourceSemantics.Equals(
                         ReadApiMethodSemantics(
                             targetReader,
-                            targetMethod)))
+                            targetMethod,
+                            targetAnchor)))
                 {
                     continue;
                 }
@@ -357,6 +407,39 @@ public static class MethodCorrespondenceResolver
         return row > 0 && row <= reader.GetTableRowCount(TableIndex.MethodDef);
     }
 
+    static int GetTypeComparisonWork(
+        MetadataTypeDefinitionName name)
+    {
+        int work =
+            MetadataSafetyPolicy.MaxRelationshipNodes;
+        try
+        {
+            work = checked(work + name.Namespace.Length);
+            foreach (string segment in name.Segments)
+                work = checked(work + segment.Length);
+            return work;
+        }
+        catch (OverflowException ex)
+        {
+            throw new BadImageFormatException(
+                "The source declaring type exceeds the correspondence work budget.",
+                ex);
+        }
+    }
+
+    static bool TryCharge(
+        ref int remaining,
+        int work)
+    {
+        if (work < 0 || work > remaining)
+        {
+            remaining = 0;
+            return false;
+        }
+        remaining -= work;
+        return true;
+    }
+
     static bool IsExtensionMethod(
         MetadataReader reader,
         TypeDefinition type,
@@ -369,12 +452,23 @@ public static class MethodCorrespondenceResolver
 
     static ApiMethodSemantics ReadApiMethodSemantics(
         MetadataReader reader,
-        MethodDefinition method)
+        MethodDefinition method,
+        MethodCorrespondenceAnchorInfo anchor)
     {
-        var signature = reader.GetBlobReader(method.Signature);
-        SignatureHeader header = signature.ReadSignatureHeader();
+        GenericParameterHandleCollection genericParameters =
+            method.GetGenericParameters();
+        if (genericParameters.Count
+            != anchor.GenericParameterCount)
+        {
+            throw new BadImageFormatException(
+                "Method generic-parameter rows do not match the encoded generic arity.");
+        }
+
         ParameterHandleCollection parameters = method.GetParameters();
-        if (parameters.Count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
+        if (parameters.Count
+            > anchor.ParameterCount + 1
+            || parameters.Count
+                > MetadataSafetyPolicy.MaxSignatureTypeNodes)
         {
             throw new BadImageFormatException(
                 "Method parameter rows exceed the correspondence safety limit.");
@@ -390,39 +484,44 @@ public static class MethodCorrespondenceResolver
                 throw new BadImageFormatException(
                     "Method parameter rows contain a duplicate sequence number.");
             }
+            if (parameter.SequenceNumber > anchor.ParameterCount)
+            {
+                throw new BadImageFormatException(
+                    "Method parameter row sequence exceeds the encoded parameter count.");
+            }
 
             const ParameterAttributes DirectionMask =
                 ParameterAttributes.In | ParameterAttributes.Out;
             byte direction =
                 (byte)(parameter.Attributes & DirectionMask);
-            if (direction != 0)
+            if (parameter.SequenceNumber != 0
+                && direction != 0)
                 (directions ??= []).Add(parameter.SequenceNumber, direction);
         }
 
         return new ApiMethodSemantics(
-            header.Kind,
-            header.CallingConvention,
-            header.IsInstance,
-            header.HasExplicitThis,
-            header.IsGeneric,
+            anchor.SignatureHeader,
+            anchor.GenericParameterCount,
+            anchor.RequiredParameterCount,
+            anchor.ParameterCount,
             directions);
     }
 
     readonly record struct ApiMethodSemantics(
-        SignatureKind Kind,
-        SignatureCallingConvention CallingConvention,
-        bool IsInstance,
-        bool HasExplicitThis,
-        bool IsGeneric,
+        byte SignatureHeader,
+        int GenericParameterCount,
+        int RequiredParameterCount,
+        int ParameterCount,
         IReadOnlyDictionary<int, byte>? ParameterDirections)
     {
         public bool Equals(ApiMethodSemantics other)
         {
-            if (Kind != other.Kind
-                || CallingConvention != other.CallingConvention
-                || IsInstance != other.IsInstance
-                || HasExplicitThis != other.HasExplicitThis
-                || IsGeneric != other.IsGeneric)
+            if (SignatureHeader != other.SignatureHeader
+                || GenericParameterCount
+                    != other.GenericParameterCount
+                || RequiredParameterCount
+                    != other.RequiredParameterCount
+                || ParameterCount != other.ParameterCount)
             {
                 return false;
             }
@@ -451,10 +550,9 @@ public static class MethodCorrespondenceResolver
 
         public override int GetHashCode()
             => HashCode.Combine(
-                Kind,
-                CallingConvention,
-                IsInstance,
-                HasExplicitThis,
-                IsGeneric);
+                SignatureHeader,
+                GenericParameterCount,
+                RequiredParameterCount,
+                ParameterCount);
     }
 }

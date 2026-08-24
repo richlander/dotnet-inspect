@@ -3,6 +3,9 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.MetadataPrimitives;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -390,6 +393,179 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_RequiredReturnModifierMismatchIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildModifiedReturnMethodImage(
+                required: true,
+                modifierName: "IsExternalInit"),
+            BuildModifiedReturnMethodImage(
+                required: null,
+                modifierName: null));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_OptionalReturnModifierMismatchRemainsExact()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildModifiedReturnMethodImage(
+                required: false,
+                modifierName: "OptionalMarker"),
+            BuildModifiedReturnMethodImage(
+                required: null,
+                modifierName: null));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_FunctionPointerCallingConventionMismatchIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildFunctionPointerMethodImage(
+                nestedHeader: 0x01),
+            BuildFunctionPointerMethodImage(
+                nestedHeader: 0x02));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ExtensibleFunctionPointerConventionMismatchIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildFunctionPointerMethodImage(
+                nestedHeader: 0x09,
+                conventionModifier: "CallConvCdecl"),
+            BuildFunctionPointerMethodImage(
+                nestedHeader: 0x09,
+                conventionModifier: "CallConvStdcall"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_CompilerProducedRequiredModifierAndFunctionPointerMismatchesAreAbsent()
+    {
+        byte[] sourceImage = CompileFixture(
+            "CorrespondenceSource",
+            """
+            public class C
+            {
+                public int P { get; init; }
+                public static unsafe void M(delegate* unmanaged[Cdecl]<void> value) { }
+            }
+            """);
+        byte[] targetImage = CompileFixture(
+            "CorrespondenceTarget",
+            """
+            public class C
+            {
+                public int P { get; set; }
+                public static unsafe void M(delegate* unmanaged[Stdcall]<void> value) { }
+            }
+            """);
+        using var sourcePe =
+            new PEReader(new MemoryStream(sourceImage));
+        using var targetPe =
+            new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader =
+            sourcePe.GetMetadataReader();
+        MetadataReader targetReader =
+            targetPe.GetMetadataReader();
+
+        MethodCorrespondenceResult setter =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    FindMethod(
+                        sourceReader,
+                        "C",
+                        "set_P")),
+                targetReader);
+        MethodCorrespondenceResult functionPointer =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    FindMethod(
+                        sourceReader,
+                        "C",
+                        "M")),
+                targetReader);
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, setter.Status);
+        Assert.Equal(
+            MethodCorrespondenceStatus.Absent,
+            functionPointer.Status);
+    }
+
+    [Fact]
+    public void ResolveApiMember_EncodedGenericArityMismatchFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildGenericMethodImage(),
+            BuildGenericMethodImage(
+                encodedArity: 2,
+                rowCount: 1));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("encoded generic arity", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_OutOfRangeParameterRowFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildParameterRowMethodImage(
+                parameterCount: 0,
+                parameterSequence: null),
+            BuildParameterRowMethodImage(
+                parameterCount: 0,
+                parameterSequence: 1));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("encoded parameter count", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_OmittedParameterRowsRemainExact()
+    {
+        byte[] image = BuildParameterRowMethodImage(
+            parameterCount: 1,
+            parameterSequence: null);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReturnParameterDirectionDoesNotAffectIdentity()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildParameterRowMethodImage(
+                parameterCount: 0,
+                parameterSequence: 0,
+                parameterAttributes: ParameterAttributes.Out),
+            BuildParameterRowMethodImage(
+                parameterCount: 0,
+                parameterSequence: null));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
     public void ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget()
     {
         byte[] sourceImage =
@@ -426,6 +602,66 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.True(
             allocated < 24 * 1024 * 1024,
             $"Correspondence rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void ResolveApiMember_RepeatedIdentityMaterializationFailsWithinOperationBudget()
+    {
+        string typeName = new('T', 4_000);
+        byte[] sourceImage = BuildRepeatedApiMemberImage(
+            typeName,
+            "M",
+            [0x00, 0x00, 0x1c],
+            methodCount: 1);
+        byte[] targetImage = BuildRepeatedApiMemberImage(
+            typeName,
+            "M",
+            [0x00, 0x00, 0x01],
+            methodCount: 1_000);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(sourceImage, targetImage);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("correspondence anchor work budget", result.Failure);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Repeated identity rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void ResolveApiMember_RepeatedNonmatchingNamesFailWithinOperationBudget()
+    {
+        int nameLength =
+            MetadataSafetyPolicy.MaxStructuralSignatureChars / 2;
+        string prefix = new('M', nameLength - 1);
+        byte[] sourceImage = BuildRepeatedApiMemberImage(
+            "C",
+            prefix + "A",
+            [0x00, 0x00, 0x01],
+            methodCount: 1);
+        byte[] targetImage = BuildRepeatedApiMemberImage(
+            "C",
+            prefix + "B",
+            [0x00, 0x00, 0x01],
+            methodCount: 16);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(sourceImage, targetImage);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("correspondence anchor work budget", result.Failure);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Name-prefilter rejection allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -1123,23 +1359,186 @@ public sealed class MethodCorrespondenceResolverTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildGenericMethodImage()
+    static byte[] BuildGenericMethodImage(
+        int encodedArity = 1,
+        int rowCount = 1)
     {
         var metadata = CreateSingleTypeMetadata("MethodSignature");
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteCompressedInteger(encodedArity);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
         MethodDefinitionHandle method =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("M"),
-                metadata.GetOrAddBlob(
-                    new byte[] { 0x10, 0x01, 0x00, 0x01 }),
+                metadata.GetOrAddBlob(signature),
                 bodyOffset: 0,
                 MetadataTokens.ParameterHandle(1));
-        metadata.AddGenericParameter(
-            method,
-            GenericParameterAttributes.None,
-            metadata.GetOrAddString("T"),
-            index: 0);
+        for (int i = 0; i < rowCount; i++)
+        {
+            metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString(
+                    i == 0 ? "T" : $"T{i}"),
+                index: i);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModifiedReturnMethodImage(
+        bool? required,
+        string? modifierName)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("ModifiedReturn");
+        if (required is not null)
+        {
+            AssemblyReferenceHandle runtime =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("System.Runtime"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    modifierName
+                    ?? throw new ArgumentNullException(
+                        nameof(modifierName))));
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        if (required is bool isRequired)
+        {
+            signature.WriteByte(
+                isRequired ? (byte)0x1f : (byte)0x20);
+            signature.WriteCompressedInteger(
+                (1 << 2) | 1);
+        }
+        signature.WriteByte(0x01);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildFunctionPointerMethodImage(
+        byte nestedHeader,
+        string? conventionModifier = null)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("FunctionPointer");
+        if (conventionModifier is not null)
+        {
+            AssemblyReferenceHandle runtime =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("System.Runtime"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    conventionModifier));
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1b);
+        signature.WriteByte(nestedHeader);
+        signature.WriteCompressedInteger(0);
+        if (conventionModifier is not null)
+        {
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(
+                (1 << 2) | 1);
+        }
+        signature.WriteByte(0x01);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildParameterRowMethodImage(
+        int parameterCount,
+        int? parameterSequence,
+        ParameterAttributes parameterAttributes =
+            ParameterAttributes.None)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("ParameterRows");
+        ParameterHandle firstParameter =
+            parameterSequence is int sequence
+                ? metadata.AddParameter(
+                    parameterAttributes,
+                    default,
+                    sequence)
+                : MetadataTokens.ParameterHandle(1);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+            signature.WriteByte(0x08);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            firstParameter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedApiMemberImage(
+        string typeName,
+        string methodName,
+        byte[] signature,
+        int methodCount)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "RepeatedApiMember",
+                typeName);
+        StringHandle name =
+            metadata.GetOrAddString(methodName);
+        BlobHandle signatureBlob =
+            metadata.GetOrAddBlob(signature);
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                name,
+                signatureBlob,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata);
     }
 
@@ -1867,6 +2266,66 @@ public sealed class MethodCorrespondenceResolverTests
         }
 
         throw new InvalidOperationException($"Method '{typeName}::{methodName}' was not found.");
+    }
+
+    static MethodCorrespondenceResult ResolveApiMember(
+        byte[] sourceImage,
+        byte[] targetImage)
+    {
+        using var sourcePe =
+            new PEReader(new MemoryStream(sourceImage));
+        using var targetPe =
+            new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader =
+            sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+        return MethodCorrespondenceResolver.ResolveApiMember(
+            sourceReader,
+            MetadataMethodAddress.Create(
+                sourceReader,
+                sourceMethod),
+            targetPe.GetMetadataReader());
+    }
+
+    static byte[] CompileFixture(
+        string assemblyName,
+        string source)
+    {
+        string trustedPlatformAssemblies =
+            (string?)AppContext.GetData(
+                "TRUSTED_PLATFORM_ASSEMBLIES")
+            ?? throw new InvalidOperationException(
+                "The trusted platform assembly list is unavailable.");
+        MetadataReference[] references =
+            trustedPlatformAssemblies
+                .Split(Path.PathSeparator)
+                .Select(
+                    static path =>
+                        MetadataReference.CreateFromFile(path))
+                .ToArray();
+        CSharpCompilation compilation =
+            CSharpCompilation.Create(
+                assemblyName,
+                [
+                    CSharpSyntaxTree.ParseText(
+                        source,
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview)),
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    allowUnsafe: true));
+        using var peStream = new MemoryStream();
+        EmitResult emit = compilation.Emit(peStream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                Environment.NewLine,
+                emit.Diagnostics));
+        return peStream.ToArray();
     }
 
     static MetadataImage Open(string path) => new(path);

@@ -67,7 +67,10 @@ public static class MetadataSafetyPolicy
     /// <summary>
     /// Maximum cumulative member-anchor work across one API-member
     /// correspondence scan. Gated by
-    /// <c>ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget</c>.
+    /// <c>ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget</c>,
+    /// <c>ResolveApiMember_RepeatedIdentityMaterializationFailsWithinOperationBudget</c>,
+    /// and
+    /// <c>ResolveApiMember_RepeatedNonmatchingNamesFailWithinOperationBudget</c>.
     /// </summary>
     public const int MaxCorrespondenceAnchorWorkChars =
         MaxAnchorSignatureWorkChars;

@@ -55,15 +55,19 @@ For commands that need both API information and source resolution, dotnet-inspec
 1. **Resolve ref assembly** for API extraction (complete public surface)
 2. **Resolve runtime assembly** for PDB lookup (has CodeView debug info)
 3. Resolve the selected reference MethodDef to exactly one runtime MethodDef
-   by its stable API-member anchor plus normalized return type, calling
-   convention, and parameter-direction semantics
+   by its stable API-member anchor plus normalized signature shape, required
+   custom modifiers, nested function-pointer conventions, encoded arity, and
+   parameter-direction semantics
 4. Use that runtime MethodDef for both body-state and PDB source lookup
 5. Use the runtime assembly path for symbol server queries
 
 MethodDef tokens and overload ordinals are image-local. If API-member
 correspondence is absent, ambiguous, or malformed, member source inspection
 reports the source unavailable rather than applying the reference token or
-ordinal to the runtime image.
+ordinal to the runtime image. Assembly-reference versions, TypeDef/TypeRef
+storage roles, and optional custom modifiers outside function pointers remain
+outside this API identity. Every target-name comparison and identity
+materialization draws from one operation-wide work budget.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
