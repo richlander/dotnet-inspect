@@ -248,7 +248,183 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Null(result.Target);
         Assert.Equal(2, result.Candidates.Count);
         Assert.Contains("2 target methods", result.Failure);
-        Assert.Contains("API member anchor", result.Failure);
+        Assert.Contains("API member identity", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ConstructorDecoratedAnchorNameUsesRawMetadataName()
+    {
+        byte[] image = BuildNamedMethodSignatureImage(
+            ".ctor",
+            [0x20, 0x00, 0x01],
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Equal("#ctor", result.Anchor?.MemberName);
+    }
+
+    [Fact]
+    public void ResolveApiMember_GenericDecoratedAnchorNameUsesRawMetadataName()
+    {
+        byte[] image = BuildGenericMethodImage();
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Equal("M<T>", result.Anchor?.MemberName);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ParameterDirectionMismatchIsAbsent()
+    {
+        byte[] sourceImage =
+            BuildDirectionalMethodImage(ParameterAttributes.None);
+        byte[] targetImage =
+            BuildDirectionalMethodImage(ParameterAttributes.Out);
+        using var sourcePe =
+            new PEReader(new MemoryStream(sourceImage));
+        using var targetPe =
+            new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReturnTypeMismatchIsAbsent()
+    {
+        byte[] sourceImage = BuildNamedMethodSignatureImage(
+            "M",
+            [0x00, 0x00, 0x08],
+            MethodAttributes.Public | MethodAttributes.Static);
+        byte[] targetImage = BuildNamedMethodSignatureImage(
+            "M",
+            [0x00, 0x00, 0x0e],
+            MethodAttributes.Public | MethodAttributes.Static);
+        using var sourcePe =
+            new PEReader(new MemoryStream(sourceImage));
+        using var targetPe =
+            new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_InstanceMismatchIsAbsent()
+    {
+        byte[] sourceImage = BuildNamedMethodSignatureImage(
+            "M",
+            [0x00, 0x00, 0x01],
+            MethodAttributes.Public | MethodAttributes.Static);
+        byte[] targetImage = BuildNamedMethodSignatureImage(
+            "M",
+            [0x20, 0x00, 0x01],
+            MethodAttributes.Public);
+        using var sourcePe =
+            new PEReader(new MemoryStream(sourceImage));
+        using var targetPe =
+            new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget()
+    {
+        byte[] sourceImage =
+            BuildNearLimitApiCandidateImage(
+                methodCount: 1,
+                typeNameLength: 0);
+        byte[] targetImage =
+            BuildNearLimitApiCandidateImage(
+                methodCount: 8,
+                typeNameLength: 900_000);
+        using var sourcePe =
+            new PEReader(new MemoryStream(sourceImage));
+        using var targetPe =
+            new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("correspondence anchor work budget", result.Failure);
+        Assert.True(
+            allocated < 64 * 1024 * 1024,
+            $"Correspondence rejection allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -925,15 +1101,112 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     static byte[] BuildMethodSignatureImage(byte[] signature)
+        => BuildNamedMethodSignatureImage(
+            "M",
+            signature,
+            MethodAttributes.Public | MethodAttributes.Static);
+
+    static byte[] BuildNamedMethodSignatureImage(
+        string name,
+        byte[] signature,
+        MethodAttributes attributes)
     {
         var metadata = CreateSingleTypeMetadata("MethodSignature");
+        metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericMethodImage()
+    {
+        var metadata = CreateSingleTypeMetadata("MethodSignature");
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x10, 0x01, 0x00, 0x01 }),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            method,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDirectionalMethodImage(
+        ParameterAttributes direction)
+    {
+        var metadata = CreateSingleTypeMetadata("DirectionalMethod");
+        ParameterHandle parameter = metadata.AddParameter(
+            direction,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("M"),
-            metadata.GetOrAddBlob(signature),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x01, 0x01, 0x10, 0x08 }),
             bodyOffset: 0,
-            MetadataTokens.ParameterHandle(1));
+            parameter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNearLimitApiCandidateImage(
+        int methodCount,
+        int typeNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata("NearLimitCandidates");
+        BlobHandle signature;
+        if (typeNameLength == 0)
+        {
+            signature = metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 });
+        }
+        else
+        {
+            AssemblyReferenceHandle assembly =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Dependency"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("Dependency"),
+                metadata.GetOrAddString(
+                    new string('T', typeNameLength)));
+            var signatureBuilder = new BlobBuilder();
+            signatureBuilder.WriteByte(0x00);
+            signatureBuilder.WriteCompressedInteger(1);
+            signatureBuilder.WriteByte(0x01);
+            signatureBuilder.WriteByte(0x12);
+            signatureBuilder.WriteCompressedInteger((1 << 2) | 1);
+            signature = metadata.GetOrAddBlob(signatureBuilder);
+        }
+
+        StringHandle name = metadata.GetOrAddString("M");
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                name,
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata);
     }
 

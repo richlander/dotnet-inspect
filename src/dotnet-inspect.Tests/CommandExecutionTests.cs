@@ -7465,6 +7465,46 @@ public partial class CommandExecutionTests
                 ApiCommand.MemberCorrespondenceUnavailableReason,
                 absentSource.PdbSourceUnavailableReason);
 
+            string absentWithoutPdbAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateAbsentWithoutPdb",
+                """
+                using System.IO;
+
+                namespace BodyStateOrder;
+
+                public class ReorderedOverloads
+                {
+                    public void Load(Stream stream)
+                    {
+                        _ = 101;
+                    }
+                }
+                """);
+            ApiCommand.ResolvedMethodSource absentWithoutPdb =
+                await ApiCommand.ResolveMethodSourceAsync(
+                    absentWithoutPdbAssembly,
+                    "BodyStateOrder.ReorderedOverloads",
+                    "Load",
+                    overloadIndex: 0,
+                    new MemberOptions
+                    {
+                        AssemblyPath = absentWithoutPdbAssembly,
+                        DllPath = absentWithoutPdbAssembly,
+                    },
+                    httpClient,
+                    new VerboseLogger(enabled: false),
+                    fetchSource: true,
+                    publicOnly: true,
+                    memberMetadataAssemblyPath: referenceAssembly,
+                    memberMetadataToken: selectedToken);
+
+            Assert.Null(absentWithoutPdb.Source);
+            Assert.Null(absentWithoutPdb.PdbPath);
+            Assert.Equal(
+                ApiCommand.MemberCorrespondenceUnavailableReason,
+                absentWithoutPdb.PdbSourceUnavailableReason);
+
             ApiCommand.ResolvedMethodSource pdbOnly =
                 await ApiCommand.ResolveMethodSourceAsync(
                     absentRuntimeAssembly,
@@ -7486,6 +7526,82 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 Path.ChangeExtension(absentRuntimeAssembly, ".pdb"),
                 pdbOnly.PdbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_CrossImageDefiniteBodylessnessWinsBeforeCorrespondence()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"member-bodyless-correspondence-{Guid.NewGuid():N}");
+
+        try
+        {
+            string referenceAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodylessReference",
+                """
+                using System.Runtime.CompilerServices;
+
+                [assembly: ReferenceAssembly]
+
+                namespace CrossImageBodyless;
+
+                public abstract class Shape
+                {
+                    public abstract void Transform();
+                }
+                """);
+            string runtimeAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodylessRuntime",
+                """
+                namespace CrossImageBodyless;
+
+                public class Shape
+                {
+                    public void Transform()
+                    {
+                        _ = 42;
+                    }
+                }
+                """,
+                emitPortablePdb: true);
+            int selectedToken = FindMethodToken(
+                referenceAssembly,
+                "CrossImageBodyless.Shape",
+                "Transform",
+                parameterCount: 0);
+
+            using var httpClient = new HttpClient();
+            ApiCommand.ResolvedMethodSource source =
+                await ApiCommand.ResolveMethodSourceAsync(
+                    runtimeAssembly,
+                    "CrossImageBodyless.Shape",
+                    "Transform",
+                    overloadIndex: 0,
+                    new MemberOptions
+                    {
+                        AssemblyPath = runtimeAssembly,
+                        DllPath = runtimeAssembly,
+                    },
+                    httpClient,
+                    new VerboseLogger(enabled: false),
+                    fetchSource: true,
+                    publicOnly: true,
+                    memberMetadataAssemblyPath: referenceAssembly,
+                    memberMetadataToken: selectedToken);
+
+            Assert.True(source.MemberHasNoBody);
+            Assert.Null(source.Source);
+            Assert.Null(source.PdbPath);
+            Assert.Null(source.PdbSourceUnavailableReason);
         }
         finally
         {

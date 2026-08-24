@@ -1555,13 +1555,6 @@ public class ApiCommand
 
             if (!fetchSource)
                 return new ResolvedMethodSource(null, pdbPath);
-            if (!service.HasPdb)
-            {
-                return new ResolvedMethodSource(
-                    null,
-                    pdbPath,
-                    PdbSourceUnavailableReason: NoPortablePdbReason);
-            }
             if (memberTarget.Correspondence
                 is { IsExact: false } correspondence)
             {
@@ -1573,6 +1566,13 @@ public class ApiCommand
                     pdbPath,
                     PdbSourceUnavailableReason:
                         MemberCorrespondenceUnavailableReason);
+            }
+            if (!service.HasPdb)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    PdbSourceUnavailableReason: NoPortablePdbReason);
             }
 
             var methodInfo = service.ResolveMethodSource(
@@ -1696,6 +1696,12 @@ public class ApiCommand
             tokenAddressesLookupImage ? log : null);
         bool? memberHasBody =
             memberContext.MethodHasBody(memberMetadataToken);
+        if (memberHasBody == false)
+        {
+            return new ResolvedMemberSourceTarget(
+                tokenAddressesLookupImage ? memberMetadataToken : 0,
+                HasBody: false);
+        }
         if (tokenAddressesLookupImage)
         {
             return new ResolvedMemberSourceTarget(

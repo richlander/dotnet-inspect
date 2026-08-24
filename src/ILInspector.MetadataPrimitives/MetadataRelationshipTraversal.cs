@@ -65,6 +65,14 @@ public static class MetadataSafetyPolicy
     public const int MaxCorrespondenceMethodRows = 256 * 1024;
 
     /// <summary>
+    /// Maximum cumulative member-anchor work across one API-member
+    /// correspondence scan. Gated by
+    /// <c>ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget</c>.
+    /// </summary>
+    public const int MaxCorrespondenceAnchorWorkChars =
+        MaxAnchorSignatureWorkChars;
+
+    /// <summary>
     /// Maximum matching MethodDef addresses materialized before malformed
     /// duplicate metadata is rejected. Gated by
     /// <c>Resolve_DuplicateCandidatesFailClosedAtCap</c>.
