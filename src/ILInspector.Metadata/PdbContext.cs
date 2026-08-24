@@ -517,11 +517,15 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
-    /// facet surface reads the same bytes this context read instead of reopening
-    /// the source. Internal because the reader is metadata-internal; borrowers go
-    /// through the session.
+    /// This context's open reader, lent to same-image product consumers so they
+    /// read the bytes this context opened instead of reopening the source.
+    /// Metadata facets borrow through <see cref="AssemblyInspectionSession"/>;
+    /// sequential Analysis presence probing borrows directly.
     /// </summary>
+    /// <remarks>
+    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>
+    /// gates the Analysis borrower.
+    /// </remarks>
     internal PEReader BorrowedPEReader
     {
         get

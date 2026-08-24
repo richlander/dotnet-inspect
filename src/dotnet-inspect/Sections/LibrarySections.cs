@@ -386,12 +386,12 @@ public static class LibrarySections
                 {
                     return new UnsafeEvidencePresenceResult.Failed(
                         new InvalidOperationException(
-                            "Unsafe evidence discovery requires the command's prefetched PE image."));
+                            "Unsafe evidence discovery requires the command's opened metadata context."));
                 }
 
                 return UnsafeEvidencePresenceQuery.Execute(
                     ctx.AssemblyPath,
-                    metadata.GetPrefetchedImage());
+                    metadata);
             })
             .Add(UnsafeEvidenceQuery.Definition, ctx =>
                 ExecuteUnsafeEvidenceQuery(

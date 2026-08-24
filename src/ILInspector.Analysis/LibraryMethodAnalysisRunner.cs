@@ -196,9 +196,20 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodDefinition,
                         Scope());
 
+            bool hasUnsafeSignature =
+                SignatureMayContainUnsafeType(
+                    methodDefinition.Signature);
+            if (hasUnsafeSignature
+                && !SignatureBlobGuard.IsSafeToDecode(
+                    reader,
+                    methodDefinition.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                throw new BadImageFormatException(
+                    "An unsafe method signature exceeds the safe decoding limits.");
+            }
             if ((MayBeUnsafeApiType(reader, typeHandle)
-                    || SignatureMayContainUnsafeType(
-                        methodDefinition.Signature))
+                    || hasUnsafeSignature)
                 && MethodSafetyAnalysis.HasUnsafeDeclaration(
                     Caller()))
             {
@@ -385,9 +396,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                             method.Signature,
                             SignatureBlobGuard.Kind.Method);
                     return result
-                        == UnsafeCallProbeResult.Incomplete
-                            ? UnsafeCallProbeResult.Evidence
-                            : unsafeApiCandidate
+                        == UnsafeCallProbeResult.NoCandidate
+                            && unsafeApiCandidate
                                 ? UnsafeCallProbeResult
                                     .RequiresResolution
                                 : result;

@@ -48,19 +48,27 @@ matching wildcard). Target-aware bare discovery lists it when a bounded,
 early-exit presence probe finds evidence or the metadata scan produces a
 renderable incomplete-decode diagnostic. The probe caches no-copy signature
 marker scans by blob and streams IL without copying or materializing decoded
-instruction arrays. It charges signature and visited-IL bytes to separate
-4 MiB assembly-wide budgets and fails visibly when either budget is exhausted
-or a candidate local or call signature cannot be decoded safely. A namespace
-and type-name match for `System.Runtime.CompilerServices.Unsafe` is only a
-candidate; terminal evidence requires the same trusted framework identity as
-the full census. It does not materialize that census. The explicit-only `Body
-Shapes` section is likewise uncategorized; its required `Kind=...` predicate
-supplies its scope.
+instruction arrays. It borrows the command-owned, non-prefetched PE reader and
+walks methods sequentially in metadata order, so an early finding does not
+materialize the complete image and concurrent suffix work cannot consume its
+budget first. It charges signature and visited-IL bytes to separate 4 MiB
+assembly-wide budgets and fails visibly when either budget is exhausted or a
+candidate declaration, local, or call signature cannot be decoded safely. A
+namespace and type-name match for `System.Runtime.CompilerServices.Unsafe` is
+only a candidate; terminal evidence requires the same trusted framework
+identity as the full census. It does not materialize that census. The
+explicit-only `Body Shapes` section is likewise uncategorized; its required
+`Kind=...` predicate supplies its scope.
 
 `UnsafeEvidencePresenceTests.UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence`,
-`UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`, and
-`UnsafeEvidencePresence_StopsBeforeCopyingOrMaterializingLargeSuffix` gate the
-trusted-identity and bounded-streaming properties.
+`UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`,
+`UnsafeEvidencePresence_StopsBeforeCopyingOrMaterializingLargeSuffix`,
+`UnsafeEvidencePresence_EarlierEvidenceIsNotScheduleDependent`,
+`UnsafeEvidencePresence_GuardRejectedPointerMethodDefDeclarationFailsVisibly`,
+`UnsafeEvidencePresence_GuardRejectedPointerMethodDefCallFailsVisibly`, and
+`IndexBuildInvariantTests.UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext`
+gate the trusted-identity, bounded-streaming, deterministic-order,
+failure-visibility, and non-prefetch properties.
 
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.

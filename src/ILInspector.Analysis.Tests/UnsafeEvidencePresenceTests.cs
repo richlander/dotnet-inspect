@@ -84,6 +84,69 @@ public class UnsafeEvidencePresenceTests
     }
 
     [Fact]
+    public void
+        UnsafeEvidencePresence_GuardRejectedPointerMethodDefCallFailsVisibly()
+    {
+        ImmutableArray<byte> image =
+            BuildGuardRejectedMethodDefinitionAssembly(
+                called: true,
+                unsafeLookalikeType: false);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "GuardRejectedMethodDefCall.dll",
+                    image));
+
+        Assert.Contains(
+            "unsafe call signature exceeds the safe decoding limits",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_GuardRejectedPointerMethodDefDeclarationFailsVisibly()
+    {
+        ImmutableArray<byte> image =
+            BuildGuardRejectedMethodDefinitionAssembly(
+                called: false,
+                unsafeLookalikeType: false);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "GuardRejectedMethodDefDeclaration.dll",
+                    image));
+
+        Assert.Contains(
+            "unsafe method signature exceeds the safe decoding limits",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_GuardRejectedUnsafeLookalikeMethodDefFailsVisibly()
+    {
+        ImmutableArray<byte> image =
+            BuildGuardRejectedMethodDefinitionAssembly(
+                called: true,
+                unsafeLookalikeType: true);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "GuardRejectedUnsafeLookalikeMethodDef.dll",
+                    image));
+
+        Assert.Contains(
+            "unsafe call signature exceeds the safe decoding limits",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void UnsafeSignatureMarkerCache_RepeatedHandleScansOnce()
     {
         using MetadataReaderProvider provider =
@@ -243,6 +306,22 @@ public class UnsafeEvidencePresenceTests
             $"Presence probing allocated {allocated:N0} bytes.");
     }
 
+    [Fact]
+    public void
+        UnsafeEvidencePresence_EarlierEvidenceIsNotScheduleDependent()
+    {
+        ImmutableArray<byte> image =
+            BuildSchedulingSensitiveAssembly();
+
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            Assert.True(
+                LibraryBodyIndex.HasUnsafeEvidence(
+                    "SchedulingSensitive.dll",
+                    image));
+        }
+    }
+
     static ImmutableArray<byte> BuildGuardRejectedUnsafeAssembly(
         GuardRejectedSignatureKind rejectedKind,
         bool unsafeLookalikeParent = false)
@@ -382,6 +461,62 @@ public class UnsafeEvidencePresenceTests
         }
         signature.WriteByte(0x08);
         return signature.ToArray();
+    }
+
+    static ImmutableArray<byte>
+        BuildGuardRejectedMethodDefinitionAssembly(
+            bool called,
+            bool unsafeLookalikeType)
+    {
+        var metadata = CreateMetadata(
+            "GuardRejectedMethodDefinition");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString(
+                unsafeLookalikeType
+                    ? "System.Runtime.CompilerServices"
+                    : "N"),
+            metadata.GetOrAddString(
+                unsafeLookalikeType
+                    ? "Unsafe"
+                    : "Sample"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var bodies = new BlobBuilder();
+        if (called)
+        {
+            var code = new BlobBuilder();
+            code.WriteByte((byte)ILOpCode.Call);
+            code.WriteInt32(
+                MetadataTokens.GetToken(
+                    MetadataTokens.MethodDefinitionHandle(2)));
+            code.WriteByte((byte)ILOpCode.Ret);
+            int bodyOffset =
+                new MethodBodyStreamEncoder(bodies)
+                    .AddMethodBody(
+                        new InstructionEncoder(code),
+                        maxStack: 1);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Caller"),
+                AddVoidMethodSignature(metadata),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddBlob(
+                GuardRejectedSignature(
+                    SignatureBlobGuard.Kind.Method)),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
     }
 
     static BlobHandle AddVoidMethodSignature(
@@ -535,6 +670,71 @@ public class UnsafeEvidencePresenceTests
             AddVoidMethodSignature(metadata),
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildSchedulingSensitiveAssembly()
+    {
+        var metadata = CreateMetadata(
+            "SchedulingSensitive");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Probe"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StandaloneSignatureHandle calliSignature =
+            metadata.AddStandaloneSignature(
+                AddVoidMethodSignature(metadata));
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var unsafeCode = new BlobBuilder();
+        unsafeCode.WriteByte((byte)ILOpCode.Calli);
+        unsafeCode.WriteInt32(
+            MetadataTokens.GetToken(calliSignature));
+        unsafeCode.WriteByte((byte)ILOpCode.Ret);
+        int unsafeBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(unsafeCode),
+            maxStack: 1);
+
+        const int switchTargets = 262_144;
+        var safeCode = new BlobBuilder(
+            1 + sizeof(int)
+                + switchTargets * sizeof(int)
+                + 1);
+        safeCode.WriteByte((byte)ILOpCode.Switch);
+        safeCode.WriteInt32(switchTargets);
+        safeCode.WriteBytes(
+            new byte[
+                switchTargets * sizeof(int)]);
+        safeCode.WriteByte((byte)ILOpCode.Ret);
+        int safeBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(safeCode),
+            maxStack: 1);
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("UnsafeFirst"),
+            AddVoidMethodSignature(metadata),
+            unsafeBody,
+            MetadataTokens.ParameterHandle(1));
+        for (int index = 0; index < 200; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    $"Safe{index}"),
+                AddVoidMethodSignature(metadata),
+                safeBody,
+                MetadataTokens.ParameterHandle(1));
+        }
 
         return Serialize(metadata, bodies);
     }

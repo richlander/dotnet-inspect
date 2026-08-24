@@ -1,5 +1,5 @@
-using System.Collections.Immutable;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
 
@@ -13,7 +13,7 @@ public abstract record UnsafeEvidencePresenceResult
     /// <summary>The probe completed and reports whether at least one finding exists.</summary>
     public sealed record Available(bool HasEvidence) : UnsafeEvidencePresenceResult;
 
-    /// <summary>The probe failed while reading the retained assembly image.</summary>
+    /// <summary>The probe failed while reading the retained assembly context.</summary>
     public sealed record Failed(Exception Error) : UnsafeEvidencePresenceResult;
 }
 
@@ -27,12 +27,12 @@ public static class UnsafeEvidencePresenceQuery
 
     public static UnsafeEvidencePresenceResult Execute(
         string path,
-        ImmutableArray<byte> image)
+        PdbContext context)
     {
         try
         {
             return new UnsafeEvidencePresenceResult.Available(
-                LibraryBodyIndex.HasUnsafeEvidence(path, image));
+                LibraryBodyIndex.HasUnsafeEvidence(path, context));
         }
         catch (Exception ex)
         {

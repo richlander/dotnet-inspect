@@ -16,6 +16,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <InternalsVisibleTo Include="ILInspector.Analysis" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,
          rather than duplicating TextPolicy.Field in test code. This grants

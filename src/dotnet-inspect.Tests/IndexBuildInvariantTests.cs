@@ -364,6 +364,33 @@ public class IndexBuildInvariantTests
                 recursive: true);
         }
     }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext()
+    {
+        using var context =
+            ILInspector.Metadata.PdbContext
+                .OpenEmbeddedPdbOnly(
+                    FixtureAssembly,
+                    maxEmbeddedPdbBytes: 8 * 1024 * 1024);
+        Assert.Throws<InvalidOperationException>(
+            () => context.GetPrefetchedImage());
+
+        DotnetInspector.Queries.UnsafeEvidencePresenceResult
+            result =
+                DotnetInspector.Queries
+                    .UnsafeEvidencePresenceQuery.Execute(
+                        FixtureAssembly,
+                        context);
+
+        Assert.IsType<
+            DotnetInspector.Queries
+                .UnsafeEvidencePresenceResult.Available>(
+                    result);
+        Assert.Throws<InvalidOperationException>(
+            () => context.GetPrefetchedImage());
+    }
 }
 
 public class IndexBuildGuardFixture

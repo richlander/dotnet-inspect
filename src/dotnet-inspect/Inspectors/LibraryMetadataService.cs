@@ -71,13 +71,9 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
                 requiredQueries);
-            bool needsUnsafeEvidencePresence =
-                requiredQueries?.Contains(
-                    UnsafeEvidencePresenceQuery.Definition) == true;
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
-                    != Analysis.LibraryBodyAnalysisFeatures.None
-                || needsUnsafeEvidencePresence;
+                    != Analysis.LibraryBodyAnalysisFeatures.None;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures

@@ -2421,8 +2421,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v27: trusted unsafe identity and bounded IL scanning change applicability.
-    private const string EffectiveCategory = "effective-v27";
+    // Bumped to v28: deterministic, non-prefetched unsafe presence changes applicability.
+    private const string EffectiveCategory = "effective-v28";
 
     static LibraryCommand()
     {

@@ -900,10 +900,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     {
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
-        var methods = new List<(
-            TypeDefinitionHandle TypeHandle,
-            TypeDefinition TypeDefinition,
-            MethodDefinitionHandle MethodHandle)>();
+        AnalysisDiagnostic? firstDiagnostic = null;
 
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
@@ -911,67 +908,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _reader.GetTypeDefinition(typeHandle);
             foreach (var methodHandle in typeDefinition.GetMethods())
             {
-                methods.Add((
-                    typeHandle,
-                    typeDefinition,
-                    methodHandle));
-            }
-        }
-
-        if (methods.Count < ParallelBuildMethodThreshold)
-        {
-            AnalysisDiagnostic? firstDiagnostic = null;
-            foreach (var method in methods)
-            {
                 UnsafeEvidencePresenceMethodResult result =
                     methodRunner.ProbeUnsafeEvidence(
-                        method.TypeHandle,
-                        method.TypeDefinition,
-                        method.MethodHandle);
+                    typeHandle,
+                    typeDefinition,
+                    methodHandle);
                 if (result.HasEvidence)
                     return true;
                 firstDiagnostic ??= result.Diagnostic;
             }
-            ThrowIfIncomplete(firstDiagnostic);
-            return false;
         }
 
-        int found = 0;
-        var diagnostics =
-            new ConcurrentBag<AnalysisDiagnostic>();
-        Parallel.For(
-            0,
-            methods.Count,
-            (index, loop) =>
-            {
-                if (Volatile.Read(ref found) != 0)
-                {
-                    loop.Stop();
-                    return;
-                }
-
-                var method = methods[index];
-                UnsafeEvidencePresenceMethodResult result =
-                    methodRunner.ProbeUnsafeEvidence(
-                        method.TypeHandle,
-                        method.TypeDefinition,
-                        method.MethodHandle);
-                if (result.HasEvidence)
-                {
-                    Interlocked.Exchange(ref found, 1);
-                    loop.Stop();
-                }
-                else if (result.Diagnostic is { } diagnostic)
-                {
-                    diagnostics.Add(diagnostic);
-                }
-            });
-        if (found != 0)
-            return true;
-
-        ThrowIfIncomplete(
-            diagnostics.MinBy(
-                diagnostic => diagnostic.MethodToken));
+        ThrowIfIncomplete(firstDiagnostic);
         return false;
 
         static void ThrowIfIncomplete(
