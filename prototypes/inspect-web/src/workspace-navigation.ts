@@ -316,7 +316,7 @@ interface DecodedShareState {
   rich: boolean;
   type: string | null;
   member: string | null;
-  overload: string | number | null;
+  overload: number | null;
   section: MemberSection | null;
   rejectedFields: string[];
   bodyTarget: BodyTarget | null;
@@ -471,23 +471,14 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         rich: true,
         type: typeof raw.y === "string" ? raw.y : null,
         member: typeof raw.m === "string" ? raw.m : null,
-        overload: typeof raw.o === "string" || typeof raw.o === "number"
-          ? raw.o
-          : null,
+        overload: typeof raw.o === "number" ? raw.o : null,
         section: typeof raw.c === "string" && isMemberSection(raw.c)
           ? raw.c
           : null,
-        rejectedFields: [
-          ...(Object.hasOwn(raw, "o")
-            && typeof raw.o !== "string"
-            && typeof raw.o !== "number"
-            ? ["overload"]
-            : []),
-          ...(Object.hasOwn(raw, "c")
-            && (typeof raw.c !== "string" || !isMemberSection(raw.c))
-            ? ["section"]
-            : []),
-        ],
+        rejectedFields: Object.hasOwn(raw, "c")
+          && (typeof raw.c !== "string" || !isMemberSection(raw.c))
+          ? ["section"]
+          : [],
         bodyTarget: decodeBodyTarget(raw.d),
         library: typeof raw.l === "string" ? raw.l : null,
         libraryPack: platformPackToken(raw.p),

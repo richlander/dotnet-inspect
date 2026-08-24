@@ -319,7 +319,7 @@ test("graph member URLs retain exact identity instead of a lossy body target", (
   assert.equal(parsed.bodyTarget, null);
   assert.equal(parsed.type, state.selectedTypeId);
   assert.equal(parsed.member, state.selectedMemberKey);
-  assert.equal(parsed.overload, String(state.selectedOverloadIndex));
+  assert.equal(parsed.overload, state.selectedOverloadIndex);
 });
 
 test("history signatures distinguish exact graph member identity", () => {
@@ -513,7 +513,7 @@ test("the overload coordinate is parsed once, canonically, at the URL boundary",
   const shared = parseWorkspaceLocation(locationSnapshot(
     `https://inspect.example/?w=${packet}`));
   assert.equal(shared.overload, null);
-  assert.match(shared.workspaceNotice, /overload/);
+  assert.match(shared.workspaceNotice, /invalid and was ignored/);
   const negativeZeroPacket = Buffer.from(
     '{"t":[["Example.Package","1.0.0","net10.0"]],"a":0,"o":-0}')
     .toString("base64url");
@@ -572,7 +572,7 @@ test("rich workspace packets keep valid member sections and drop invalid ones", 
   const nonString = parseWorkspaceLocation(locationSnapshot(
     `https://inspect.example/?w=${richPacket(7)}`));
   assert.equal(nonString.section, null);
-  assert.match(nonString.workspaceNotice, /section/);
+  assert.match(nonString.workspaceNotice, /invalid and was ignored/);
 });
 
 test("malformed rich packet fields cannot override the visible package", () => {

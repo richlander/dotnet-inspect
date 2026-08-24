@@ -878,7 +878,6 @@ export interface LocalGraphMemberSelection {
 export function graphMemberDeepLinkDisposition<TType>(
   deep: {
     member?: string | null;
-    overload?: string | null;
     graphTarget?: GraphMemberShareIdentity | null;
   } | null | undefined,
   candidate: { status: string; type?: TType } | null,
