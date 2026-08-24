@@ -625,6 +625,9 @@ path on the desktop wire, while
 `V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
 an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
 resource normalization.
+`DefaultV3VersionAndPackagePreserveSignedServiceIndexBytes` gates the same
+configured-index byte preservation for version and package operations on the
+desktop wire.
 `HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
 gates the same shared address policy across redirect hops.
 `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential and

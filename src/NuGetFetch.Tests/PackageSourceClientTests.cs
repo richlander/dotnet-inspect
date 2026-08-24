@@ -3038,6 +3038,70 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task DefaultV3VersionAndPackagePreserveSignedServiceIndexBytes()
+    {
+        using var sourceListener =
+            new TcpListener(IPAddress.Loopback, 0);
+        sourceListener.Start();
+        int sourcePort =
+            ((IPEndPoint)sourceListener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://127.0.0.1:{sourcePort}/%69ndex.json?s%69g=%73ervice";
+        string flatContainer =
+            $"http://127.0.0.1:{sourcePort}/flat/";
+        string serviceIndex = $$"""
+            {
+              "version": "3.0.0",
+              "resources": [
+                {
+                  "@id": "{{flatContainer}}",
+                  "@type": "PackageBaseAddress/3.0.0"
+                }
+              ]
+            }
+            """;
+        Task<IReadOnlyList<string>> sourceServer =
+            ServeHttpResponsesAsync(
+                sourceListener,
+                [
+                    serviceIndex,
+                    """{"versions":["1.0.0"]}""",
+                    serviceIndex,
+                    "package bytes",
+                ],
+                TestContext.Current.CancellationToken);
+
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("signed-index", sourceUrl));
+        PackageVersionResult versions = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+        using var reader = new StreamReader(content);
+
+        Assert.Single(versions.Candidates);
+        Assert.Equal(
+            "package bytes",
+            await reader.ReadToEndAsync(
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            [
+                "GET /%69ndex.json?s%69g=%73ervice HTTP/1.1",
+                "GET /flat/contoso/index.json HTTP/1.1",
+                "GET /%69ndex.json?s%69g=%73ervice HTTP/1.1",
+                "GET /flat/contoso/1.0.0/contoso.1.0.0.nupkg HTTP/1.1",
+            ],
+            await sourceServer);
+    }
+
+    [Fact]
     public void BrowserNuGetRequestsOmitAmbientCredentials()
     {
         using var request = new HttpRequestMessage(

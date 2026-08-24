@@ -264,7 +264,9 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGet(serviceIndexUrl);
+                        NuGetHttpRequest
+                            .CreateGetPreservingPathAndQuery(
+                                serviceIndexUrl);
                     NuGetSourceRequest.ApplyCredential(
                         request,
                         credential);
