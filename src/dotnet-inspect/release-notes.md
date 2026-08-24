@@ -23,11 +23,13 @@
   declared arity without trusting unvalidated name suffixes. Extension members
   now attach to the arity-correct target type rather than a same-named
   non-generic type (#4233, #4539).
-- **Breaking:** Canonical member signatures now spell nested types with `+`.
-  This changes `Name~digest` selectors for members declared by nested types;
-  refresh those selectors from `Member Index`. Extension selectors previously
-  discovered on a same-named non-generic type must likewise be refreshed
-  against the arity-correct generic type (#4233).
+- **Breaking:** Canonical member signatures now spell nested types with `+`
+  and omit spaces between generic arguments in declaring-type anchors. This
+  changes `Name~digest` selectors for members declared by nested types or by
+  generic types with two or more type parameters; refresh those selectors from
+  `Member Index`. Extension selectors previously discovered on a same-named
+  non-generic type must likewise be refreshed against the arity-correct generic
+  type (#4233).
 
 ### Source and implementation evidence
 
