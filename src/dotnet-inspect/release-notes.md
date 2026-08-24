@@ -24,12 +24,15 @@
   now attach to the arity-correct target type rather than a same-named
   non-generic type (#4233, #4539).
 - **Breaking:** Canonical member signatures now spell nested types with `+`
-  and omit spaces between generic arguments in declaring-type anchors. This
-  changes `Name~digest` selectors for members declared by nested types or by
-  generic types with two or more type parameters; refresh those selectors from
-  `Member Index`. Extension selectors previously discovered on a same-named
-  non-generic type must likewise be refreshed against the arity-correct generic
-  type (#4233).
+  and omit spaces between generic arguments in declaring-type anchors. They
+  also preserve and escape exact metadata-name boundaries instead of
+  truncating at literal backticks or treating literal dots as nesting. This
+  changes `Name~digest` selectors for members declared by nested types, by
+  generic types with two or more type parameters, or by types whose encoded
+  generic arity is missing or disagrees with their metadata rows; refresh those
+  selectors from `Member Index`. Extension selectors previously discovered on
+  a same-named non-generic type must likewise be refreshed against the
+  arity-correct generic type (#4233).
 
 ### Source and implementation evidence
 
