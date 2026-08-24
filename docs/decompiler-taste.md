@@ -508,8 +508,11 @@ for separated sibling conditionals. Compact setup is represented by
 exact threshold and leading-conditional boundary.
 `LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact` and
 `LongMethod_SeparatesSiblingControlFlowGroups` enforce the remaining grouping
-policy. `LabeledSequence_DeclinesSemanticSpacing` is the named non-vacuity gate
-for the label decline, while
+policy. `LoopBody_SeparatesBreakAndContinueGuards` and
+`LoopBody_KeepsNonTerminatingConditionalCompact` directly enforce the
+terminating discriminator. `LabeledSequence_DeclinesSemanticSpacing` and
+`StatementOwnedLabel_DeclinesSemanticSpacingIndependently` are the named
+non-vacuity gates for block- and statement-owned label declines, while
 `NestedFiveStatementSequence_AppliesSpacingIndependently` and
 `GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` cover nested
 and generated-block state. The coordinate-preservation gates are

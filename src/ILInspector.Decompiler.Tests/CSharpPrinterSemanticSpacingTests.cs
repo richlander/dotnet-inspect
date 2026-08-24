@@ -238,6 +238,78 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void StatementOwnedLabel_DeclinesSemanticSpacingIndependently()
+    {
+        var guardBody = new Block();
+        guardBody.Add(new Branch(0x50));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(
+            new LoadArgument(0, "flag", Boolean),
+            guardBody,
+            elseArm: null));
+        entry.Add(new ExpressionStatement(new Constant(1, Int32)));
+        entry.Add(new ExpressionStatement(new Constant(2, Int32)));
+        var labeledStatement = new ExpressionStatement(new Constant(3, Int32));
+        labeledStatement.SetSourceOffset(0x50);
+        entry.Add(labeledStatement);
+        entry.Add(new ExpressionStatement(new Constant(4, Int32)));
+        entry.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "StatementOwnedLabel",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("flag", Boolean)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains("IL_0050:", output);
+        Assert.Contains("goto IL_0050;\n}\n_ = 1;", output);
+        Assert.DoesNotContain("goto IL_0050;\n}\n\n_ = 1;", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LoopBody_SeparatesBreakAndContinueGuards(bool useContinue)
+    {
+        IrNode terminal = useContinue ? new Continue() : new Break();
+        string output = PrintLoopConditional(terminal);
+        string keyword = useContinue ? "continue" : "break";
+
+        Assert.Contains(
+            $"{keyword};\n" +
+            "    }\n\n" +
+            "    _ = 3;",
+            output);
+        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void LoopBody_KeepsNonTerminatingConditionalCompact()
+    {
+        string output = PrintLoopConditional(
+            new ExpressionStatement(new Constant(99, Int32)));
+
+        Assert.Contains(
+            "_ = 99;\n" +
+            "    }\n" +
+            "    _ = 3;",
+            output);
+        Assert.DoesNotContain(
+            "_ = 99;\n" +
+            "    }\n\n" +
+            "    _ = 3;",
+            output);
+    }
+
+    [Fact]
     public void NestedFiveStatementSequence_AppliesSpacingIndependently()
     {
         var nested = new Block();
@@ -402,5 +474,38 @@ public class CSharpPrinterSemanticSpacingTests
                 new Constant(0, Int32)),
             then,
             elseArm: null);
+    }
+
+    static string PrintLoopConditional(IrNode thenStatement)
+    {
+        var then = new Block();
+        then.Add(thenStatement);
+        var loopBody = new Block();
+        loopBody.Add(new ExpressionStatement(new Constant(1, Int32)));
+        loopBody.Add(new ExpressionStatement(new Constant(2, Int32)));
+        loopBody.Add(new IfStatement(
+            new LoadArgument(0, "flag", Boolean),
+            then,
+            elseArm: null));
+        loopBody.Add(new ExpressionStatement(new Constant(3, Int32)));
+        loopBody.Add(new ExpressionStatement(new Constant(4, Int32)));
+        var entry = new Block(0);
+        entry.Add(new WhileLoop(
+            new Constant(true, Boolean),
+            loopBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "LoopConditional",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Void,
+                [new Parameter("flag", Boolean)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        return Assert.IsType<string>(CSharpPrinter.Print(function).Output);
     }
 }

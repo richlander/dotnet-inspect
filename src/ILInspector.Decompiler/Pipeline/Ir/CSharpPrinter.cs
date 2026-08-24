@@ -2735,7 +2735,13 @@ public sealed partial class CSharpPrinter
         => statement is IfStatement { HasElse: false } conditional
             && (leading
                 || conditional.Then.Children.LastOrDefault()
-                    is Return or Throw or Branch or Leave or YieldBreak);
+                    is Return
+                        or Throw
+                        or Break
+                        or Continue
+                        or Branch
+                        or Leave
+                        or YieldBreak);
 
     static bool IsMajorControlFlow(IrNode statement)
         => statement is IfStatement
