@@ -235,11 +235,17 @@ public sealed class ReaderConstructionSiteTests
                  + "never be mistaken for one. Surfaced only once the predicate "
                  + "widened from PEReader construction to reader acquisition, "
                  + "which is the point of that widening."),
-            ["MemberBodyProducer.ComposeCore(ApiType, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions)"] =
+            ["MemberBodyProducer.ComposeCore(ApiType, Func`1<CompositionDefinition>, Func`3<CompositionDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions)"] =
                 (TrustRole.ObtainsReader,
-                 "Deliberately unclassified: opens the assembly a located type came "
-                 + "from to read method bodies. This is the sibling path from issue "
-                 + "#4411, and it must not mint core-library identity."),
+                 "Deliberately unclassified: opens the acquired assembly or module "
+                 + "that directly defines a type to read method bodies. This is a "
+                 + "composition path, not an identity grant, and it must not mint "
+                 + "core-library identity."),
+            ["MemberBodyProducer.ResolveModuleDefinition(ResolvedAssemblyReference, ApiType)"] =
+                (TrustRole.ObtainsReader,
+                 "Deliberately unclassified: reads an acquired netmodule only to "
+                 + "bind a TypeDef address by MVID and token. A module has no "
+                 + "assembly identity and must never mint core-library identity."),
             ["MemberBodyProducer.ComposeMemberCore(ApiType, ApiMember, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions, MemberRenderAttributeMode)"] =
                 (TrustRole.ObtainsReader,
                  "Deliberately unclassified, for the same reason as ComposeCore: a "
