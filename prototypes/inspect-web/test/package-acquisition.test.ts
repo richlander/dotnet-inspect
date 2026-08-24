@@ -529,6 +529,34 @@ test("stale runtime results do not publish after the engine returns", async () =
   assert.deepEqual(events, ["begin", "end"]);
 });
 
+test("stale runtime assembly failures do not publish after navigation changes", async () => {
+  const response = deferred<string>();
+  const events: string[] = [];
+  let current = true;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => response.promise,
+    beginRuntimeLoad: () => events.push("begin"),
+    failRuntimeLoad: error =>
+      events.push(error instanceof Error ? `fail:${error.message}` : "fail"),
+    endRuntimeLoad: () => events.push("end"),
+  }));
+
+  const request = acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json.dll",
+    "",
+    () => current);
+  current = false;
+  response.reject(new Error("stale feed failure"));
+
+  const result = await request;
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /stale feed failure/);
+  assert.deepEqual(events, ["begin", "end"]);
+});
+
 test("queued runtime retries preserve each request's failure", async () => {
   const status: string[] = [];
   let attempts = 0;

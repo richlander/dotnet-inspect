@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
@@ -674,11 +675,6 @@ public static partial class InspectionEngine
     {
         _ = memberSignature;
         _ = typeQueryId;
-        if (metadataToken == 0)
-        {
-            throw new InvalidOperationException(
-                "A call graph needs the selected overload's method-body token.");
-        }
 
         var requests = new List<BrowserPackageRequest>
         {
@@ -748,6 +744,46 @@ public static partial class InspectionEngine
                     projection.HasAnalysisFailureBoundary),
                 NoBody: view.CalleeRoot is null && view.CallerRoot is null),
             BrowserJsonContext.Default.BrowserCallGraph);
+    }
+
+    /// <summary>
+    /// The exact API member selected by a call-graph target. Package surfaces keep public types
+    /// lean by omitting their non-public members; a graph click is the explicit gesture that
+    /// projects one such member from the already bounded implementation surface.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryGraphMemberSurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        (_, _, Analysis.CallGraphMemberResolution resolution) =
+            await ImplementationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+            BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        textBudget.BeginParticipant();
+        BrowserMemberSurface member =
+            BrowserSurfaceProjection.Member(
+                resolution.Type,
+                resolution.Member,
+                textBudget);
+        textBudget.CommitParticipant();
+        return JsonSerializer.Serialize(
+            member,
+            BrowserJsonContext.Default.BrowserMemberSurface);
     }
 
     /// <summary>
@@ -951,6 +987,33 @@ public static partial class InspectionEngine
                 DotnetInspector.Vocabulary.VocabularyJson.ToWireDocument(
                     DotnetInspector.Vocabulary.VocabularyCatalog.Document)),
             BrowserJsonContext.Default.BrowserVocabularyDocument);
+
+    // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
+    // allocates one demo's definition graph. The browser builds share links / runners from the
+    // projected coordinates rather than a hand-maintained TypeScript twin.
+    [JSExport]
+    public static string ListHomeDemos() =>
+        JsonSerializer.Serialize(
+            BrowserProductHomeDemos.ToCatalog(ProductInspectionDemos.Entries),
+            BrowserJsonContext.Default.BrowserHomeDemoCatalog);
+
+    /// <summary>
+    /// Resolves one product home demo. <c>found</c> is false when the id is unknown.
+    /// </summary>
+    [JSExport]
+    public static string ResolveHomeDemo(string scenarioId)
+    {
+        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoResolveResult(false, null),
+                BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+        }
+
+        return JsonSerializer.Serialize(
+            new BrowserHomeDemoResolveResult(true, BrowserProductHomeDemos.ToResolved(resolved)),
+            BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+    }
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns

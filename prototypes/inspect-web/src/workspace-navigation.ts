@@ -1,4 +1,6 @@
 import {
+  graphMemberShareTarget,
+  graphMemberTargetFromPacket,
   lenses,
   normalizeShareTabs,
   packageLenses,
@@ -6,6 +8,8 @@ import {
   replaceCurrentNavigationEntry,
   shareStateLengthError,
   type PlatformPack,
+  type GraphMemberShareIdentity,
+  type GraphMemberShareTarget,
   type WorkspaceTab,
 } from "./data.ts";
 import {
@@ -37,6 +41,7 @@ export interface WorkspaceView {
 }
 
 export function workspaceViewSignature(view: WorkspaceView): string {
+  const graphTarget = graphMemberShareTarget(view.bodyTarget);
   return JSON.stringify({
     p: view.packageKey,
     l: view.lens,
@@ -47,7 +52,8 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     ma: view.memberAccessibilityFilter,
     mr: view.memberTraitFilter,
     o: view.selectedOverloadIndex,
-    b: encodeBodyTarget(view.bodyTarget),
+    b: graphTarget ? null : encodeBodyTarget(view.bodyTarget),
+    g: graphTarget,
     s: view.memberSection,
     pr: view.atPackageRoot,
     pl: view.packageLens,
@@ -130,8 +136,10 @@ export function createNavigationHistory<TView>(
       if (!view) return;
       replaceCurrentNavigationEntry(
         navigation,
-        dependencies.signature(view),
-        view);
+        {
+          sig: dependencies.signature(view),
+          view,
+        });
     },
     canBack() {
       return navigation.index > 0;
@@ -176,6 +184,7 @@ export interface WorkspaceDeepLink {
   memberKindFilter?: string;
   memberAccessibilityFilter?: string;
   memberTraitFilter?: string;
+  graphTarget?: GraphMemberShareIdentity | null;
 }
 
 export interface WorkspaceUrlState {
@@ -192,6 +201,7 @@ export interface WorkspaceUrlState {
   selectedOverloadIndex: number | null;
   memberSection: string;
   selectedBodyTarget: BodyTarget | null;
+  graphTarget: GraphMemberShareIdentity | null;
   memberBrowse: boolean;
   memberTextFilter: string;
   memberKindFilter: string;
@@ -215,6 +225,7 @@ interface SharePacket {
   k?: string;
   e?: string;
   r?: string;
+  g?: GraphMemberShareTarget;
 }
 
 interface DecodedShareState {
@@ -234,12 +245,46 @@ interface DecodedShareState {
   memberKindFilter: string;
   memberAccessibilityFilter: string;
   memberTraitFilter: string;
+  graphTarget: GraphMemberShareIdentity | null;
 }
 
 type ShareStateResult = DecodedShareState | { error: string } | null;
 
+const invalidShareState =
+  "The shared workspace state is invalid and was ignored.";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function richSharePacketIsValid(
+  raw: Record<string, unknown>,
+  sourceIndexes: readonly number[],
+): raw is Record<string, unknown> & { a: number } {
+  if (typeof raw.a !== "number"
+    || !Number.isInteger(raw.a)
+    || raw.a < 0
+    || raw.a >= sourceIndexes.length) {
+    return false;
+  }
+
+  const optionalStrings = ["l", "v", "y", "m", "c", "q", "k", "e", "r"];
+  if (optionalStrings.some(key => hasOwn(raw, key) && typeof raw[key] !== "string"))
+    return false;
+  if (hasOwn(raw, "p") && platformPackToken(raw.p) === null) return false;
+  if (hasOwn(raw, "o")
+    && (typeof raw.o !== "number"
+      || !Number.isInteger(raw.o)
+      || raw.o < 0)) {
+    return false;
+  }
+  if (hasOwn(raw, "d") && decodeBodyTarget(raw.d) === null) return false;
+  if (hasOwn(raw, "b") && raw.b !== 1) return false;
+  return true;
 }
 
 function base64UrlEncode(text: string): string {
@@ -276,7 +321,15 @@ export function encodeWorkspaceShareState(state: WorkspaceUrlState): string {
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
     if (state.memberSection && state.memberSection !== "overview")
       packet.c = state.memberSection;
-    if (state.selectedBodyTarget) {
+    const graphTarget = graphMemberShareTarget(state.graphTarget);
+    if (graphTarget
+      && state.selectedTypeId
+      && state.selectedMemberKey
+      && state.selectedOverloadIndex != null
+      && Number.isInteger(state.selectedOverloadIndex)
+      && state.selectedOverloadIndex >= 0) {
+      packet.g = graphTarget;
+    } else if (state.selectedBodyTarget) {
       const encodedBodyTarget = encodeBodyTarget(state.selectedBodyTarget);
       if (encodedBodyTarget) packet.d = encodedBodyTarget;
     }
@@ -316,16 +369,21 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         memberKindFilter: "all",
         memberAccessibilityFilter: "all",
         memberTraitFilter: "",
+        graphTarget: null,
       };
     }
     if (isRecord(raw) && Array.isArray(raw.t)) {
       const normalized = normalizeShareTabs(raw.t);
       if (normalized.error) return { error: normalized.error };
+      const graphMember = graphMemberTargetFromPacket(raw);
+      if (graphMember.error) return { error: graphMember.error };
+      if (!richSharePacketIsValid(raw, normalized.sourceIndexes))
+        return { error: invalidShareState };
+      const active = normalized.sourceIndexes[raw.a];
+      if (active === undefined) return { error: invalidShareState };
       return {
         tabs: normalized.tabs,
-        active: typeof raw.a === "number" && Number.isInteger(raw.a)
-          ? (normalized.sourceIndexes[raw.a] ?? 0)
-          : 0,
+        active,
         view: typeof raw.v === "string" ? raw.v : "",
         rich: true,
         type: typeof raw.y === "string" ? raw.y : null,
@@ -342,11 +400,12 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         memberKindFilter: typeof raw.k === "string" ? raw.k : "all",
         memberAccessibilityFilter: typeof raw.e === "string" ? raw.e : "all",
         memberTraitFilter: typeof raw.r === "string" ? raw.r : "",
+        graphTarget: graphMember.target,
       };
     }
-    return { error: "The shared workspace state is invalid and was ignored." };
+    return { error: invalidShareState };
   } catch {
-    return { error: "The shared workspace state is invalid and was ignored." };
+    return { error: invalidShareState };
   }
 }
 
@@ -398,6 +457,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   let memberKindFilter = "all";
   let memberAccessibilityFilter = "all";
   let memberTraitFilter = "";
+  let graphTarget: GraphMemberShareIdentity | null = null;
   const workspaceNotice = share && "error" in share ? share.error : "";
 
   if (share && !("error" in share)) {
@@ -423,6 +483,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
       memberKindFilter = share.memberKindFilter;
       memberAccessibilityFilter = share.memberAccessibilityFilter;
       memberTraitFilter = share.memberTraitFilter;
+      graphTarget = share.graphTarget;
     } else {
       const index = tabs.findIndex(tab =>
         pkg && tab.id.toLowerCase() === pkg.toLowerCase());
@@ -460,6 +521,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
     memberKindFilter,
     memberAccessibilityFilter,
     memberTraitFilter,
+    graphTarget,
     workspaceNotice,
   };
 }
