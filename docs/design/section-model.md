@@ -348,8 +348,19 @@ planning. It retains its library-only, cross-process `effective-v*` compatibilit
 cache of successful section catalogs and schemas. At the slice-5 cutover its
 key includes the resolved path, the digest of an acquisition-owned immutable
 artifact-content snapshot, and typed network-free local-symbol discovery
-evidence. Scoped discovery does not populate the bare catalog, failures are not
-stored, and a category-version change invalidates older semantics.
+evidence, plus typed `LibraryCatalogRouteEvidence`. Scoped discovery does not
+populate the bare catalog, failures are not stored, and a category-version
+change invalidates older semantics.
+
+`LibraryCatalogRouteEvidence` is an owner-issued identity for the root subject
+route and every stable route fact consumed by effective discovery, including
+platform, package, and direct-file distinctions. It is not reconstructed from
+the resolved path and carries no authorization. A declaration-derived closure
+covers every route-dependent section and field predicate. For example, platform
+surface classification can make the `Library Info` `Facade` field effective for
+the exact bytes whose direct-file route leaves that field absent; those
+catalogs require different keys unless the producer is deliberately made
+route-independent.
 
 `LocalSymbolDiscoveryEvidence` is either `None` or an owner-minted identity for
 one retained, assembly-identity-validated portable PDB. The latter includes its
@@ -363,12 +374,17 @@ even when both PDBs expose SourceLink, because PDB document paths and other
 facts can change effective catalog membership. Rendering still opens and
 validates the current PDB.
 
-A declaration-derived closure covers every PDB-dependent effective-section and
-field predicate, including applicability that falls back to `CanRender`, and
-requires each consumed PDB fact to be a function of the evidence identity. A
-new PDB-derived predicate cannot remain behind a Boolean-only key. The
-pre-cutover `sl0`/`sl1` shape is predecessor compatibility evidence only and is
-not the successor key contract.
+Evidence minting uses the operation's finite 64 MiB portable-PDB retention
+budget before copying, hashing, or reader construction. Over-limit evidence is
+a typed visible failure and cannot be represented as `None` merely to reach a
+cache entry.
+
+A declaration-derived key closure covers every route- or PDB-dependent
+effective-section and field predicate, including applicability that falls back
+to `CanRender`, and requires each consumed fact to be a function of the typed
+route and local-symbol evidence. A new route/PDB-derived predicate cannot
+remain behind an under-scoped key. The pre-cutover `sl0`/`sl1` shape is
+predecessor compatibility evidence only and is not the successor key contract.
 
 That payload is neither a `PreflightedInspectionPlan` outcome nor reusable
 producer evidence for the planned type/member executor. The new executor must
@@ -387,8 +403,9 @@ legacy cache lookup precedes the new admission path. The cutover must select a
 successor category before any post-cutover read or write: entries from the
 preceding category are never evidence that the bytes passed the new gate.
 The bump also retires catalogs written by the bracketed-hash implementation and
-the under-scoped `sl0`/`sl1` key, either of which may describe different
-assembly or PDB bytes while still naming a supported input.
+the under-scoped route/`sl0`/`sl1` key, either of which may describe different
+route semantics, assembly bytes, or PDB bytes while still naming a supported
+input.
 For this cutover, every invocation runs the bounded format gate over retained
 bytes before the local-symbol probe or catalog lookup. Supported misses run
 discovery over those same assembly bytes and the retained PDB named by the

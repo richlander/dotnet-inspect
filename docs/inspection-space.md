@@ -1006,6 +1006,13 @@ provenance dimension that can change the derived result. An availability
 Boolean is sufficient only when a declaration-derived closure proves the
 cached payload is a function of that Boolean alone.
 
+Root request and acquisition provenance participates by the same rule. Two
+routes to the same retained bytes may share a cache entry only when every
+producer and cached section/field predicate is route-independent; otherwise an
+owner-issued typed route identity belongs in the semantic key. A resolved path
+does not reconstruct whether the caller selected platform, package, direct
+file, or another subject route.
+
 Hashes taken before and after work over a separately reopened mutable path do
 not establish this identity: the source may change from W to S and back to W
 while the gate and producer consume S. The acquisition owner computes the

@@ -246,6 +246,24 @@ when both report true, because PDB document paths and other facts can change
 effective catalog membership. Rendering still opens and validates the current
 PDB rather than reusing catalog data as source evidence.
 
+Bare effective discovery owns one finite portable-PDB retention budget. Its
+compatibility default is 64 MiB, matching the existing
+`DiscoveryMaxEmbeddedPdbBytes`, and it applies uniformly to adjacent, symbol
+cache, acquired, and decompressed embedded PDB bytes. The owner reserves the
+selected PDB's declared length before allocation, copying, hashing, or
+`MetadataReaderProvider` construction; a non-seekable source uses a bounded
+copy that stops at limit plus one, and embedded content reserves its declared
+decompressed length before expansion. The retained snapshot holds the
+reservation through catalog lookup/production and releases it with the
+operation.
+
+An over-limit candidate returns typed `PortablePdbRetentionLimitExceeded` and
+performs no catalog read or write; it is not silently treated as `None` and does
+not fall through to another provider. Product effective-discovery construction
+cannot select `SourceLinkReadLimits.Unlimited`. `MDP017` gates near/over limits,
+every provider, the aggregate retained-byte peak, the one digest pass, and the
+same single-threaded Browser/Wasm failure.
+
 ## Network and performance policy
 
 dotnet-inspect should stay fast and local by default. SourceLink is allowed to

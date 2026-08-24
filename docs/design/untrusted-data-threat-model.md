@@ -1575,7 +1575,12 @@ assembly-format admission also precedes every SourceLink/PDB probe and catalog
 lookup; only a supported assembly may reach the separately bounded
 identity-validated portable-PDB reader. The successor key includes complete
 typed local-symbol evidence rather than the predecessor's Boolean-only
-SourceLink token.
+SourceLink token, and typed root-route evidence for route-dependent catalog
+semantics. Bare effective discovery reserves at most 64 MiB of portable-PDB
+content across adjacent, cached, acquired, or decompressed embedded providers
+before copying, hashing, or reader construction. An over-limit PDB fails
+visibly as `PortablePdbRetentionLimitExceeded`; it is not ignored as absent or
+retried through another provider.
 
 ### Presentation
 
