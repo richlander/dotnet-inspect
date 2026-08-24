@@ -337,11 +337,14 @@ public class SharedParsersTests
         Assert.Equal("GetProperty", members[0]);
     }
 
-    [Fact]
-    public void ProcessMemberArguments_SuppliedTypeStripsMatchingQualifiedType()
+    [Theory]
+    [InlineData("System.Text.Json.JsonElement")]
+    [InlineData("Text.Json.JsonElement")]
+    public void ProcessMemberArguments_SuppliedTypeStripsMatchingQualifiedType(
+        string qualifier)
     {
         var members =
-            new[] { "System.Text.Json.JsonElement.GetProperty" };
+            new[] { $"{qualifier}.GetProperty" };
 
         var (typeFilter, _, _, _, _, _) =
             SharedParsers.ProcessMemberArguments(

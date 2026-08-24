@@ -331,8 +331,11 @@ public static class SharedParsers
             return false;
 
         return TypeMatcher.MatchesTypeFilter(
-            qualifier,
-            suppliedTypeName);
+                suppliedTypeName,
+                qualifier)
+            || TypeMatcher.MatchesTypeFilter(
+                qualifier,
+                suppliedTypeName);
     }
 
     public static (string Name, string? Digest) ParseDigestShorthand(string value)

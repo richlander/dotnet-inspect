@@ -109,7 +109,10 @@ public static class MemberCommand
 
             var apiType = lookupResult.Type!;
             if (options.RouterDeferredTypeOrMember
-                && lookupResult.ImpliedMember is null)
+                && lookupResult.ImpliedMember is null
+                && DeferredExactTargetUsesTypePipeline(
+                    apiType,
+                    unresolvedOptions))
             {
                 return await ExecuteDeferredTypeAsync(
                     unresolvedOptions,
@@ -598,6 +601,12 @@ public static class MemberCommand
             callerScopeAssemblySet?.Dispose();
         }
     }
+
+    private static bool DeferredExactTargetUsesTypePipeline(
+        ApiType type,
+        MemberOptions options) =>
+        options.RouterDeferredTypeMemberValues.Length == 0
+        || type.DefinitionName?.Segments.Length is not 1;
 
     private static async Task<int> ExecuteDeferredTypeAsync(
         MemberOptions unresolvedOptions,

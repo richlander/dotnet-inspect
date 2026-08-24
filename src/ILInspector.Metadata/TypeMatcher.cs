@@ -280,7 +280,8 @@ public static class TypeMatcher
 
     /// <summary>
     /// Checks whether a full type name matches a single filter pattern (glob or exact).
-    /// For globs, tries both the full name and simple name.
+    /// For globs, tries the full name and every dotted suffix so simple names,
+    /// nested owner chains, and namespace-qualified names use one rule.
     /// Explicit generic notation preserves exact arity; other non-globs use
     /// <see cref="Matches"/> for namespace and base-name matching.
     /// </summary>
@@ -290,13 +291,11 @@ public static class TypeMatcher
         if (IsTypeGlobPattern(pattern))
         {
             var normalizedFullName = NormalizeForLookup(fullName);
-            var normalizedSimpleName =
-                GetOwnerQualifiedSimpleName(fullName);
             var normalizedPattern = matchPattern.Replace('+', '.');
             return MatchesGlob(normalizedFullName, normalizedPattern)
                 || MatchesGlob(
-                    normalizedSimpleName,
-                    normalizedPattern);
+                    normalizedFullName,
+                    $"*.{normalizedPattern}");
         }
         if (HasExplicitGenericNotation(pattern))
         {
@@ -310,27 +309,6 @@ public static class TypeMatcher
                        normalizedPattern);
         }
         return Matches(fullName, pattern);
-    }
-
-    private static string GetOwnerQualifiedSimpleName(string fullName)
-    {
-        var normalizedSimpleName =
-            NormalizeForLookup(GetSimpleName(fullName));
-        if (fullName.Contains('+', StringComparison.Ordinal))
-            return normalizedSimpleName;
-
-        var normalizedFullName = NormalizeForLookup(fullName);
-        foreach (MetadataNameComponent component in
-            MetadataNameArity.EnumerateComponents(
-                normalizedFullName,
-                dotIsBoundary: true,
-                plusIsBoundary: false))
-        {
-            if (component.Arity > 0)
-                return normalizedFullName[component.Start..];
-        }
-
-        return normalizedSimpleName;
     }
 
     /// <summary>

@@ -166,16 +166,30 @@ public class TypeMatcherTests
     [InlineData(
         "System.Collections.Generic.Dictionary`2.KeyCollection",
         "Dictionary*+KeyCollection")]
+    [InlineData(
+        "System.Collections.Generic.List`1.Enumerator",
+        "Enumerator*")]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator`1",
+        "Delegate.InvocationListEnumerator*")]
     public void MatchesTypeFilter_GlobNormalizesNestedSeparators(
         string candidate,
         string pattern) =>
         Assert.True(TypeMatcher.MatchesTypeFilter(candidate, pattern));
 
-    [Fact]
-    public void MatchesTypeFilter_GlobKeepsQualifiedNamespacesDistinct() =>
+    [Theory]
+    [InlineData(
+        "Other.Collections.Generic.Dictionary`2+KeyCollection",
+        "System.Collections.Generic.Dictionary*.KeyCollection")]
+    [InlineData(
+        "Other.Delegate.InvocationListEnumerator`1",
+        "System.Delegate.InvocationListEnumerator*")]
+    public void MatchesTypeFilter_GlobKeepsQualifiedNamespacesDistinct(
+        string candidate,
+        string pattern) =>
         Assert.False(TypeMatcher.MatchesTypeFilter(
-            "Other.Collections.Generic.Dictionary`2+KeyCollection",
-            "System.Collections.Generic.Dictionary*.KeyCollection"));
+            candidate,
+            pattern));
 
     [Theory]
     [InlineData(
@@ -193,6 +207,12 @@ public class TypeMatcherTests
     [InlineData(
         "System.Collections.Generic.Dictionary`2.KeyCollection",
         "Dictionary*+KeyCollection")]
+    [InlineData(
+        "System.Collections.Generic.List`1.Enumerator",
+        "Enumerator*")]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator`1",
+        "Delegate.InvocationListEnumerator*")]
     public void Lookup_GlobNormalizesNestedSeparators(
         string candidate,
         string pattern)
@@ -203,12 +223,20 @@ public class TypeMatcherTests
         Assert.Empty(result.Suggestions);
     }
 
-    [Fact]
-    public void Lookup_GlobKeepsQualifiedNamespacesDistinct()
+    [Theory]
+    [InlineData(
+        "Other.Collections.Generic.Dictionary`2+KeyCollection",
+        "System.Collections.Generic.Dictionary*.KeyCollection")]
+    [InlineData(
+        "Other.Delegate.InvocationListEnumerator`1",
+        "System.Delegate.InvocationListEnumerator*")]
+    public void Lookup_GlobKeepsQualifiedNamespacesDistinct(
+        string candidate,
+        string pattern)
     {
         var result = TypeMatcher.Lookup(
-            ["Other.Collections.Generic.Dictionary`2+KeyCollection"],
-            "System.Collections.Generic.Dictionary*.KeyCollection");
+            [candidate],
+            pattern);
 
         Assert.Null(result.Match);
         Assert.Empty(result.Suggestions);

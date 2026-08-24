@@ -3271,10 +3271,12 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Dictionary*.KeyCollection")]
-    [InlineData("Dictionary*+KeyCollection")]
+    [InlineData("Dictionary*.KeyCollection", "GetEnumerator")]
+    [InlineData("Dictionary*+KeyCollection", "GetEnumerator")]
+    [InlineData("Delegate.InvocationListEnumerator*", "MoveNext")]
     public async Task Type_UnqualifiedOwnerGlob_FindsDotSpelledNestedPlatformType(
-        string typeName)
+        string typeName,
+        string expectedMember)
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
@@ -3286,7 +3288,24 @@ public partial class CommandExecutionTests
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("GetEnumerator", output);
+        Assert.Contains(expectedMember, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "Enumerator*",
+            "--platform",
+            "System.Collections",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("LinkedList", output);
+        Assert.Contains("Enumerator", output);
         Assert.Empty(error);
     }
 
@@ -3395,17 +3414,31 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+        "TryAdd",
+        false)]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+        "TryAdd",
+        true)]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator<TDelegate>",
+        "MoveNext",
+        false)]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator<TDelegate>",
+        "MoveNext",
+        true)]
     public async Task Router_ExactCSharpInnerGenericTypePreservesSharedMemberFilter(
+        string target,
+        string member,
         bool explicitPlatform)
     {
-        const string target =
-            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>";
         string[] tail =
         [
             "-m",
-            "TryAdd",
+            member,
             "-S",
             "Type Info",
             "--tips",
@@ -6673,15 +6706,21 @@ public partial class CommandExecutionTests
             routed.Error);
     }
 
-    [Fact]
-    public async Task Router_ExplicitPlatformIdentity_CSharpInnerGenericTypePreservesSharedMemberFilter()
+    [Theory]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+        "TryAdd")]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator<TDelegate>",
+        "MoveNext")]
+    public async Task Router_ExplicitPlatformIdentity_CSharpInnerGenericTypePreservesSharedMemberFilter(
+        string target,
+        string member)
     {
-        const string target =
-            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>";
         string[] tail =
         [
             "-m",
-            "TryAdd",
+            member,
             "-S",
             "Type Info",
             "--tips",
