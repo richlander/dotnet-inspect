@@ -20,11 +20,14 @@
 - Fixes canonical metadata generic-arity handling across API identity,
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their
-  declared arity without trusting unvalidated name suffixes (#4233, #4539).
+  declared arity without trusting unvalidated name suffixes. Extension members
+  now attach to the arity-correct target type rather than a same-named
+  non-generic type (#4233, #4539).
 - **Breaking:** Canonical member signatures now spell nested types with `+`.
   This changes `Name~digest` selectors for members declared by nested types;
-  refresh those selectors from `Member Index`. Top-level member selectors are
-  unaffected (#4233).
+  refresh those selectors from `Member Index`. Extension selectors previously
+  discovered on a same-named non-generic type must likewise be refreshed
+  against the arity-correct generic type (#4233).
 
 ### Source and implementation evidence
 
@@ -67,9 +70,17 @@
   version state. Pagination, malformed responses, deadline exhaustion, and
   rejected results remain explicit rather than being interpreted as complete
   package history (#4486).
-- **Breaking:** `package --versions --include-unlisted` now emits column
-  headers by default in Markdown, table, and TSV output. Use `--no-headers` to
-  retain the v0.21.0 headerless shape (#4486).
+- **Breaking:** Listing-aware `package` version output now emits column headers
+  by default for every non-JSONL projection, including Markdown/table, TSV,
+  plaintext, bare, and the current JSON compatibility path. This applies to
+  plain, pinned, and ranged `--versions --include-unlisted` requests and to
+  `--latest-version --include-unlisted`; JSONL is unchanged. Use `--no-headers`
+  to retain the v0.21.0 headerless shape (#4486).
+- Tool v2 RID-companion verification now falls back from direct nuspec lookup
+  to authoritative version indexes on the active configured sources. `RID
+  Package` availability remains `Unknown` after indeterminate source failures
+  rather than being reported as absent, and cache hits with unknown
+  source-dependent availability recheck the active sources (#4594).
 
 ### Performance analysis
 
