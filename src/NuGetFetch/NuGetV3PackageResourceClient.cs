@@ -273,54 +273,25 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                 "The source service index advertised an unusable PackageBaseAddress.");
         }
 
-        int queryStart = baseAddress.IndexOf('?', StringComparison.Ordinal);
+        string escaped;
+        try
+        {
+            escaped = NuGetSourceRequest.EndpointUrl(endpoint);
+        }
+        catch (NuGetSourceResponseException exception)
+        {
+            throw new NuGetSourceResponseException(
+                "The source service index advertised an unusable PackageBaseAddress.",
+                exception);
+        }
+
+        int queryStart = escaped.IndexOf('?', StringComparison.Ordinal);
         string pathAndOrigin = queryStart >= 0
-            ? baseAddress[..queryStart]
-            : baseAddress;
+            ? escaped[..queryStart]
+            : escaped;
         string query = queryStart >= 0
-            ? baseAddress[queryStart..]
+            ? escaped[queryStart..]
             : "";
-        if (pathAndOrigin.Any(character => character > 0x7F))
-        {
-            string escapedPath = endpoint.GetComponents(
-                UriComponents.Path,
-                UriFormat.UriEscaped);
-            string idnHost;
-            try
-            {
-                idnHost = endpoint.IdnHost;
-            }
-            catch (UriFormatException exception)
-            {
-                throw new NuGetSourceResponseException(
-                    "The source service index advertised an unusable PackageBaseAddress.",
-                    exception);
-            }
-
-            string host = endpoint.HostNameType == UriHostNameType.IPv6
-                ? $"[{idnHost}]"
-                : idnHost;
-            string origin =
-                $"{endpoint.Scheme}://{host}"
-                + (endpoint.IsDefaultPort
-                    ? ""
-                    : $":{endpoint.Port}");
-            pathAndOrigin =
-                origin
-                + (escapedPath.StartsWith("/", StringComparison.Ordinal)
-                    ? escapedPath
-                    : "/" + escapedPath);
-        }
-
-        if (query.Any(character => character > 0x7F))
-        {
-            query = endpoint.Query.Length == 0
-                ? ""
-                : "?" + endpoint.GetComponents(
-                    UriComponents.Query,
-                    UriFormat.UriEscaped);
-        }
-
         string normalized = pathAndOrigin.EndsWith("/", StringComparison.Ordinal)
             ? pathAndOrigin + query
             : $"{pathAndOrigin}/{query}";

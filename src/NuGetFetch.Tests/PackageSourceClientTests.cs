@@ -571,15 +571,25 @@ public sealed class PackageSourceClientTests
     }
 
     [Theory]
-    [InlineData("https://feed.example/v3/flat/?sig=secret")]
-    [InlineData("https://feed.example/v3/flat?sig=secret")]
+    [InlineData(
+        "https://feed.example/v3/flat/?sig=secret",
+        "?sig=secret")]
+    [InlineData(
+        "https://feed.example/v3/flat?sig=secret",
+        "?sig=secret")]
+    [InlineData(
+        "https://feed.example/v3/flat/?s%69g=\u2713",
+        "?s%69g=%E2%9C%93")]
     public async Task V3SignedPackageBaseAddressPreservesQuery(
-        string baseAddress)
+        string baseAddress,
+        string expectedQuery)
     {
-        const string signedVersions =
-            "https://feed.example/v3/flat/contoso/index.json?sig=secret";
-        const string signedPackage =
-            "https://feed.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg?sig=secret";
+        string signedVersions =
+            "https://feed.example/v3/flat/contoso/index.json"
+            + expectedQuery;
+        string signedPackage =
+            "https://feed.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg"
+            + expectedQuery;
         var handler = new RecordingHandler
         {
             [ServiceIndex] = $$"""
