@@ -1776,25 +1776,6 @@ static class ReturnToSender
         }
 
         var firstArtifact = Compose();
-        if (firstArtifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } initialIdentityDiagnostic)
-        {
-            return new Result(
-                firstArtifact.Plan,
-                firstArtifact.Source,
-                FidelityCheck.CompileBackStatus.ContextFail,
-                originalOpcodes,
-                "",
-                $"{initialIdentityDiagnostic.Reason}: {initialIdentityDiagnostic.Detail}",
-                TargetBody: targetBody.Source,
-                MemberAnchor: memberAnchor,
-                Decisions: targetBody.Decisions)
-            {
-                FinalRequest = firstArtifact.Request,
-                BodyPolicy = bodyPolicy,
-                FullBodies = firstArtifact.FullBodies,
-            };
-        }
-
         bool firstArtifactPending = true;
         CompileBackPlanningDiagnostic? identityFailure = null;
         var compilationResult = RoundTripCompilationEngine.Compile(
@@ -1813,12 +1794,6 @@ static class ReturnToSender
             compileOptions,
             grow: (artifact, errors, semanticModel) =>
             {
-                if (artifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identity)
-                {
-                    identityFailure = identity;
-                    return RoundTripGrowthResult.Stop("type-identity");
-                }
-
                 var growth = AddClosureRoots(
                     errors,
                     semanticModel,
@@ -1828,16 +1803,22 @@ static class ReturnToSender
                     closureRoots,
                     closureFacts);
                 int effectiveRootCount = EffectiveClosureRootCount(artifact, closureRoots);
-                string? reason = effectiveRootCount > maxRoots
-                    ? "closure-root-budget"
-                    : !growth.Grew
-                        ? ClosureDiagnosticEvidence.FailureReason(
+                if (effectiveRootCount > maxRoots)
+                    return RoundTripGrowthResult.Stop("closure-root-budget");
+                if (growth.Grew)
+                    return RoundTripGrowthResult.Continue;
+
+                if (artifact.Plan.Diagnostics.FirstOrDefault(
+                        diagnostic => diagnostic.Layer == "type identity") is { } identity)
+                {
+                    identityFailure = identity;
+                    return RoundTripGrowthResult.Stop("type-identity");
+                }
+
+                return RoundTripGrowthResult.Stop(
+                    ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
-                            growth.UnextractedDiagnosticIds)
-                        : null;
-                return reason is null
-                    ? RoundTripGrowthResult.Continue
-                    : RoundTripGrowthResult.Stop(reason);
+                        growth.UnextractedDiagnosticIds));
             },
             new RoundTripCompilationOptions
             {

@@ -754,19 +754,24 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsOverrideWhenGenericBaseSlotIsNotEmitted()
+    public void CompileBackTargets_PreservesGenericOverrideWithRenamedTypeParameterWhenBaseSlotIsEmitted()
     {
         var assemblyPath = CompileFixture("""
             public class BaseNode
             {
-                public virtual T Echo<T>(T value) => value;
+                public virtual string Echo<T>(T value) => "base";
             }
 
             public sealed class DerivedNode : BaseNode
             {
-                public override T Echo<T>(T value) => value;
+                public override string Echo<U>(U value) => "derived";
 
-                public int Target() => Echo(42);
+                public string Target() => DispatchProbe.Run(this);
+            }
+
+            public static class DispatchProbe
+            {
+                public static string Run(BaseNode value) => value.Echo(42);
             }
             """);
         try
@@ -777,13 +782,14 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
-            Assert.Contains("T Echo<T>(T value)", result.Source, StringComparison.Ordinal);
-            Assert.DoesNotContain("override T Echo<T>", result.Source, StringComparison.Ordinal);
-            Assert.Contains(
-                result.Plan.Diagnostics,
-                diagnostic => diagnostic.Reason == "override-slot-unavailable");
+            Assert.Contains("string Echo<T>(T value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override string Echo<U>(U value)", result.Source, StringComparison.Ordinal);
+            Assert.Equal(
+                "derived",
+                InvokeDonorGenericOverride(
+                    Assert.IsType<byte[]>(result.DonorPe)));
         }
         finally
         {
@@ -1055,7 +1061,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UnrelatedExternalInterfaceDoesNotDeclineLocalSlot()
+    public void CompileBackTargets_SameAssemblyImplicitInterfaceWithoutReconstructedMemberDeclines()
     {
         var assemblyPath = CompileFixture("""
             public interface ILocal
@@ -1063,7 +1069,141 @@ public class ReturnToSenderPrototypeTests
                 int Read();
             }
 
-            public sealed class Probe : ILocal, System.IDisposable
+            public sealed class Probe : ILocal
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "implicit-interface-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsReconstructedGenericImplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IProbe<T>
+            {
+                T Read();
+            }
+
+            public sealed class Probe : IProbe<int>
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsReconstructedGenericImplicitInterfaceGetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IProbe<T>
+            {
+                T Value { get; }
+            }
+
+            public sealed class Probe : IProbe<int>
+            {
+                public int Value => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsReconstructedImplicitInterfaceEventAccessor()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public interface IProbe
+            {
+                event Action Changed;
+            }
+
+            public sealed class Probe : IProbe
+            {
+                public event Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UnrelatedExternalInterfaceDoesNotDeclineLocalSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Probe : System.IDisposable
             {
                 public int Read() => 42;
                 public void Dispose() { }
@@ -3430,6 +3570,263 @@ public class ReturnToSenderPrototypeTests
                     StringComparison.Ordinal),
                 result.Source);
             Assert.DoesNotContain("System_Collections_IEnumerable_GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsExternalExplicitInterfaceEvent()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System;
+
+            namespace Contracts;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            using System;
+
+            public sealed class EventSource : Contracts.IEvents
+            {
+                private Action? _changed;
+
+                event Action Contracts.IEvents.Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "EventSource",
+                    "Contracts.IEvents.add_Changed",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.True(
+                result.Source.Contains(
+                    "class EventSource : Contracts.IEvents",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "class EventSource : IEvents",
+                    StringComparison.Ordinal),
+                result.Source);
+            Assert.True(
+                result.Source.Contains(
+                    "event Action Contracts.IEvents.Changed",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "event Action IEvents.Changed",
+                    StringComparison.Ordinal),
+                result.Source);
+            var sourceMember = Assert.Single(
+                Assert.Single(
+                    result.Plan.Types,
+                    type => type.Type.MetadataFullName == "EventSource").Members,
+                member => member.MetadataName == "Contracts.IEvents.Changed");
+            Assert.Equal("Contracts.IEvents.Changed", sourceMember.ExplicitInterfaceMemberName);
+            Assert.Contains(
+                Assert.Single(result.Plan.Types, type => type.Type.MetadataFullName == "EventSource")
+                    .ExternalInterfaces,
+                interfaceName => interfaceName == "Contracts.IEvents");
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    body => body.Member == "EventSource.Contracts.IEvents.add_Changed").Status);
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    body => body.Member.EndsWith(
+                        ".remove_Contracts.IEvents.Changed",
+                        StringComparison.Ordinal)).Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceEventSkipsNonmatchingMethodImpl()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping external event MethodImpl regression.");
+            return;
+        }
+
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System;
+
+            namespace Contracts;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+
+            public interface IOther
+            {
+                event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm,
+            """
+            .assembly extern System.Runtime { .ver 0:0:0:0 }
+            .assembly extern contracts { }
+            .assembly fixture { }
+            .module fixture.dll
+
+            .class public auto ansi sealed beforefieldinit EventSource
+                extends [System.Runtime]System.Object
+                implements [contracts]Contracts.IEvents, [contracts]Contracts.IOther
+            {
+              .method private final hidebysig newslot specialname virtual
+                  instance void 'Contracts.IEvents.add_Changed'(class [System.Runtime]System.Action) cil managed
+              {
+                .override method instance void [contracts]Contracts.IOther::add_Changed(class [System.Runtime]System.Action)
+                .override method instance void [contracts]Contracts.IEvents::add_Changed(class [System.Runtime]System.Action)
+                ret
+              }
+              .method private final hidebysig newslot specialname virtual
+                  instance void 'Contracts.IEvents.remove_Changed'(class [System.Runtime]System.Action) cil managed
+              {
+                .override method instance void [contracts]Contracts.IOther::remove_Changed(class [System.Runtime]System.Action)
+                .override method instance void [contracts]Contracts.IEvents::remove_Changed(class [System.Runtime]System.Action)
+                ret
+              }
+              .event [System.Runtime]System.Action 'Contracts.IEvents.Changed'
+              {
+                .addon instance void EventSource::'Contracts.IEvents.add_Changed'(class [System.Runtime]System.Action)
+                .removeon instance void EventSource::'Contracts.IEvents.remove_Changed'(class [System.Runtime]System.Action)
+              }
+              .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+              {
+                ldarg.0
+                call instance void [System.Runtime]System.Object::.ctor()
+                ret
+              }
+            }
+            """,
+            fixtureDir,
+            "fixture");
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "EventSource",
+                    "Contracts.IEvents.add_Changed",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "event Action Contracts.IEvents.Changed",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDeleteDirectory(fixtureDir);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsPlainEventWithSameSimpleNameAsExplicitEvent()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+
+            public sealed class EventSource : IEvents
+            {
+                private Action _explicitChanged;
+                private Action _plainChanged;
+
+                event Action IEvents.Changed
+                {
+                    add { _explicitChanged += value; }
+                    remove { _explicitChanged -= value; }
+                }
+
+                public event Action Changed
+                {
+                    add { _plainChanged += value; }
+                    remove { _plainChanged -= value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "EventSource",
+                    "IEvents.add_Changed",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "event Action IEvents.Changed",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "public event Action Changed",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                Assert.Single(
+                    result.Plan.Types,
+                    type => type.Type.MetadataFullName == "EventSource").Members,
+                member => member.MetadataName == "IEvents.Changed");
+            Assert.Contains(
+                Assert.Single(
+                    result.Plan.Types,
+                    type => type.Type.MetadataFullName == "EventSource").Members,
+                member => member.MetadataName == "Changed");
         }
         finally
         {
@@ -12506,13 +12903,8 @@ public class ReturnToSenderPrototypeTests
     [Fact]
     public void CompileBackTargets_FullExplicitInterfaceEventTargetDoesNotDoubleDeclare()
     {
-        // Issue #3007 follow-up (PR #3075 review): the Full member surface folds events by the
-        // sanitized full metadata name ("IBaseEvents.Changed") while an explicit-interface event
-        // target requirement carries the stripped identity ("Changed"). Enabling the surface for
-        // such a target missed the fold and appended a SECOND `event Action IBaseEvents.Changed`
-        // with a `throw null` accessor (CS8646/CS0102) while still reporting BodyComplete=true — a
-        // double-declaration false success. Declining the surface for explicit-interface targets
-        // restores the pre-#3007 single-accessor shape and the honest incomplete floor.
+        // The Full surface identifies events by their raw metadata name. An explicit event target
+        // therefore folds into its surface event rather than appending a second declaration.
         var assemblyPath = CompileFixture("""
             using System;
 
@@ -12547,10 +12939,7 @@ public class ReturnToSenderPrototypeTests
                 $"Expected a single explicit-interface event declaration, found {declarations}.{Environment.NewLine}{result.Source}");
             Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
 
-            // The sibling remover and the constructor are not represented under the declined
-            // surface, so BodyComplete is honestly false rather than an inflated double-declaration
-            // success (coherent explicit-interface reconstruction is out of #3007's scope).
-            Assert.False(
+            Assert.True(
                 result.BodyComplete,
                 string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
         }
@@ -13278,6 +13667,28 @@ public class ReturnToSenderPrototypeTests
             var holder = (System.Collections.IEqualityComparer)Activator.CreateInstance(
                 assembly.GetType("Holder", throwOnError: true)!)!;
             return action(holder);
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    static string InvokeDonorGenericOverride(byte[] assemblyBytes)
+    {
+        var context = new System.Runtime.Loader.AssemblyLoadContext(
+            $"rts-donor-{Guid.NewGuid():N}",
+            isCollectible: true);
+        try
+        {
+            using var stream = new MemoryStream(assemblyBytes, writable: false);
+            var assembly = context.LoadFromStream(stream);
+            var derived = Activator.CreateInstance(
+                assembly.GetType("DerivedNode", throwOnError: true)!)!;
+            return Assert.IsType<string>(assembly
+                .GetType("DispatchProbe", throwOnError: true)!
+                .GetMethod("Run")!
+                .Invoke(null, [derived]));
         }
         finally
         {
