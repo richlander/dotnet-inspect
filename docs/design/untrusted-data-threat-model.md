@@ -1566,7 +1566,16 @@ that the gate passed. Persistent cache cutovers follow the
 every hit or select a successor contract version before lookup, and pair the
 newly rejected case with a still-valid recomputation case. Dynamic network,
 capability, and liveness policy is always rechecked and cannot be replaced by a
-version bump.
+version bump. The cache key, validation, and derived result must also consume
+the owner-retained immutable snapshot for every contributing artifact; equal
+pre/post hashes around work over a reopened mutable path do not exclude a
+W-to-S-to-W substitution. `MDP017` gates that ABA case for both assembly and
+PDB inputs to the library effective catalog. At that cutover, bounded
+assembly-format admission also precedes every SourceLink/PDB probe and catalog
+lookup; only a supported assembly may reach the separately bounded
+identity-validated portable-PDB reader. The successor key includes complete
+typed local-symbol evidence rather than the predecessor's Boolean-only
+SourceLink token.
 
 ### Presentation
 

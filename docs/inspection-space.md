@@ -992,9 +992,26 @@ these are true:
 
 - the gate establishes a stable property of the exact content or immutable
   producer evidence, not current-request authorization or lease liveness;
-- the cache key identifies that content/evidence;
+- the cache key is derived from the digest the owner computed over retained
+  immutable content/evidence and names that content, not the snapshot instance
+  or its generation;
+- the entry's gate, producer, and cache publication consumed one such retained
+  snapshot and its owner-computed identity;
 - the entry was written only after the gate succeeded; and
 - the category or payload records the complete gate-contract version.
+
+When a result depends on several retained artifacts or external evidence, the
+semantic key identifies every contributing content snapshot and every
+provenance dimension that can change the derived result. An availability
+Boolean is sufficient only when a declaration-derived closure proves the
+cached payload is a function of that Boolean alone.
+
+Hashes taken before and after work over a separately reopened mutable path do
+not establish this identity: the source may change from W to S and back to W
+while the gate and producer consume S. The acquisition owner computes the
+digest from retained immutable bytes and supplies those same bytes to the cold
+path; neither the producer nor cache owner may reconstruct identity by reopening
+the source. A later source replacement belongs to a later acquisition.
 
 Current request, host, capability, and liveness policy is never certified by a
 cache version and must be re-evaluated on every use. When a release introduces
@@ -1006,9 +1023,11 @@ Extending only the new write path does not certify predecessor entries.
 Every such cutover needs paired non-vacuity evidence: seed a predecessor entry
 for content newly rejected by the gate and prove it cannot produce success,
 then seed one for still-valid content and prove the cold path recomputes and
-publishes a reusable successor entry. This repository-wide cutover rule is
-unverified as a global inventory; each adopting cache must name its owning
-gate. `MDP017` in
+publishes a reusable successor entry. When the source can change, inject a
+W-to-S-to-W replacement through the product acquisition seam, count source
+opens, and prove no result derived from S can be published or read under W's
+identity. This repository-wide cutover rule is unverified as a global
+inventory; each adopting cache must name its owning gate. `MDP017` in
 [member inspection planning and Metadata
 projection](design/member-inspection-planning-and-metadata-projection.md) is the
 worked gate for the library effective-catalog format-admission cutover.

@@ -226,9 +226,25 @@ This is the existing library-only persistent compatibility catalog described
 under
 [`Existing library effective catalog`](design/section-model.md#existing-library-effective-catalog);
 it is not an authorization-bearing outcome cache for the planned type/member
-executor. The metadata-format admission cutover bumps this catalog's category
-before lookup; local SourceLink availability alone cannot make a pre-cutover
-catalog eligible under the new input policy.
+executor. At the metadata-format admission cutover, the bounded assembly gate
+runs over acquisition-retained bytes before this probe or any catalog lookup,
+and the catalog category also bumps. The assembly debug-directory read consumes
+those retained bytes rather than reopening a mutable assembly path. Portable
+PDB parsing after assembly admission may construct a PDB `MetadataReader`; it
+is not assembly metadata projection and remains governed by the existing
+embedded-PDB and expansion budgets.
+
+The successor catalog key replaces the predecessor `sl0`/`sl1` Boolean with
+typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity for
+one retained, assembly-identity-validated portable PDB. That identity includes
+the PDB content digest, discovery-relevant provider/provenance dimensions, and
+typed SourceLink effectiveness. Separately authorized source rendering in the
+same invocation or concurrent cache activity may warm and validate symbols, so
+publication uses the post-inspection evidence and the next invocation probes
+again. Replacing one SourceLink-bearing PDB with another changes the key even
+when both report true, because PDB document paths and other facts can change
+effective catalog membership. Rendering still opens and validates the current
+PDB rather than reusing catalog data as source evidence.
 
 ## Network and performance policy
 
@@ -284,11 +300,15 @@ network requests.
   DevOps URL. Other availability results retain a TTL; integrity results for
   unknown hosts and moving or ambiguous selectors are not cached.
 - The existing bare-library effective catalog may persist successful section
-  summaries under its content, local-SourceLink-availability, and versioned
-  semantics key. Input-admission changes bump that category before lookup so
-  prior successful catalogs cannot bypass the new gate. Planned type/member
-  authorization-dependent outcomes remain operation-local and never consume
-  that catalog.
+  summaries under its versioned semantic key. The slice-5 successor keys on
+  retained assembly content plus complete typed local-symbol discovery
+  evidence, not the predecessor `sl0`/`sl1` Boolean. Input-admission changes
+  bump the category before lookup so prior successful catalogs cannot bypass
+  the new gate; this cutover also runs bounded assembly-format admission before
+  every lookup. Assembly and PDB digest, admission, discovery, and publication
+  each use their owner-retained immutable content; bracketing hashes over a
+  mutable path are insufficient. Planned type/member authorization-dependent
+  outcomes remain operation-local and never consume that catalog.
 
 Cache reuse must never bypass PDB identity validation.
 

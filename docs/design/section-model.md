@@ -345,10 +345,30 @@ creating a second authorization currency.
 
 The shipped bare `library -D --effective` path predates typed type/member
 planning. It retains its library-only, cross-process `effective-v*` compatibility
-cache of successful section catalogs and schemas. The current key includes the
-resolved path, assembly content hash, and network-free local SourceLink
-availability; scoped discovery does not populate the bare catalog, failures are
-not stored, and a category-version change invalidates older semantics.
+cache of successful section catalogs and schemas. At the slice-5 cutover its
+key includes the resolved path, the digest of an acquisition-owned immutable
+artifact-content snapshot, and typed network-free local-symbol discovery
+evidence. Scoped discovery does not populate the bare catalog, failures are not
+stored, and a category-version change invalidates older semantics.
+
+`LocalSymbolDiscoveryEvidence` is either `None` or an owner-minted identity for
+one retained, assembly-identity-validated portable PDB. The latter includes its
+content digest, source/provider provenance dimensions consumed by discovery,
+and typed SourceLink effectiveness. The pre-lookup probe and successful cold
+inspection may observe different evidence when separately authorized source
+work in the same invocation or concurrent cache activity warms the symbol
+cache; the write uses the post-inspection evidence, and the next invocation
+probes again before selecting a key. A PDB replacement changes the evidence
+even when both PDBs expose SourceLink, because PDB document paths and other
+facts can change effective catalog membership. Rendering still opens and
+validates the current PDB.
+
+A declaration-derived closure covers every PDB-dependent effective-section and
+field predicate, including applicability that falls back to `CanRender`, and
+requires each consumed PDB fact to be a function of the evidence identity. A
+new PDB-derived predicate cannot remain behind a Boolean-only key. The
+pre-cutover `sl0`/`sl1` shape is predecessor compatibility evidence only and is
+not the successor key contract.
 
 That payload is neither a `PreflightedInspectionPlan` outcome nor reusable
 producer evidence for the planned type/member executor. The new executor must
@@ -366,10 +386,18 @@ Introducing or tightening input admission is such a semantics change when the
 legacy cache lookup precedes the new admission path. The cutover must select a
 successor category before any post-cutover read or write: entries from the
 preceding category are never evidence that the bytes passed the new gate.
-Supported inputs recompute once and populate the successor category; rejected
-inputs surface their typed failure and write no current catalog. This preserves
-cross-process reuse after the cutover without paying metadata admission on
-every cache hit. This is one application of the repository-wide
+The bump also retires catalogs written by the bracketed-hash implementation and
+the under-scoped `sl0`/`sl1` key, either of which may describe different
+assembly or PDB bytes while still naming a supported input.
+For this cutover, every invocation runs the bounded format gate over retained
+bytes before the local-symbol probe or catalog lookup. Supported misses run
+discovery over those same assembly bytes and the retained PDB named by the
+evidence, then populate the successor category from that result; rejected
+inputs surface their typed failure and perform no PDB probe, cache read, or
+current-category write. Pre/post hashes around a separately reopened mutable
+path are not a substitute because W-to-S-to-W replacement can mislabel the
+successor entry. A supported hit still avoids an assembly `MetadataReader` and
+full discovery. This is one application of the repository-wide
 [persistent-cache cutover rule](../inspection-space.md#corecache); dynamic
 authorization and liveness still require fresh enforcement rather than a
 version bump.
