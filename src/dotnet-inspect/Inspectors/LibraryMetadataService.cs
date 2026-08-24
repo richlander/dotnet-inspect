@@ -1617,8 +1617,7 @@ internal static class LibraryMetadataService
                             assessment,
                             drillByToken))
                     .ToList();
-                inspection.ResourceTriage =
-                    rows.Count > 0 ? rows : null;
+                inspection.ResourceTriage = rows;
                 break;
 
             case ResourceTriageResult.NoMetadata:

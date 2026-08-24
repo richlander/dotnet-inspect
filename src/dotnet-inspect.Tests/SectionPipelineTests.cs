@@ -542,6 +542,48 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ResourceTriageQuery_CompleteEmptyJsonRemainsDistinctFromNoMetadata()
+    {
+        var inspection = new LibraryInspection();
+        var complete =
+            new FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete([]);
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Available(complete, []),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+
+        string completeJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using (JsonDocument document = JsonDocument.Parse(completeJson))
+        {
+            JsonElement resourceTriage =
+                document.RootElement.GetProperty("resource_triage");
+            Assert.Equal(JsonValueKind.Array, resourceTriage.ValueKind);
+            Assert.Equal(0, resourceTriage.GetArrayLength());
+        }
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.NoMetadata(),
+            () => throw new InvalidOperationException(
+                "NoMetadata must not acquire the drill map"));
+
+        string noMetadataJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using JsonDocument noMetadataDocument =
+            JsonDocument.Parse(noMetadataJson);
+        Assert.False(
+            noMetadataDocument.RootElement.TryGetProperty(
+                "resource_triage",
+                out _));
+    }
+
+    [Fact]
     public void ResourceTriageQuery_FailureProjectsToArrayPoolEscapes()
     {
         var inspection = new LibraryInspection();
