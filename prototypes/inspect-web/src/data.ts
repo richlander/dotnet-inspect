@@ -694,47 +694,6 @@ export function graphMemberShareTarget(
   ];
 }
 
-export interface NavigationSignatureView {
-  packageKey?: string;
-  lens?: string;
-  selectedTypeId?: string;
-  selectedMemberKey?: string;
-  memberBrowseTypeId?: string;
-  memberKindFilter?: string;
-  memberAccessibilityFilter?: string;
-  memberTraitFilter?: string;
-  selectedOverloadIndex?: number | null;
-  memberSection?: string;
-  atPackageRoot?: boolean;
-  packageLens?: string;
-  bodyTarget?: CallGraphTarget | null;
-  libraryScope?: Iterable<string> | null;
-}
-
-export function navigationViewSignature(
-  view: NavigationSignatureView,
-): string {
-  const libraryScope = view.libraryScope == null
-    ? null
-    : [...view.libraryScope].sort();
-  return JSON.stringify({
-    p: view.packageKey,
-    l: view.lens,
-    t: view.selectedTypeId,
-    m: view.selectedMemberKey,
-    mb: view.memberBrowseTypeId,
-    mk: view.memberKindFilter,
-    ma: view.memberAccessibilityFilter,
-    mr: view.memberTraitFilter,
-    o: view.selectedOverloadIndex,
-    s: view.memberSection,
-    pr: view.atPackageRoot,
-    pl: view.packageLens,
-    g: graphMemberShareTarget(view.bodyTarget),
-    ls: libraryScope?.length ? libraryScope : null
-  });
-}
-
 export function replaceCurrentNavigationEntry<TView>(
   navigation: NavigationState<TView>,
   entry: NavigationEntry<TView>,

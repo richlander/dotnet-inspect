@@ -24,6 +24,7 @@ export interface TypeSummary {
 
 export interface MemberOverloadSummary {
   signature: string;
+  graphOnly?: boolean;
 }
 
 export interface MemberGroup {
@@ -364,12 +365,14 @@ export function renderMemberNav(options: MemberNavOptions): string {
           if (entry.kind === "member") {
             const group = entry.group;
             const isMulti = group.overloads.length > 1;
+            const graphOnly =
+              group.overloads.some(overload => overload.graphOnly);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
-            return `<button class="type-row member-row ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+            return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind))}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;

@@ -46,7 +46,6 @@ import {
   mergeInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
-  navigationViewSignature,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -3742,58 +3741,32 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /function renderMember\(type: BrowserTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?const hasSelectedOverload =[\s\S]*?selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? selectedOverloadIndex \?\? 0 : 0;/);
 });
 
-test("navigation signatures retain exact graph body and normalized library scope", () => {
-  const base = {
-    packageKey: "Example\u00001.0.0\u0000net10.0",
-    lens: "api",
-    selectedTypeId: "Example.Widget",
-    selectedMemberKey: "graph:property:Value",
-    selectedOverloadIndex: 0,
-    memberSection: "call-graph",
-    atPackageRoot: false,
-    packageLens: "overview"
-  };
-  const getter = {
-    assembly: "Example",
-    assemblyVersion: "1.0.0.0",
-    assemblyCulture: null,
-    assemblyPublicKeyToken: null,
-    typeDefinitionId: "Example.Widget",
-    typeMetadataId: "Example.Widget",
-    memberName: "get_Value",
-    selectorKey: "getter-selector",
-    metadataToken: null
-  };
-  const setter = {
-    ...getter,
-    memberName: "set_Value",
-    selectorKey: "setter-selector"
-  };
+test("member navigation excludes graph-only projections from ordinary filters", () => {
+  const filters =
+    appSource.match(/function visibleMemberGroups\([\s\S]*?\n}\n\nfunction renderMemberFilterControls\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    filters,
+    /filterMemberGroups\(publicMemberGroups\(type\), memberFilterState\(\)\)/);
+  assert.match(
+    filters,
+    /function publicMemberGroups\([\s\S]*?searchableMemberGroups\(memberGroups\(type\)\)/);
+  assert.match(filters, /const groups = publicMemberGroups\(type\)/);
+  assert.match(
+    filters,
+    /publicMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
 
-  const getterSignature = navigationViewSignature({
-    ...base,
-    bodyTarget: getter,
-    libraryScope: new Set(["System.Runtime", "System.Collections"])
-  });
-  const reorderedScopeSignature = navigationViewSignature({
-    ...base,
-    bodyTarget: getter,
-    libraryScope: new Set(["System.Collections", "System.Runtime"])
-  });
-  const setterSignature = navigationViewSignature({
-    ...base,
-    bodyTarget: setter,
-    libraryScope: new Set(["System.Collections", "System.Runtime"])
-  });
-  const otherLibrarySignature = navigationViewSignature({
-    ...base,
-    bodyTarget: getter,
-    libraryScope: new Set(["System.Text.RegularExpressions"])
-  });
+  const entries =
+    appSource.match(/function memberNavEntries\([\s\S]*?\n}\n\nfunction memberNavCursor/)?.[0]
+    ?? "";
+  assert.match(
+    entries,
+    /for \(const group of visibleMemberGroups\(type\)\)[\s\S]*?const graphGroup = selectedGraphMemberGroup\(type\);[\s\S]*?entries\.push\(\{ kind: "member", group: graphGroup }\)/);
 
-  assert.equal(getterSignature, reorderedScopeSignature);
-  assert.notEqual(getterSignature, setterSignature);
-  assert.notEqual(getterSignature, otherLibrarySignature);
+  const pane =
+    appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\n\/\/ The scope switcher/)?.[0]
+    ?? "";
+  assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
 });
 
 test("pending graph restoration replaces its current history entry", () => {

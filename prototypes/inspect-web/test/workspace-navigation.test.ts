@@ -346,6 +346,18 @@ test("history signatures distinguish exact graph member identity", () => {
   }
 });
 
+test("history signatures distinguish captured library scope", () => {
+  const original = workspaceView({
+    libraryScope: ["System.Collections", "System.Runtime"],
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature(workspaceView({
+      libraryScope: ["System.Text.Json"],
+    })));
+});
+
 test("package-root URLs omit stale type selection and retain their package lens", () => {
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/",

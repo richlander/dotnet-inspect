@@ -120,15 +120,17 @@ internal sealed record BrowserPlatformAssemblyRequest(
 /// One state entry per target framework accumulates selected assemblies. The
 /// first load of each family records the exact version and producer; later
 /// assemblies are re-acquired from that coordinate, and every successful
-/// expansion replaces the old group atomically. Each returned resolution pins
-/// its scope until disposed; replacement defers old-scope disposal until every
-/// in-flight operation releases that pin. The shared package registry accounts
-/// the retained archives and evicts this scope under the same four-workspace
-/// bound as package scopes.
+/// expansion replaces the old group atomically. Each queued operation and
+/// returned resolution pins its scope until disposed; replacement defers
+/// old-scope disposal until every in-flight operation releases that pin. The
+/// shared package registry accounts the retained archives and evicts this scope
+/// under the same four-workspace bound as package scopes.
 /// <c>BrowserEngineBoundaryTests.PlatformWorkspace_ReplacementDefersDisposalUntilLastLeaseEnds</c>
 /// gates the replacement lifetime.
-/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_UnknownFamilyProbePreservesTrimmedCumulativeState</c>
-/// gates cumulative state across probe suspension and scope eviction.
+/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_UnknownFamilyProbePinsCumulativeState</c>
+/// and
+/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_FailedUnknownFamilyProbePreservesCumulativeState</c>
+/// gate cumulative state across probe suspension, scope pressure, and failure.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformWorkspace
@@ -372,6 +374,8 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
+        using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+            LeaseRetainedScope(state);
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
@@ -395,6 +399,8 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
+        using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+            LeaseRetainedScope(state);
 
         RealizedMemberCoordinate.Platform[] known =
         [
@@ -512,6 +518,13 @@ internal static class BrowserPlatformWorkspace
             declaration: useDeclaration ? selected : null,
             state: state).ConfigureAwait(false);
     }
+
+    static BrowserScopeLease<BrowserPlatformScope>? LeaseRetainedScope(
+        TargetState state) =>
+        state.Scope is { } retained
+        && BrowserPackageWorkspace.IsScopeRetained(retained)
+            ? BrowserPackageWorkspace.LeaseScope(retained)
+            : null;
 
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,

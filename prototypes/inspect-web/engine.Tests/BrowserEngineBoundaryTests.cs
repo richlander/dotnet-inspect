@@ -848,7 +848,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PlatformWorkspace_UnknownFamilyProbePreservesTrimmedCumulativeState()
+    public async Task PlatformWorkspace_UnknownFamilyProbePinsCumulativeState()
     {
         const string version = "11.0.2601";
         const string runtimePackage =
@@ -931,6 +931,15 @@ public sealed class BrowserEngineBoundaryTests
                     authorization,
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
+            var targets =
+                Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    typeof(BrowserPlatformWorkspace)
+                        .GetField(
+                            "Targets",
+                            BindingFlags.Static | BindingFlags.NonPublic)!
+                        .GetValue(null));
+            Assert.True(targets.Contains(frameworks[0]));
+            Assert.False(targets.Contains(frameworks[1]));
         }
         finally
         {
@@ -947,6 +956,135 @@ public sealed class BrowserEngineBoundaryTests
             expanded.Scope.PlatformPackForAssembly(
                 "InspectWeb.Engine.Tests"));
         Assert.Equal(2, expanded.Scope.Members.Length);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_FailedUnknownFamilyProbePreservesCumulativeState()
+    {
+        const string version = "11.0.2701";
+        const string runtimePackage =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string aspNetPackage =
+            "microsoft.aspnetcore.app.runtime.linux-x64";
+        byte[] runtimeNupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)),
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        byte[] aspNetNupkg = PlatformPackage(
+            ("Microsoft.AspNetCore.Http.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [runtimePackage] = runtimeNupkg,
+                [aspNetPackage] = aspNetNupkg,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        string[] frameworks =
+        [
+            "net11.0-r27-failure-a",
+            "net11.0-r27-failure-b",
+            "net11.0-r27-failure-c",
+            "net11.0-r27-failure-d",
+            "net11.0-r27-failure-e",
+        ];
+
+        using (BrowserPlatformScopeResolution runtime =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                frameworks[0],
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+        }
+        using (BrowserPlatformScopeResolution second =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                frameworks[0],
+                "InspectWeb.Engine.Tests.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(2, second.Scope.Members.Length);
+        }
+        foreach (string framework in frameworks[1..4])
+        {
+            using BrowserPlatformScopeResolution resolution =
+                await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    framework,
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+        }
+
+        var aspNetDownloadStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueAspNetDownload = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        handler.BeforeDownloadAsync = async package =>
+        {
+            if (!package.Equals(
+                    aspNetPackage,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            aspNetDownloadStarted.TrySetResult();
+            await continueAspNetDownload.Task.WaitAsync(
+                TestContext.Current.CancellationToken);
+        };
+        Task<BrowserPlatformScopeResolution> missing =
+            BrowserPlatformWorkspace.OpenAssemblyAsync(
+                frameworks[0],
+                "Missing.Platform.Assembly.dll",
+                "",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        try
+        {
+            await aspNetDownloadStarted.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            using BrowserPlatformScopeResolution competing =
+                await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    frameworks[4],
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            continueAspNetDownload.TrySetResult();
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await missing);
+        using BrowserPlatformScopeResolution reopened =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                frameworks[0],
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(2, reopened.Scope.Members.Length);
+        Assert.Equal(
+            "netcore.app",
+            reopened.Scope.PlatformPackForAssembly(
+                "InspectWeb.Engine.Tests"));
     }
 
     [Theory]

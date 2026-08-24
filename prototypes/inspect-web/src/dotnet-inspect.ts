@@ -1803,15 +1803,28 @@ function resetMemberFilters() {
 }
 
 function visibleMemberGroups(type: BrowserTypeSurface) {
-  return filterMemberGroups(memberGroups(type), memberFilterState());
+  return filterMemberGroups(publicMemberGroups(type), memberFilterState());
+}
+
+function publicMemberGroups(type: BrowserTypeSurface) {
+  return searchableMemberGroups(memberGroups(type));
+}
+
+function selectedGraphMemberGroup(type: BrowserTypeSurface) {
+  return memberGroups(type).find(group =>
+    group.key === state.selectedMemberKey
+    && group.overloads.some(overload => overload.graphOnly));
 }
 
 function memberKinds(type: BrowserTypeSurface) {
-  return [...new Set(memberGroups(type).map(group => group.kind))];
+  return [...new Set(publicMemberGroups(type).map(group => group.kind))];
 }
 
 function memberAccessibilities(type: BrowserTypeSurface) {
-  const values = new Set((type.api ?? []).map(member => member.accessibility));
+  const values = new Set(
+    publicMemberGroups(type)
+      .flatMap(group => group.overloads)
+      .map(member => member.accessibility));
   return ["public", "protected", "internal", "private", "protected internal", "private protected"]
     .filter(value => values.has(value))
     .concat([...values].filter(value => value && ![
@@ -1820,11 +1833,14 @@ function memberAccessibilities(type: BrowserTypeSurface) {
 }
 
 function availableMemberTraits(type: BrowserTypeSurface) {
-  return MEMBER_TRAITS.filter(([property]) => (type.api ?? []).some(member => member[property]));
+  const publicMembers =
+    publicMemberGroups(type).flatMap(group => group.overloads);
+  return MEMBER_TRAITS.filter(([property]) =>
+    publicMembers.some(member => member[property]));
 }
 
 function renderMemberFilterControls(type: BrowserTypeSurface) {
-  const groups = memberGroups(type);
+  const groups = publicMemberGroups(type);
   const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
@@ -2044,14 +2060,23 @@ function applyMemberSection(id: MemberSection) {
   else render();
 }
 
-// Flattened, ordered nav rows for member mode: every member group, with the active
-// group's overloads nested immediately beneath it. This is the exact list ↑/↓ walks.
+// Flattened, ordered nav rows for member mode: filtered public groups plus the selected
+// graph-only target, with active overloads nested beneath their group. This is the exact
+// list ↑/↓ walks.
 function memberNavEntries(type: BrowserTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
       group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
+    }
+  }
+  const graphGroup = selectedGraphMemberGroup(type);
+  if (graphGroup) {
+    entries.push({ kind: "member", group: graphGroup });
+    if (graphGroup.overloads.length > 1) {
+      graphGroup.overloads.forEach(
+        (_, index) => entries.push({ kind: "overload", group: graphGroup, index }));
     }
   }
   return entries;
@@ -2470,7 +2495,7 @@ function renderMemberNavPane(type: BrowserTypeSurface) {
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
-    memberCount: memberGroups(type).length,
+    memberCount: publicMemberGroups(type).length,
     visibleMemberCount: visibleGroups.length,
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,

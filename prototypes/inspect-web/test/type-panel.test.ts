@@ -577,6 +577,36 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /←→ sections/);
 });
 
+test("the member nav labels a selected graph-only target", () => {
+  const graphGroup = {
+    key: "graph:method:MoveNext",
+    name: "MoveNext",
+    kind: "method",
+    overloads: [{
+      signature: "void MoveNext()",
+      graphOnly: true,
+    }],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group: graphGroup }],
+    memberCount: 0,
+    visibleMemberCount: 0,
+    filterControlsHtml: "",
+    selectedMemberKey: graphGroup.key,
+    selectedOverloadIndex: 0,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /class="type-row member-row graph-member-row active-group/);
+  assert.match(html, /graph target · method/);
+  assert.match(html, /0 of 0/);
+});
+
 test("the member nav does not advertise sections without a selected member", () => {
   const html = renderMemberNav({
     type: jsonSerializer,
