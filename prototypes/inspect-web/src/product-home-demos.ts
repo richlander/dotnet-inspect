@@ -69,6 +69,7 @@ function workspaceUrlState(partial: Partial<WorkspaceUrlState> & Pick<
     selectedOverloadIndex: null,
     memberSection: "overview",
     selectedBodyTarget: null,
+    graphTarget: null,
     memberBrowse: false,
     memberTextFilter: "",
     memberKindFilter: "all",

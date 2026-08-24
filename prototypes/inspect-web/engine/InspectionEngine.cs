@@ -677,11 +677,6 @@ public static partial class InspectionEngine
     {
         _ = memberSignature;
         _ = typeQueryId;
-        if (metadataToken == 0)
-        {
-            throw new InvalidOperationException(
-                "A call graph needs the selected overload's method-body token.");
-        }
 
         var requests = new List<BrowserPackageRequest>
         {
@@ -751,6 +746,46 @@ public static partial class InspectionEngine
                     projection.HasAnalysisFailureBoundary),
                 NoBody: view.CalleeRoot is null && view.CallerRoot is null),
             BrowserJsonContext.Default.BrowserCallGraph);
+    }
+
+    /// <summary>
+    /// The exact API member selected by a call-graph target. Package surfaces keep public types
+    /// lean by omitting their non-public members; a graph click is the explicit gesture that
+    /// projects one such member from the already bounded implementation surface.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryGraphMemberSurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        (_, _, Analysis.CallGraphMemberResolution resolution) =
+            await ImplementationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+            BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        textBudget.BeginParticipant();
+        BrowserMemberSurface member =
+            BrowserSurfaceProjection.Member(
+                resolution.Type,
+                resolution.Member,
+                textBudget);
+        textBudget.CommitParticipant();
+        return JsonSerializer.Serialize(
+            member,
+            BrowserJsonContext.Default.BrowserMemberSurface);
     }
 
     /// <summary>

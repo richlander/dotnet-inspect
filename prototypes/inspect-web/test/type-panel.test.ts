@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindTypePanel,
+  renderGraphMemberPending,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -576,6 +577,36 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /←→ sections/);
 });
 
+test("the member nav labels a selected graph-only target", () => {
+  const graphGroup = {
+    key: "graph:method:MoveNext",
+    name: "MoveNext",
+    kind: "method",
+    overloads: [{
+      signature: "void MoveNext()",
+      graphOnly: true,
+    }],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group: graphGroup }],
+    memberCount: 0,
+    visibleMemberCount: 0,
+    filterControlsHtml: "",
+    selectedMemberKey: graphGroup.key,
+    selectedOverloadIndex: 0,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /class="type-row member-row graph-member-row active-group/);
+  assert.match(html, /graph target · method/);
+  assert.match(html, /0 of 0/);
+});
+
 test("the member nav does not advertise sections without a selected member", () => {
   const html = renderMemberNav({
     type: jsonSerializer,
@@ -607,6 +638,22 @@ test("the type heading reports the owning package and library", () => {
   assert.match(html, /<h1>JsonSerializer<\/h1>/);
   assert.match(html, /System\.Text\.Json\.dll/);
   assert.match(html, /System\.Text\.Json@9\.0\.0/);
+});
+
+test("pending graph-member rendering composes the extracted type heading", () => {
+  const html = renderGraphMemberPending({
+    item: jsonSerializer,
+    title: "JsonSerializer.<Open>",
+    packageContext: { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" },
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+
+  assert.match(html, /<h1>JsonSerializer<\/h1>/);
+  assert.match(html, /Opening JsonSerializer\.&lt;Open&gt;…/);
+  assert.match(html, /class="document-section graph-member-pending" aria-live="polite"/);
 });
 
 test("type metadata signature keys on the exact package, framework, and type coordinate", () => {
