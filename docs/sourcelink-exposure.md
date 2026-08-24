@@ -238,10 +238,13 @@ The successor catalog key replaces the predecessor `sl0`/`sl1` Boolean with
 typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity for
 one retained, assembly-identity-validated portable PDB. That identity includes
 the PDB content digest, discovery-relevant provider/provenance dimensions, and
-typed SourceLink effectiveness. Separately authorized source rendering in the
-same invocation or concurrent cache activity may warm and validate symbols, so
-publication uses the post-inspection evidence and the next invocation probes
-again. Replacing one SourceLink-bearing PDB with another changes the key even
+typed SourceLink effectiveness. The probe freezes this evidence into the
+effective-catalog subject before lookup; all PDB-dependent discovery and
+publication use it unchanged. Separately authorized source rendering or
+concurrent cache activity may warm and validate symbols, but cannot re-key the
+current catalog. An observed evidence-generation change declines publication,
+and the next invocation probes and recomputes under the new evidence. Replacing
+one SourceLink-bearing PDB with another therefore changes the next key even
 when both report true, because PDB document paths and other facts can change
 effective catalog membership. Rendering still opens and validates the current
 PDB rather than reusing catalog data as source evidence.

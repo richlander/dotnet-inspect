@@ -365,14 +365,17 @@ route-independent.
 `LocalSymbolDiscoveryEvidence` is either `None` or an owner-minted identity for
 one retained, assembly-identity-validated portable PDB. The latter includes its
 content digest, source/provider provenance dimensions consumed by discovery,
-and typed SourceLink effectiveness. The pre-lookup probe and successful cold
-inspection may observe different evidence when separately authorized source
-work in the same invocation or concurrent cache activity warms the symbol
-cache; the write uses the post-inspection evidence, and the next invocation
-probes again before selecting a key. A PDB replacement changes the evidence
-even when both PDBs expose SourceLink, because PDB document paths and other
-facts can change effective catalog membership. Rendering still opens and
-validates the current PDB.
+and typed SourceLink effectiveness. After the pre-lookup probe, the route,
+assembly snapshot, and local-symbol evidence form one immutable catalog subject.
+Every PDB-dependent cold producer and publication uses that exact evidence.
+Separately authorized source work or concurrent cache activity may warm the
+symbol cache, but cannot re-key the current catalog under evidence its producers
+did not consume. If the operation observes an evidence-generation change, it
+declines publication; the next invocation probes the new evidence and
+recomputes. A PDB replacement changes the next operation's evidence even when
+both PDBs expose SourceLink, because PDB document paths and other facts can
+change effective catalog membership. Rendering still opens and validates the
+current PDB.
 
 Evidence minting uses the operation's finite 64 MiB portable-PDB retention
 budget before copying, hashing, or reader construction. Over-limit evidence is

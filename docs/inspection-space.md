@@ -1013,6 +1013,12 @@ owner-issued typed route identity belongs in the semantic key. A resolved path
 does not reconstruct whether the caller selected platform, package, direct
 file, or another subject route.
 
+The cache subject is immutable from lookup through cold production and
+publication. Publication uses the exact evidence identities every producer
+consumed; it cannot re-probe and file that result under post-production
+evidence. An observed evidence-generation change either declines publication
+or starts a later authorized operation that recomputes under the new subject.
+
 Hashes taken before and after work over a separately reopened mutable path do
 not establish this identity: the source may change from W to S and back to W
 while the gate and producer consume S. The acquisition owner computes the
