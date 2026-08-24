@@ -418,8 +418,33 @@ ArtifactParticipantManifest
 ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
   Authority              LogicalSlot | DirectMemberDesignation
-  Before/After           validated side-local participant bindings
-  Outcome                Paired | BeforeOnly | AfterOnly | Ambiguous | Failed
+  Kind                   Paired | BeforeOnly | AfterOnly
+  Before/After           validated binding | proven Absent
+
+ArtifactParticipantPairingOutcome
+  Id                     opaque slot-local outcome identity
+  Inputs                 non-empty participant-input identity set
+  Result                 Admitted(ArtifactParticipantPairing) |
+                         Ambiguous(typed reason + complete candidate payload +
+                         diagnostic) |
+                         Failed(typed reason + complete affected-input payload +
+                         diagnostic)
+
+ArtifactParticipantPairingOutcomeSet
+  EndpointSlot           exact ComparisonEndpointPairingSlot.Id
+  Inputs                 exact participant-input identity set
+  Outcomes               sealed non-empty outcome map
+  InputMap               every input -> exactly one outcome id
+
+ComparisonEndpointPairingSlotOutcome
+  EndpointSlot           exact ComparisonEndpointPairingSlot.Id
+  Result                 EndpointAbsent(before/after proofs) |
+                         Participants(ArtifactParticipantPairingOutcomeSet) |
+                         Failed(typed slot failure + diagnostic)
+
+ComparisonEndpointPairingSlotOutcomeSet
+  Plan                   exact sealed endpoint-pairing plan identity
+  Outcomes               exactly one outcome per endpoint-pairing slot
 ```
 
 The host seals the endpoint-pairing plan and request-key set before acquisition.
@@ -443,19 +468,38 @@ dependencies; a directory endpoint may realize multiple files. Empty or wholly
 non-projectable acquisition remains the typed member failure defined above,
 not a successful manifest.
 
-The comparison coordinator accepts only a sealed pairing plan and outcome set.
-For a slot whose requested sides both realize, it forms the union of the
-before/after manifests and requires exactly one paired, one-sided, ambiguous,
-or failed pairing outcome for every manifest entry. A realized side opposite
-an explicit `Absent` side may likewise produce proven one-sided participants.
-Missing, extra, or duplicate outcomes reject the comparison plan.
+The comparison coordinator accepts only a sealed pairing plan and endpoint
+outcome set and emits one sealed
+`ComparisonEndpointPairingSlotOutcomeSet`. A slot whose two sides are explicit
+`Absent(proof)` becomes `EndpointAbsent` and retains both proofs. For a slot
+whose requested sides realize, the coordinator forms the exact union of the
+before/after manifests and seals one
+`ArtifactParticipantPairingOutcomeSet`. Its outcomes form a disjoint,
+non-empty partition of that union: the set's `Inputs` equals the exact manifest
+union, `InputMap` and every outcome's `Inputs` agree, and the outcome-input
+union equals the set's `Inputs`. An admitted outcome alone
+contains an `ArtifactParticipantPairing`; `Paired`, `BeforeOnly`, and
+`AfterOnly` therefore always have validated binding/proven-absence arms. An
+ambiguous outcome instead retains every colliding candidate entry and its typed
+reason/diagnostic. A failed outcome retains every affected input plus its typed
+reason/diagnostic. Neither terminal arm fabricates one admitted participant
+binding. A realized side opposite an explicit `Absent` side may produce proven
+one-sided admitted participants.
+
+The outer slot-outcome set requires exact plan-slot/outcome equality and
+validates each embedded slot id. The participant outcome set requires exact
+input coverage and validates each embedded outcome id and input set. On planned
+paths, those inputs must equal the exact manifest union.
+A missing, extra, duplicate, rekeyed, cross-slot, overlapping, or uncovered
+outcome rejects the comparison plan rather than shortening it.
 
 If any requested side is unavailable, rejected, or failed, the entire endpoint
 pairing slot is failed. The coordinator retains one terminal failed comparison
-input identified by the slot and does **not** classify entries from a realized
-opposite manifest as one-sided; the missing manifest cannot prove their
-absence. The anti-omission claim is relative to the complete declared endpoint
-pairing plan and sealed manifests that the pairing stage did not author.
+input as `ComparisonEndpointPairingSlotOutcome.Failed` with its typed failure
+and diagnostic. It does **not** classify entries from a realized opposite
+manifest as one-sided; the missing manifest cannot prove their absence. The
+anti-omission claim is relative to the complete declared endpoint pairing plan
+and sealed manifests that the pairing stage did not author.
 
 Adapter selection completeness is a separate gate. Package archives, restore
 graphs, project outputs, platform packs, workspace definitions, and directory
@@ -468,10 +512,14 @@ shortening one.
 ### Comparison participant correspondence
 
 The owner that understands an endpoint coordinate also owns the logical
-participant slots it realizes. Research and presentation receive only opaque
+participant slots it realizes. `ImplementationComparisonQuery` receives the
+complete sealed slot-outcome set and lowers it without reconstructing
+provenance. Healthy producer and Research paths receive only admitted opaque
 `ArtifactParticipantPairing.Id` values plus validated side-local bindings.
-They do not inspect package, project, platform, path, or workspace provenance
-to reconstruct correspondence.
+Terminal outcome payloads remain query/session failure evidence and reach
+presentation only through typed failure ledgers and diagnostics; producers
+never receive them. No downstream layer inspects package, project, platform,
+path, or workspace provenance to reconstruct correspondence.
 
 Each `LogicalSlot` pairing first validates equal version-neutral assembly
 identity: name, normalized culture, and canonical public-key token. Adapters
@@ -522,10 +570,13 @@ The direct live-member call is the one non-adapter designation.
 `ImplementationDiff.DesignateMemberPair` explicitly authorizes exactly two
 already-open participants as a pair and returns a typed
 `DirectMemberPairingDesignation`. The designation wraps one direct-slot
-`ArtifactParticipantPairing` and retains that pairing's opaque id, exact live
-participant bindings, both MVIDs, and a lifetime bounded by the supplied
-sources. It does not create a parallel pairing identity and contains no path,
-handle, token, or display identity.
+admitted `ArtifactParticipantPairing` and retains that pairing's opaque id,
+exact live participant bindings, both MVIDs, and a lifetime bounded by the
+supplied sources. The direct factory also mints the corresponding internal
+one-slot/one-admitted-outcome receipt over the two designated participant-input
+identities used by query lowering; the caller cannot substitute a terminal arm.
+The designation does not create a parallel pairing identity and contains no
+path, handle, token, or display identity.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path
@@ -993,6 +1044,11 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
 - `ComparisonParticipantManifest_EqualsSelectedArtifactInventory`
 - `ComparisonParticipantPairing_IsTotalOverManifestUnion`
+- `ComparisonEndpointPairingSlotOutcomeSet_EqualsPairingPlan`
+- `ComparisonParticipantPairingOutcomeSet_PartitionsInputSet`
+- `ComparisonPlannedPairingOutcomeSet_InputsEqualManifestUnion`
+- `ComparisonParticipantPairingTerminal_RetainsCompleteTypedPayload`
+- `ComparisonParticipantPairingTerminal_HasNoAdmittedBinding`
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
 - `ComparisonParticipantPairing_DuplicateLogicalSlotIsAmbiguous`
 - `ComparisonParticipantPairing_IsStableAcrossInputReordering`

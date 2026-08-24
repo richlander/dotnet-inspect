@@ -463,9 +463,12 @@ No layer converts failure or unavailability into an empty successful result.
 - Reject field-initializer and aggregate property/event replacement shapes in the
   first method-addressed contract; test each rejection explicitly.
 - Add Metadata-owned exact/carried target resolution and comparison-key
-  projection. Each reader mints its own side-local target and returns an exact
-  address or a total bodyless/absent/ambiguous/failed outcome; no normalized
-  presentation identity selects a MethodDef.
+  projection. Each reader mints its own side-local target and returns exactly
+  one `Resolved`, `Bodyless`, `Unavailable`, `Rejected`, `Ambiguous`, or
+  `Failed` `MemberBodyResolution`; no normalized presentation identity selects
+  a MethodDef. Proven `Absent` is instead a complete
+  Implementation Diff selection-scope outcome produced before target
+  resolution, never a Metadata resolution arm.
 - Resolve original/cluster-donor, original/all-donor, and
   cluster-donor/all-donor correspondence independently before invoking
   member-scoped diff APIs.

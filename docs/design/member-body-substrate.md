@@ -684,10 +684,13 @@ stack; it composes producer-owned evidence without replacing the producer's
 native coordinates. Interleave and body-subset overlays use the same-body
 **IL-offset** axis (`IrNode.SourceOffset` on C# statements, `.Offset` on IL
 instructions, `EvidenceOffsets` on Analysis facts). Implementation Diff does
-not: Metadata first resolves side-local methods and comparison correspondence,
-then Research joins complete mechanism ledgers by
-`BodyEvidenceSelectionScope.Id` and `BodyEvidenceWorkItemId`. Producer offsets
-remain native row evidence or display hints and never pair before/after bodies.
+not: Metadata independently resolves each side-local method and projects one
+strict/correspondence key and body-presence result per resolved method.
+Implementation Diff alone groups those projections inside a declared selection
+scope, decides correspondence/ambiguity, and creates work items. Research then
+joins complete mechanism ledgers by `BodyEvidenceSelectionScope.Id` and
+`BodyEvidenceWorkItemId`. Producer offsets remain native row evidence or
+display hints and never pair before/after bodies.
 
 This is the substrate's three currencies — two of them *concepts*, one a *type*:
 
@@ -940,7 +943,7 @@ sourced from Metadata/Analysis, not from the printed text:
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
 | CSharp.Decompiler | `MemberBodyProducer` + `CSharpBodyDiff` | produce singular C# bodies that expand CSharp shells and producer-native C# comparisons; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no interleave or comparison-population ownership |
-| Research | the join | compose interleave and body-subset on the same-body IL-offset axis; compose Implementation Diff from Metadata-issued scope/work-item correspondence plus producer-native comparison coordinates |
+| Research | the join | compose interleave and body-subset on the same-body IL-offset axis; let Implementation Diff own scope-local correspondence/work items over Metadata-issued address/key/body-presence projections, then compose producer-native comparison coordinates |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**
 (`MetadataMethodAddress` exact, `MemberBodyTarget` carried, independently
