@@ -579,6 +579,132 @@ public class FindCommandIntegrationTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("2147483648")]
+    public void PackageProfileInvalidRawLimit_FailsBeforeNetwork(
+        string limit)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                "-t",
+                limit,
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-t must be an integer between 1 and 10000", error);
+        Assert.DoesNotContain("Attempted:", error);
+        Assert.DoesNotContain("Arg_", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ArgumentOutOfRange_",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageProfileExplicitEmptyPrefix_UsesProfileDiagnostic()
+    {
+        var (exit, output, error) = RunCli(
+            ["find", "--package-prefix", ""]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--package-prefix must be 1 to 100 characters",
+            error);
+        Assert.DoesNotContain("Search pattern required", error);
+    }
+
+    [Fact]
+    public async Task PackageProfileMarkdown_HonorsColumnProjection()
+    {
+        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+            "Contoso.",
+            [
+                new PackageProfileEvent.Match(
+                    new PackageProfileMatch(
+                        "Contoso.Package",
+                        "1.0.0",
+                        "Contoso",
+                        ["Contoso"],
+                        42,
+                        true,
+                        PackageSourceIdentity.NuGetOrg,
+                        new PackageDependencyGroups(
+                            [
+                                new DeclaredPackageDependencyGroup(
+                                    "net8.0",
+                                    [
+                                        new DeclaredPackageDependency(
+                                            "Third.Party",
+                                            "2.0.0"),
+                                    ]),
+                            ],
+                            RequestedTargetFramework: null,
+                            SelectedTargetFramework: null,
+                            SelectedGroupIndex: null,
+                            PackageDependencyGroupSelectionStatus
+                                .NoMatchingTargetFramework))),
+            ]);
+        var options = new FindOptions
+        {
+            Columns = ["Package", "Dependency"],
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () =>
+            {
+                FindCommand.WritePackageProfileOutput(view, options);
+                return Task.FromResult(0);
+            });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Package | Dependency |", output);
+        Assert.DoesNotContain("| Version |", output);
+    }
+
+    private static (int Exit, string Output, string Error) RunCli(
+        string[] args)
+    {
+        string executable = Path.Combine(
+            AppContext.BaseDirectory,
+            OperatingSystem.IsWindows()
+                ? "dotnet-inspect.exe"
+                : "dotnet-inspect");
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = executable,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (string arg in args)
+            startInfo.ArgumentList.Add(arg);
+
+        using System.Diagnostics.Process process =
+            System.Diagnostics.Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                $"Could not start {executable}.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(120_000))
+        {
+            OutOfProcessCliProcess.KillAndWaitForExit(
+                process,
+                TimeSpan.FromSeconds(10));
+            throw new TimeoutException($"{executable} did not exit.");
+        }
+
+        Task.WaitAll([output, error], 10_000);
+        return (process.ExitCode, output.Result, error.Result);
+    }
+
     // ── Framework coverage tests ─────────────────────────────────────
 
     [Fact]

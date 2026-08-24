@@ -134,6 +134,26 @@ public static class PackageProfileQuery
         PackageSearchResult searchResult =
             ((PackageSourceOperationResult<PackageSearchResult>.Succeeded)search)
             .Value;
+        if (searchResult.Matches.Count > request.MaximumPackages)
+        {
+            yield return new PackageProfileEvent.Failure(
+                new PackageProfileFailure(
+                    PackageId: null,
+                    Version: null,
+                    source.Identity,
+                    PackageProfileFailureKind.SearchContract,
+                    "The package source returned more matches than requested."));
+            yield return new PackageProfileEvent.Completed(
+                new PackageProfileSummary(
+                    request.Prefix,
+                    source.Identity,
+                    Candidates: 0,
+                    Matches: 0,
+                    Failures: 1,
+                    PackageSearchTruncationReason.None));
+            yield break;
+        }
+
         int candidates = 0;
         int matches = 0;
         int failures = 0;

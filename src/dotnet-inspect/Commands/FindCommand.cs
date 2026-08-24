@@ -163,6 +163,14 @@ public class FindCommand
             return 1;
         }
 
+        if (options.TypeFilter is not null
+            && !int.TryParse(options.TypeFilter, out _))
+        {
+            CommandError.Write(
+                $"-t must be an integer between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile.");
+            return 1;
+        }
+
         int maximumPackages = options.Limit ?? 100;
         if (maximumPackages is <= 0
             or > PackageProfileQuery.MaximumPackageLimit)
@@ -198,6 +206,34 @@ public class FindCommand
         var view = PackageProfileFindOutputFormatter.BuildView(
             request.Prefix,
             events);
+        WritePackageProfileOutput(view, options);
+
+        foreach (PackageProfileEvent.Failure failure
+            in events.OfType<PackageProfileEvent.Failure>())
+        {
+            string subject = failure.Value.PackageId is { Length: > 0 } id
+                ? $"{id}: "
+                : "";
+            CommandError.WriteWarning(
+                $"{subject}{failure.Value.Message}");
+        }
+
+        if (summary.Truncated)
+        {
+            CommandError.WriteWarning(
+                summary.TruncationReason
+                    == PackageSearchTruncationReason.RequestedLimit
+                        ? "Package discovery reached the requested package limit."
+                        : "Package discovery was truncated by a pagination limit; narrow the prefix.");
+        }
+
+        return PackageProfileExitCode(summary);
+    }
+
+    internal static void WritePackageProfileOutput(
+        PackageProfileFindView view,
+        FindOptions options)
+    {
         if (options.Count)
         {
             CountOutput.WriteCount(
@@ -247,29 +283,10 @@ public class FindCommand
                 writerOptions => MarkoutSerializer.Serialize(
                     view,
                     SearchViewContext.Default,
-                    writerOptions));
+                    writerOptions),
+                options.Columns,
+                options.Fields);
         }
-
-        foreach (PackageProfileEvent.Failure failure
-            in events.OfType<PackageProfileEvent.Failure>())
-        {
-            string subject = failure.Value.PackageId is { Length: > 0 } id
-                ? $"{id}: "
-                : "";
-            CommandError.WriteWarning(
-                $"{subject}{failure.Value.Message}");
-        }
-
-        if (summary.Truncated)
-        {
-            CommandError.WriteWarning(
-                summary.TruncationReason
-                    == PackageSearchTruncationReason.RequestedLimit
-                        ? "Package discovery reached the requested package limit."
-                        : "Package discovery was truncated by a pagination limit; narrow the prefix.");
-        }
-
-        return PackageProfileExitCode(summary);
     }
 
     internal static int PackageProfileExitCode(

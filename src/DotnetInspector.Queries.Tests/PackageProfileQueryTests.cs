@@ -213,6 +213,34 @@ public sealed class PackageProfileQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RejectsSearchOverReturnBeforeManifestFetch()
+    {
+        var source = new FakePackageSource(
+            [
+                Match("Contoso.First", "1.0.0"),
+                Match("Contoso.Second", "1.0.0"),
+            ],
+            new Dictionary<string, byte[]>());
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest(
+                    "Contoso.",
+                    MaximumPackages: 1),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(PackageProfileFailureKind.SearchContract, failure.Kind);
+        PackageProfileSummary summary =
+            Assert.IsType<PackageProfileEvent.Completed>(events[1]).Value;
+        Assert.Equal(0, summary.Candidates);
+        Assert.Equal(1, summary.Failures);
+        Assert.Empty(source.ManifestRequests);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_RejectsInconsistentSearchCoordinateBeforeManifestFetch()
     {
         var source = new FakePackageSource(

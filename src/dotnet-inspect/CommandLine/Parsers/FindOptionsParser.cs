@@ -61,9 +61,12 @@ public static class FindOptionsParser
     {
         var pattern = parseResult.GetValue(args.PatternArg);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
+        bool packagePrefixSpecified =
+            parseResult.GetResult(args.PackagePrefixOption)
+                is { Implicit: false };
 
         if (string.IsNullOrEmpty(pattern)
-            && string.IsNullOrEmpty(packagePrefix))
+            && !packagePrefixSpecified)
             return new ShowHelpWithTips();
 
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
@@ -77,6 +80,7 @@ public static class FindOptionsParser
         var assemblies = parseResult.GetValue(args.AssemblyOption) ?? [];
         var projects = parseResult.GetValue(args.ProjectOption) ?? [];
         var binPaths = parseResult.GetValue(args.BinOption) ?? [];
+        var typeFilter = parseResult.GetValue(args.TypeFilterOption);
 
         var (allPlatformFrameworks, platformAssemblies) = CommandLineHelpers.ParsePlatformSearchOption(
             parseResult,
@@ -106,7 +110,8 @@ public static class FindOptionsParser
             // No valid type/namespace starts with '.', so the shortcut is unambiguous.
             Members = parseResult.GetValue(args.MembersOption)
                 || (pattern?.StartsWith('.') ?? false),
-            Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
+            Limit = CommandLineHelpers.ParseTypeLimit(typeFilter),
+            TypeFilter = typeFilter,
             Rows = opts.ParseRows(parseResult),
             Count = parseResult.GetValue(opts.Count),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
@@ -122,6 +127,7 @@ public static class FindOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
+            PackagePrefixSpecified = packagePrefixSpecified,
             SourceOptions = sourceOptions
         };
 
