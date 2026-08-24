@@ -24,12 +24,13 @@
   now attach to their exact target type rather than an approximate same-named
   or enclosing type (#4233, #4539).
 - **Breaking:** Canonical member identity now preserves exact metadata
-  structure and spelling throughout declaring types and member signatures.
-  Corrections include nested `+` separators, normalized generic-argument
-  separators, literal-name escaping, encoded-arity handling, and malformed
-  generic-instantiation spelling. Because `Name~digest` fingerprints the full
-  canonical signature, persisted selectors can change wherever that spelling
-  was repaired; refresh affected selectors from `Member Index`. Extension
+  structure and spelling in declaring-type anchors and repairs represented
+  canonical components used by selectors. Corrections include nested `+`
+  separators, normalized generic-argument separators, literal-name escaping,
+  encoded-arity handling, and malformed generic-instantiation spelling.
+  Because `Name~digest` fingerprints that represented canonical signature,
+  persisted selectors can change whenever one of those components was
+  repaired; refresh affected selectors from `Member Index`. Extension
   selectors can also move between same-named types of different arity or from
   an enclosing type to a nested target; rediscover them on the exact target
   type (#4233).
