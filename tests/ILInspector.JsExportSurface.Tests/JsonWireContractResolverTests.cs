@@ -471,6 +471,18 @@ public sealed class JsonWireContractResolverTests
                 function => function.Name == "GetRegisteredByteArray")
                 .ReturnWireType);
         Assert.Equal(
+            "decimal",
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "GetRegisteredDecimal")
+                .ReturnWireType);
+        Assert.Equal(
+            "decimal[]",
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "GetRegisteredDecimalArray")
+                .ReturnWireType);
+        Assert.Equal(
             ["int"],
             Assert.Single(
                 surface.Functions,

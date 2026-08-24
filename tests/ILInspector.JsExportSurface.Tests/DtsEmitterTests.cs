@@ -25,6 +25,10 @@ public sealed class DtsEmitterTests
     }
 
     private static string EmitFixtureDtsWithWireContracts()
+        => DtsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildFixtureSurfaceWithWireContracts()
     {
         string path = typeof(FixtureExports).Assembly.Location;
         using FileStream stream = File.OpenRead(path);
@@ -34,8 +38,7 @@ public sealed class DtsEmitterTests
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
-        return DtsEmitter.Emit(surface);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
     }
 
     [Fact]
@@ -143,9 +146,34 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
+            "export declare function getRegisteredDecimal(): number;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getRegisteredDecimalArray(): number[];",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "export declare function getClosedGenericRoot(): "
                 + "Record<string, ClosedGenericRootDto>;",
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ParsesDecimalWireRootResults()
+    {
+        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+
+        Assert.Contains(
+            "const result = getRegisteredDecimalExport();\n"
+                + "  return JSON.parse(result);",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const result = getRegisteredDecimalArrayExport();\n"
+                + "  return JSON.parse(result);",
+            js,
             StringComparison.Ordinal);
     }
 
@@ -2038,6 +2066,10 @@ public sealed class DtsEmitterTests
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records = [record],
+            WireDirections = new Dictionary<ApiType, JsonWireDirection>
+            {
+                [record] = JsonWireDirection.Serialize,
+            },
         };
 
         string dts = DtsEmitter.Emit(surface);
@@ -2092,6 +2124,10 @@ public sealed class DtsEmitterTests
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records = [record],
+            WireDirections = new Dictionary<ApiType, JsonWireDirection>
+            {
+                [record] = JsonWireDirection.Serialize,
+            },
         };
 
         string dts = DtsEmitter.Emit(surface);
@@ -2263,6 +2299,66 @@ public sealed class DtsEmitterTests
             """,
             dts,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PropagatesOnlyMembersPresentInTheActiveDirection()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface DirectionalSharedInputDto {
+              value: number;
+              secret: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export type DirectionalSharedInputDto = unknown;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_UsesSetterAccessibilityForDeserializeDeclarations()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface DirectionalAccessorInputDto {
+              id: number;
+              privateGetter: string;
+              writeOnly: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("privateSetter:", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_UsesSetterAccessibilityForDeserialization()
+    {
+        DirectionalAccessorInputDto? value = JsonSerializer.Deserialize(
+            """
+            {
+              "id": 1,
+              "privateGetter": "private-getter",
+              "privateSetter": "private-setter",
+              "writeOnly": "write-only"
+            }
+            """,
+            DirectionalFixtureJsonContext.Default
+                .DirectionalAccessorInputDto);
+
+        Assert.NotNull(value);
+        Assert.Equal(1, value.Id);
+        Assert.Equal("private-getter", value.ReadPrivateGetter());
+        Assert.Equal("", value.PrivateSetter);
+        Assert.Equal("write-only", value.ReadWriteOnly());
     }
 
     [Fact]

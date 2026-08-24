@@ -1051,6 +1051,17 @@ public class ApiMember
     public string? GetterAccessibility { get; set; }
 
     /// <summary>
+    /// Whether a property has a setter, and that setter's accessibility.
+    /// Null preserves older or hand-composed surface compatibility.
+    /// </summary>
+    [JsonIgnore]
+    public bool? HasSetter { get; set; }
+
+    /// <inheritdoc cref="HasSetter"/>
+    [JsonIgnore]
+    public string? SetterAccessibility { get; set; }
+
+    /// <summary>
     /// MethodDef tokens of an event's add/remove accessors when known. Serialized (like
     /// <see cref="GetterToken"/>/<see cref="SetterToken"/>) so JSON consumers can address an
     /// event's accessor bodies; omitted for members that expose no such accessor.

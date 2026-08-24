@@ -1166,6 +1166,13 @@ public static class ApiSurfaceExtractor
                             reader.GetMethodDefinition(accessors.Getter)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
+                    HasSetter = !accessors.Setter.IsNil,
+                    SetterAccessibility = accessors.Setter.IsNil
+                        ? null
+                        : GetAccessibility(
+                            reader.GetMethodDefinition(accessors.Setter)
+                                .Attributes
+                                & MethodAttributes.MemberAccessMask),
                 };
 
                 budget?.RetainMember(member);
@@ -4848,6 +4855,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.EnumValueLiteral);
         AddText(ref count, member.JsonPropertyName);
         AddText(ref count, member.GetterAccessibility);
+        AddText(ref count, member.SetterAccessibility);
         foreach (string? propertyName
             in member.JsonPropertyNameAttributeValues)
         {

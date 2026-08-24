@@ -406,6 +406,22 @@ public static partial class DirectionalFixtureExports
     }
 
     [JSExport]
+    public static int SetDirectionalSharedInput(string payloadJson) =>
+        JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalFixtureJsonContext.Default
+                .DirectionalSharedInputDto)!
+            .Value;
+
+    [JSExport]
+    public static int SetDirectionalAccessorInput(string payloadJson) =>
+        JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalFixtureJsonContext.Default
+                .DirectionalAccessorInputDto)!
+            .Id;
+
+    [JSExport]
     public static string RoundTripDirectional(string payloadJson)
     {
         DirectionalRoundTripDto payload = JsonSerializer.Deserialize(
@@ -429,6 +445,9 @@ public sealed record DirectionalOutputDto(string Name)
     /// <summary>Read but never written: absent from the serialize declaration.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public string ClientSecret { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public DirectionalSharedInputDto? InputOnlyChild { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string AlwaysPresent { get; init; } = "";
@@ -454,6 +473,27 @@ public sealed record DirectionalInputDto(string Name)
     public string ServerNote { get; init; } = "";
 }
 
+public sealed class DirectionalSharedInputDto
+{
+    public int Value { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string Secret { get; set; } = "";
+}
+
+public sealed class DirectionalAccessorInputDto
+{
+    string writeOnly = "";
+
+    public int Id { get; set; }
+    public string PrivateGetter { private get; set; } = "";
+    public string PrivateSetter { get; private set; } = "";
+    public string WriteOnly { set => writeOnly = value; }
+
+    public string ReadPrivateGetter() => PrivateGetter;
+    public string ReadWriteOnly() => writeOnly;
+}
+
 /// <summary>Reached in both directions, so its split member has no single shape.</summary>
 public sealed record DirectionalRoundTripDto(string Name)
 {
@@ -463,6 +503,8 @@ public sealed record DirectionalRoundTripDto(string Name)
 
 [JsonSerializable(typeof(DirectionalOutputDto))]
 [JsonSerializable(typeof(DirectionalInputDto))]
+[JsonSerializable(typeof(DirectionalSharedInputDto))]
+[JsonSerializable(typeof(DirectionalAccessorInputDto))]
 [JsonSerializable(typeof(DirectionalRoundTripDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class DirectionalFixtureJsonContext : JsonSerializerContext;
@@ -508,6 +550,18 @@ public static partial class PrimitiveRootFixtureExports
             PrimitiveRootFixtureJsonContext.Default.ByteArray);
 
     [JSExport]
+    public static string GetRegisteredDecimal() =>
+        JsonSerializer.Serialize(
+            1.5m,
+            PrimitiveRootFixtureJsonContext.Default.Decimal);
+
+    [JSExport]
+    public static string GetRegisteredDecimalArray() =>
+        JsonSerializer.Serialize(
+            new[] { 1.5m, 2.5m },
+            PrimitiveRootFixtureJsonContext.Default.DecimalArray);
+
+    [JSExport]
     public static string ReadRegisteredInt(string payload) =>
         JsonSerializer.Deserialize(
             payload,
@@ -518,6 +572,8 @@ public static partial class PrimitiveRootFixtureExports
 [JsonSerializable(typeof(int))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(byte[]))]
+[JsonSerializable(typeof(decimal))]
+[JsonSerializable(typeof(decimal[]))]
 public sealed partial class PrimitiveRootFixtureJsonContext : JsonSerializerContext;
 
 public sealed record ContextSerializationOnlyDto(string Name)

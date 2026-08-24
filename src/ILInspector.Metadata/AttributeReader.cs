@@ -1309,7 +1309,6 @@ public static partial class AttributeReader
             "System.UInt64" => ApiPrimitiveType.UInt64,
             "System.Single" => ApiPrimitiveType.Single,
             "System.Double" => ApiPrimitiveType.Double,
-            "System.Decimal" => ApiPrimitiveType.Decimal,
             "System.String" => ApiPrimitiveType.String,
             "System.Object" => ApiPrimitiveType.Object,
             _ => (ApiPrimitiveType)(-1),

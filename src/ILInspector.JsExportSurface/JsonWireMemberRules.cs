@@ -40,7 +40,7 @@ public static class JsonWireMemberRules
 
         return member.Kind switch
         {
-            "property" => IsSerializedProperty(member),
+            "property" => IsSerializedProperty(member, directions),
             "field" => member.HasJsonInclude
                 && IsSourceGeneratorAccessible(member.Accessibility),
             _ => false,
@@ -94,7 +94,9 @@ public static class JsonWireMemberRules
             }
             : JsonWireDirection.Both;
 
-    static bool IsSerializedProperty(ApiMember member)
+    static bool IsSerializedProperty(
+        ApiMember member,
+        JsonWireDirection directions)
     {
         int? indexParameterCount =
             member.IndexParameterCount
@@ -102,20 +104,41 @@ public static class JsonWireMemberRules
         if (indexParameterCount != 0)
             return false;
 
-        if (member.HasGetter is false)
+        bool serialize = IsIncludedAccessor(
+            member.HasGetter,
+            member.GetterAccessibility,
+            member.Accessibility,
+            member.HasJsonInclude);
+        bool deserialize = member.HasSetter is null
+            ? serialize
+            : IsIncludedAccessor(
+                member.HasSetter,
+                member.SetterAccessibility,
+                member.Accessibility,
+                member.HasJsonInclude);
+        return ((directions & JsonWireDirection.Serialize)
+                    != JsonWireDirection.None
+                && serialize)
+            || ((directions & JsonWireDirection.Deserialize)
+                    != JsonWireDirection.None
+                && deserialize);
+    }
+
+    static bool IsIncludedAccessor(
+        bool? hasAccessor,
+        string? accessorAccessibility,
+        string? memberAccessibility,
+        bool hasJsonInclude)
+    {
+        if (hasAccessor is false)
             return false;
 
-        if (member.HasJsonInclude)
-        {
-            string? getterAccessibility = member.HasGetter is true
-                ? member.GetterAccessibility
-                : member.Accessibility;
-            return IsSourceGeneratorAccessible(getterAccessibility);
-        }
-
-        return member.HasGetter is true
-            ? member.GetterAccessibility is null
-            : member.Accessibility is null;
+        string? accessibility = hasAccessor is true
+            ? accessorAccessibility
+            : memberAccessibility;
+        return hasJsonInclude
+            ? IsSourceGeneratorAccessible(accessibility)
+            : accessibility is null;
     }
 
     static bool IsSourceGeneratorAccessible(string? accessibility) =>

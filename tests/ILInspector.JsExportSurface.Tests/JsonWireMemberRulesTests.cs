@@ -126,6 +126,38 @@ public sealed class JsonWireMemberRulesTests
     }
 
     [Fact]
+    public void PropertyAccessorsSelectTheirOwnWireDirections()
+    {
+        ApiMember publicSetter = Property();
+        publicSetter.HasGetter = true;
+        publicSetter.GetterAccessibility = "private";
+        publicSetter.HasSetter = true;
+        publicSetter.SetterAccessibility = null;
+
+        Assert.False(
+            JsonWireMemberRules.IsSerialized(
+                publicSetter,
+                JsonWireDirection.Serialize));
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                publicSetter,
+                JsonWireDirection.Deserialize));
+
+        ApiMember privateSetter = Property();
+        privateSetter.HasSetter = true;
+        privateSetter.SetterAccessibility = "private";
+
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                privateSetter,
+                JsonWireDirection.Serialize));
+        Assert.False(
+            JsonWireMemberRules.IsSerialized(
+                privateSetter,
+                JsonWireDirection.Deserialize));
+    }
+
+    [Fact]
     public void ExtractedCompilerIndexerIsExcludedFromJsonContract()
     {
         using FileStream stream = File.OpenRead(

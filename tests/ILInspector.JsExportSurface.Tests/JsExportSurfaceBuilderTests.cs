@@ -50,7 +50,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(39, surface.Functions.Count);
+        Assert.Equal(43, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("GetStringArrayAsyncAfterAwait", names);
@@ -79,11 +79,15 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("GetNeedsUnmappedType", names);
         Assert.Contains("GetDirectionalOutput", names);
         Assert.Contains("SetDirectionalInput", names);
+        Assert.Contains("SetDirectionalSharedInput", names);
+        Assert.Contains("SetDirectionalAccessorInput", names);
         Assert.Contains("RoundTripDirectional", names);
         Assert.Contains("GetClosedGenericRoot", names);
         Assert.Contains("GetRegisteredInt", names);
         Assert.Contains("GetRegisteredIntArray", names);
         Assert.Contains("GetRegisteredByteArray", names);
+        Assert.Contains("GetRegisteredDecimal", names);
+        Assert.Contains("GetRegisteredDecimalArray", names);
         Assert.Contains("ReadRegisteredInt", names);
         Assert.Contains("GetContextSerializationOnly", names);
         Assert.Contains("SetContextSerializationOnly", names);
@@ -685,7 +689,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(19, surface.Records.Count);
+        Assert.Equal(21, surface.Records.Count);
         Assert.Contains(nameof(ByteEnvelopeDto), recordNames);
         Assert.Contains(nameof(BytePayloadDto), recordNames);
         Assert.Contains(nameof(CustomNamedDto), recordNames);
@@ -700,6 +704,8 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("NeedsUnmappedTypeFixture", recordNames);
         Assert.Contains("DirectionalOutputDto", recordNames);
         Assert.Contains("DirectionalInputDto", recordNames);
+        Assert.Contains("DirectionalSharedInputDto", recordNames);
+        Assert.Contains("DirectionalAccessorInputDto", recordNames);
         Assert.Contains("DirectionalRoundTripDto", recordNames);
         Assert.Contains("DirectionalNote", recordNames);
         Assert.Contains(nameof(ClosedGenericRootDto), recordNames);
@@ -851,11 +857,19 @@ public sealed class JsExportSurfaceBuilderTests
                 ApiTypeShapeKind.Primitive,
                 ApiTypeShapeKind.SzArray,
                 ApiTypeShapeKind.SzArray,
+                ApiTypeShapeKind.Named,
+                ApiTypeShapeKind.SzArray,
             ],
             roots.Select(root => root.Kind));
         Assert.Equal(ApiPrimitiveType.Int32, roots[0].Primitive);
         Assert.Equal(ApiPrimitiveType.Int32, roots[1].ElementType?.Primitive);
         Assert.Equal(ApiPrimitiveType.Byte, roots[2].ElementType?.Primitive);
+        Assert.Equal(
+            "System.Decimal",
+            roots[3].Definition?.FullName);
+        Assert.Equal(
+            "System.Decimal",
+            roots[4].ElementType?.Definition?.FullName);
 
         ApiType modeContext = Assert.Single(
             apiSurface.Types,
@@ -2268,6 +2282,12 @@ public sealed class JsExportSurfaceBuilderTests
         JsonWireDirection.Serialize)]
     [InlineData(
         nameof(DirectionalInputDto),
+        JsonWireDirection.Deserialize)]
+    [InlineData(
+        nameof(DirectionalSharedInputDto),
+        JsonWireDirection.Deserialize)]
+    [InlineData(
+        nameof(DirectionalAccessorInputDto),
         JsonWireDirection.Deserialize)]
     [InlineData(
         nameof(DirectionalRoundTripDto),

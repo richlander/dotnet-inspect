@@ -74,7 +74,13 @@ distinct. This avoids special string or name fallback paths for `int`, `int[]`,
 when its defining assembly is a platform-signed core contract assembly
 (`System.Private.CoreLib`, `System.Runtime`, `mscorlib`, or `netstandard`);
 another platform-signed assembly cannot alias `System.Int32` or another
-primitive. For a default name STJ uses the leaf
+primitive. `System.Decimal` remains a named core-contract value type because
+ECMA-335 has no decimal primitive element code; this keeps its serialized root
+shape equal to the generated `JsonTypeInfo<decimal>` signature.
+`JsonWireContractResolverTests.Build_ResolvesRegisteredPrimitiveAndArrayRoots`
+and `DtsEmitterTests.Emit_ParsesDecimalWireRootResults` gate scalar and array
+decimal wrappers through the real source-generated context. For a default name
+STJ uses the leaf
 metadata segment (plus generic arguments and array suffixes), so a nested
 `Outer.Leaf` root is `Leaf`, not `OuterLeaf`. A nested/top-level leaf collision
 is retained as ambiguous evidence and stops generation only when its context
@@ -158,18 +164,23 @@ and
 `SourceGeneratedJson_SerializationOnlyRootRejectsDeserializeAndPreservesSerializeShape`
 gates cover the override/default rule and STJ's runtime failure oracle.
 
-Generated interfaces include properties with an accessible getter and
-`[JsonInclude]` properties or fields accessible to the source-generated
-context. Private, private-protected, and protected members remain excluded,
-matching the source generator's `SYSLIB1038` boundary; internal, protected
-internal, and public members are accessible. Write-only properties remain
-excluded even when annotated. Indexed properties are also excluded because
+Generated interfaces follow accessor participation by direction: serialization
+requires an accessible getter, while deserialization requires an accessible
+setter. A public setter with a private or absent getter therefore remains an
+input member, while a private setter is not promised as accepted input merely
+because its getter is public. `[JsonInclude]` properties or fields must remain
+accessible to the source-generated context: private, private-protected, and
+protected members are excluded, while internal, protected internal, and public
+members are accessible. Indexed properties are also excluded because
 System.Text.Json does not include indexers in object contracts; extracted
 surfaces persist the property index-parameter count, while older or
 hand-composed surfaces without equivalent signature evidence fail closed. The
 same wire-member rule drives transitive DTO
 discovery and declaration emission so a discovered edge cannot become an
 orphaned or incomplete TypeScript shape;
+`DtsEmitterTests.Emit_UsesSetterAccessibilityForDeserializeDeclarations` and
+`SourceGeneratedJson_UsesSetterAccessibilityForDeserialization` gate the
+directional accessor contract against the real source generator.
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
@@ -204,9 +215,11 @@ deserialize-only, and both mark it bidirectional. A bidirectional type with a
 direction-sensitive member has no single interface, so it is emitted as
 diagnosed `unknown` rather than guessing one direction's shape. Without body
 evidence no direction can be attributed and every type is read as
-bidirectional. Direction propagation deliberately walks the
-direction-independent member union, which is a superset of any one direction's
-members, so a directional declaration can never reference an undeclared type.
+bidirectional. Discovery walks the direction-independent member union so every
+possible referenced declaration exists, while direction propagation follows
+only members present in the active direction. A deserialize-only edge therefore
+cannot falsely make a type bidirectional through a member absent from
+serialization.
 
 `JsonPropertyNameAttributeTests.JsonIgnoreConditionValuesMatchSystemTextJson`
 pins the condition values to System.Text.Json's own enum and
@@ -220,6 +233,7 @@ the table above,
 gates direction attribution, and
 `DtsEmitterTests.Emit_PreservesWhenReadingMemberInSerializeOnlyDeclaration`,
 `Emit_PreservesWhenWritingMemberInDeserializeOnlyDeclaration`,
+`Emit_PropagatesOnlyMembersPresentInTheActiveDirection`,
 `Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember`,
 `Emit_BlocksDirectionSensitiveTypeWithoutBodyEvidence`, and
 `Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers` gate emission

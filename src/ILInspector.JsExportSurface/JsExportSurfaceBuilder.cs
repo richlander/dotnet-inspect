@@ -421,12 +421,14 @@ public static class JsExportSurfaceBuilder
     /// members that participate in the contract.
     /// </summary>
     /// <remarks>
-    /// Propagation deliberately walks the direction-independent
-    /// <see cref="JsonWireMemberRules.IsSerialized(ApiMember)"/> union, which is
-    /// a superset of any single direction's member set. Emission can therefore
-    /// never reference a type this pass failed to reach, so a directional
-    /// declaration cannot orphan a type. Gated by
-    /// <c>DtsEmitterTests.Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers</c>.
+    /// Discovery separately walks the direction-independent
+    /// <see cref="JsonWireMemberRules.IsSerialized(ApiMember)"/> union so
+    /// directional declarations cannot orphan types. This pass follows only
+    /// members present in the active direction so an absent edge cannot falsely
+    /// make a nested type bidirectional. Gated by
+    /// <c>DtsEmitterTests.Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers</c>
+    /// and
+    /// <c>DtsEmitterTests.Emit_PropagatesOnlyMembersPresentInTheActiveDirection</c>.
     /// </remarks>
     static Dictionary<ApiType, JsonWireDirection> ResolveWireDirections(
         List<JsExportFunction> functions,
@@ -476,7 +478,7 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(member)
+                if (!JsonWireMemberRules.IsSerialized(member, direction)
                     || member.JsonConverterAttributeCount > 0
                     || member.SignatureModel is null)
                 {

@@ -405,6 +405,22 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void SetterAccessibilityContributesItsRetainedText()
+    {
+        const string accessibility = "private";
+        var withoutAccessibility = new ApiMember();
+        var withAccessibility = new ApiMember
+        {
+            SetterAccessibility = accessibility,
+        };
+
+        Assert.Equal(
+            accessibility.Length,
+            ApiSurfaceExtractor.CountRetainedText(withAccessibility)
+                - ApiSurfaceExtractor.CountRetainedText(withoutAccessibility));
+    }
+
+    [Fact]
     public void BaseTypeReferenceContributesItsCompleteRetainedText()
     {
         const string assemblyName = "Dependency";
