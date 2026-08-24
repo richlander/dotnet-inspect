@@ -396,7 +396,7 @@ test("an opportunity row splits the API into short name and qualifier", () => {
 test("an explicitly unknown source identity remains distinct from a legacy row", () => {
   const currentHtml = renderPackageOpportunities({
     ...baseOptions,
-    data: {
+    resource: ready({
       categories: [{
         integration: "AI",
         items: [{
@@ -412,7 +412,7 @@ test("an explicitly unknown source identity remains distinct from a legacy row",
       }],
       totalOpportunities: 1,
       inspectionError: null,
-    },
+    }),
   });
   const legacyItem = opportunity({
     api: "Example.Legacy",
@@ -422,14 +422,14 @@ test("an explicitly unknown source identity remains distinct from a legacy row",
   Reflect.deleteProperty(legacyItem, "sourceDefinitionId");
   const legacyHtml = renderPackageOpportunities({
     ...baseOptions,
-    data: {
+    resource: ready({
       categories: [{
         integration: "AI",
         items: [legacyItem],
       }],
       totalOpportunities: 1,
       inspectionError: null,
-    },
+    }),
   });
 
   assert.match(currentHtml, /data-opp-source-identity="unknown"/);
