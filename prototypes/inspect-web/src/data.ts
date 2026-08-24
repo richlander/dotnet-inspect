@@ -1329,7 +1329,7 @@ export function partitionGraphMembers<T extends { graphOnly?: boolean }>(
 }
 
 export function retainGraphMemberProjection<
-  TMember extends { graphOnly?: boolean },
+  TMember extends { name: string; graphOnly?: boolean },
 >(
   types: readonly { api: TMember[] }[],
   selected: TMember,
