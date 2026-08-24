@@ -257,6 +257,14 @@ public class NuGetClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetOperationDeadline operation)
     {
+        if (!NuGetSourceRequest.TryEndpointUrl(
+                serviceIndexUrl,
+                out string normalizedServiceIndexUrl))
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.");
+        }
+
         ServiceIndex? index;
         try
         {
@@ -266,7 +274,7 @@ public class NuGetClient(HttpClient client)
                     using HttpRequestMessage request =
                         NuGetHttpRequest
                             .CreateGetPreservingPathAndQuery(
-                                serviceIndexUrl);
+                                normalizedServiceIndexUrl);
                     NuGetSourceRequest.ApplyCredential(
                         request,
                         credential);
