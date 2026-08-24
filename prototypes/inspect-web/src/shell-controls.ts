@@ -1,6 +1,14 @@
-import { parsePackageQuery } from "./package-bar.ts";
+import {
+  parsePackageQuery,
+  type ParsedPackageQuery,
+} from "./package-bar.ts";
+import {
+  isProductHomeDemoId,
+  type ProductHomeDemoId,
+} from "./product-home-demos.ts";
 
-export type HomeDemo = "stj" | "runtime" | "callgraph";
+/** Product home-demo ids (`ProductInspectionDemos` / CLI `demo <id>`). */
+export type HomeDemo = ProductHomeDemoId;
 
 export interface WorkbenchShellBindingActions {
   onDismissNotice: () => void;
@@ -22,7 +30,7 @@ export interface HomeShellBindingActions {
 }
 
 export interface LoadErrorShellBindingActions {
-  onOpenPackage: (packageId: string, version: string) => void;
+  onOpenPackage: (query: ParsedPackageQuery) => void;
   onRetry: () => void;
 }
 
@@ -73,7 +81,7 @@ export function bindHomeShell(
   root.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
     button.addEventListener("click", () => {
       const demo = button.dataset.homeDemo;
-      if (demo === "stj" || demo === "runtime" || demo === "callgraph") {
+      if (isProductHomeDemoId(demo)) {
         actions.onDemo(demo);
       }
     }));
@@ -91,7 +99,7 @@ export function bindLoadErrorShell(
       const input =
         root.querySelector<HTMLInputElement>("#error-package-input");
       const parsed = parsePackageQuery(input?.value ?? "");
-      if (parsed) actions.onOpenPackage(parsed.packageId, parsed.version);
+      if (parsed) actions.onOpenPackage(parsed);
     });
   root.querySelector("#toggle-error-detail")
     ?.addEventListener("click", () => {

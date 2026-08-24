@@ -47,6 +47,8 @@ namespace InspectWeb.Engine;
 /// gates the final monotonic check before cache publication, and
 /// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
 /// gates timeout classification after synchronous work overruns the deadline.
+/// <c>BrowserEngineBoundaryTests.PackageOperation_LateSuccessDisposesOwnedResult</c>
+/// gates ownership when that final deadline check rejects a completed result.
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExactPinUsesGalleryCdnWithoutServiceIndex</c>
 /// and
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_FloatingRootUsesGallerySearchAndCdn</c>
@@ -65,7 +67,7 @@ internal static class BrowserPackageWorkspace
 {
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
-    const int MaxOpenScopes = 4;
+    internal const int MaxOpenScopes = 4;
     internal static TimeSpan PackageOperationTimeout { get; } =
         TimeSpan.FromSeconds(30);
     internal static TimeSpan GalleryOperationTimeout { get; } =
@@ -109,14 +111,20 @@ internal static class BrowserPackageWorkspace
         MsdlProxyHandler.Configure(origin);
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorization;
+    internal static IPackageStore SessionPackageStore => Store;
+    internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
+        Store;
+    internal static PackagePayloadLimits PackageLimits => PayloadLimits;
 
     sealed record CacheEntry(byte[] Bytes, string ProducerKey, long LastAccess);
 
     sealed record ScopeEntry(
-        BrowserInspectionScope Scope,
+        IDisposable Scope,
         ImmutableHashSet<string> PackageKeys,
         long LastAccess,
-        int ActiveLeases);
+        int ActiveLeases,
+        bool RemovalRequested,
+        Action<IDisposable>? OnDisposed);
 
     public static BrowserPackageCacheStats Stats() =>
         new(
@@ -313,18 +321,67 @@ internal static class BrowserPackageWorkspace
         if (coordinates.Count == 0)
             throw new ArgumentException("A workspace requires at least one package coordinate.");
 
-        string key = string.Join(
+        string key = "packages|" + string.Join(
             "|",
             coordinates.Select(coordinate => coordinate.Key).Order(StringComparer.Ordinal));
         if (Scopes.TryGetValue(key, out ScopeEntry? entry))
         {
+            if (entry.Scope is not BrowserInspectionScope retained)
+            {
+                throw new InvalidOperationException(
+                    "The browser scope registry key names a different scope kind.");
+            }
             Scopes[key] = entry with { LastAccess = ++_clock };
             TouchPackages(entry.PackageKeys);
-            return entry.Scope;
+            return retained;
         }
 
         ImmutableHashSet<string> packageKeys = RetainCoordinatePackages(coordinates);
         var scope = new BrowserInspectionScope(coordinates);
+        return RegisterScope(key, scope, packageKeys);
+    }
+
+    internal static T RegisterScope<T>(
+        string key,
+        T scope,
+        ImmutableHashSet<string> packageKeys,
+        Action<T>? onDisposed = null)
+        where T : class, IDisposable
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(packageKeys);
+        try
+        {
+            RetainPackageKeys(packageKeys);
+        }
+        catch
+        {
+            scope.Dispose();
+            throw;
+        }
+
+        if (Scopes.TryGetValue(key, out ScopeEntry? retained))
+        {
+            scope.Dispose();
+            if (retained.Scope is not T typed)
+            {
+                throw new InvalidOperationException(
+                    "The browser scope registry key names a different scope kind.");
+            }
+
+            Scopes[key] = retained with { LastAccess = ++_clock };
+            if (retained.RemovalRequested)
+            {
+                Scopes[key] = Scopes[key] with
+                {
+                    RemovalRequested = false,
+                };
+            }
+            TouchPackages(retained.PackageKeys);
+            return typed;
+        }
+
         while (Scopes.Count >= MaxOpenScopes)
         {
             string? oldest = Scopes
@@ -338,19 +395,70 @@ internal static class BrowserPackageWorkspace
                 throw new InvalidOperationException(
                     "The browser workspace limit cannot evict an active inspection.");
             }
-            Scopes[oldest].Scope.Dispose();
-            Scopes.Remove(oldest);
+            DisposeRegisteredScope(oldest, Scopes[oldest]);
         }
 
-        Scopes[key] = new ScopeEntry(scope, packageKeys, ++_clock, ActiveLeases: 0);
+        Scopes[key] = new ScopeEntry(
+            scope,
+            packageKeys,
+            ++_clock,
+            ActiveLeases: 0,
+            RemovalRequested: false,
+            onDisposed is null
+                ? null
+                : disposed => onDisposed((T)disposed));
         return scope;
+    }
+
+    internal static bool IsScopeRetained(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        return Scopes.Values.Any(entry => ReferenceEquals(entry.Scope, scope));
+    }
+
+    internal static void TouchScope(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        KeyValuePair<string, ScopeEntry> registered = Scopes
+            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        if (registered.Value is null)
+        {
+            throw new InvalidOperationException(
+                "The browser inspection scope is no longer retained.");
+        }
+
+        Scopes[registered.Key] = registered.Value with
+        {
+            LastAccess = ++_clock,
+        };
+        TouchPackages(registered.Value.PackageKeys);
+    }
+
+    internal static void RemoveScope(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        KeyValuePair<string, ScopeEntry> registered = Scopes
+            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        if (registered.Value is null)
+            return;
+        if (registered.Value.ActiveLeases != 0)
+        {
+            Scopes[registered.Key] = registered.Value with
+            {
+                RemovalRequested = true,
+            };
+            return;
+        }
+
+        DisposeRegisteredScope(registered.Key, registered.Value);
     }
 
     /// <summary>
     /// Pins a registry-owned scope and its package archives for one asynchronous inspection.
     /// </summary>
-    internal static BrowserInspectionScopeLease LeaseScope(
-        BrowserInspectionScope scope)
+    internal static BrowserScopeLease<TScope> LeaseScope<TScope>(
+        TScope scope)
+        where TScope : class, IDisposable
     {
         ArgumentNullException.ThrowIfNull(scope);
         KeyValuePair<string, ScopeEntry> registered = Scopes
@@ -368,14 +476,14 @@ internal static class BrowserPackageWorkspace
             LastAccess = ++_clock,
             ActiveLeases = registered.Value.ActiveLeases + 1,
         };
-        return new BrowserInspectionScopeLease(
+        return new BrowserScopeLease<TScope>(
             scope,
             () => ReleaseScopeLease(registered.Key, scope));
     }
 
     static void ReleaseScopeLease(
         string scopeKey,
-        BrowserInspectionScope scope)
+        IDisposable scope)
     {
         if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? entry)
             || !ReferenceEquals(entry.Scope, scope)
@@ -385,10 +493,18 @@ internal static class BrowserPackageWorkspace
                 "The browser inspection scope lease is not active.");
         }
 
-        Scopes[scopeKey] = entry with
+        int activeLeases = entry.ActiveLeases - 1;
+        if (activeLeases == 0 && entry.RemovalRequested)
         {
-            ActiveLeases = entry.ActiveLeases - 1,
-        };
+            DisposeRegisteredScope(scopeKey, entry);
+        }
+        else
+        {
+            Scopes[scopeKey] = entry with
+            {
+                ActiveLeases = activeLeases,
+            };
+        }
         foreach (string packageKey in entry.PackageKeys)
             ReleasePackageLease(packageKey);
     }
@@ -659,7 +775,18 @@ internal static class BrowserPackageWorkspace
         try
         {
             T result = await operation(deadline).ConfigureAwait(false);
-            deadline.ThrowIfExpired();
+            try
+            {
+                deadline.ThrowIfExpired();
+            }
+            catch (Exception exception)
+                when (exception is OperationCanceledException
+                    or TimeoutException)
+            {
+                if (result is IDisposable owned)
+                    owned.Dispose();
+                throw;
+            }
             return result;
         }
         catch (OperationCanceledException)
@@ -813,8 +940,23 @@ internal static class BrowserPackageWorkspace
             }
         }
 
-        TouchPackages(packageKeys);
+        RetainPackageKeys(packageKeys);
         return packageKeys;
+    }
+
+    static void RetainPackageKeys(ImmutableHashSet<string> packageKeys)
+    {
+        foreach (string packageKey in packageKeys)
+        {
+            if (!Cache.ContainsKey(packageKey))
+            {
+                throw new InvalidOperationException(
+                    "A resolved browser package escaped aggregate cache accounting before its "
+                    + "workspace opened.");
+            }
+        }
+
+        TouchPackages(packageKeys);
     }
 
     static void MakeCacheRoom(
@@ -851,12 +993,24 @@ internal static class BrowserPackageWorkspace
                 .Select(entry => entry.Key),
         ];
         foreach (string scopeKey in retainedScopes)
-        {
-            Scopes[scopeKey].Scope.Dispose();
-            Scopes.Remove(scopeKey);
-        }
+            DisposeRegisteredScope(scopeKey, Scopes[scopeKey]);
 
         Cache.Remove(packageKey);
+    }
+
+    static void DisposeRegisteredScope(
+        string scopeKey,
+        ScopeEntry entry)
+    {
+        Scopes.Remove(scopeKey);
+        try
+        {
+            entry.OnDisposed?.Invoke(entry.Scope);
+        }
+        finally
+        {
+            entry.Scope.Dispose();
+        }
     }
 
     internal static PackageDownloadReservation ReservePackageDownload(
@@ -896,6 +1050,39 @@ internal static class BrowserPackageWorkspace
             Leases[packageKey] = count - 1;
     }
 
+    internal sealed class PackageLeaseSet : IDisposable
+    {
+        HashSet<string>? _packageKeys = new(StringComparer.Ordinal);
+
+        internal void Lease(string packageKey)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(packageKey);
+            ObjectDisposedException.ThrowIf(_packageKeys is null, this);
+            if (!_packageKeys.Add(packageKey))
+                return;
+
+            try
+            {
+                LeasePackage(packageKey);
+            }
+            catch
+            {
+                _packageKeys.Remove(packageKey);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_packageKeys is not { } packageKeys)
+                return;
+
+            _packageKeys = null;
+            foreach (string packageKey in packageKeys)
+                ReleasePackageLease(packageKey);
+        }
+    }
+
     internal static void RegisterAcquiredPackage(BrowserPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -925,7 +1112,7 @@ internal static class BrowserPackageWorkspace
     static string PackageKey(BrowserPackageCoordinate coordinate) =>
         PackageKey(coordinate.PackageId, coordinate.Version);
 
-    static string PackageKey(string packageId, string version) =>
+    internal static string PackageKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
     internal static void ValidateArchive(byte[] archive)

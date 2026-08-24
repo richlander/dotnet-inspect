@@ -357,8 +357,12 @@ display. `LibraryBodyAsyncSiblingDispatchAnalyzer` owns reader-relative type
 relationships, constructed generic projection, virtual-slot and MethodImpl
 correspondence, constrained-method suppression, and conservative unknown
 handling. It consumes assembly-builder callbacks for synchronized external
-type resolution and the shared per-type method-name index. Reader-relative
-candidate lookup, caches, accessibility, orchestration, diagnostics, and
+type resolution and the shared per-type method-name index.
+`LibraryBodyAsyncSiblingAccessibilityAnalyzer` owns CLR member-access,
+protected-receiver, friend-assembly identity, and directional nested-private
+access policy. It consumes the primary reader and assembly identity plus
+dispatch relationship proofs without owning metadata resolution or caches.
+Reader-relative candidate lookup, caches, orchestration, diagnostics, and
 result ordering remain assembly-builder policy.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and

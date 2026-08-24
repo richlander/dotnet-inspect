@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v13";
+    internal const string Category = "pkg-index-v14";
     private static ReadOnlySpan<byte> DescriptionLengthPrefix => "description-bytes: "u8;
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -204,6 +204,11 @@ internal static class PackageIndexCache
 
         CoreCache.SetBytes(Category, key, buf.WrittenSpan.ToArray(), extension: "md");
     }
+
+    internal static bool RequiresRidReverification(
+        InspectionResult result)
+        => result.RuntimeIdentifierPackages?.Any(
+            package => package.Exists is null) == true;
 
     internal static string CacheKey(
         string packageName,
@@ -418,7 +423,8 @@ internal static class PackageIndexCache
     }
 
     private static string FormatRidPackageReference(RidPackageReference reference)
-        => $"{reference.RuntimeIdentifier}|{reference.PackageId}|{reference.AvailableDisplay}";
+        // Availability depends on the active source policy; cache identity only.
+        => $"{reference.RuntimeIdentifier}|{reference.PackageId}|unknown";
 
     private static RidPackageReference ParseRidPackageReference(string raw)
     {
