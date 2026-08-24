@@ -58,8 +58,7 @@ internal static class PackageInspector
                 if (resolution.ToolWrapperChain.Count == 0
                     && verifyRidPackageAvailability
                     && cached.IsRidSpecificPointerPackage
-                    && cached.RuntimeIdentifierPackages?.Any(
-                        package => package.Exists is null) == true)
+                    && PackageIndexCache.RequiresRidReverification(cached))
                 {
                     await RidPackageVerifier.VerifyAsync(
                         httpClient,
@@ -68,11 +67,6 @@ internal static class PackageInspector
                         localDir: null,
                         logger,
                         sourceOptions);
-                    PackageIndexCache.Set(
-                        packageName,
-                        version,
-                        producerKey,
-                        cached);
                 }
 
                 if (fetchMetadata)

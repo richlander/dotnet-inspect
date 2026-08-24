@@ -147,6 +147,38 @@ public static class RidPackageVerifier
                         normalizedVersion,
                         logger.Log,
                         sourceOptions).ConfigureAwait(false);
+                    if (probe.Status != NuspecProbeStatus.Present)
+                    {
+                        bool? versionExists =
+                            await PackageExtractor.PackageVersionExistsAsync(
+                                client,
+                                ridPkg.PackageId,
+                                normalizedVersion,
+                                logger.Log,
+                                sourceOptions).ConfigureAwait(false);
+                        if (versionExists == true)
+                        {
+                            probe = new NuspecProbeResult(
+                                null,
+                                NuspecProbeStatus.Present);
+                        }
+                        else if (probe.Status == NuspecProbeStatus.Absent
+                            && versionExists is null)
+                        {
+                            probe = new NuspecProbeResult(
+                                null,
+                                NuspecProbeStatus.Indeterminate);
+                        }
+                        else if (versionExists == false
+                            && !HasEligibleHttpSource(
+                                sourceOptions,
+                                ridPkg.PackageId))
+                        {
+                            probe = new NuspecProbeResult(
+                                null,
+                                NuspecProbeStatus.Absent);
+                        }
+                    }
                 }
 
                 status = acquiredEvidence is not null
@@ -170,6 +202,18 @@ public static class RidPackageVerifier
                 + $"({ridPkg.PackageId} {normalizedVersion})");
         }
     }
+
+    private static bool HasEligibleHttpSource(
+        NuGetSourceOptions? sourceOptions,
+        string packageId)
+        => NuGetSourceResolver
+            .ResolveSourcesForPackage(sourceOptions, packageId)
+            .Any(source =>
+                Uri.TryCreate(
+                    source.Url,
+                    UriKind.Absolute,
+                    out Uri? uri)
+                && uri.Scheme is "http" or "https");
 
     internal static async Task<NuspecProbeResult>
         ProbeLocalPackageArchiveAsync(

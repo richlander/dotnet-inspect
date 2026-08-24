@@ -518,6 +518,114 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectAsync_ReverifiesEveryCachedRidCoordinateWithoutPersisting()
+    {
+        string packageName =
+            $"Cached.Pointer.{Guid.NewGuid():N}";
+        string firstPackage = $"{packageName}.linux-x64";
+        string secondPackage = $"{packageName}.win-x64";
+        const string Version = "1.0.0";
+        const string Source = "https://fixture.example/v3/index.json";
+        string producerKey = NuGetCache.GetSourceKey(Source);
+        PackageIndexCache.Set(
+            packageName,
+            Version,
+            producerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = Version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = firstPackage,
+                    },
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "win-x64",
+                        PackageId = secondPackage,
+                        Exists = true,
+                    },
+                ],
+            });
+
+        bool probedSecondPackage = false;
+        using var client = new HttpClient(new RoutingHandler(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            string firstId = firstPackage.ToLowerInvariant();
+            string secondId = secondPackage.ToLowerInvariant();
+            if (path == $"/flat/{secondId}/{Version}/{secondId}.nuspec")
+                probedSecondPackage = true;
+
+            return path switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "https://fixture.example/flat/",
+                          "@type": "PackageBaseAddress/3.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                _ when path == $"/flat/{firstId}/{Version}/{firstId}.nuspec" =>
+                    Xml($"""
+                        <package><metadata>
+                          <id>{firstPackage}</id>
+                          <version>{Version}</version>
+                        </metadata></package>
+                        """),
+                _ when path == $"/flat/{secondId}/{Version}/{secondId}.nuspec" =>
+                    Xml($"""
+                        <package><metadata>
+                          <id>{secondPackage}</id>
+                          <version>{Version}</version>
+                        </metadata></package>
+                        """),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            };
+        }));
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: packageName,
+            Version: Version,
+            ProducerKey: producerKey);
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageName,
+            Version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
+            verifyRidPackageAvailability: true,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [Source],
+            });
+
+        Assert.All(
+            result.RuntimeIdentifierPackages!,
+            package => Assert.True(package.Exists));
+        Assert.True(probedSecondPackage);
+        Assert.All(
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                producerKey)!.RuntimeIdentifierPackages!,
+            package => Assert.Null(package.Exists));
+    }
+
+    [Fact]
     public async Task MarkAcquiredRidPackages_UsesResolutionCoordinatesAndRedirectChain()
     {
         string middlePath = Path.Combine(_root, "middle");

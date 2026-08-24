@@ -205,6 +205,11 @@ internal static class PackageIndexCache
         CoreCache.SetBytes(Category, key, buf.WrittenSpan.ToArray(), extension: "md");
     }
 
+    internal static bool RequiresRidReverification(
+        InspectionResult result)
+        => result.RuntimeIdentifierPackages?.Any(
+            package => package.Exists is null) == true;
+
     internal static string CacheKey(
         string packageName,
         string version,
