@@ -31,6 +31,7 @@ const result: AnnotatedSourceResult = {
   document: sampleDocument,
   provenance: "test artifact",
   contextLimitation: null,
+  findingEvidence: [],
 };
 
 function escapeHtml(value: unknown) {
@@ -144,6 +145,8 @@ test("drag selection does not activate an addressable source segment", () => {
     onCaptureSelect: () => {},
     onCodeLensToggle: () => {},
     onFactSelect: () => {},
+    onFindingMemberCopy: () => {},
+    onFindingMemberNavigate: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -181,6 +184,8 @@ test("CodeLens activation retains its node preview until the six-second animatio
     onCaptureSelect: () => {},
     onCodeLensToggle: () => toggles++,
     onFactSelect: () => {},
+    onFindingMemberCopy: () => {},
+    onFindingMemberNavigate: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -215,6 +220,45 @@ test("CodeLens activation retains its node preview until the six-second animatio
   assert.equal(toggles, 1);
 });
 
+test("Finding evidence actions copy and navigate without changing selection", () => {
+  const copy = new FakeElement({
+    aseFindingMemberCopy: "System.Text.Json.JsonElement.CheckValidInstance()",
+  });
+  const navigate = new FakeElement({ aseFindingMemberNavigate: "2" });
+  const calls: string[] = [];
+  const root = fakeDom.parentNode({
+    querySelector: () => null,
+    querySelectorAll: (selector: string) => {
+      if (selector === "[data-ase-finding-member-copy]") return [copy];
+      if (selector === "[data-ase-finding-member-navigate]") return [navigate];
+      return [];
+    },
+  });
+
+  bindAnnotatedSourceExplorer(root, {
+    onClearSelection: () => {},
+    onCopy: () => {},
+    onExit: () => {},
+    onCaptureSelect: () => {},
+    onCodeLensToggle: () => {},
+    onFactSelect: () => {},
+    onFindingMemberCopy: member => calls.push(`copy:${member}`),
+    onFindingMemberNavigate: index => calls.push(`navigate:${index}`),
+    onMediumToggle: () => {},
+    onNodeKindSelect: () => {},
+    onRegionSelect: () => {},
+    onNodeSelect: () => {},
+    onOffsetSelect: () => {},
+  });
+
+  copy.dispatch("click");
+  navigate.dispatch("click");
+  assert.deepEqual(calls, [
+    "copy:System.Text.Json.JsonElement.CheckValidInstance()",
+    "navigate:2",
+  ]);
+});
+
 test("the app routes the member tab into the TypeScript explorer", () => {
   assert.match(appSource, /from "\.\/annotated-source-explorer\.ts"/);
   assert.match(appSource, /renderAnnotatedSourceEntry\(/);
@@ -222,6 +266,11 @@ test("the app routes the member tab into the TypeScript explorer", () => {
   assert.match(appSource, /if \(state\.annotatedExplorer\)/);
   assert.match(appSource, /renderAnnotatedSourceExplorer\(\)/);
   assert.match(appSource, /memberAnnotatedActiveFactIds/);
+  assert.match(
+    appSource,
+    /document\.querySelector<HTMLElement>\("\.finding-peek:popover-open"\)/,
+  );
+  assert.match(appSource, /findingPeek\.hidePopover\(\)/);
 });
 
 test("the explorer presents canonical text beside anchored and unanchored facts", () => {
@@ -392,6 +441,105 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   });
   assert.doesNotMatch(clearedHtml, /class="annotated-node-caret/);
   assert.doesNotMatch(clearedHtml, /id="ase-clear"/);
+});
+
+test("Finding provenance peeks show the discovered throw and member actions", () => {
+  const throwText =
+    "throw new InvalidOperationException(\"An element of type 'Undefined' cannot be converted.\");";
+  const throwDocument: AnnotatedSourceDocument = {
+    text: throwText,
+    nodes: [{
+      id: 0,
+      kind: "ThrowStatement",
+      medium: "CSharp",
+      spans: [{ start: 0, length: throwText.length }],
+    }],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+  validateAnnotatedSourceDocument(throwDocument);
+  const fact = sampleDocument.facts[0];
+  const evidenceResult: AnnotatedSourceResult = {
+    ...result,
+    findingEvidence: [{
+      descriptor: fact.descriptor,
+      sourceOffset: fact.source_offset,
+      member: "System.Text.Json.JsonElement.CheckValidInstance()",
+      target: {
+        id: "finding-0",
+        assembly: "System.Text.Json",
+        assemblyVersion: "10.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: null,
+        typeFullName: "System.Text.Json.JsonElement",
+        typeMetadataId: "System.Text.Json.JsonElement",
+        typeDefinitionId: "System.Text.Json.JsonElement",
+        memberName: "CheckValidInstance",
+        parameterTypes: [],
+        returnType: "System.Void",
+        genericArity: 0,
+        metadataToken: 0x06000001,
+        selectorKey: "method:CheckValidInstance",
+        kind: "method",
+        platformPack: null,
+      },
+      document: throwDocument,
+      nodeIds: [0],
+      unavailableReason: null,
+    }],
+  };
+
+  const html = renderAnnotatedSourceExplorer({
+    result: evidenceResult,
+    state: createAnnotatedSourceExplorerState(sampleDocument),
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /<dt>Member<\/dt><dd><code>System\.Text\.Json\.JsonElement\.CheckValidInstance\(\)<\/code>/,
+  );
+  assert.match(
+    html,
+    /data-ase-finding-member-copy="System\.Text\.Json\.JsonElement\.CheckValidInstance\(\)">copy member/,
+  );
+  assert.match(
+    html,
+    /data-ase-finding-member-navigate="0">navigate/,
+  );
+  assert.match(html, /throw new InvalidOperationException/);
+  assert.doesNotMatch(
+    html,
+    /finding-peek-line-text">[^<]*return new object/,
+  );
+
+  const unavailableHtml = renderAnnotatedSourceExplorer({
+    result: {
+      ...evidenceResult,
+      findingEvidence: [{
+        ...evidenceResult.findingEvidence[0],
+        document: null,
+        nodeIds: [],
+        unavailableReason: "The callee source document was unavailable.",
+      }],
+    },
+    state: createAnnotatedSourceExplorerState(sampleDocument),
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.match(
+    unavailableHtml,
+    /The callee source document was unavailable\./,
+  );
+  assert.match(unavailableHtml, /<dt>Location<\/dt><dd>C# · line 4 · \[59\.\.71\)/);
+  assert.doesNotMatch(
+    unavailableHtml,
+    /finding-peek-line-text">[^<]*return new object/,
+  );
 });
 
 test("media actions refuse an empty-looking document", () => {

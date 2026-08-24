@@ -20,6 +20,17 @@ export interface BrowserAnnotatedSource {
   document: unknown;
   provenance: string;
   contextLimitation: string | null;
+  findingEvidence: BrowserAnnotatedSourceFindingEvidence[];
+}
+
+export interface BrowserAnnotatedSourceFindingEvidence {
+  descriptor: string;
+  sourceOffset: number;
+  member: string;
+  target: BrowserCallGraphTarget;
+  document: unknown;
+  nodeIds: number[];
+  unavailableReason: string | null;
 }
 
 export interface BrowserAssemblyReference {

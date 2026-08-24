@@ -117,13 +117,15 @@ static class TsTypeMapper
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
             string inner = trimmed[..^1];
-            return $"{Map(inner, recordNames, diagnostics, location)} | null";
+            return Nullable(
+                Map(inner, recordNames, diagnostics, location));
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
             || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
         {
-            return $"{Map(nullableArg!, recordNames, diagnostics, location)} | null";
+            return Nullable(
+                Map(nullableArg!, recordNames, diagnostics, location));
         }
 
         if (TryMapDictionary(trimmed, recordNames, diagnostics, location, out string? dictionaryType))
@@ -167,6 +169,9 @@ static class TsTypeMapper
 
         return mapped;
     }
+
+    static string Nullable(string mappedType) =>
+        mappedType == "unknown" ? mappedType : $"{mappedType} | null";
 
     static bool TryMapDictionary(
         string typeName,

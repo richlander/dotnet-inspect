@@ -854,7 +854,14 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.taste);
     const document = result.document;
     validateAnnotatedSourceDocument(document);
-    return { ...result, document };
+    const findingEvidence = result.findingEvidence.map(evidence => {
+      const evidenceDocument = evidence.document;
+      if (evidenceDocument !== null) {
+        validateAnnotatedSourceDocument(evidenceDocument);
+      }
+      return { ...evidence, document: evidenceDocument };
+    });
+    return { ...result, document, findingEvidence };
   },
   queryFacts: async request =>
     parseEngineJson<MemberFacts>(
@@ -4041,6 +4048,18 @@ function bindAnnotatedSourceExplorerEvents() {
         factId,
       }, true, `[data-ase-fact="${factId}"]`);
     },
+    onFindingMemberCopy: member => {
+      if (member) void copyText(member, "member name copied");
+    },
+    onFindingMemberNavigate: evidenceIndex => {
+      const target =
+        state.memberAnnotated?.findingEvidence[evidenceIndex]?.target;
+      if (!target) return;
+      const binding = callGraphTargetBinding(target);
+      if (!binding) return;
+      closeAnnotatedSourceExplorer();
+      binding.onSelect();
+    },
     onCodeLensToggle: () => {
       updateAnnotatedSourceExplorer(
         { type: "toggle-codelens" },
@@ -7224,6 +7243,12 @@ function callGraphNodeBinding(
   const target =
     callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
   if (!target) return null;
+  return callGraphTargetBinding(target);
+}
+
+function callGraphTargetBinding(
+  target: BrowserCallGraphTarget,
+): CallGraphNodeBinding | null {
   const typeId = callGraphTargetTypeId(target);
 
   // Inside a platform descent the whole graph lives in the runtime pack, not
@@ -8798,6 +8823,12 @@ document.addEventListener("keydown", event => {
   if (state.annotatedExplorer) {
     if (event.key === "Escape") {
       event.preventDefault();
+      const findingPeek =
+        document.querySelector<HTMLElement>(".finding-peek:popover-open");
+      if (findingPeek) {
+        findingPeek.hidePopover();
+        return;
+      }
       closeAnnotatedSourceExplorer();
     }
     return;

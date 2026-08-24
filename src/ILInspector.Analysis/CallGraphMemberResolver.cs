@@ -134,6 +134,21 @@ public static class CallGraphMemberResolver
                 structural: true));
     }
 
+    public static CallGraphMemberSelector CreateSelector(MethodIdentity member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return CreateSelector(
+            member.Name,
+            member.GenericArity,
+            !member.IsStatic,
+            member.ParameterTypes.Select(
+                type => TypeIdentity(type, structural: false)),
+            TypeIdentity(member.ReturnType, structural: false),
+            member.ParameterTypes.Select(
+                type => TypeIdentity(type, structural: true)),
+            TypeIdentity(member.ReturnType, structural: true));
+    }
+
     public static CallGraphMemberSelector CreateSelector(ApiType type, ApiMember member)
     {
         ArgumentNullException.ThrowIfNull(type);

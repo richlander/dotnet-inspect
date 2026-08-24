@@ -83,6 +83,37 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public void MemberProjection_CarriesCalleeThrowSourceForSemanticsFinding()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeThrowingCallee))));
+
+        AssemblyMemberFindingEvidence evidence = Assert.Single(
+            projection.FindingEvidence,
+            item => item.Descriptor == "semantics.callee");
+        MethodInfo callee = typeof(ResearchProjectionProbe).GetMethod(
+            "ThrowingCallee",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Assert.Equal(callee.MetadataToken, evidence.Member.MetadataToken);
+        Assert.Null(evidence.UnavailableReason);
+        AnnotatedSourceDocument document = Assert.IsType<AnnotatedSourceDocument>(
+            evidence.SourceDocument);
+        Assert.Contains("throw new InvalidOperationException", document.Text);
+        AnnotatedSourceNode node = Assert.Single(
+            evidence.NodeIds.Select(id => document.Nodes[id]));
+        Assert.Equal("ThrowStatement", node.Kind);
+        Assert.Contains(
+            node.Provenance!.IlOffsets,
+            offset => offset >= 0);
+    }
+
+    [Fact]
     public void MemberProjection_ContentAndPathBackedPortableDocumentsAreIdentical()
     {
         var policy = new RecordingBindingPolicy();
@@ -387,4 +418,9 @@ public static class ResearchProjectionProbe
     public static int Overloaded(int value) => value + 1;
 
     public static int Overloaded(string value) => value.Length;
+
+    public static void InvokeThrowingCallee() => ThrowingCallee();
+
+    static void ThrowingCallee() =>
+        throw new InvalidOperationException("probe");
 }

@@ -44,6 +44,42 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Selector_FromMethodIdentityMatchesEquivalentMemberReference()
+    {
+        var owner = TypeRef.Definition("Sample", "Sample", "Owner");
+        var parameter = TypeRef.ByRef(TypeRef.CoreLib("System", "Int32"));
+        var method = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Transform",
+            [parameter],
+            TypeRef.CoreLib("System", "String"),
+            0x06000001,
+            IsStatic: false,
+            GenericArity: 1);
+        var reference = new MemberRef(
+            owner,
+            method.Name,
+            method.ParameterTypes,
+            method.ReturnType,
+            MemberKind.Method)
+        {
+            GenericArity = method.GenericArity,
+            HasThis = true,
+        };
+
+        CallGraphMemberSelector identitySelector =
+            CallGraphMemberResolver.CreateSelector(method);
+        CallGraphMemberSelector referenceSelector =
+            CallGraphMemberResolver.CreateSelector(reference);
+
+        Assert.Equal(referenceSelector.Key, identitySelector.Key);
+        Assert.Equal(referenceSelector.ParameterTypes, identitySelector.ParameterTypes);
+        Assert.Equal(referenceSelector.ReturnType, identitySelector.ReturnType);
+    }
+
+    [Fact]
     public void Resolve_DistinguishesInstanceAndStaticMethodsWithTheSameSignature()
     {
         var instanceMember = Method("int");

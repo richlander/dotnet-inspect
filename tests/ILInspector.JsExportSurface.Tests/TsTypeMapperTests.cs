@@ -111,6 +111,16 @@ public sealed class TsTypeMapperTests
         Assert.Equal("number | null", TsTypeMapper.MapParameterType("Nullable<int>", RecordNames));
     }
 
+    [Fact]
+    public void Map_NullableUnknownDoesNotEmitARedundantUnion()
+    {
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "System.Text.Json.JsonElement?",
+                RecordNames));
+    }
+
     [Theory]
     [InlineData("byte", "number")]
     [InlineData("sbyte", "number")]

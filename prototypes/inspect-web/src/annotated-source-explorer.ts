@@ -13,10 +13,21 @@ import {
   type SourceMedium,
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
-import type { BrowserAnnotatedSource } from "./inspect-web-engine.d.ts";
+import type {
+  BrowserAnnotatedSource,
+  BrowserAnnotatedSourceFindingEvidence,
+  BrowserCallGraphTarget,
+} from "./inspect-web-engine.d.ts";
 
-export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
+export interface AnnotatedSourceFindingEvidence
+  extends Omit<BrowserAnnotatedSourceFindingEvidence, "document"> {
+  document: AnnotatedSourceDocument | null;
+}
+
+export type AnnotatedSourceResult =
+  Omit<BrowserAnnotatedSource, "document" | "findingEvidence"> & {
   document: AnnotatedSourceDocument;
+  findingEvidence: AnnotatedSourceFindingEvidence[];
 };
 
 export interface AnnotatedSourceExplorerState {
@@ -67,6 +78,8 @@ export interface AnnotatedSourceExplorerBindingActions {
   onExit: () => void;
   onCaptureSelect: (captureIndex: number) => void;
   onFactSelect: (factId: number) => void;
+  onFindingMemberCopy: (member: string) => void;
+  onFindingMemberNavigate: (evidenceIndex: number) => void;
   onCodeLensToggle: () => void;
   onMediumToggle: (medium: SourceMedium) => void;
   onNodeKindSelect: (kind: string) => void;
@@ -193,6 +206,16 @@ export function bindAnnotatedSourceExplorer(
       });
     });
   });
+  root.querySelectorAll<HTMLElement>("[data-ase-finding-member-copy]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onFindingMemberCopy(
+        button.dataset.aseFindingMemberCopy ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-ase-finding-member-navigate]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onFindingMemberNavigate(
+        Number(button.dataset.aseFindingMemberNavigate))));
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
     button.addEventListener(
       "click",
@@ -452,6 +475,11 @@ export function renderAnnotatedSourceExplorer(
   const anchoredFacts = view.facts.filter(fact => !unanchoredIds.has(fact.id));
   const unanchoredFacts = view.facts.filter(fact => unanchoredIds.has(fact.id));
   const activeFactIds = new Set(state.activeFactIds);
+  const findingEvidence = new Map(
+    result.findingEvidence.map((evidence, index) => [
+      `${evidence.descriptor}\0${evidence.sourceOffset}`,
+      { evidence, index },
+    ]));
   const selectedCapture = view.selectedCaptureIndex === null
     ? null
     : view.captures[view.selectedCaptureIndex];
@@ -497,7 +525,8 @@ export function renderAnnotatedSourceExplorer(
           .map(id => nodeById.get(id))
           .filter((node): node is AnnotatedSourceNode => node !== undefined),
         view.lines,
-        result.document.text)];
+        result.document,
+        findingEvidence.get(`${fact.descriptor}\0${fact.sourceOffset}`))];
     }));
   const findingPeeks = [...findingCaretAnnotations.values()]
     .flat()
@@ -649,7 +678,6 @@ export function renderAnnotatedSourceExplorer(
           </div>
           ${findingPeeks.map(peek => findingPeekHtml(
             peek,
-            result.document,
             tokenizeCSharp,
             escapeHtml)).join("")}
         </section>
@@ -726,11 +754,16 @@ interface SourceFindingPeekLine {
 }
 
 interface SourceFindingPeek {
+  document: AnnotatedSourceDocument;
+  evidenceIndex?: number;
   finding: string;
   hiddenLineCount: number;
   id: string;
   lines: readonly SourceFindingPeekLine[];
   location: string;
+  member?: string;
+  target?: BrowserCallGraphTarget;
+  unavailableReason?: string;
 }
 
 interface SourceCodeLensAnnotation {
@@ -815,12 +848,28 @@ function sourceFindingCaretAnnotations(
     number: number;
     start: number;
   }[],
-  text: string,
+  document: AnnotatedSourceDocument,
+  findingEvidence?: {
+    evidence: AnnotatedSourceFindingEvidence;
+    index: number;
+  },
 ): ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]> {
+  const text = document.text;
   const annotations = new Map<number, SourceNodeCaretAnnotation[]>();
   for (const node of nodes) {
-    const relevantLines = lines.filter(line => node.spans.some(span =>
-      span.start < line.end && line.start < span.start + span.length));
+    const evidenceNodes = findingEvidence?.evidence.document?.nodes
+      .filter(candidate => findingEvidence.evidence.nodeIds.includes(candidate.id))
+      ?? [];
+    const peekDocument = evidenceNodes.length > 0
+      ? findingEvidence!.evidence.document!
+      : null;
+    const peekNodes = evidenceNodes.length > 0 ? evidenceNodes : [node];
+    const peekLines = peekDocument
+      ? preparedDocument(peekDocument).lines
+      : lines;
+    const relevantLines = peekLines.filter(line => peekNodes.some(candidate =>
+      candidate.spans.some(span =>
+        span.start < line.end && line.start < span.start + span.length)));
     const visibleLines = relevantLines.slice(0, MAX_FINDING_PEEK_LINES);
     const lineSummary = relevantLines.length <= 1
       ? `line ${relevantLines[0]?.number ?? "unknown"}`
@@ -830,7 +879,7 @@ function sourceFindingCaretAnnotations(
       hiddenLineCount: relevantLines.length - visibleLines.length,
       id: `ase-finding-peek-${fact.id}-${node.id}`,
       lines: visibleLines.map(line => ({
-        evidenceSpans: node.spans.flatMap(span => {
+        evidenceSpans: peekNodes.flatMap(candidate => candidate.spans).flatMap(span => {
           const start = Math.max(line.start, span.start);
           const end = Math.min(line.end, span.start + span.length);
           return start < end ? [{ start, length: end - start }] : [];
@@ -840,9 +889,21 @@ function sourceFindingCaretAnnotations(
         number: line.number,
         start: line.start,
       })),
-      location: `${MEDIUM_LABELS[node.medium]} · ${lineSummary} · ${node.spans
+      location: `${MEDIUM_LABELS[peekNodes[0].medium]} · ${lineSummary} · ${peekNodes
+        .flatMap(candidate => candidate.spans)
         .map(span => `[${span.start}..${span.start + span.length})`)
         .join(" · ")}`,
+      ...(findingEvidence
+        ? {
+            evidenceIndex: findingEvidence.index,
+            member: findingEvidence.evidence.member,
+            target: findingEvidence.evidence.target,
+          }
+        : {}),
+      ...(findingEvidence?.evidence.unavailableReason
+        ? { unavailableReason: findingEvidence.evidence.unavailableReason }
+        : {}),
+      document: peekDocument ?? document,
     };
     let added = false;
     for (const line of lines) {
@@ -955,19 +1016,18 @@ function caretLabelHtml(
 
 function findingPeekHtml(
   peek: SourceFindingPeek,
-  document: AnnotatedSourceDocument,
   tokenizeCSharp: CSharpTokenizer | undefined,
   escapeHtml: EscapeHtml,
 ): string {
   const code = peek.lines.map(line => {
-    const lineText = document.text.slice(line.start, line.end);
+    const lineText = peek.document.text.slice(line.start, line.end);
     const syntaxRanges = line.medium === "CSharp" && tokenizeCSharp
-      ? syntaxRangesForDocumentLine(document, tokenizeCSharp, lineText, line.start)
+      ? syntaxRangesForDocumentLine(peek.document, tokenizeCSharp, lineText, line.start)
       : [];
     return `<span class="finding-peek-code-line"><span class="finding-peek-line-number">${line.number}</span><span class="finding-peek-line-text">${renderSegmentText(
       line.start,
       line.end,
-      document.text,
+      peek.document.text,
       syntaxRanges,
       line.evidenceSpans,
       escapeHtml,
@@ -977,8 +1037,11 @@ function findingPeekHtml(
       <header><strong>Finding evidence</strong><button type="button" popovertarget="${peek.id}" popovertargetaction="hide" aria-label="Close Finding evidence">×</button></header>
       <dl>
         <div><dt>Finding</dt><dd>${escapeHtml(peek.finding)}</dd></div>
+        ${peek.member && peek.evidenceIndex !== undefined
+          ? `<div class="finding-peek-member"><dt>Member</dt><dd><code>${escapeHtml(peek.member)}</code><span><button type="button" data-ase-finding-member-copy="${escapeHtml(peek.member)}">copy member</button><button type="button" data-ase-finding-member-navigate="${peek.evidenceIndex}">navigate</button></span></dd></div>`
+          : ""}
         <div><dt>Location</dt><dd>${escapeHtml(peek.location)}</dd></div>
-        <div class="finding-peek-code"><dt>Code</dt><dd><pre><code>${code}</code></pre>${peek.hiddenLineCount > 0 ? `<small>${peek.hiddenLineCount} additional relevant line${peek.hiddenLineCount === 1 ? "" : "s"} omitted</small>` : ""}</dd></div>
+        <div class="finding-peek-code"><dt>Code</dt><dd>${peek.unavailableReason ? `<p>${escapeHtml(peek.unavailableReason)}</p>` : `<pre><code>${code}</code></pre>${peek.hiddenLineCount > 0 ? `<small>${peek.hiddenLineCount} additional relevant line${peek.hiddenLineCount === 1 ? "" : "s"} omitted</small>` : ""}`}</dd></div>
       </dl>
     </aside>`;
 }

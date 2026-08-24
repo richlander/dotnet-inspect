@@ -562,11 +562,16 @@ beneath it. Inline source chips use the product kind and range without exposing
 the portable document's internal node number; the inspector retains that typed
 identity for detailed selection. Finding chips are roomier interactive
 affordances: activating one opens a dismissible evidence peek without changing
-selection. The peek names the Finding and its exact product-issued location,
-then renders only the source lines intersecting that target, with the evidence
-range emphasized. It does not claim to show callee source that the document did
-not provide. The `fact, source node, node-kind, and clear actions preserve
-distinct selection semantics` test gates that separation.
+selection. For `semantics.callee`, Research retains the resolved callee identity
+and exception-construction offsets; the group-scoped query projects that
+callee's source and maps those offsets to its product-issued `ThrowStatement`.
+The peek therefore names the Finding and fully-qualified member, provides copy
+and in-tool navigation actions, and renders the discovered throw rather than
+the caller's invocation. If that correspondence is unavailable, the failure is
+shown instead of falling back to a success-shaped call-site snippet. Escape
+closes an open peek before it exits the full-screen explorer. The `fact, source
+node, node-kind, and clear actions preserve distinct selection semantics` test
+gates that separation.
 
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
 multi-line source constructs. CodeLens is globally on or off; its unnumbered

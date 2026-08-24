@@ -271,7 +271,23 @@ public static partial class InspectionEngine
 
         // The document's wire shape belongs to ILInspector.Decompiler; carry it verbatim so the
         // viewer's model validates the same artifact the CLI writes.
-        using JsonDocument serialized = SerializeAnnotatedSourceDocument(document);
+        using JsonDocument serialized = SerializeAnnotatedSourceDocument(document)!;
+        BrowserAnnotatedSourceFindingEvidence[] findingEvidence =
+        [
+            .. projection.FindingEvidence.Select((evidence, index) =>
+                new BrowserAnnotatedSourceFindingEvidence(
+                    evidence.Descriptor,
+                    evidence.SourceOffset,
+                    FullyQualifiedMemberName(evidence.Member),
+                    Target(
+                        evidence.Member,
+                        participant.Assembly.Identity,
+                        $"finding-{index}"),
+                    SerializeAnnotatedSourceDocumentElement(
+                        evidence.SourceDocument),
+                    [.. evidence.NodeIds],
+                    evidence.UnavailableReason)),
+        ];
         return JsonSerializer.Serialize(
             new BrowserAnnotatedSource(
                 serialized.RootElement,
@@ -279,15 +295,35 @@ public static partial class InspectionEngine
                     + $"{participant.Coordinate.Version} {participant.Asset.Path}",
                 projection.ContextLimitation is { } limitation
                     ? $"{limitation.Kind}: {limitation.Detail}"
-                    : null),
+                    : null,
+                findingEvidence),
             BrowserJsonContext.Default.BrowserAnnotatedSource);
     }
 
-    static JsonDocument SerializeAnnotatedSourceDocument(AnnotatedSourceDocument document) =>
-        JsonDocument.Parse(
-            JsonSerializer.Serialize(
-                document,
-                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
+    static JsonDocument? SerializeAnnotatedSourceDocument(AnnotatedSourceDocument? document) =>
+        document is null
+            ? null
+            : JsonDocument.Parse(
+                JsonSerializer.Serialize(
+                    document,
+                    AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
+
+    static JsonElement? SerializeAnnotatedSourceDocumentElement(
+        AnnotatedSourceDocument? document)
+    {
+        using JsonDocument? serialized = SerializeAnnotatedSourceDocument(document);
+        return serialized?.RootElement.Clone();
+    }
+
+    static string FullyQualifiedMemberName(Analysis.MethodIdentity member)
+    {
+        string genericParameters = member.GenericArity == 0
+            ? ""
+            : $"<{string.Join(", ", member.GenericParameterNames)}>";
+        return $"{member.DeclaringType.ToQualifiedDisplayString()}.{member.Name}"
+            + $"{genericParameters}({string.Join(", ", member.ParameterTypes.Select(
+                type => type.ToQualifiedDisplayString()))})";
+    }
 
     /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
@@ -1272,6 +1308,31 @@ public static partial class InspectionEngine
             Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
             node.Kind.ToString().ToLowerInvariant(),
             platformPackForAssembly?.Invoke(assembly));
+    }
+
+    static BrowserCallGraphTarget Target(
+        Analysis.MethodIdentity member,
+        AssemblyReferenceIdentity identity,
+        string id)
+    {
+        Analysis.TypeRef? definition = DeclaringTypeDefinition(member.DeclaringType);
+        return new BrowserCallGraphTarget(
+            id,
+            identity.Name,
+            identity.Version?.ToString(),
+            identity.Culture,
+            identity.PublicKeyToken,
+            member.DeclaringType.ToQualifiedDisplayString(),
+            definition is null ? null : LegacyMetadataTypeId(definition),
+            DefinitionTypeId(definition),
+            member.Name,
+            [.. member.ParameterTypes.Select(type => type.ToQualifiedDisplayString())],
+            member.ReturnType.ToQualifiedDisplayString(),
+            member.GenericArity,
+            member.MetadataToken,
+            Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
+            "method",
+            null);
     }
 
     /// <summary>

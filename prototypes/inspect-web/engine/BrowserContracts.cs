@@ -381,7 +381,17 @@ public sealed record BrowserDependencyCoordinateMatch(
 public sealed record BrowserAnnotatedSource(
     JsonElement Document,
     string Provenance,
-    string? ContextLimitation);
+    string? ContextLimitation,
+    BrowserAnnotatedSourceFindingEvidence[] FindingEvidence);
+
+public sealed record BrowserAnnotatedSourceFindingEvidence(
+    string Descriptor,
+    int SourceOffset,
+    string Member,
+    BrowserCallGraphTarget Target,
+    JsonElement? Document,
+    int[] NodeIds,
+    string? UnavailableReason);
 
 public sealed record BrowserSource(
     string Provider,

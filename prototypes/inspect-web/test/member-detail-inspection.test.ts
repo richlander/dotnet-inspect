@@ -82,6 +82,7 @@ function annotatedResult(): AnnotatedSourceResult {
     document,
     provenance: "decompiled from IL",
     contextLimitation: null,
+    findingEvidence: [],
   };
 }
 

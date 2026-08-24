@@ -2083,7 +2083,13 @@ kbd {
 .finding-peek dl > div:last-child { border-bottom: 0; }
 .finding-peek dt { padding: 9px 10px; color: var(--dim); font: 9px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .finding-peek dd { min-width: 0; margin: 0; padding: 9px 10px; border-left: 1px solid var(--line); color: var(--text); font: 11px/1.5 var(--mono); }
+.finding-peek-member dd { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.finding-peek-member code { overflow-wrap: anywhere; color: var(--text); font: inherit; }
+.finding-peek-member dd > span { display: flex; flex: none; gap: 5px; }
+.finding-peek-member dd button { padding: 3px 7px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--muted); font: 9px var(--mono); cursor: pointer; }
+.finding-peek-member dd button:hover { border-color: var(--accent); color: var(--text); }
 .finding-peek-code dd { padding: 0; }
+.finding-peek-code dd > p { margin: 0; padding: 9px 10px; color: var(--dim); font: 10px/1.5 var(--mono); }
 .finding-peek-code pre { max-width: 100%; margin: 0; padding: 8px 0; overflow: auto; background: var(--code-bg); }
 .finding-peek-code code { display: block; min-width: max-content; font: 11px/1.55 var(--mono); }
 .finding-peek-code-line { display: flex; min-height: 1.55em; padding: 0 10px; white-space: pre; }

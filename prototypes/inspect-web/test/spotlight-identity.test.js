@@ -2677,7 +2677,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /inspectMemberAnnotatedSource\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
   assert.match(
     coordinator,
-    /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*return \{ \.\.\.result, document \};/);
+    /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*const findingEvidence = result\.findingEvidence\.map\(evidence => \{\s*const evidenceDocument = evidence\.document;\s*if \(evidenceDocument !== null\) \{\s*validateAnnotatedSourceDocument\(evidenceDocument\);\s*}\s*return \{ \.\.\.evidence, document: evidenceDocument \};\s*}\);\s*return \{ \.\.\.result, document, findingEvidence \};/);
   assert.match(
     coordinator,
     /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
