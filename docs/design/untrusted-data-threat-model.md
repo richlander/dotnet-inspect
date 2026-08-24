@@ -1560,6 +1560,14 @@ surface, use the untrusted-fetch client, have a timeout, and retain provenance.
 Cache paths must be hashed or use validated single components. Downloads should
 land in temporary files and become visible atomically after validation.
 
+A cache entry created before a content-validation gate existed is not evidence
+that the gate passed. Persistent cache cutovers follow the
+[`CoreCache` contract](../inspection-space.md#corecache): either revalidate on
+every hit or select a successor contract version before lookup, and pair the
+newly rejected case with a still-valid recomputation case. Dynamic network,
+capability, and liveness policy is always rechecked and cannot be replaced by a
+version bump.
+
 ### Presentation
 
 Artifact text can contain Markdown delimiters, newlines, terminal control

@@ -226,7 +226,9 @@ This is the existing library-only persistent compatibility catalog described
 under
 [`Existing library effective catalog`](design/section-model.md#existing-library-effective-catalog);
 it is not an authorization-bearing outcome cache for the planned type/member
-executor.
+executor. The metadata-format admission cutover bumps this catalog's category
+before lookup; local SourceLink availability alone cannot make a pre-cutover
+catalog eligible under the new input policy.
 
 ## Network and performance policy
 
@@ -283,8 +285,10 @@ network requests.
   unknown hosts and moving or ambiguous selectors are not cached.
 - The existing bare-library effective catalog may persist successful section
   summaries under its content, local-SourceLink-availability, and versioned
-  semantics key. Planned type/member authorization-dependent outcomes remain
-  operation-local and never consume that catalog.
+  semantics key. Input-admission changes bump that category before lookup so
+  prior successful catalogs cannot bypass the new gate. Planned type/member
+  authorization-dependent outcomes remain operation-local and never consume
+  that catalog.
 
 Cache reuse must never bypass PDB identity validation.
 

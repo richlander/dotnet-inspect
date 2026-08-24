@@ -986,6 +986,33 @@ The cache owner for each result must still define:
 A cache may make a correct query faster. It must not change which query was
 asked or which producer's bytes the caller is authorized to inspect.
 
+A persistent derived-result cache is an alternate entry into the pipeline
+stage that produced it. A cache hit may skip an earlier gate only when all of
+these are true:
+
+- the gate establishes a stable property of the exact content or immutable
+  producer evidence, not current-request authorization or lease liveness;
+- the cache key identifies that content/evidence;
+- the entry was written only after the gate succeeded; and
+- the category or payload records the complete gate-contract version.
+
+Current request, host, capability, and liveness policy is never certified by a
+cache version and must be re-evaluated on every use. When a release introduces
+or tightens stable admission, validation, failure, or projection semantics
+after an existing cache lookup, the cache owner must either run that gate on
+every hit or select a successor contract version before post-cutover lookup.
+Extending only the new write path does not certify predecessor entries.
+
+Every such cutover needs paired non-vacuity evidence: seed a predecessor entry
+for content newly rejected by the gate and prove it cannot produce success,
+then seed one for still-valid content and prove the cold path recomputes and
+publishes a reusable successor entry. This repository-wide cutover rule is
+unverified as a global inventory; each adopting cache must name its owning
+gate. `MDP017` in
+[member inspection planning and Metadata
+projection](design/member-inspection-planning-and-metadata-projection.md) is the
+worked gate for the library effective-catalog format-admission cutover.
+
 ### `InertString`
 
 `InertString` is the presentation currency for untrusted artifact text. Its

@@ -362,6 +362,17 @@ hash.
 
 Changing the existing library catalog's category scope or effectiveness
 semantics still requires an `effective-v*` cache-version bump.
+Introducing or tightening input admission is such a semantics change when the
+legacy cache lookup precedes the new admission path. The cutover must select a
+successor category before any post-cutover read or write: entries from the
+preceding category are never evidence that the bytes passed the new gate.
+Supported inputs recompute once and populate the successor category; rejected
+inputs surface their typed failure and write no current catalog. This preserves
+cross-process reuse after the cutover without paying metadata admission on
+every cache hit. This is one application of the repository-wide
+[persistent-cache cutover rule](../inspection-space.md#corecache); dynamic
+authorization and liveness still require fresh enforcement rather than a
+version bump.
 
 ## Selection
 
