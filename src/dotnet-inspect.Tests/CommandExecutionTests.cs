@@ -3311,6 +3311,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_TypeQualifiedMemberGlob_PeelsResolvedType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer.Deser*",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Deserialize", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4352,6 +4368,52 @@ public partial class CommandExecutionTests
         Assert.Equal(1, routed.Exit);
         Assert.Contains(
             "--project cannot be combined",
+            routed.Error);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task Router_DeferredProjectSourcePreservesRepeatedOptionArity(
+        int projectCount)
+    {
+        var repositoryRoot =
+            CommandErrorOwnershipTests.RepositoryRoot();
+        string[] projects =
+        [
+            Path.Combine(
+                repositoryRoot,
+                "src",
+                "dotnet-inspect",
+                "dotnet-inspect.csproj"),
+            Path.Combine(
+                repositoryRoot,
+                "src",
+                "CSharpText",
+                "CSharpText.csproj"),
+            Path.Combine(
+                repositoryRoot,
+                "src",
+                "dotnet-inspect.Tests",
+                "dotnet-inspect.Tests.csproj")
+        ];
+        List<string> tail = [];
+        for (var i = 0; i < projectCount; i++)
+        {
+            tail.Add("--project");
+            tail.Add(projects[i]);
+        }
+        tail.AddRange(["--tips", "q"]);
+
+        var direct = await RunAppAsync(
+            ["type", "Markout.MarkoutSerializer", .. tail]);
+        var routed = await RunAppAsync(
+            ["Markout.MarkoutSerializer", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            $"expects a single argument but {projectCount} were provided",
             routed.Error);
     }
 

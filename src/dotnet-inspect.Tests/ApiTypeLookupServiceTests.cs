@@ -237,6 +237,20 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
+    public void LookupType_ZeroMatchMemberGlob_PeelsResolvedType()
+    {
+        var result = ApiTypeLookupService.LookupType(
+            CreateSurface(),
+            "JsonSerializer.Deser*");
+
+        Assert.True(result.Found);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            result.Match);
+        Assert.Equal("Deser*", result.ImpliedMember);
+    }
+
+    [Fact]
     public void ValidateMemberFilters_RequiresEveryFilterToMatch()
     {
         var type = CreateSurface().Types[0];
