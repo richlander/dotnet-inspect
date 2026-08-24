@@ -406,21 +406,21 @@ Hard constraints:
 The product registry (`ProductInspectionDemos`) stays a static id→metadata
 table plus peer definition records lowered to a `ResolvedScenario`. Listing
 remains metadata-only. **Home demos now bind product section display names**
-through `ProductDemoSections` (today: `Methods` for STJ and platform List`1`;
-`Call Graph` primary bind for the extensions member, expanded at run via
-`ExpandRunSections` / `DemoScenarioRunner` so the closed preset matches the
-multi-package `--caller-package` companion rule: Markdown keeps
-`Call Graph` + `Callers`; table/tsv/jsonl select `Callers` alone (MemberCommand
-re-adds Callers under caller scope, so Call Graph-only tabular silently fell
-back to a member inventory); standalone `--mermaid` keeps `Call Graph`;
-document `--json` fails closed for Call Graph demos until graph sections
-project into that payload. `ResolveHomeScenario` fails when a home demo omits
-`View.Section` or names a section outside that allow list
-(`ProductHomeDemos_AllBindKnownProductSections`,
+through `ProductDemoSections` (today: `Methods` for STJ; `Call Graph` primary
+bind for the extensions member, expanded at run via `ExpandRunSections` /
+`DemoScenarioRunner` so the closed preset matches the multi-package
+`--caller-package` companion rule: Markdown keeps `Call Graph` + `Callers`;
+table/tsv/jsonl select `Callers` alone (MemberCommand re-adds Callers under
+caller scope, so Call Graph-only tabular silently fell back to a member
+inventory); standalone `--mermaid` keeps `Call Graph`; document `--json` fails
+closed for Call Graph demos until graph sections project into that payload.
+`ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
+section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
 mermaid rather than falling through to the type shape tree. Full minted
 view-facet ids remain open ([Open questions](#open-questions) — view-facet
-registry binding).
+registry binding). Platform workspaces remain product capability; they are not
+a home-demo entry (home catalog is package- and graph-shaped scenarios).
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
@@ -428,11 +428,11 @@ package members as `--caller-package` for the call-graph demo. **inspect-web**
 loads home-demo catalog and coordinates from the product registry through the
 browser engine (`ListHomeDemos` / `ResolveHomeDemo` over
 `ProductInspectionDemos`); host-only share encoding and the residual platform
-→ `Microsoft.NETCore.App` runtime-pack mapping live in
-`prototypes/inspect-web/src/product-home-demos.ts`. STJ and platform restore
-via share deep links built from the resolved projection; member-bound Call
-Graph demos still run the imperative multi-package member path. Residual:
-(1) minted facet ids replacing display-name allow list; (2) realize via
+→ `Microsoft.NETCore.App` runtime-pack mapping (for future platform members)
+live in `prototypes/inspect-web/src/product-home-demos.ts`. STJ restores via
+share deep links built from the resolved projection; member-bound Call Graph
+demos still run the imperative multi-package member path. Residual: (1) minted
+facet ids replacing display-name allow list; (2) realize via
 `WorkspaceContextLoader` into one `AssemblyContextGroup` instead of CLI
 package/`--caller-package` encoding and the browser runtime-pack share
 encoding for platform; (3) replace the imperative call-graph web path with
