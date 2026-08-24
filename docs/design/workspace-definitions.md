@@ -424,15 +424,17 @@ registry binding).
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. Residual: (1)
-minted facet ids replacing display-name allow list; (2) realize via
-`WorkspaceContextLoader` into one `AssemblyContextGroup` instead of the CLI
-package/caller encoding; (3) inspect-web home buttons and the imperative
-call-graph path converge on the same registry/sections; TypeScript export of
-the engine surface can land on its own schedule before the web host switches
-buttons over; (4) Call Graph / Callers structured JSON projection remains the
-shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
-today).
+package members as `--caller-package` for the call-graph demo. **inspect-web**
+home buttons use the same product demo ids/titles/summaries and package/type
+anchors (`prototypes/inspect-web/src/product-home-demos.ts`); STJ and platform
+restore via share deep links, while `extensions-callgraph` still runs the
+imperative multi-package member path. Residual: (1) minted facet ids replacing
+display-name allow list; (2) realize via `WorkspaceContextLoader` into one
+`AssemblyContextGroup` instead of CLI package/`--caller-package` encoding and
+the browser runtime-pack share encoding for platform; (3) replace the
+imperative call-graph web path with the same group-run substrate; (4) Call
+Graph / Callers structured JSON projection remains the shared member-pipeline
+gap (Markdown/Mermaid are the faithful graph formats today).
 
 ### Member coordinates
 
@@ -985,9 +987,10 @@ Definition records and product demos (this slice):
   demo-parity, section binding, CLI lowering, and real section output for the
   three homes; and
 - **not yet:** minted view-facet ids; `WorkspaceContextLoader` group realization
-  as the run substrate (CLI still uses package + `--caller-package` encoding);
-  inspect-web home buttons / imperative call-graph path switched onto the same
-  registry and sections (engine / generated TS surface can precede that switch).
+  as the run substrate (CLI still uses package + `--caller-package` encoding;
+  inspect-web platform still uses the resident runtime-pack share encoding);
+  replace the imperative `extensions-callgraph` web runner with that group-run
+  path.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

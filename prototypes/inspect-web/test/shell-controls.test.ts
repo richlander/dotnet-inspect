@@ -101,9 +101,9 @@ test("home shell accepts only known demos", () => {
   const theme = new FakeElement();
   const dismiss = new FakeElement();
   const credits = new FakeElement();
-  const stj = new FakeElement({ homeDemo: "stj" });
-  const runtime = new FakeElement({ homeDemo: "runtime" });
-  const callgraph = new FakeElement({ homeDemo: "callgraph" });
+  const stj = new FakeElement({ homeDemo: "stj-serializer" });
+  const platform = new FakeElement({ homeDemo: "platform-list" });
+  const callgraph = new FakeElement({ homeDemo: "extensions-callgraph" });
   const unknown = new FakeElement({ homeDemo: "other" });
   const absent = new FakeElement();
   root.add("#home-theme", theme);
@@ -112,7 +112,7 @@ test("home shell accepts only known demos", () => {
   root.addAll(
     "[data-home-demo]",
     stj,
-    runtime,
+    platform,
     callgraph,
     unknown,
     absent,
@@ -134,7 +134,7 @@ test("home shell accepts only known demos", () => {
   assert.deepEqual(calls, ["theme", "dismiss"]);
   assert.equal(credits.dispatch("click"), true);
   stj.dispatch("click");
-  runtime.dispatch("click");
+  platform.dispatch("click");
   callgraph.dispatch("click");
   unknown.dispatch("click");
   absent.dispatch("click");
@@ -142,9 +142,9 @@ test("home shell accepts only known demos", () => {
     "theme",
     "dismiss",
     "credits",
-    "demo:stj",
-    "demo:runtime",
-    "demo:callgraph",
+    "demo:stj-serializer",
+    "demo:platform-list",
+    "demo:extensions-callgraph",
   ]);
 });
 

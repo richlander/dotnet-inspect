@@ -789,7 +789,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const homeBinding =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Home buttons use product demo ids)/)?.[0]
     ?? "";
   const loadingBinding =
     appSource.match(/function renderLoading\(\) \{[\s\S]*?\n}(?=\n\nasync function loadSelectedMemberDocumentation)/)?.[0]
@@ -2040,7 +2040,7 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(
     callGraphDemo,
-    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph"/);
+    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = EXTENSIONS_CALLGRAPH\.memberSection/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";
