@@ -1392,6 +1392,33 @@ Checksums from portable PDB documents authenticate source content when the
 workflow claims PDB-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
 
+### Feed-discovered package resources use a guarded destination policy
+
+An explicitly configured package-source host and port may resolve to private
+addresses; that is the network location the user selected. A service-index
+response does not inherit authority over the rest of the private network.
+Desktop package-source transports therefore resolve and connect through the
+same shared policy as untrusted source fetches. Every feed-advertised
+cross-origin resource and redirect hop must resolve entirely to public
+addresses, closing both direct private-target selection and DNS rebinding.
+Bracketed and unbracketed IPv6 host spellings are canonicalized before the
+configured-origin exception is applied.
+
+Browser-Wasm cannot perform that connection-time DNS check. Its v3 client
+therefore accepts only same-origin feed resources and sets Fetch
+`redirect: error`; the built-in Gallery remains a separate fixed-host
+transport. `PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint`
+gates the desktop source-client wiring,
+`HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
+gates redirect-hop enforcement,
+`PackageSourceClientTests.DefaultV3TransportAllowsConfiguredPrivateIpv6Source`
+and
+`HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateIpv6Origin`
+gate the shared IPv6 origin normalization, and
+`PackageSourceClientTests.BrowserV3ResourcesRequireSameOrigin` plus
+`PackageSourceClientTests.BrowserNuGetRequestsOmitAmbientCredentials` gate the
+Browser boundary.
+
 ### PDB-source lexing is complexity-bounded
 
 The source byte limit is not by itself a memory bound. A punctuation-dense file
