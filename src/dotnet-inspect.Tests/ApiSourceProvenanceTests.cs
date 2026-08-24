@@ -1,6 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using System.IO.Compression;
 
@@ -144,5 +145,54 @@ public sealed class ApiSourceProvenanceTests
             Directory.GetDirectories(
                 Path.GetTempPath(),
                 "inspect-api*");
+    }
+
+    [Fact]
+    public async Task SingleRootPackageAssembly_IsSelectedWithoutATfm()
+    {
+        string packagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"RootOnly.{Guid.NewGuid():N}.1.0.0.nupkg");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                packagePath,
+                ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry library =
+                    archive.CreateEntry("RootOnly.dll");
+                await using Stream destination = library.Open();
+                await using FileStream source = File.OpenRead(
+                    typeof(ApiSourceProvenanceTests).Assembly.Location);
+                await source.CopyToAsync(
+                    destination,
+                    TestContext.Current.CancellationToken);
+            }
+
+            var (result, error) = await ApiSourceResolver.ResolveAsync(
+                new ApiOptions
+                {
+                    PackagePath = packagePath,
+                });
+            try
+            {
+                Assert.Null(error);
+                Assert.Equal(
+                    "RootOnly.dll",
+                    Path.GetFileName(result.SearchPath));
+                Assert.Null(result.SelectedTfm);
+                Assert.IsType<
+                    AssemblyResolutionProvenance.PackageAsset>(
+                    result.AssemblyReference!.Provenance);
+            }
+            finally
+            {
+                PackageExtractor.Cleanup(result?.TempDir);
+            }
+        }
+        finally
+        {
+            File.Delete(packagePath);
+        }
     }
 }

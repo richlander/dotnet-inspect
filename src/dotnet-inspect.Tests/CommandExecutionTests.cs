@@ -2599,6 +2599,8 @@ public partial class CommandExecutionTests
                 "N.Widget",
                 "--library",
                 path,
+                "-S",
+                "Decompiled Source",
                 "--tips",
                 "q");
             var memberResult = await RunAppAsync(
@@ -2640,6 +2642,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, bodyShapesResult.Exit);
             Assert.Equal(0, matchExit);
             Assert.Contains("N.Widget", typeResult.Output);
+            Assert.Contains("public static int Answer() => 42;", typeResult.Output);
             Assert.Contains("=> 42", memberResult.Output);
             Assert.Contains("Answer", bodyShapesResult.Output);
             Assert.Contains(
@@ -19183,6 +19186,61 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "IdentifierConfusionReferenceTraversalException",
                 error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyResultsWhenMetadataIsMalformed()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"malformed-multitfm-test-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            Directory.CreateDirectory(net8Dir);
+            string healthyPath = Path.Combine(net8Dir, "Good.dll");
+            string malformedPath = Path.Combine(net8Dir, "Bad.dll");
+            File.Copy(TestAssemblyPath, healthyPath);
+            File.Copy(TestAssemblyPath, malformedPath);
+            byte[] malformed = File.ReadAllBytes(malformedPath);
+            int metadataStart;
+            using (var peReader = new PEReader(
+                new MemoryStream(malformed, writable: false)))
+            {
+                metadataStart =
+                    peReader.PEHeaders.MetadataStartOffset;
+            }
+            for (int index = 0; index < 32; index++)
+            {
+                malformed[metadataStart + index] =
+                    (byte)((index * 73 + 41) & 0xFF);
+            }
+            File.WriteAllBytes(malformedPath, malformed);
+            var packagePath = Path.Combine(
+                tempDir,
+                "Malformed.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            Assert.Equal(0, exit);
+            Assert.Contains("### Good.dll (net8.0)", output);
+            Assert.DoesNotContain("### Bad.dll", output);
+            Assert.Empty(error);
         }
         finally
         {

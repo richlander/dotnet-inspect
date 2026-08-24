@@ -2085,22 +2085,32 @@ public class ApiCommand
             var assembly = options.AssemblyReference
                 ?? throw new InvalidOperationException(
                     "Whole-type Decompiled Source requires the acquired assembly descriptor.");
-            var listing = Decompiler.MemberBodyProducer.Project(
+            Decompiler.DecompilerResult projection =
+                Decompiler.MemberBodyProducer.Project(
                 type,
                 assembly,
                 resolver,
                 metadata,
                 options.RenderOptions,
-                options.PdbPath).Output;
-            if (listing is not null)
+                options.PdbPath);
+            if (projection.Output is not { } listing)
             {
-                // Surface pending config warnings only once the styled listing is
-                // actually produced, so a type whose Project yields no body (e.g.
-                // an enum) never emits a spurious warning.
-                options.RenderConfigWarnings?.EmitOnce();
-                view.MemberCode ??= new MemberCodeView();
-                view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
+                CommandError.Write(
+                    projection.Diagnostics.Count == 0
+                        ? "Decompiled Source produced no output."
+                        : string.Join(
+                            "; ",
+                            projection.Diagnostics.Select(
+                                static diagnostic => diagnostic.ToString())));
+                return 1;
             }
+
+            // Surface pending config warnings only once the styled listing is
+            // actually produced.
+            options.RenderConfigWarnings?.EmitOnce();
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.DecompiledSourceCode =
+                new Markout.CodeSection("csharp", listing);
         }
 
         if (options.Print)

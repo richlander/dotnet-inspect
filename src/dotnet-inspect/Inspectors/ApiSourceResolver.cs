@@ -360,6 +360,10 @@ internal static class ApiSourceResolver
                     if (tfm != null)
                         logger.Log($"Auto-selected TFM: {tfm}");
                 }
+                else if (dlls.Count == 1)
+                {
+                    searchPath = dlls[0];
+                }
                 else if (dlls.Count > 1)
                 {
                     CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");

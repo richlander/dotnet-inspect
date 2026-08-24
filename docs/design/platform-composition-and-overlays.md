@@ -101,8 +101,8 @@ API-source resolution creates one `ResolvedAssemblyReference` with the actual
 `PackageAsset`, `ProjectAsset`, `PlatformAsset`, or `DesignatedAsset`
 acquisition. Type-forwarder resolution retains the descriptor of the assembly
 that supplied each type. Member code, Body Shapes, Match implementation diffs,
-and prefetched scanner images consume those descriptors rather than reopening
-their retained paths as designations.
+whole-type Decompiled Source, and prefetched scanner images consume those
+descriptors rather than reopening their retained paths as designations.
 
 `MetadataSource.Open(path)` and `MetadataSource.OpenFromPrefetchedImage(path,
 image)` remain compatibility entry points whose contract is explicit caller
@@ -115,7 +115,8 @@ drives package provenance through the snapshot reader. Snapshotting preserves
 the original acquisition registration and rejects bytes with a different
 assembly identity. Inspection-root netmodules use the same carrier without
 becoming assembly-binding candidates: their module name is diagnostic and their
-MVID binds snapshots to the selected content.
+MVID binds snapshots and direct whole-type definition addresses to the selected
+content.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
 `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 

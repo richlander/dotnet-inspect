@@ -967,7 +967,7 @@ public class LibraryCommand
                         inspection));
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             CommandError.Write(ex);
             return 1;
@@ -2826,6 +2826,13 @@ public class LibraryCommand
             {
                 identifierAuditFailures.Add(
                     (relativePath, ex.FailureKind));
+                continue;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    $"Could not read library: {Path.GetFileName(targetPath)}: "
+                    + ex.Message);
                 continue;
             }
             if (inspection == null)

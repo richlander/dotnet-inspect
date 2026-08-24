@@ -395,13 +395,15 @@ acquisition is gated on platform status.
 explicit caller designation. Product inspection paths do not use that shortcut:
 API-source resolution creates one `ResolvedAssemblyReference` carrying the
 actual package, project, platform, or designated acquisition, forwarded types
-retain their supplying descriptor, and decompiler-backed sections consume the
-descriptor overloads. `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
+retain their supplying descriptor, and decompiler-backed member and whole-type
+sections consume the descriptor overloads.
+`LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
 derives that boundary from compiled CLI call sites. The snapshot overload
 preserves the descriptor's acquisition registration and rejects a different
 assembly identity. Managed netmodule inspection roots retain the same typed
 acquisition, but snapshot integrity uses the module MVID and they never enter
-assembly candidate resolution.
+assembly candidate resolution. Whole-type composition resolves their exact
+TypeDef directly through an MVID-bound address.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
 `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 

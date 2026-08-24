@@ -243,9 +243,10 @@ public static class MemberBodyProducer
             AssemblyResolutionProvenance.Local("StartAssembly"));
         TypeCompositionResult composed = ComposeCore(
             type,
-            () => ResolveDefinition(start, type, resolver, context),
+            () => CompositionDefinition.From(
+                ResolveDefinition(start, type, resolver, context)),
             (definition, ctx) => Pipeline.MetadataSource.Open(
-                definition.Assembly.Assembly,
+                definition.Assembly,
                 pdbPath,
                 resolver,
                 ctx),
@@ -277,13 +278,16 @@ public static class MemberBodyProducer
 
         TypeCompositionResult composed = ComposeCore(
             type,
-            () => ResolveDefinition(
-                assembly,
-                type,
-                bindingPolicy,
-                context),
+            () => assembly.IsAssembly
+                ? CompositionDefinition.From(
+                    ResolveDefinition(
+                        assembly,
+                        type,
+                        bindingPolicy,
+                        context))
+                : ResolveModuleDefinition(assembly, type),
             (definition, ctx) => Pipeline.MetadataSource.Open(
-                definition.Assembly.Assembly,
+                definition.Assembly,
                 externalPdbPath,
                 bindingPolicy,
                 ctx),
@@ -580,10 +584,67 @@ public static class MemberBodyProducer
         string? Text,
         Exception? Error = null);
 
+    sealed record CompositionDefinition(
+        ResolvedAssemblyReference Assembly,
+        MetadataTypeDefinitionAddress Address)
+    {
+        public static CompositionDefinition? From(
+            ResolvedTypeDefinition? definition) =>
+            definition is null
+                ? null
+                : new(
+                    definition.Assembly.Assembly,
+                    definition.Address);
+    }
+
+    static CompositionDefinition? ResolveModuleDefinition(
+        ResolvedAssemblyReference module,
+        ApiType type)
+    {
+        MetadataTypeDefinitionName? name = GetDefinitionName(type);
+        if (name is null)
+            return null;
+
+        using Stream stream = module.OpenRead();
+        using var peReader = new PEReader(stream);
+        if (!peReader.HasMetadata)
+            throw new BadImageFormatException(
+                $"No managed metadata: {module.Path ?? module.Identity.Name}");
+
+        MetadataReader reader = peReader.GetMetadataReader();
+        if (reader.IsAssembly)
+            throw new BadImageFormatException(
+                "The acquired netmodule descriptor opened an assembly.");
+
+        Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        if (module.ModuleVersionId != mvid)
+            throw new BadImageFormatException(
+                "The opened netmodule MVID does not match its descriptor.");
+
+        return MetadataTypeDeclarationProbe.ProbeDefinition(reader, name) switch
+        {
+            TypeDeclarationResult.Defined defined =>
+                new(
+                    module,
+                    new MetadataTypeDefinitionAddress(
+                        mvid,
+                        defined.Definition)),
+            TypeDeclarationResult.Missing => null,
+            TypeDeclarationResult.Rejected rejected =>
+                throw new BadImageFormatException(
+                    rejected.Rejection.Detail),
+            TypeDeclarationResult.Ambiguous =>
+                throw new BadImageFormatException(
+                    $"More than one TypeDef declares '{name}'."),
+            _ => throw new BadImageFormatException(
+                $"The netmodule cannot directly define '{name}'."),
+        };
+    }
+
     static TypeCompositionResult ComposeCore(
         ApiType type,
-        Func<ResolvedTypeDefinition?> locateType,
-        Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Func<CompositionDefinition?> locateType,
+        Func<CompositionDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions)
     {
@@ -599,7 +660,7 @@ public static class MemberBodyProducer
             PEReader? peReader = null;
             try
             {
-                stream = definition.Assembly.Assembly.OpenRead();
+                stream = definition.Assembly.OpenRead();
                 peReader = new PEReader(stream);
                 MetadataReader reader = peReader.GetMetadataReader();
 
