@@ -1817,9 +1817,21 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
 });
 
 test("global workbench shortcuts respect the topmost modal", () => {
+  // The composition root wires the single link-navigation owner once; it must not regain
+  // a raw document click listener of its own (see the `.addEventListener` count assertion
+  // in "typed graph interactions own graph controls and Mermaid node bindings").
   assert.match(
     appSource,
-    /if \(state\.home\) return;[\s\S]*if \(state\.graphSourceOpen\)[\s\S]*if \(state\.docViewerOpen\)[\s\S]*if \(state\.spotlightOpen\)/);
+    /bindWorkspaceLinkNavigation\(document, \{[\s\S]*currentOrigin: \(\) => location\.origin,[\s\S]*resolve: href => new URL\(href, location\.href\),[\s\S]*navigate: navigateInAppUrl,/);
+  // The workspace-scoped modal layers (graph source, doc viewer, spotlight) are declared,
+  // in priority order, as one explicit list the keydown listener loops over — the single
+  // place that owns which layer Escape (and everything else) belongs to.
+  assert.match(
+    appSource,
+    /const workspaceKeydownLayers: readonly KeydownLayer\[\] = \[[\s\S]*active: \(\) => state\.graphSourceOpen[\s\S]*active: \(\) => state\.docViewerOpen[\s\S]*active: \(\) => state\.spotlightOpen/);
+  assert.match(
+    appSource,
+    /if \(state\.home\) return;[\s\S]*for \(const layer of workspaceKeydownLayers\)/);
   assert.match(
     appSource,
     /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "k"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\("", "commands"\)/);
@@ -1843,10 +1855,10 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
   assert.match(
     appSource,
-    /if \(state\.explorer\?\.open\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+    /active: \(\) => Boolean\(state\.explorer\?\.open\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
   assert.match(
     appSource,
-    /if \(state\.settings\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+    /active: \(\) => state\.settings[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
   assert.match(
     spotlightSource,
     /aria-activedescendant="spotlight-result-\$\{state\.spotlightIndex\}"[\s\S]*syncActiveDescendant\(items\.length\)/);

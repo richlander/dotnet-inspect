@@ -712,12 +712,22 @@ not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
 navigation generation, share-packet encoding and decoding, URL parsing and
-building, and the browser-history port. `dotnet-inspect.ts` remains the sole
-mutable application-state owner: it supplies typed snapshots and explicit
-transition callbacks, and retains asynchronous workspace restoration and DOM
-event binding. `test/workspace-navigation.test.ts` gates history traversal,
-stale-entry removal, navigation cancellation, rich and legacy URL
-compatibility, visible invalid-state failures, and sandboxed history errors;
+building, the browser-history port, and the single delegated click listener
+that intercepts same-origin in-app anchor clicks
+(`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
+`target`-scoped link, `download` link, or cross-origin href keeps native
+browser behavior. `dotnet-inspect.ts` remains the sole mutable
+application-state owner: it supplies typed snapshots and explicit transition
+callbacks, calls the one link-navigation binder instead of adding its own
+click listener, and declares its Escape-owning modal layers (Metadata
+Explorer, Settings, graph source, doc viewer, Spotlight) as one explicit
+ordered `KeydownLayer` list rather than an ad hoc if/else chain, so adding a
+new dismissable layer means adding one entry instead of re-deriving its
+priority. `dotnet-inspect.ts` retains asynchronous workspace restoration and
+its remaining DOM event binding. `test/workspace-navigation.test.ts` gates
+history traversal, stale-entry removal, navigation cancellation, rich and
+legacy URL compatibility, visible invalid-state failures, sandboxed history
+errors, and the link-interception rule;
 `test/spotlight-identity.test.js` gates the composition-root wiring.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,

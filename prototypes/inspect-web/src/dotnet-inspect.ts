@@ -71,6 +71,7 @@ import {
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
+  bindWorkspaceLinkNavigation,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -8533,34 +8534,127 @@ function refreshPackageStats() {
 }
 
 
-document.addEventListener("keydown", event => {
-  // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
-  // out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
-  // the ref->def history (Shift+Backspace forward).
-  if (state.explorer?.open) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!state.explorer.overview) explorerShowOverview();
-      else closeExplorer();
-    } else if (event.key === "Backspace") {
-      event.preventDefault();
-      if (event.shiftKey) explorerHistoryForward();
-      else explorerHistoryBack();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+// A same-origin, unmodified `<a href>` click anywhere in the app takes over here instead
+// of loading a new document — this is the single owner of in-app link navigation.
+// `target="_blank"`, cross-origin hrefs, `download`, and modified clicks (new tab/window)
+// keep their native browser behavior; the guard lives in `shouldInterceptLinkClick`.
+function navigateInAppUrl(url: URL) {
+  if (isCreditsPath(url.pathname)) {
+    openCredits();
     return;
   }
-  // Settings is a modal-style page reachable from home too, so handle its Escape before the
-  // home bail below (which otherwise swallows the keystroke on the home page).
-  if (state.settings) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSettings();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+  if (url.pathname === "/" && !url.search && !url.hash) {
+    goHome();
     return;
+  }
+  workspaceLocation.push(url.toString());
+  const loc = parseLocation();
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Navigating");
+}
+
+bindWorkspaceLinkNavigation(document, {
+  currentOrigin: () => location.origin,
+  resolve: href => new URL(href, location.href),
+  navigate: navigateInAppUrl,
+});
+
+// A modal-style view that owns the keydown event outright while it is open (Escape
+// dismisses it, plus whatever other keys are its own). Declaring these as one ordered
+// list — instead of a chain of `if (state.x) { ...; return; }` blocks — makes this the
+// single, explicit place that decides which layer Escape (and everything else) belongs
+// to; adding a new dismissable layer means adding one entry here, not re-deriving the
+// right spot in a growing if/else chain.
+interface KeydownLayer {
+  active(): boolean;
+  handle(event: KeyboardEvent): void;
+}
+
+// The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
+// out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
+// the ref->def history (Shift+Backspace forward). Settings is a modal-style page reachable
+// from home too, so it takes priority over the home bail below (which otherwise swallows the
+// keystroke on the home page).
+const homeIndependentKeydownLayers: readonly KeydownLayer[] = [
+  {
+    active: () => Boolean(state.explorer?.open),
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!state.explorer!.overview) explorerShowOverview();
+        else closeExplorer();
+      } else if (event.key === "Backspace") {
+        event.preventDefault();
+        if (event.shiftKey) explorerHistoryForward();
+        else explorerHistoryBack();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.settings,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSettings();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+];
+
+// These modal-style layers only apply once a package workspace is loaded (the home and
+// loading/error bails below run first), but are otherwise the same kind of Escape-owning
+// layer as above.
+const workspaceKeydownLayers: readonly KeydownLayer[] = [
+  {
+    active: () => state.graphSourceOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeGraphSource();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.docViewerOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDocViewer();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.spotlightOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSpotlight();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openSpotlight("", "commands");
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        openSpotlight();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+      }
+    },
+  },
+];
+
+document.addEventListener("keydown", event => {
+  for (const layer of homeIndependentKeydownLayers) {
+    if (layer.active()) {
+      layer.handle(event);
+      return;
+    }
   }
   const typing = isTextEntry();
   // The home page has its own scoped input handling (search box); global workbench
@@ -8572,38 +8666,11 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  if (state.graphSourceOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeGraphSource();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
+  for (const layer of workspaceKeydownLayers) {
+    if (layer.active()) {
+      layer.handle(event);
+      return;
     }
-    return;
-  }
-  if (state.docViewerOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDocViewer();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.spotlightOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      openSpotlight("", "commands");
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-      event.preventDefault();
-      openSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-    }
-    return;
   }
   if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
     event.preventDefault();
