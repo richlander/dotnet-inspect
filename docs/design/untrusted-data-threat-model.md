@@ -700,8 +700,16 @@ small-stack gate is the 128 KiB
 `CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
 fixed and named arguments use one shared underlying-width oracle, so a
 TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
-full name collides with an earlier row, or an over-deep
-`value__` field signature, cannot desynchronize later count reads.
+full name collides with an earlier row, an over-deep
+`value__` field signature, or a non-fixed-width `value__` primitive
+such as `string`, cannot desynchronize later count reads.
+`CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
+SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
+and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
+consumes a SerString rather than four enum bytes.
+A truncated value walk returns `Truncated` and stops remaining work,
+so leftover named-count bytes after a short SZArray cannot be charged
+as 65,535 named arguments.
 Declared SZArray leftovers stop once the value blob is exhausted, so a
 jagged constructor signature cannot re-walk the element type once per
 unreadable slot.
@@ -788,6 +796,11 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
 `CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.LegalSystemTypeArgument_IsSafe`,
+`CustomAttributeValueGuardTests.StringTypedEnumValue_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsSafe`,
 `CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
 `CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
@@ -802,6 +815,8 @@ pre-decoding rejection.
 `SelfReferentialGenericVar_StopsBeforeStackOverflow`,
 `AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification`,
 `ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification`,
+`DottedSystemTypeTypeRef_StopsBeforeLargeAllocationAmplification`,
+`StringTypedEnumValue_StopsBeforeLargeAllocationAmplification`,
 `LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity`,
 `LegalGenericCtorAttribute_HasBoundedUnboundedParity`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,

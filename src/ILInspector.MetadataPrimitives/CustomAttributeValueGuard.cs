@@ -208,7 +208,7 @@ public static class CustomAttributeValueGuard
         Result ProcessNamedHeader()
         {
             if (_value.RemainingBytes < 2)
-                return Result.Safe;
+                return Result.Truncated;
             int namedCount = _value.ReadUInt16();
             Charge(_beforeMaterialize, namedCount);
             if (namedCount > _value.RemainingBytes)
@@ -264,7 +264,7 @@ public static class CustomAttributeValueGuard
             if (depth > MaxSerializedDepth)
                 return Result.Unsafe;
             if (_value.RemainingBytes < 4)
-                return Result.Safe;
+                return Result.Truncated;
             int elementStart = _signature.Offset;
             if (!TrySkipSignatureType(ref _signature, _signatureSkip))
                 return Result.Safe;
@@ -292,10 +292,16 @@ public static class CustomAttributeValueGuard
 
         Result ProcessSzArrayElements(WorkItem item)
         {
-            if (item.Remaining <= 0 || _value.RemainingBytes == 0)
+            if (item.Remaining <= 0)
             {
                 _signature.Offset = item.SignatureEnd;
                 return Result.Safe;
+            }
+
+            if (_value.RemainingBytes == 0)
+            {
+                _signature.Offset = item.SignatureEnd;
+                return Result.Truncated;
             }
 
             _signature.Offset = item.SignatureStart;
@@ -321,7 +327,7 @@ public static class CustomAttributeValueGuard
             if (depth > MaxSerializedDepth)
                 return Result.Unsafe;
             if (!TryReadElementType(ref _value, out byte kind))
-                return Result.Safe;
+                return Result.Truncated;
             if (kind is not (SerializedField or SerializedProperty))
                 return Result.Unsafe;
 
@@ -352,7 +358,7 @@ public static class CustomAttributeValueGuard
             if (arrayDepth > 0)
             {
                 if (_value.RemainingBytes < 4)
-                    return Result.Safe;
+                    return Result.Truncated;
                 int count = _value.ReadInt32();
                 if (count == -1)
                     return Result.Safe;
@@ -397,8 +403,10 @@ public static class CustomAttributeValueGuard
 
         Result ProcessTypedArrayElements(WorkItem item)
         {
-            if (item.Remaining <= 0 || _value.RemainingBytes == 0)
+            if (item.Remaining <= 0)
                 return Result.Safe;
+            if (_value.RemainingBytes == 0)
+                return Result.Truncated;
             if (item.Remaining > 1)
             {
                 _work.Push(
@@ -422,7 +430,7 @@ public static class CustomAttributeValueGuard
             if (depth > MaxSerializedDepth)
                 return Result.Unsafe;
             if (!TryReadElementType(ref _value, out byte code))
-                return Result.Safe;
+                return Result.Truncated;
             return ProcessSerialized(code, depth);
         }
 
@@ -470,9 +478,9 @@ public static class CustomAttributeValueGuard
                 case ElementTypeSzArray:
                 {
                     if (!TryReadElementType(ref _value, out byte element))
-                        return Result.Safe;
+                        return Result.Truncated;
                     if (_value.RemainingBytes < 4)
-                        return Result.Safe;
+                        return Result.Truncated;
                     int count = _value.ReadInt32();
                     if (count == -1)
                         return Result.Safe;
@@ -499,8 +507,10 @@ public static class CustomAttributeValueGuard
 
         Result ProcessSerializedElements(WorkItem item)
         {
-            if (item.Remaining <= 0 || _value.RemainingBytes == 0)
+            if (item.Remaining <= 0)
                 return Result.Safe;
+            if (_value.RemainingBytes == 0)
+                return Result.Truncated;
             if (item.Remaining > 1)
             {
                 _work.Push(
@@ -588,10 +598,11 @@ public static class CustomAttributeValueGuard
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
-        // SRM special-cases only System.Type (a SerString). Every other
-        // CLASS/VALUETYPE token, including System.String and System.Object,
-        // goes through GetUnderlyingEnumType and consumes that width.
-        if (IsSystemNamedType(reader, handle, "Type"))
+        // SRM special-cases only a rendered name of "System.Type"
+        // (ArgTypeProvider.IsSystemType). Structural ns+name checks miss
+        // TypeRef {ns="", name="System.Type"} and nested System+Type, both
+        // of which SRM consumes as a SerString.
+        if (IsSrmSystemType(reader, handle))
             return SkipSerString(ref value);
         return SkipBytes(
             ref value,
@@ -615,7 +626,7 @@ public static class CustomAttributeValueGuard
             if (typeDepth > MaxSerializedDepth)
                 return Result.Unsafe;
             if (!TryReadElementType(ref value, out byte code))
-                return Result.Safe;
+                return Result.Truncated;
             if (code == ElementTypeSzArray)
             {
                 arrayDepth++;
@@ -704,14 +715,14 @@ public static class CustomAttributeValueGuard
     {
         text = null;
         if (blob.RemainingBytes < 1)
-            return Result.Safe;
+            return Result.Truncated;
         int offset = blob.Offset;
         if (blob.ReadByte() == 0xFF)
             return Result.Safe;
         blob.Offset = offset;
         int length = blob.ReadCompressedInteger();
         if (blob.RemainingBytes < length)
-            return Result.Safe;
+            return Result.Truncated;
         text = blob.ReadUTF8(length);
         return Result.Safe;
     }
@@ -721,7 +732,7 @@ public static class CustomAttributeValueGuard
         if (count < 0)
             return Result.Unsafe;
         if (blob.RemainingBytes < count)
-            return Result.Safe;
+            return Result.Truncated;
         blob.Offset += count;
         return Result.Safe;
     }
@@ -1120,40 +1131,18 @@ public static class CustomAttributeValueGuard
         }
     }
 
-    static bool IsSystemNamedType(
-        MetadataReader reader,
-        EntityHandle handle,
-        string name)
+    static bool IsSrmSystemType(MetadataReader reader, EntityHandle handle)
     {
-        StringHandle namespaceHandle;
-        StringHandle nameHandle;
-        switch (handle.Kind)
-        {
-            case HandleKind.TypeReference:
-            {
-                var typeRef = reader.GetTypeReference((TypeReferenceHandle)handle);
-                if (typeRef.ResolutionScope.Kind == HandleKind.TypeReference)
-                    return false;
-                namespaceHandle = typeRef.Namespace;
-                nameHandle = typeRef.Name;
-                break;
-            }
-            case HandleKind.TypeDefinition:
-            {
-                var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
-                if (!definition.GetDeclaringType().IsNil)
-                    return false;
-                namespaceHandle = definition.Namespace;
-                nameHandle = definition.Name;
-                break;
-            }
-            default:
-                return false;
-        }
-
-        var comparer = reader.StringComparer;
-        return comparer.Equals(namespaceHandle, "System")
-            && comparer.Equals(nameHandle, name);
+        // Match ArgTypeProvider.IsSystemType (rendered name == "System.Type").
+        // Do not charge through the observer: ResolveEnum already charges when
+        // the product path supplies a name oracle, and this check must not
+        // double-count or shift declared-slot charges.
+        string? name = handle.Kind == HandleKind.TypeDefinition
+            ? TypeResolver.GetTypeNameFromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle)
+            : TypeResolver.GetTypeName(reader, handle);
+        return name == "System.Type";
     }
 
     static bool TryReadElementType(ref BlobReader blob, out byte code)
@@ -1182,6 +1171,7 @@ public static class CustomAttributeValueGuard
     {
         Safe,
         Unsafe,
+        Truncated,
     }
 
     enum Op : byte
