@@ -9,6 +9,7 @@ import {
   type AnnotatedSourceRegion,
   type AnnotatedViewCapture,
   type AnnotatedViewFact,
+  type PreparedSourceCodeLensCandidate,
   type PreparedAnnotatedView,
   type SourceMedium,
   validateAnnotatedSourceDocument,
@@ -500,11 +501,9 @@ export function renderAnnotatedSourceExplorer(
   const directlySelectedNodeFacts = directlySelectedNode
     ? view.facts.filter(fact => fact.nodeIds.includes(directlySelectedNode.id))
     : [];
-  const codeLensAnnotations = sourceCodeLensAnnotations(
-    result.document.nodes,
-    view.lines,
-    kindLabels,
-    result.document.text);
+  const codeLensAnnotations = state.codeLens
+    ? sourceCodeLensAnnotations(state.prepared.codeLensCandidates, kindLabels)
+    : new Map<number, readonly SourceCodeLensAnnotation[]>();
   const codeLensNodeIds = new Set(
     [...codeLensAnnotations.values()].flat().map(annotation => annotation.nodeId));
   const nodeCaretAnnotations = combineCaretAnnotations(
@@ -772,33 +771,21 @@ interface SourceCodeLensAnnotation {
   prefix: string;
 }
 
-function sourceCodeLensAnnotations(
-  nodes: readonly AnnotatedSourceNode[],
-  lines: readonly { start: number; end: number }[],
+export function sourceCodeLensAnnotations(
+  candidates: readonly PreparedSourceCodeLensCandidate[],
   labels: ReadonlyMap<string, string>,
-  text: string,
 ): ReadonlyMap<number, readonly SourceCodeLensAnnotation[]> {
   const annotations = new Map<number, SourceCodeLensAnnotation[]>();
-  for (const node of nodes) {
-    if (node.medium !== "CSharp"
-      || node.kind === "Block"
-      || node.kind === "MemberBody"
-      || !labels.has(node.kind)) {
-      continue;
-    }
-    const intersectingLines = lines.filter(line => node.spans.some(span =>
-      span.start < line.end && line.start < span.start + span.length));
-    if (intersectingLines.length < 2) continue;
-    const lineStart = intersectingLines[0].start;
-    const lineText = text.slice(lineStart, intersectingLines[0].end);
+  for (const candidate of candidates) {
+    if (!labels.has(candidate.kind)) continue;
     const annotation = {
-      label: labels.get(node.kind) ?? node.kind,
-      nodeId: node.id,
-      prefix: lineText.match(/^[\t ]*/)?.[0] ?? "",
+      label: labels.get(candidate.kind) ?? candidate.kind,
+      nodeId: candidate.nodeId,
+      prefix: candidate.prefix,
     };
-    const existing = annotations.get(lineStart);
+    const existing = annotations.get(candidate.lineStart);
     if (existing) existing.push(annotation);
-    else annotations.set(lineStart, [annotation]);
+    else annotations.set(candidate.lineStart, [annotation]);
   }
   return annotations;
 }
@@ -863,7 +850,11 @@ function sourceFindingCaretAnnotations(
     const peekDocument = evidenceNodes.length > 0
       ? findingEvidence!.evidence.document!
       : null;
-    const peekNodes = evidenceNodes.length > 0 ? evidenceNodes : [node];
+    const peekNodes = evidenceNodes.length > 0
+      ? evidenceNodes
+      : findingEvidence
+        ? []
+        : [node];
     const peekLines = peekDocument
       ? preparedDocument(peekDocument).lines
       : lines;
@@ -871,7 +862,9 @@ function sourceFindingCaretAnnotations(
       candidate.spans.some(span =>
         span.start < line.end && line.start < span.start + span.length)));
     const visibleLines = relevantLines.slice(0, MAX_FINDING_PEEK_LINES);
-    const lineSummary = relevantLines.length <= 1
+    const lineSummary = relevantLines.length === 0
+      ? "unavailable"
+      : relevantLines.length === 1
       ? `line ${relevantLines[0]?.number ?? "unknown"}`
       : `lines ${relevantLines[0].number}–${relevantLines.at(-1)?.number}`;
     const peek: SourceFindingPeek = {
@@ -889,10 +882,12 @@ function sourceFindingCaretAnnotations(
         number: line.number,
         start: line.start,
       })),
-      location: `${MEDIUM_LABELS[peekNodes[0].medium]} · ${lineSummary} · ${peekNodes
-        .flatMap(candidate => candidate.spans)
-        .map(span => `[${span.start}..${span.start + span.length})`)
-        .join(" · ")}`,
+      location: peekNodes.length > 0
+        ? `${MEDIUM_LABELS[peekNodes[0].medium]} · ${lineSummary} · ${peekNodes
+          .flatMap(candidate => candidate.spans)
+          .map(span => `[${span.start}..${span.start + span.length})`)
+          .join(" · ")}`
+        : "Callee evidence unavailable",
       ...(findingEvidence
         ? {
             evidenceIndex: findingEvidence.index,

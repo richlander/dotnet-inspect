@@ -28,9 +28,16 @@ export interface BrowserAnnotatedSourceFindingEvidence {
   sourceOffset: number;
   member: string;
   target: BrowserCallGraphTarget;
+  coordinates: BrowserAnnotatedSourceFindingEvidenceCoordinate[];
   document: unknown;
   nodeIds: number[];
   unavailableReason: string | null;
+}
+
+export interface BrowserAnnotatedSourceFindingEvidenceCoordinate {
+  member: BrowserCallGraphTarget;
+  ilOffset: number;
+  kind: string;
 }
 
 export interface BrowserAssemblyReference {

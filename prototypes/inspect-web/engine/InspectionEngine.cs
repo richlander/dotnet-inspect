@@ -283,6 +283,16 @@ public static partial class InspectionEngine
                         evidence.Member,
                         participant.Assembly.Identity,
                         $"finding-{index}"),
+                    [
+                        .. evidence.Coordinates.Select((coordinate, coordinateIndex) =>
+                            new BrowserAnnotatedSourceFindingEvidenceCoordinate(
+                                Target(
+                                    coordinate.Method,
+                                    participant.Assembly.Identity,
+                                    $"finding-{index}-evidence-{coordinateIndex}"),
+                                coordinate.ILOffset,
+                                FindingEvidenceKind(coordinate.Kind))),
+                    ],
                     SerializeAnnotatedSourceDocumentElement(
                         evidence.SourceDocument),
                     [.. evidence.NodeIds],
@@ -324,6 +334,15 @@ public static partial class InspectionEngine
             + $"{genericParameters}({string.Join(", ", member.ParameterTypes.Select(
                 type => type.ToQualifiedDisplayString()))})";
     }
+
+    static string FindingEvidenceKind(CallSiteEvidenceKind kind)
+        => kind switch
+        {
+            CallSiteEvidenceKind.ExceptionConstruction => "exception-construction",
+            CallSiteEvidenceKind.Localloc => "localloc",
+            CallSiteEvidenceKind.Calli => "calli",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
 
     /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.

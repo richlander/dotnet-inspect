@@ -168,7 +168,9 @@ public sealed class StackAllocSpanPass : IIrPass
             }
 
             var raised = new StackAllocArray(element, raisedCount, newObject.ResultType, elements);
-            raised.InheritSourceOffset(newObject);
+            // The raised source construct is the allocation, so retain localloc as its
+            // canonical provenance rather than the consumed Span constructor's newobj.
+            raised.InheritSourceOffset(source);
             newObject.ReplaceWith(raised);
             ownedStore?.Detach();
         }

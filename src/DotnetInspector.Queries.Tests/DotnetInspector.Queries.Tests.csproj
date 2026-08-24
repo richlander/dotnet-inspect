@@ -11,6 +11,7 @@
     <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
     <EnableSourceLink>false</EnableSourceLink>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

@@ -105,12 +105,75 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         AnnotatedSourceDocument document = Assert.IsType<AnnotatedSourceDocument>(
             evidence.SourceDocument);
         Assert.Contains("throw new InvalidOperationException", document.Text);
+        CallSiteEvidenceCoordinate coordinate = Assert.Single(evidence.Coordinates);
+        Assert.Equal(callee.MetadataToken, coordinate.Method.MetadataToken);
+        Assert.Equal(CallSiteEvidenceKind.ExceptionConstruction, coordinate.Kind);
         AnnotatedSourceNode node = Assert.Single(
             evidence.NodeIds.Select(id => document.Nodes[id]));
         Assert.Equal("ThrowStatement", node.Kind);
-        Assert.Contains(
-            node.Provenance!.IlOffsets,
-            offset => offset >= 0);
+        Assert.Contains(coordinate.ILOffset, node.Provenance!.IlOffsets);
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesCalleeStackallocSourceForSafetyFinding()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeStackAllocCallee))));
+
+        AssemblyMemberFindingEvidence evidence = Assert.Single(
+            projection.FindingEvidence,
+            item => item.Descriptor == "safety.callee");
+        MethodInfo callee = typeof(ResearchProjectionProbe).GetMethod(
+            "StackAllocCallee",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Assert.Equal(callee.MetadataToken, evidence.Member.MetadataToken);
+        CallSiteEvidenceCoordinate coordinate = Assert.Single(evidence.Coordinates);
+        Assert.Equal(callee.MetadataToken, coordinate.Method.MetadataToken);
+        Assert.Equal(CallSiteEvidenceKind.Localloc, coordinate.Kind);
+        Assert.Null(evidence.UnavailableReason);
+        AnnotatedSourceDocument document = Assert.IsType<AnnotatedSourceDocument>(
+            evidence.SourceDocument);
+        AnnotatedSourceNode node = Assert.Single(
+            evidence.NodeIds.Select(id => document.Nodes[id]),
+            node => node.Kind == "StackAllocationExpression");
+        Assert.Contains(coordinate.ILOffset, node.Provenance!.IlOffsets);
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesCalleeIndirectInvocationSourceForSafetyFinding()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeFunctionPointerCallee))));
+
+        AssemblyMemberFindingEvidence evidence = Assert.Single(
+            projection.FindingEvidence,
+            item => item.Descriptor == "safety.callee");
+        MethodInfo callee = typeof(ResearchProjectionProbe).GetMethod(
+            "FunctionPointerCallee",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Assert.Equal(callee.MetadataToken, evidence.Member.MetadataToken);
+        CallSiteEvidenceCoordinate coordinate = Assert.Single(evidence.Coordinates);
+        Assert.Equal(callee.MetadataToken, coordinate.Method.MetadataToken);
+        Assert.Equal(CallSiteEvidenceKind.Calli, coordinate.Kind);
+        Assert.Null(evidence.UnavailableReason);
+        AnnotatedSourceDocument document = Assert.IsType<AnnotatedSourceDocument>(
+            evidence.SourceDocument);
+        AnnotatedSourceNode node = Assert.Single(
+            evidence.NodeIds.Select(id => document.Nodes[id]),
+            node => node.Kind == "IndirectInvocationExpression");
+        Assert.Contains(coordinate.ILOffset, node.Provenance!.IlOffsets);
     }
 
     [Fact]
@@ -423,4 +486,22 @@ public static class ResearchProjectionProbe
 
     static void ThrowingCallee() =>
         throw new InvalidOperationException("probe");
+
+    public static unsafe void InvokeStackAllocCallee() => StackAllocCallee();
+
+    static void StackAllocCallee()
+    {
+        Span<byte> buffer = stackalloc byte[16];
+        buffer[0] = 1;
+    }
+
+    public static unsafe void InvokeFunctionPointerCallee() => FunctionPointerCallee();
+
+    static unsafe void FunctionPointerCallee()
+    {
+        delegate*<void> callback = &FunctionPointerTarget;
+        callback();
+    }
+
+    static void FunctionPointerTarget() {}
 }

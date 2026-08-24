@@ -41,3 +41,23 @@ export const captureDocument: AnnotatedSourceDocument = {
     { parent_node_id: 0, display_name: "second", use_node_ids: [2] },
   ],
 };
+
+const safetyCalleeText = "byte* buffer = stackalloc byte[16];";
+
+export const safetyCalleeDocument: AnnotatedSourceDocument = {
+  text: safetyCalleeText,
+  nodes: [
+    {
+      id: 0,
+      kind: "StackAllocationExpression",
+      medium: "CSharp",
+      spans: [{
+        start: safetyCalleeText.indexOf("stackalloc"),
+        length: "stackalloc byte[16]".length,
+      }],
+    },
+  ],
+  regions: [],
+  facts: [],
+  targets: [],
+};

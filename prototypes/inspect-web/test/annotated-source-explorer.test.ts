@@ -9,6 +9,7 @@ import {
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
   renderAnnotatedSourceExplorer,
+  sourceCodeLensAnnotations,
   type AnnotatedSourceResult,
 } from "../src/annotated-source-explorer.ts";
 import {
@@ -17,7 +18,10 @@ import {
 } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import { fakeDom } from "./fake-dom.ts";
-import { captureDocument } from "./annotated-source-fixtures.ts";
+import {
+  captureDocument,
+  safetyCalleeDocument,
+} from "./annotated-source-fixtures.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
 const sampleDocument: AnnotatedSourceDocument = sampleDocumentFixture;
@@ -484,6 +488,7 @@ test("Finding provenance peeks show the discovered throw and member actions", ()
         kind: "method",
         platformPack: null,
       },
+      coordinates: [],
       document: throwDocument,
       nodeIds: [0],
       unavailableReason: null,
@@ -535,11 +540,86 @@ test("Finding provenance peeks show the discovered throw and member actions", ()
     unavailableHtml,
     /The callee source document was unavailable\./,
   );
-  assert.match(unavailableHtml, /<dt>Location<\/dt><dd>C# · line 4 · \[59\.\.71\)/);
+  assert.match(unavailableHtml, /<dt>Location<\/dt><dd>Callee evidence unavailable/);
   assert.doesNotMatch(
     unavailableHtml,
     /finding-peek-line-text">[^<]*return new object/,
   );
+});
+
+test("Safety Finding provenance peeks render the callee stackalloc evidence", () => {
+  validateAnnotatedSourceDocument(safetyCalleeDocument);
+  const safetyDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: sampleDocument.facts.map((fact, index) =>
+      index === 0 ? { ...fact, descriptor: "safety.callee" } : fact),
+  };
+  const safetyResult: AnnotatedSourceResult = {
+    ...result,
+    document: safetyDocument,
+    findingEvidence: [{
+      descriptor: "safety.callee",
+      sourceOffset: safetyDocument.facts[0].source_offset,
+      member: "Example.UnsafeCallee()",
+      target: {
+        id: "finding-safety",
+        assembly: "Example",
+        assemblyVersion: "1.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: null,
+        typeFullName: "Example",
+        typeMetadataId: "Example",
+        typeDefinitionId: "Example",
+        memberName: "UnsafeCallee",
+        parameterTypes: [],
+        returnType: "System.Void",
+        genericArity: 0,
+        metadataToken: 0x06000002,
+        selectorKey: "method:UnsafeCallee",
+        kind: "method",
+        platformPack: null,
+      },
+      coordinates: [{
+        member: {
+          id: "finding-safety-evidence-0",
+          assembly: "Example",
+          assemblyVersion: "1.0.0.0",
+          assemblyCulture: null,
+          assemblyPublicKeyToken: null,
+          typeFullName: "Example",
+          typeMetadataId: "Example",
+          typeDefinitionId: "Example",
+          memberName: "UnsafeCallee",
+          parameterTypes: [],
+          returnType: "System.Void",
+          genericArity: 0,
+          metadataToken: 0x06000002,
+          selectorKey: "method:UnsafeCallee",
+          kind: "method",
+          platformPack: null,
+        },
+        ilOffset: 4,
+        kind: "localloc",
+      }],
+      document: safetyCalleeDocument,
+      nodeIds: [0],
+      unavailableReason: null,
+    }],
+  };
+
+  const html = renderAnnotatedSourceExplorer({
+    result: safetyResult,
+    state: createAnnotatedSourceExplorerState(safetyDocument),
+    title: "Example.InvokeUnsafeCallee",
+    subtitle: "void InvokeUnsafeCallee()",
+    escapeHtml,
+  });
+
+  assert.match(html, /Example\.UnsafeCallee\(\)/);
+  assert.match(html, /data-ase-finding-member-copy="Example\.UnsafeCallee\(\)">copy member/);
+  assert.match(html, /data-ase-finding-member-navigate="0">navigate/);
+  assert.match(html, /stackalloc byte\[16\]/);
+  assert.doesNotMatch(html, /finding-peek-line-text">[^<]*return new object/);
 });
 
 test("media actions refuse an empty-looking document", () => {
@@ -694,6 +774,52 @@ test("product labels render as toggleable structural CodeLens annotations", () =
   assert.doesNotMatch(disabledHtml, /class="annotated-codelens-row"/);
   assert.match(appSource, /memberAnnotatedCodeLens/);
   assert.match(appSource, /onCodeLensToggle:/);
+});
+
+test("CodeLens reuses prepared candidates and skips their construction while off", () => {
+  const first = createAnnotatedSourceExplorerState(sampleDocument);
+  const interacted = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    first,
+    { type: "select-fact", factId: 0 },
+  );
+  const reopened = createAnnotatedSourceExplorerState(sampleDocument);
+  const labels = new Map([["ForStatement", "For loop"]]);
+
+  assert.equal(interacted.prepared, first.prepared);
+  assert.equal(reopened.prepared, first.prepared);
+  assert.deepEqual(
+    [...sourceCodeLensAnnotations(first.prepared.codeLensCandidates, labels)],
+    [[0, [{ label: "For loop", nodeId: 0, prefix: "" }]]],
+  );
+  assert.doesNotMatch(sourceCodeLensAnnotations.toString(), /\.filter\(/);
+  assert.match(
+    explorerSource,
+    /state\.codeLens\s*\?\s*sourceCodeLensAnnotations\(state\.prepared\.codeLensCandidates, kindLabels\)/,
+  );
+
+  const offState = {
+    ...first,
+    codeLens: false,
+    prepared: new Proxy(first.prepared, {
+      get(target, property, receiver) {
+        if (property === "codeLensCandidates") {
+          throw new Error("CodeLens candidates must not be read while CodeLens is off.");
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    }),
+  };
+  const offHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: offState,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+    nodeKinds: [{ id: "ForStatement", label: "For loop" }],
+  });
+
+  assert.doesNotMatch(offHtml, /class="annotated-codelens-row"/);
 });
 
 test("captured variables remain discoverable and select their exact uses", () => {
@@ -1048,9 +1174,22 @@ test("fact buttons expose their toggle state", () => {
 
 test("reopening an unchanged document reuses its prepared projection", () => {
   const first = createAnnotatedSourceExplorerState(sampleDocument);
-  const reopened = createAnnotatedSourceExplorerState(sampleDocument);
+  const selectedFinding = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    first,
+    { type: "select-fact", factId: 0 },
+  );
+  const withOneFindingDeactivated = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    selectedFinding,
+    { type: "select-fact", factId: 0 },
+  );
+  const reopened = createAnnotatedSourceExplorerState(sampleDocument, {
+    activeFactIds: withOneFindingDeactivated.activeFactIds,
+  });
 
   assert.equal(reopened.prepared, first.prepared);
+  assert.deepEqual(reopened.activeFactIds, [1]);
 });
 
 test("full-bleed feedback and narrow layouts stay reachable", () => {

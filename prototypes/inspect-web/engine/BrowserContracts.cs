@@ -389,9 +389,18 @@ public sealed record BrowserAnnotatedSourceFindingEvidence(
     int SourceOffset,
     string Member,
     BrowserCallGraphTarget Target,
+    BrowserAnnotatedSourceFindingEvidenceCoordinate[] Coordinates,
     JsonElement? Document,
     int[] NodeIds,
     string? UnavailableReason);
+
+/// <summary>
+/// A physical remote-body coordinate that supports one caller-side Finding relationship.
+/// </summary>
+public sealed record BrowserAnnotatedSourceFindingEvidenceCoordinate(
+    BrowserCallGraphTarget Member,
+    int ILOffset,
+    string Kind);
 
 public sealed record BrowserSource(
     string Provider,

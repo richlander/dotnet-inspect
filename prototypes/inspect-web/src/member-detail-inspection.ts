@@ -83,6 +83,7 @@ export interface MemberDetailInspectionState {
   memberAnnotatedError: string;
   memberAnnotatedKey: string;
   memberAnnotatedFactId: number | null;
+  memberAnnotatedActiveFactIds: number[] | null;
   memberAnnotatedCaptureIndex: number | null;
   memberAnnotatedNodeIds: number[];
   memberAnnotatedKind: string;
@@ -198,6 +199,7 @@ export function createMemberDetailInspectionCoordinator(
       state.memberAnnotatedLoading = true;
       state.memberAnnotatedError = "";
       state.memberAnnotatedFactId = null;
+      state.memberAnnotatedActiveFactIds = null;
       state.memberAnnotatedCaptureIndex = null;
       state.memberAnnotatedNodeIds = [];
       state.memberAnnotatedKind = "";

@@ -14,6 +14,7 @@ sealed class DirectCallFactProducer : IResearchFactProducer
     public string Name => "direct-call-relationships";
     public IReadOnlyList<string> Produces { get; } =
         [ResearchFactRegistry.CallRelationshipDescriptorId];
+    public IReadOnlyList<string> DescriptorIds => [CallEdge.Id];
     public IReadOnlyList<string> DependsOn => [];
 
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)

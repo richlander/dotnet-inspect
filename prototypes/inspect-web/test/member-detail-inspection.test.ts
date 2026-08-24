@@ -95,6 +95,7 @@ function inspectionState(
     memberAnnotatedError: "",
     memberAnnotatedKey: "",
     memberAnnotatedFactId: null,
+    memberAnnotatedActiveFactIds: null,
     memberAnnotatedCaptureIndex: null,
     memberAnnotatedNodeIds: [],
     memberAnnotatedKind: "",
@@ -489,6 +490,7 @@ test("annotated source publishes exact current results and resets selection", as
   const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
   const state = inspectionState({
     memberAnnotatedFactId: 42,
+    memberAnnotatedActiveFactIds: [4, 12],
     memberAnnotatedCaptureIndex: 3,
     memberAnnotatedNodeIds: [7, 8],
     memberAnnotatedKind: "LambdaExpression",
@@ -525,6 +527,7 @@ test("annotated source publishes exact current results and resets selection", as
   assert.equal(state.memberAnnotated, result);
   assert.equal(state.memberAnnotatedLoading, false);
   assert.equal(state.memberAnnotatedFactId, null);
+  assert.equal(state.memberAnnotatedActiveFactIds, null);
   assert.equal(state.memberAnnotatedCaptureIndex, null);
   assert.deepEqual(state.memberAnnotatedNodeIds, []);
   assert.equal(state.memberAnnotatedKind, "");

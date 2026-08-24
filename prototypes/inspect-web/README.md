@@ -545,7 +545,9 @@ The member tab is a compact hand-off into a full-screen TypeScript explorer,
 following the Metadata explorer's full-bleed interaction model without creating
 a second site or URL. Opening it validates the document, indexes structural
 spans by canonical line, and prepares the projection once per result; selection
-changes and later reopens reuse that immutable projection. The explorer renders
+changes and later reopens reuse that immutable projection. Publishing a new
+annotated result resets every document-local selection, including active Finding
+carets, while reopening the same unchanged document preserves them. The explorer renders
 canonical lines beside anchored and explicitly unanchored facts; starts with C#
 visible and IL hidden; supports independent fact and exact-node selection; and
 follows pointer or keyboard activation to the tightest structural node. Source
@@ -563,18 +565,25 @@ the portable document's internal node number; the inspector retains that typed
 identity for detailed selection. Finding chips are roomier interactive
 affordances: activating one opens a dismissible evidence peek without changing
 selection. For `semantics.callee`, Research retains the resolved callee identity
-and exception-construction offsets; the group-scoped query projects that
-callee's source and maps those offsets to its product-issued `ThrowStatement`.
-The peek therefore names the Finding and fully-qualified member, provides copy
-and in-tool navigation actions, and renders the discovered throw rather than
-the caller's invocation. If that correspondence is unavailable, the failure is
-shown instead of falling back to a success-shaped call-site snippet. Escape
-closes an open peek before it exits the full-screen explorer. The `fact, source
-node, node-kind, and clear actions preserve distinct selection semantics` test
-gates that separation.
+and exception-construction offsets; for `safety.callee`, it retains the resolved
+callee and every physical `localloc`/`calli` coordinate. The group-scoped query
+projects that callee's source and maps those coordinates only to its
+product-issued `ThrowStatement`, `StackAllocationExpression`, or
+`IndirectInvocationExpression` nodes. The peek therefore names the Finding and
+fully-qualified member, provides copy and in-tool navigation actions, and
+renders the discovered callee evidence rather than the caller's invocation. If
+source or correspondence is unavailable, the failure is shown instead of
+falling back to a success-shaped call-site snippet. Escape closes an open peek
+before it exits the full-screen explorer. The `fact, source node, node-kind,
+and clear actions preserve distinct selection semantics` test gates that
+separation. The authoritative [Annotated Source Finding Provenance
+catalog](../../docs/design/annotated-source-finding-provenance.md) records every
+reachable descriptor and its fidelity boundary.
 
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
-multi-line source constructs. CodeLens is globally on or off; its unnumbered
+multi-line source constructs. The immutable prepared document projection records
+each candidate once, so interaction renders reuse it and CodeLens-off renders
+do not construct annotations. CodeLens is globally on or off; its unnumbered
 rows do not alter canonical coordinates or source line numbering. Pressing and
 activating a CodeLens chip bolds and shades exactly the product-issued node
 spans for six seconds, then fades the preview without changing persistent
@@ -582,7 +591,8 @@ selection. The chip's text aligns with the first source character it describes;
 its border extends around that shared column. Large syntax constructs use this
 leading annotation rather than emitting caret rows across the construct. The
 `CodeLens activation retains its node preview until the six-second animation
-ends` and `product labels render as toggleable structural CodeLens annotations`
+ends`, `product labels render as toggleable structural CodeLens annotations`,
+and `CodeLens reuses prepared candidates and skips their construction while off`
 tests gate those interactions.
 
 The merged view labels only C# and IL transitions rather than repeating a

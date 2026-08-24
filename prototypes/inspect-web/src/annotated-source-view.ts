@@ -96,12 +96,24 @@ export interface AnnotatedView {
 }
 
 export interface PreparedAnnotatedView {
+  codeLensCandidates: readonly PreparedSourceCodeLensCandidate[];
   document: AnnotatedSourceDocument;
   lines: readonly AnnotatedViewLine[];
   facts: readonly AnnotatedViewFact[];
   captures: readonly AnnotatedViewCapture[];
   unanchoredFactIds: readonly number[];
   totalLineCount: number;
+}
+
+/**
+ * A structural annotation whose multi-line span was established while the immutable document
+ * projection was prepared. Rendering only supplies the product label for its stable node kind.
+ */
+export interface PreparedSourceCodeLensCandidate {
+  kind: string;
+  lineStart: number;
+  nodeId: number;
+  prefix: string;
 }
 
 export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
@@ -140,7 +152,8 @@ export function prepareAnnotatedView(
     };
   });
   const sourceLines = buildLines(document.text);
-  const indexedLines = indexLines(sourceLines, document.nodes);
+  const indexed = indexLines(sourceLines, document.nodes);
+  const indexedLines = indexed.lines;
   const lines = sourceLines.map((line, index) => ({
     number: line.number,
     medium: mediumForLine(indexedLines[index].media),
@@ -153,6 +166,18 @@ export function prepareAnnotatedView(
         factIds: [...new Set(segment.nodeIds.flatMap(nodeId => factIdsByNode[nodeId]))],
       })),
   }));
+  const codeLensCandidates = [...indexed.codeLensLineIndices]
+    .flatMap(([node, lineIndices]) => {
+      if (lineIndices.size < 2) return [];
+      const lineIndex = Math.min(...lineIndices);
+      const line = sourceLines[lineIndex];
+      return [{
+        kind: node.kind,
+        lineStart: line.start,
+        nodeId: node.id,
+        prefix: document.text.slice(line.start, line.end).match(/^[\t ]*/)?.[0] ?? "",
+      }];
+    });
   const anchored = new Set(document.targets.map(target => target.fact_id));
   const facts = document.facts.map(fact => ({
     id: fact.id,
@@ -167,6 +192,7 @@ export function prepareAnnotatedView(
     selected: false,
   }));
   return {
+    codeLensCandidates,
     document,
     lines,
     facts,
@@ -276,12 +302,21 @@ function isVisible(
 function indexLines(
   lines: readonly SourceLine[],
   nodes: readonly AnnotatedSourceNode[],
-): IndexedLine[] {
+): {
+  codeLensLineIndices: ReadonlyMap<AnnotatedSourceNode, ReadonlySet<number>>;
+  lines: IndexedLine[];
+} {
   const indexed = lines.map((): IndexedLine => ({
     intersections: [],
     media: new Set<SourceMedium>(),
   }));
+  const codeLensLineIndices = new Map<AnnotatedSourceNode, Set<number>>();
   for (const node of nodes) {
+    const isCodeLensCandidate =
+      node.medium === "CSharp"
+      && node.kind !== "Block"
+      && node.kind !== "MemberBody";
+    if (isCodeLensCandidate) codeLensLineIndices.set(node, new Set());
     for (const span of node.spans) {
       const spanEnd = span.start + span.length;
       for (
@@ -295,11 +330,15 @@ function indexLines(
         }
         const start = Math.max(line.start, span.start);
         const end = Math.min(line.end, spanEnd);
-        if (start < end) indexed[lineIndex].intersections.push({ node, start, end });
+        if (start < end)
+        {
+          indexed[lineIndex].intersections.push({ node, start, end });
+          if (isCodeLensCandidate) codeLensLineIndices.get(node)!.add(lineIndex);
+        }
       }
     }
   }
-  return indexed;
+  return { codeLensLineIndices, lines: indexed };
 }
 
 function firstLineEndingAfter(lines: readonly SourceLine[], offset: number): number {

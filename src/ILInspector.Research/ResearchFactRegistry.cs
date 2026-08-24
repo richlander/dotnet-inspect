@@ -153,6 +153,7 @@ public interface IResearchFactProducer
 {
     string Name { get; }
     IReadOnlyList<string> Produces { get; }
+    IReadOnlyList<string> DescriptorIds => Produces;
     IReadOnlyList<string> DependsOn { get; }
     ResearchFactRequirements Requirements => ResearchFactRequirements.None;
     IReadOnlyList<IAnnotation> Produce(ResearchFactContext context);
@@ -179,6 +180,13 @@ public sealed class ResearchFactRegistry
     }
 
     public IReadOnlyList<string> ProducerNames => [.. _producers.Select(producer => producer.Name)];
+    public IReadOnlyList<string> DescriptorIds =>
+    [
+        .. _producers
+            .SelectMany(producer => producer.DescriptorIds)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal),
+    ];
     public ResearchFactRequirements Requirements { get; }
 
     public static ResearchFactRegistry Default { get; } = new(
@@ -201,10 +209,49 @@ public sealed class ResearchFactRegistry
         new DirectCallFactProducer());
 
     public IReadOnlyList<IAnnotation> Collect(ResearchFactContext context)
-        => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
+        => [.. _producers
+            .SelectMany(producer => DeclaredFacts(producer, producer.Produce(context)))
+            .OrderBy(fact => fact.SourceOffset)
+            .ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
 
     public IReadOnlyList<ResearchHeaderFact> CollectHeaderFacts(ResearchFactContext context)
-        => [.. _producers.SelectMany(producer => producer.ProduceHeaderFacts(context)).OrderBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
+        => [.. _producers
+            .SelectMany(producer => DeclaredHeaderFacts(
+                producer,
+                producer.ProduceHeaderFacts(context)))
+            .OrderBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
+
+    static IEnumerable<IAnnotation> DeclaredFacts(
+        IResearchFactProducer producer,
+        IReadOnlyList<IAnnotation> facts)
+    {
+        foreach (IAnnotation fact in facts)
+        {
+            EnsureDeclared(producer, fact.Descriptor.Id);
+            yield return fact;
+        }
+    }
+
+    static IEnumerable<ResearchHeaderFact> DeclaredHeaderFacts(
+        IResearchFactProducer producer,
+        IReadOnlyList<ResearchHeaderFact> facts)
+    {
+        foreach (ResearchHeaderFact fact in facts)
+        {
+            EnsureDeclared(producer, fact.Descriptor.Id);
+            yield return fact;
+        }
+    }
+
+    static void EnsureDeclared(IResearchFactProducer producer, string descriptorId)
+    {
+        if (!producer.DescriptorIds.Contains(descriptorId, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Research fact producer '{producer.Name}' emitted undeclared "
+                    + $"descriptor '{descriptorId}'.");
+        }
+    }
 
     static IReadOnlyList<IResearchFactProducer> Order(IReadOnlyList<IResearchFactProducer> producers)
     {
@@ -237,6 +284,14 @@ sealed class DecompilerLifetimeFactProducer : IResearchFactProducer
 {
     public string Name => "decompiler-lifetime-facts";
     public IReadOnlyList<string> Produces { get; } = ["lifetime.*"];
+    public IReadOnlyList<string> DescriptorIds =>
+    [
+        "lifetime.ref-return",
+        "lifetime.stack-bound",
+        "lifetime.ref-struct-return",
+        "lifetime.pointer-return",
+        "lifetime.stack-escape",
+    ];
     public IReadOnlyList<string> DependsOn => [];
 
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)

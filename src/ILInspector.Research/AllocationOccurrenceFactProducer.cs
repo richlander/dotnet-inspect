@@ -16,6 +16,16 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
 
     public string Name => "allocation-occurrences";
     public IReadOnlyList<string> Produces { get; } = ["alloc.*"];
+    public IReadOnlyList<string> DescriptorIds =>
+    [
+        Box.Id,
+        Array.Id,
+        NewObj.Id,
+        Closure.Id,
+        StateMachine.Id,
+        Delegate.Id,
+        Enumerator.Id,
+    ];
     public IReadOnlyList<string> DependsOn => [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForMember(

@@ -62,6 +62,35 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void Registry_RejectsDescriptorsNotDeclaredByTheirProducer()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        var producer = new TestProducer(
+            "undeclared-descriptor",
+            produces: ["cost.declared"],
+            facts:
+            [
+                new Annotation(
+                    new AnnotationDescriptor(
+                        "cost.actual",
+                        AnnotationCategory.Cost,
+                        "actual"),
+                    SourceOffset: 0),
+            ]);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            ResearchViews.CollectFacts(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.BoxInt),
+                registry: new ResearchFactRegistry(producer)));
+
+        Assert.Contains("undeclared-descriptor", exception.Message);
+        Assert.Contains("cost.actual", exception.Message);
+    }
+
+    [Fact]
     public void AnalysisIndexCache_UsesMemberScopeAndReusesCompatibleFullIndex()
     {
         string sourcePath =

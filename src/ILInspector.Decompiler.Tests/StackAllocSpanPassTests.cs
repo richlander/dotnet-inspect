@@ -30,6 +30,24 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void CorelibSpanDirectStackalloc_RetainsLocallocProvenance()
+    {
+        var allocation = new StackAllocate(new Constant(4, Int32));
+        allocation.SetSourceOffset(0x2A);
+        var construction = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            allocation);
+        construction.SetSourceOffset(0x31);
+        var function = Build(construction);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(0x2A, raised.SourceOffset);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void CorelibReadOnlySpanDirectStackalloc_Raises()
     {
         var function = Build(StackAllocSpanConstructor(

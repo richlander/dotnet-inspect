@@ -69,6 +69,7 @@ public sealed record AssemblyMemberFindingEvidence(
     string Descriptor,
     int SourceOffset,
     MethodIdentity Member,
+    IReadOnlyList<CallSiteEvidenceCoordinate> Coordinates,
     AnnotatedSourceDocument? SourceDocument,
     IReadOnlyList<int> NodeIds,
     string? UnavailableReason);
@@ -269,78 +270,153 @@ public static class AssemblyContextMemberProjectionQuery
 
         var calls = assembly.InspectCallSites(callerToken)
             .ToDictionary(finding => finding.Payload.ILOffset, finding => finding.Payload);
-        var calleeProjections =
-            new Dictionary<int, (AnnotatedSourceDocument? Document, string? Failure)>();
+        var calleeProjections = new Dictionary<int, CalleeSourceProjection>();
         var result = new List<AssemblyMemberFindingEvidence>();
         foreach (AnnotatedSourceFact fact in callerDocument.Facts)
         {
-            if (fact.Descriptor != "semantics.callee"
-                || !calls.TryGetValue(fact.SourceOffset, out DirectCall? call)
-                || !CallSiteSemanticsEvidence.TryCreate(
+            if (!calls.TryGetValue(fact.SourceOffset, out DirectCall? call))
+                continue;
+
+            if (fact.Descriptor == "semantics.callee"
+                && CallSiteSemanticsEvidence.TryCreate(
                     call,
                     assembly,
-                    out CallSiteSemanticsEvidence? evidence)
-                || evidence is null)
+                    out CallSiteSemanticsEvidence? semantics)
+                && semantics is not null)
             {
+                CalleeSourceProjection calleeProjection = ProjectCalleeSource(
+                    source,
+                    assembly,
+                    semantics.Callee,
+                    printerOptions,
+                    calleeProjections);
+                int[] nodeIds = calleeProjection.Document?.Nodes
+                    .Where(node =>
+                        node.Medium == SourceLineKind.CSharp
+                        && node.Kind == "ThrowStatement"
+                        && node.Provenance is { } provenance
+                        && semantics.Coordinates.Any(coordinate =>
+                            coordinate.Method.MetadataToken
+                                == semantics.Callee.MetadataToken
+                            && coordinate.Kind
+                                == CallSiteEvidenceKind.ExceptionConstruction
+                            && provenance.IlOffsets.Contains(coordinate.ILOffset)))
+                    .Select(node => node.Id)
+                    .ToArray()
+                    ?? [];
+                result.Add(new AssemblyMemberFindingEvidence(
+                    fact.Descriptor,
+                    fact.SourceOffset,
+                    semantics.Callee,
+                    semantics.Coordinates,
+                    calleeProjection.Document,
+                    nodeIds,
+                    UnavailableReason(
+                        calleeProjection,
+                        nodeIds,
+                        "The callee source did not retain a throw statement for "
+                            + "the exception-construction evidence.")));
                 continue;
             }
 
-            if (!calleeProjections.TryGetValue(
-                    evidence.Callee.MetadataToken,
-                    out var calleeProjection))
+            if (fact.Descriptor == "safety.callee"
+                && CallSiteSafetyEvidence.TryCreate(
+                    call,
+                    assembly,
+                    out CallSiteSafetyEvidence? safety)
+                && safety is not null)
             {
-                ResearchViews.MemberProjectionResult projected =
-                    ResearchViews.ProjectMember(
-                        new ResearchViews.MemberProjectionRequest(
-                            source,
-                            evidence.Callee.DeclaringType.ToQualifiedDisplayString(),
-                            evidence.Callee.Name,
-                            MethodToken: evidence.Callee.MetadataToken,
-                            PrinterOptions: printerOptions,
-                            SourceDocument: true,
-                            Assembly: assembly));
-                calleeProjection = projected.SourceDocument is { } document
-                    ? (document, null)
-                    : (
-                        null,
-                        projected.SourceDocumentFailure?.Diagnostics.Count > 0
-                            ? string.Join(
-                                "; ",
-                                projected.SourceDocumentFailure.Diagnostics.Select(
-                                    diagnostic => diagnostic.ToString()))
-                            : "The callee source document was unavailable.");
-                calleeProjections.Add(
-                    evidence.Callee.MetadataToken,
-                    calleeProjection);
+                CalleeSourceProjection calleeProjection = ProjectCalleeSource(
+                    source,
+                    assembly,
+                    safety.Callee,
+                    printerOptions,
+                    calleeProjections);
+                ImmutableArray<CallSiteEvidenceCoordinate> coordinates =
+                    safety.Coordinates;
+                int[] nodeIds = calleeProjection.Document?.Nodes
+                    .Where(node =>
+                        node.Medium == SourceLineKind.CSharp
+                        && node.Provenance is { } provenance
+                        && coordinates.Any(coordinate =>
+                            coordinate.Method.MetadataToken == safety.Callee.MetadataToken
+                            && node.Kind == SourceNodeKind(coordinate.Kind)
+                            && provenance.IlOffsets.Contains(coordinate.ILOffset)))
+                    .Select(node => node.Id)
+                    .ToArray()
+                    ?? [];
+                result.Add(new AssemblyMemberFindingEvidence(
+                    fact.Descriptor,
+                    fact.SourceOffset,
+                    safety.Callee,
+                    coordinates,
+                    calleeProjection.Document,
+                    nodeIds,
+                    UnavailableReason(
+                        calleeProjection,
+                        nodeIds,
+                        "The callee source did not retain a product-issued stack "
+                            + "allocation or indirect invocation expression for "
+                            + "the unsafe evidence.")));
             }
-
-            int[] nodeIds = calleeProjection.Document?.Nodes
-                .Where(node =>
-                    node.Medium == SourceLineKind.CSharp
-                    && node.Kind == "ThrowStatement"
-                    && node.Provenance is { } provenance
-                    && provenance.IlOffsets.Any(
-                        evidence.ExceptionConstructionOffsets.Contains))
-                .Select(node => node.Id)
-                .ToArray()
-                ?? [];
-            string? unavailableReason = calleeProjection.Failure;
-            if (calleeProjection.Document is not null && nodeIds.Length == 0)
-            {
-                unavailableReason =
-                    "The callee source did not retain a throw statement for "
-                    + "the exception-construction evidence.";
-            }
-            result.Add(new AssemblyMemberFindingEvidence(
-                fact.Descriptor,
-                fact.SourceOffset,
-                evidence.Callee,
-                calleeProjection.Document,
-                nodeIds,
-                unavailableReason));
         }
         return result;
     }
+
+    static CalleeSourceProjection ProjectCalleeSource(
+        MetadataSource source,
+        ResearchAssemblyContext assembly,
+        MethodIdentity callee,
+        PrinterOptions? printerOptions,
+        IDictionary<int, CalleeSourceProjection> cache)
+    {
+        if (cache.TryGetValue(callee.MetadataToken, out CalleeSourceProjection? existing))
+            return existing;
+
+        ResearchViews.MemberProjectionResult projected =
+            ResearchViews.ProjectMember(
+                new ResearchViews.MemberProjectionRequest(
+                    source,
+                    callee.DeclaringType.ToQualifiedDisplayString(),
+                    callee.Name,
+                    MethodToken: callee.MetadataToken,
+                    PrinterOptions: printerOptions,
+                    SourceDocument: true,
+                    Assembly: assembly));
+        var created = new CalleeSourceProjection(
+            projected.SourceDocument,
+            projected.SourceDocumentFailure?.Diagnostics.Count > 0
+                ? string.Join(
+                    "; ",
+                    projected.SourceDocumentFailure.Diagnostics.Select(
+                        diagnostic => diagnostic.ToString()))
+                : projected.SourceDocument is null
+                    ? "The callee source document was unavailable."
+                    : null);
+        cache.Add(callee.MetadataToken, created);
+        return created;
+    }
+
+    static string? UnavailableReason(
+        CalleeSourceProjection projection,
+        IReadOnlyList<int> nodeIds,
+        string correspondenceFailure)
+        => projection.Failure
+            ?? (projection.Document is not null && nodeIds.Count == 0
+                ? correspondenceFailure
+                : null);
+
+    static string SourceNodeKind(CallSiteEvidenceKind kind)
+        => kind switch
+        {
+            CallSiteEvidenceKind.Localloc => "StackAllocationExpression",
+            CallSiteEvidenceKind.Calli => "IndirectInvocationExpression",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
+    sealed record CalleeSourceProjection(
+        AnnotatedSourceDocument? Document,
+        string? Failure);
 }
 
 /// <summary>
