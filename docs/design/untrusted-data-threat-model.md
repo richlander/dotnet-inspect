@@ -1378,7 +1378,10 @@ Browser-Wasm cannot perform that connection-time DNS check. Its v3 client
 therefore accepts only same-origin feed resources and sets Fetch
 `redirect: error`; the built-in Gallery remains a separate fixed-host
 transport. `PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint`
-gates the desktop source-client wiring,
+and
+`PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources`
+gate the desktop source-client wiring for search, version, and package
+resources,
 `HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
 gates redirect-hop enforcement,
 `PackageSourceClientTests.DefaultV3TransportAllowsConfiguredPrivateIpv6Source`

@@ -726,12 +726,24 @@ endpoint query bytes. `Capabilities` describes operations implemented by the
 runtime client; a particular v3 feed that does not advertise a search resource
 returns typed `Unsupported` from that operation. The adapter does not restore
 the retired NuGet.org-only search shortcut.
+`NuGetV3PackageResourceClient` owns `PackageBaseAddress` discovery,
+normalization, version-index URL construction, and exact package URL
+construction for the v3 source client. The canonical NuGet.org v3 client
+discovers the advertised package base instead of substituting the legacy
+flat-container constant. Legacy `NuGetClient` delegates those operations to
+the same source-owned primitive while retaining its canonical shortcut until
+its consumers migrate. V3 package payloads retain the advertised response
+length. Custom v3 symbol payload remains explicitly unsupported because
+`PackageBaseAddress` defines no symbol-package download route; the operation
+does not probe NuGet.org or construct a `.snupkg` URL.
 The local-folder descriptor remains modeled without a runtime client.
 `PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
 `CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
+`CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress`,
+`LegacyNuGetClientRetainsCanonicalFlatContainerShortcut`,
 `V3SearchPreservesDeclaredQueryBytes`,
 `V3SearchPreservesSignedBytesWhileNormalizingIdn`,
 `V3SearchNormalizesIdnServiceIndex`,
@@ -770,13 +782,15 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryFinalListingProjectionExpiresToPartial`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
-`CanonicalV3EnumerationReportsUnknownListingState`,
 `V3InvalidVersionMetadataIsTypedFailure`,
 `V3UnusablePackageBaseAddressIsInvalidResponse`,
 `V3SignedPackageBaseAddressPreservesQuery`,
+`V3VersionAndPackageDoNotSendCredentialCrossOrigin`,
+`V3MissingPackageIsTypedAbsence`,
 `V3EscapesUnicodePackageIdsAsPathSegments`,
 `V3NormalizesIdnPackageBaseAddress`,
 `V3PreservesIpv6BracketsWhenEscapingBasePath`,
+`DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources`,
 `GalleryMissingPackageIsTypedAbsence`,
 `GalleryClassifiesBoundedMetadataRejection`,
 `GalleryClassifiesHttpFailures`,
@@ -798,15 +812,13 @@ The remaining structural problem is that existing package-resolution consumers
 still largely equate a source with a v3 service-index URL. The implementation
 should:
 
-1. Move remaining v3 version and payload resource discovery and URL
-   construction out of legacy `NuGetClient` and into the source client.
-2. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
+1. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
    the source-client boundary.
-3. Add environment-scoped availability observations without mutating durable
+2. Add environment-scoped availability observations without mutating durable
    candidate observations.
-4. Let desktop and browser hosts choose transport implementations without
+3. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-5. Replace the browser's singleton `default versus mirror` state with a source
+4. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
 
 The product libraries must own these contracts. A browser harness may present

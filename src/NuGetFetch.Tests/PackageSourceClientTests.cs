@@ -309,11 +309,29 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task CanonicalV3EnumerationReportsUnknownListingState()
+    public async Task CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress()
     {
+        const string declaredBaseAddress =
+            "https://packages.example/flat/";
+        const string declaredVersions =
+            "https://packages.example/flat/contoso/index.json";
+        const string declaredPackage =
+            "https://packages.example/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
         var handler = new RecordingHandler
         {
-            [NuGetOrgVersions] = """{"versions":["1.0.0"]}""",
+            [NuGetClient.NuGetOrgServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{declaredBaseAddress}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [declaredVersions] = """{"versions":["1.0.0"]}""",
+            [declaredPackage] = "package bytes",
         };
         HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
@@ -332,6 +350,39 @@ public sealed class PackageSourceClientTests
             PackageListingState.Unknown,
             candidate.ListingState);
         Assert.False(versions.HasAuthoritativeListingState);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+        Assert.Equal("package bytes".Length, payload.AdvertisedLength);
+        Assert.Equal(
+            [
+                NuGetClient.NuGetOrgServiceIndex,
+                declaredVersions,
+                declaredPackage,
+            ],
+            handler.Requested);
+        Assert.DoesNotContain(NuGetOrgVersions, handler.Requested);
+    }
+
+    [Fact]
+    public async Task LegacyNuGetClientRetainsCanonicalFlatContainerShortcut()
+    {
+        var handler = new RecordingHandler
+        {
+            [NuGetOrgVersions] = """{"versions":["1.0.0"]}""",
+        };
+        using var http = new HttpClient(handler);
+        var client = new NuGetClient(http);
+
+        IReadOnlyList<string> versions = await client.GetVersionsAsync(
+            "contoso",
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(["1.0.0"], versions);
         Assert.Equal([NuGetOrgVersions], handler.Requested);
     }
 
@@ -482,6 +533,43 @@ public sealed class PackageSourceClientTests
             handler.Requested);
     }
 
+    [Fact]
+    public async Task V3MissingPackageIsTypedAbsence()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        handler.SetStatus(Package, HttpStatusCode.NotFound);
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.NotFound, failure.Kind);
+        Assert.Equal(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            failure.Coordinate);
+        Assert.Equal([ServiceIndex, Package], handler.Requested);
+    }
+
     [Theory]
     [InlineData("https://feed.example/v3/flat/?sig=secret")]
     [InlineData("https://feed.example/v3/flat?sig=secret")]
@@ -535,6 +623,58 @@ public sealed class PackageSourceClientTests
                 signedPackage,
             ],
             handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3VersionAndPackageDoNotSendCredentialCrossOrigin()
+    {
+        const string crossOriginBase =
+            "https://packages.example/flat/";
+        const string crossOriginVersions =
+            "https://packages.example/flat/contoso/index.json";
+        const string crossOriginPackage =
+            "https://packages.example/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{crossOriginBase}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [crossOriginVersions] = """{"versions":["1.0.0"]}""",
+            [crossOriginPackage] = "package bytes",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource(
+                    "credentialed",
+                    ServiceIndex,
+                    new PackageSourceCredential("user", "token")),
+                client);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await payload.Content.DisposeAsync();
+
+        Assert.Equal(
+            ["user:token", null, "user:token", null],
+            handler.Authentication.Select(DecodeBasic));
     }
 
     [Fact]
@@ -2946,6 +3086,85 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceFailureKind.Transport,
             failure.Failure.Kind);
+        Assert.False(targetReached);
+    }
+
+    [Fact]
+    public async Task DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources()
+    {
+        using var sourceListener =
+            new TcpListener(IPAddress.Loopback, 0);
+        using var targetListener =
+            new TcpListener(IPAddress.Loopback, 0);
+        sourceListener.Start();
+        targetListener.Start();
+        int sourcePort =
+            ((IPEndPoint)sourceListener.LocalEndpoint).Port;
+        int targetPort =
+            ((IPEndPoint)targetListener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://127.0.0.1:{sourcePort}/index.json";
+        string targetUrl =
+            $"http://127.0.0.1:{targetPort}/flat/";
+        string serviceIndex = $$"""
+            {
+              "version": "3.0.0",
+              "resources": [
+                {
+                  "@id": "{{targetUrl}}",
+                  "@type": "PackageBaseAddress/3.0.0"
+                }
+              ]
+            }
+            """;
+
+        Task sourceServer = ServeHttpResponseAsync(
+            sourceListener,
+            serviceIndex,
+            TestContext.Current.CancellationToken);
+        using var targetCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        Task<bool> targetServer = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await ServeHttpResponseAsync(
+                        targetListener,
+                        """{"versions":["1.0.0"]}""",
+                        targetCancellation.Token);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+            },
+            CancellationToken.None);
+
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("private", sourceUrl));
+        PackageSourceFailure versionFailure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        PackageSourceFailure packageFailure = Failed(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        targetCancellation.Cancel();
+        await sourceServer;
+        bool targetReached = await targetServer;
+        Assert.Equal(
+            PackageSourceFailureKind.Transport,
+            versionFailure.Kind);
+        Assert.Equal(
+            PackageSourceFailureKind.Transport,
+            packageFailure.Kind);
         Assert.False(targetReached);
     }
 
