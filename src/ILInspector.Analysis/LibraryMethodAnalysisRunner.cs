@@ -348,6 +348,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
+                result.DeclaredMethod = null;
                 opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),

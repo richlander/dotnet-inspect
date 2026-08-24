@@ -11,6 +11,8 @@ public sealed class CompilerGeneratedNamesTests
     [InlineData("<<Owner>b__0_0>b__0_1", true)]
     [InlineData("Noise>b__0_0", false)]
     [InlineData(">g__Local|0_0", false)]
+    [InlineData("<Owner>b__", false)]
+    [InlineData("<>b__0_0", false)]
     public void IsLocalFunctionOrLambda_RequiresOpeningDelimiter(
         string name,
         bool expected)

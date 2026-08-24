@@ -545,17 +545,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     {
         group = default;
         string name = _reader.GetString(method.Name);
-        int close = Math.Max(
-            name.LastIndexOf(
-                ">g__",
-                StringComparison.Ordinal),
-            name.LastIndexOf(
-                ">b__",
-                StringComparison.Ordinal));
-        if (name.Length < 4
-            || name[0] != '<'
-            || close <= 1
-            || close + 4 >= name.Length)
+        if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
+                name,
+                out string ownerName))
         {
             return false;
         }
@@ -583,7 +575,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             ownerIndex--;
         }
 
-        group = new(chain[ownerIndex], name[1..close]);
+        group = new(chain[ownerIndex], ownerName);
         return true;
     }
 

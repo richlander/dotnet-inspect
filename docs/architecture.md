@@ -887,8 +887,10 @@ Research overlay bridge, and the application layer:
   ownership-derived recommendations while preserving full-scope
   body-intrinsic opportunities.
   `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
-  `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` gate multi-hop
-  caller projection and the malformed-name close case.
+  `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
+  multi-hop caller projection for unresolved and recoverable-failure paths;
+  `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` gates the
+  malformed-name close case.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit

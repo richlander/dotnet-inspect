@@ -41,9 +41,31 @@ public static class CompilerGeneratedNames
 
     /// <summary>Source-authored local-function and lambda method bodies.</summary>
     internal static bool IsLocalFunctionOrLambda(string methodName)
-        => methodName.StartsWith('<')
-            && (methodName.Contains(">g__", StringComparison.Ordinal)
-                || methodName.Contains(">b__", StringComparison.Ordinal));
+        => TryGetLiftedOwnerName(methodName, out _);
+
+    internal static bool TryGetLiftedOwnerName(
+        string methodName,
+        out string ownerName)
+    {
+        int close = Math.Max(
+            methodName.LastIndexOf(
+                ">g__",
+                StringComparison.Ordinal),
+            methodName.LastIndexOf(
+                ">b__",
+                StringComparison.Ordinal));
+        if (methodName.Length < 4
+            || methodName[0] != '<'
+            || close <= 1
+            || close + 4 >= methodName.Length)
+        {
+            ownerName = "";
+            return false;
+        }
+
+        ownerName = methodName[1..close];
+        return true;
+    }
 
     /// <summary>
     /// Returns the qualified display name of the immediate containing type for

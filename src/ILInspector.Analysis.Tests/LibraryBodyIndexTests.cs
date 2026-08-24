@@ -4813,6 +4813,60 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                nestedUnresolvedLiftedSource: true);
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int injectedFailures = 0;
+        using var builder =
+            new LibraryBodyAnalysisBuilder(
+                "RecoverableUltimateOwnerFailure.dll",
+                reader,
+                peReader,
+                methodBodyReferenceIndexed: handle =>
+                {
+                    if (reader.StringComparer.Equals(
+                            reader.GetMethodDefinition(handle).Name,
+                            "<Outer>b__0_0")
+                        && Interlocked.Increment(
+                            ref injectedFailures) == 1)
+                    {
+                        throw new BadImageFormatException(
+                            "Injected ultimate-owner failure.");
+                    }
+                });
+
+        LibraryBodyAnalysisResult analysis = builder.Build(
+            LibraryBodyAnalysisPlan.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                methodScope: null,
+                typeScope: null));
+        MethodIdentity moveNext = Assert.Single(
+            analysis.Methods.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+
+        Assert.Equal(1, injectedFailures);
+        Assert.Contains(
+            analysis.Methods.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == moveNext
+                && call.Callee.Name == "Read");
+        Assert.Contains(
+            analysis.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                    == moveNext.MetadataToken
+                && diagnostic.Message.Contains(
+                    "Injected ultimate-owner failure",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MalformedParallelStateMapPreservesCalls()
     {
         byte[] image =
