@@ -97,8 +97,8 @@ tmux set -w -t "$TMUX_PANE" -u @agent_state
 
 Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
 `pr` and `head`; add `round`, `reviews`, `blocked`, and `rec` when applicable.
-Values contain no spaces. `rec` is `wait`, `merge`, `approve`, or `stop`.
-Clear both options when the window no longer owns a PR.
+Values contain no spaces. `rec` is `continue`, `wait`, `merge`, `approve`, or
+`stop`. Clear both options when the window no longer owns a PR.
 
 ### Signal when you need a person
 
@@ -640,9 +640,15 @@ current PR.
 
 ### Stop after six rounds
 
-Do not start round 7 without user approval. Each approval allows at most six
-more rounds; stop sooner when review converges. Conflict recovery may resolve
-and push immediately, but reviewers still wait for approval at the boundary.
+Rounds 1-6 are the initial authorized block. Within an authorized block, a
+fix-producing round that requires replacement review continues automatically
+to the next round. Report `Recommendation: Continue` and begin the next
+candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
+
+Approval is required only before rounds 7, 13, 19, and so on. Each approval
+allows at most six more rounds; stop sooner when review converges. At a block
+boundary, conflict recovery may resolve and push immediately, but reviewers
+still wait for approval.
 
 Before requesting another block, answer:
 
