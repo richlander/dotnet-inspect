@@ -18,13 +18,6 @@
       "headers": {
         "Cache-Control": "no-cache, no-store, must-revalidate"
       }
-    },
-    {
-      "route": "/credits/",
-      "rewrite": "/index.html",
-      "headers": {
-        "Cache-Control": "no-cache, no-store, must-revalidate"
-      }
     }
   ],
   "navigationFallback": {
