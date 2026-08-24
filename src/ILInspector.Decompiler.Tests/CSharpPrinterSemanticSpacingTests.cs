@@ -64,15 +64,58 @@ static class SemanticSpacingFixture
     }
 }
 
+sealed class FourVisibleConstructorFixture
+{
+    public int A;
+    public int B;
+    public int C;
+
+    public FourVisibleConstructorFixture(int value)
+    {
+        if (value < 0)
+            GC.KeepAlive(value);
+        A = value;
+        B = value + 1;
+        C = value + 2;
+    }
+}
+
+sealed class FiveVisibleConstructorFixture
+{
+    public int A;
+    public int B;
+    public int C;
+    public int D;
+
+    public FiveVisibleConstructorFixture(int value)
+    {
+        if (value < 0)
+            GC.KeepAlive(value);
+        A = value;
+        B = value + 1;
+        C = value + 2;
+        D = value + 3;
+    }
+}
+
 [Trait("Area", "Printer")]
 public class CSharpPrinterSemanticSpacingTests
 {
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+
     static (string Output, PrintedRangeMap Ranges) Print(string methodName)
+        => Print(typeof(SemanticSpacingFixture), methodName);
+
+    static (string Output, PrintedRangeMap Ranges) Print(
+        Type declaringType,
+        string methodName)
     {
-        using var source = MetadataSource.Open(typeof(SemanticSpacingFixture).Assembly.Location);
+        using var source = MetadataSource.Open(declaringType.Assembly.Location);
         var function = IrImporter.Import(
             source,
-            typeof(SemanticSpacingFixture).FullName!,
+            declaringType.FullName!,
             methodName);
         Assert.NotNull(function);
 
@@ -121,6 +164,32 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void FourVisibleConstructor_DoesNotCountSuppressedBaseCall()
+    {
+        var (output, _) = Print(typeof(FourVisibleConstructorFixture), ".ctor");
+
+        Assert.Contains(
+            "GC.KeepAlive(value);\n" +
+            "}\n" +
+            "A = value;",
+            output);
+        Assert.DoesNotContain("\n\n", output);
+    }
+
+    [Fact]
+    public void FiveVisibleConstructor_SeparatesNonTerminatingLeadingConditional()
+    {
+        var (output, _) = Print(typeof(FiveVisibleConstructorFixture), ".ctor");
+
+        Assert.Contains(
+            "GC.KeepAlive(value);\n" +
+            "}\n\n" +
+            "A = value;",
+            output);
+        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void CompactMethod_KeepsAdjacentStatementsCompact()
     {
         var (output, _) = Print(nameof(SemanticSpacingFixture.Compact));
@@ -134,6 +203,124 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void LabeledSequence_DeclinesSemanticSpacing()
+    {
+        var entry = new Block(0);
+        entry.Add(new Branch(0x10));
+        var labeled = new Block(0x10);
+        labeled.Add(ReturningIf("first", 0, 1));
+        labeled.Add(ReturningIf("second", 1, 2));
+        labeled.Add(new ExpressionStatement(new Constant(3, Int32)));
+        labeled.Add(new ExpressionStatement(new Constant(4, Int32)));
+        labeled.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        body.Add(labeled);
+        var function = new IrFunction(
+            "Labeled",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("first", Boolean),
+                    new Parameter("second", Boolean),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains("IL_0010:", output);
+        Assert.Contains("return 1;\n}\nif (second)", output);
+        Assert.DoesNotContain("return 1;\n}\n\nif (second)", output);
+    }
+
+    [Fact]
+    public void NestedFiveStatementSequence_AppliesSpacingIndependently()
+    {
+        var nested = new Block();
+        var innerThen = new Block();
+        innerThen.Add(new ExpressionStatement(new Constant(1, Int32)));
+        nested.Add(new IfStatement(
+            new LoadArgument(1, "inner", Boolean),
+            innerThen,
+            elseArm: null));
+        nested.Add(new ExpressionStatement(new Constant(2, Int32)));
+        nested.Add(new ExpressionStatement(new Constant(3, Int32)));
+        nested.Add(new ExpressionStatement(new Constant(4, Int32)));
+        nested.Add(new Return(new Constant(5, Int32)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(
+            new LoadArgument(0, "outer", Boolean),
+            nested,
+            elseArm: null));
+        entry.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "Nested",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("outer", Boolean),
+                    new Parameter("inner", Boolean),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "_ = 1;\n" +
+            "    }\n\n" +
+            "    _ = 2;",
+            output);
+        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var entry = new Block(0);
+        entry.Add(new ExpressionStatement(new Constant(1, Int32)));
+        entry.Add(new ExpressionStatement(new Constant(2, Int32)));
+        entry.Add(UnsafeReturningIf(pointer, 1));
+        entry.Add(UnsafeReturningIf(pointer, 2));
+        entry.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "UnsafeRun",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("pointer", pointer)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "return 1;\n" +
+            "    }\n\n" +
+            "    if ((*pointer) != 0)",
+            output);
+        Assert.Contains("    }\n}\n\nreturn 0;", output);
+        Assert.Equal(2, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact()
     {
         var (output, ranges) = Print(nameof(SemanticSpacingFixture.Grouped));
@@ -141,10 +328,21 @@ public class CSharpPrinterSemanticSpacingTests
         var switchStatement = Assert.Single(
             ranges,
             range => range.Node is Switch);
+        var precedingConditional = Assert.Single(
+            ranges,
+            range => range.Node is IfStatement
+                && output[range.Characters].Contains(
+                    "if (length == 0)",
+                    StringComparison.Ordinal));
 
         int start = switchStatement.Characters.Start.GetOffset(output.Length);
+        int precedingEnd =
+            precedingConditional.Characters.End.GetOffset(output.Length);
         Assert.Equal("switch (kind)", output[start..].Split('\n')[0].TrimStart());
         Assert.NotEqual('\n', output[start]);
+        Assert.Equal(start - 1, precedingEnd);
+        Assert.Equal('\n', output[precedingEnd - 1]);
+        Assert.Equal('\n', output[precedingEnd]);
 
         Assert.True(ranges.TryGetExtent(switchStatement.Node, out var extent));
         Assert.Equal(output[..start].Count(character => character == '\n'), extent.StartLine);
@@ -175,5 +373,34 @@ public class CSharpPrinterSemanticSpacingTests
         Assert.Equal(
             document.Text.IndexOf("switch (kind)", StringComparison.Ordinal),
             switchNode.Spans[0].Start);
+    }
+
+    static IfStatement ReturningIf(
+        string parameterName,
+        int parameterIndex,
+        int value)
+    {
+        var then = new Block();
+        then.Add(new Return(new Constant(value, Int32)));
+        return new IfStatement(
+            new LoadArgument(parameterIndex, parameterName, Boolean),
+            then,
+            elseArm: null);
+    }
+
+    static IfStatement UnsafeReturningIf(TypeRef pointer, int value)
+    {
+        var then = new Block();
+        then.Add(new Return(new Constant(value, Int32)));
+        return new IfStatement(
+            new Comparison(
+                ComparisonKind.NotEqual,
+                isUnsigned: false,
+                new LoadIndirect(
+                    Int32,
+                    new LoadArgument(0, "pointer", pointer)),
+                new Constant(0, Int32)),
+            then,
+            elseArm: null);
     }
 }

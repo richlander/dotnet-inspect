@@ -2648,7 +2648,8 @@ public sealed partial class CSharpPrinter
                 {
                     if (statements[k] is StoreLocal unsafeInlineStore && _inlineReceiverTempStores.ContainsValue(unsafeInlineStore))
                         continue;
-                    if (k != i)
+                    bool visible = IsVisibleStatement(statements[k]);
+                    if (k != i && visible)
                     {
                         AppendSemanticSeparator(
                             sb,
@@ -2657,7 +2658,8 @@ public sealed partial class CSharpPrinter
                     }
                     AppendStatementLabel(sb, statements[k], indent + 1);
                     AppendStatement(sb, statements[k], indent + 1);
-                    UpdateSemanticSpacingState(statements[k], ref spacingState);
+                    if (visible)
+                        UpdateSemanticSpacingState(statements[k], ref spacingState);
                 }
                 _unsafeDepth--;
                 sb.Append(pad).AppendLf("}");
@@ -2665,21 +2667,31 @@ public sealed partial class CSharpPrinter
             }
             else
             {
-                AppendSemanticSeparator(
-                    sb,
-                    statements[i],
-                    spacingState);
+                bool visible = IsVisibleStatement(statements[i]);
+                if (visible)
+                {
+                    AppendSemanticSeparator(
+                        sb,
+                        statements[i],
+                        spacingState);
+                }
                 AppendStatementLabel(sb, statements[i], indent);
                 AppendStatement(sb, statements[i], indent);
-                UpdateSemanticSpacingState(statements[i], ref spacingState);
+                if (visible)
+                    UpdateSemanticSpacingState(statements[i], ref spacingState);
                 i++;
             }
         }
     }
 
     bool IsVisibleStatement(IrNode statement)
-        => statement is not StoreLocal store
-            || !_inlineReceiverTempStores.ContainsValue(store);
+        => statement switch
+        {
+            StoreLocal store when _inlineReceiverTempStores.ContainsValue(store) => false,
+            ExpressionStatement { Expression: Call call }
+                when IsImplicitParameterlessBaseCall(call) => false,
+            _ => true,
+        };
 
     bool RendersSourceLabel(IrNode statement)
         => statement.OwnsSourceLabel
@@ -2933,11 +2945,16 @@ public sealed partial class CSharpPrinter
     string? ConstructorChainText(MethodRef callee, Call call)
     {
         bool isThis = Equals(callee.DeclaringType, _function.DeclaringType);
-        var arguments = call.Arguments.Skip(1).ToList();
-        if (!isThis && arguments.Count == 0)
+        if (IsImplicitParameterlessBaseCall(call))
             return null;  // implicit base()
+        var arguments = call.Arguments.Skip(1).ToList();
         return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds, chainFidelityCasts: true)});";
     }
+
+    bool IsImplicitParameterlessBaseCall(Call call)
+        => call.Callee is { Name: ".ctor", HasThis: true } callee
+            && !Equals(callee.DeclaringType, _function.DeclaringType)
+            && call.Arguments.Count == 1;
 
     /// <summary>The index of the base/this <c>.ctor</c> chain call in the entry block, or null when the body has none (a struct ctor, a static method, a body that never chains).</summary>
     static int? ChainCallIndex(Block entry)

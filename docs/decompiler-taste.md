@@ -503,10 +503,16 @@ for separated guards and
 for separated sibling conditionals. Compact setup is represented by
 `src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs:397-405`.
 
-`CSharpPrinterSemanticSpacingTests.LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact`
-and
-`CSharpPrinterSemanticSpacingTests.LongMethod_SeparatesSiblingControlFlowGroups`
-enforce the grouping policy. The coordinate-preservation gates are
+`FourVisibleConstructor_DoesNotCountSuppressedBaseCall` and
+`FiveVisibleConstructor_SeparatesNonTerminatingLeadingConditional` enforce the
+exact threshold and leading-conditional boundary.
+`LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact` and
+`LongMethod_SeparatesSiblingControlFlowGroups` enforce the remaining grouping
+policy. `LabeledSequence_DeclinesSemanticSpacing` is the named non-vacuity gate
+for the label decline, while
+`NestedFiveStatementSequence_AppliesSpacingIndependently` and
+`GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` cover nested
+and generated-block state. The coordinate-preservation gates are
 `InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact`
 and `InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans`.
 
