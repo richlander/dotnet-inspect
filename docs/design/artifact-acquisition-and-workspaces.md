@@ -419,16 +419,17 @@ ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
   Authority              LogicalSlot | DirectMemberDesignation
   Kind                   Paired | BeforeOnly | AfterOnly
-  Before/After           validated binding | proven Absent
+  Before/After           validated binding with originating input id |
+                         proven Absent
 
 ArtifactParticipantPairingOutcome
   Id                     opaque slot-local outcome identity
   Inputs                 non-empty participant-input identity set
   Result                 Admitted(ArtifactParticipantPairing) |
-                         Ambiguous(typed reason + complete candidate payload +
-                         diagnostic) |
-                         Failed(typed reason + complete affected-input payload +
-                         diagnostic)
+                         Ambiguous(typed reason + complete input-keyed
+                         candidate payload + diagnostic) |
+                         Failed(typed reason + complete input-keyed
+                         affected-input payload + diagnostic)
 
 ArtifactParticipantPairingOutcomeSet
   EndpointSlot           exact ComparisonEndpointPairingSlot.Id
@@ -486,10 +487,21 @@ reason/diagnostic. Neither terminal arm fabricates one admitted participant
 binding. A realized side opposite an explicit `Absent` side may produce proven
 one-sided admitted participants.
 
+The result payload and its partition identity are one fact, not independently
+trusted fields. For an admitted outcome, its `Inputs` must equal exactly the
+originating input ids on its non-absent before/after bindings. For an ambiguous
+outcome, they must equal exactly the input ids represented by its complete
+candidate payload. For a failed outcome, they must equal exactly the input ids
+represented by its complete affected-input payload. The direct path applies the
+same admitted equality to the two designated participant-input identities.
+Missing, extra, foreign, or swapped payload identities reject sealing even when
+`InputMap` by itself is a total partition.
+
 The outer slot-outcome set requires exact plan-slot/outcome equality and
 validates each embedded slot id. The participant outcome set requires exact
-input coverage and validates each embedded outcome id and input set. On planned
-paths, those inputs must equal the exact manifest union.
+input coverage, validates each embedded outcome id and input set, and validates
+the result-payload/input equality above. On planned paths, those inputs must
+equal the exact manifest union.
 A missing, extra, duplicate, rekeyed, cross-slot, overlapping, or uncovered
 outcome rejects the comparison plan rather than shortening it.
 
@@ -1047,6 +1059,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpointPairingSlotOutcomeSet_EqualsPairingPlan`
 - `ComparisonParticipantPairingOutcomeSet_PartitionsInputSet`
 - `ComparisonPlannedPairingOutcomeSet_InputsEqualManifestUnion`
+- `ComparisonParticipantPairingOutcome_PayloadMatchesInputPartition`
 - `ComparisonParticipantPairingTerminal_RetainsCompleteTypedPayload`
 - `ComparisonParticipantPairingTerminal_HasNoAdmittedBinding`
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
@@ -1055,6 +1068,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonParticipantPairing_AdaptersCannotMintDirectAuthority`
 - `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`
+- `DirectMemberPairingOutcome_InputsEqualDesignation`
 - `DirectMemberPairing_AllowsExplicitCrossIdentityPairWithoutWeakeningEndpoints`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
