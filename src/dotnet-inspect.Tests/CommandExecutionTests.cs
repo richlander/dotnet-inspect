@@ -989,6 +989,68 @@ public partial class CommandExecutionTests
         }
     }
 
+    private static string CompileBodyStateFixture(
+        string fixtureDir,
+        string assemblyName,
+        string source)
+    {
+        Directory.CreateDirectory(fixtureDir);
+        string assemblyPath = Path.Combine(fixtureDir, $"{assemblyName}.dll");
+        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator)
+            .Select(path => MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                deterministic: true));
+
+        using var assembly = File.Create(assemblyPath);
+        EmitResult result = compilation.Emit(assembly);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        return assemblyPath;
+    }
+
+    private static int FindMethodToken(
+        string assemblyPath,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            string fullName = string.IsNullOrEmpty(reader.GetString(type.Namespace))
+                ? reader.GetString(type.Name)
+                : $"{reader.GetString(type.Namespace)}.{reader.GetString(type.Name)}";
+            if (!StringComparer.Ordinal.Equals(fullName, typeName))
+                continue;
+
+            foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+            {
+                MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+                if (!StringComparer.Ordinal.Equals(reader.GetString(method.Name), methodName))
+                    continue;
+
+                int declaredParameterCount = method
+                    .GetParameters()
+                    .Count(handle => reader.GetParameter(handle).SequenceNumber > 0);
+                if (declaredParameterCount == parameterCount)
+                    return MetadataTokens.GetToken(methodHandle);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Method '{typeName}.{methodName}' with {parameterCount} parameter(s) was not found.");
+    }
+
     private static (string PackagePath, string TempDir)
         CreateLocalIntegrationOpportunityPackage(string tfm = "net10.0")
     {
@@ -6387,7 +6449,8 @@ public partial class CommandExecutionTests
         }
         finally
         {
-            Directory.Delete(fixtureDir, recursive: true);
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(fixtureDir, recursive: true);
         }
     }
 
@@ -7139,6 +7202,32 @@ public partial class CommandExecutionTests
         Assert.Empty(interfaceError);
         Assert.Contains("## PDB Source", interfaceOutput);
         Assert.Contains("has no IL body", interfaceOutput);
+
+        // Platform inspection can read API shape from a different image than the runtime
+        // facade used for PDB lookup. The selected member's token cannot address that facade,
+        // so its owning image must preserve the bodyless fact. Exercise the legacy selector
+        // too: it still renders the canonical name.
+        var (forwardedExit, forwardedOutput, forwardedError) = await RunAppAsync(
+            "member", "System.Collections.IEnumerator", "--framework", "runtime",
+            "MoveNext", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, forwardedExit);
+        Assert.Empty(forwardedError);
+        Assert.Contains("## PDB Source", forwardedOutput);
+        Assert.Contains("has no IL body", forwardedOutput);
+        Assert.DoesNotContain(ApiCommand.NoPdbSourceMappingReason, forwardedOutput);
+
+        // Body-state inspection is metadata-only. Even a valid adjacent portable PDB must not be
+        // loaded before the selected P/Invoke method is classified as definitively bodyless.
+        var (pinvokeExit, pinvokeOutput, pinvokeError) = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--library", TestAssemblyPath, "--all",
+            "-S", "PDB Source", "--tips", "q", "--verbose");
+
+        Assert.Equal(0, pinvokeExit);
+        Assert.Contains("has no IL body", pinvokeOutput);
+        Assert.DoesNotContain("Loaded PDB", pinvokeError);
     }
 
     [Theory]
@@ -7219,6 +7308,83 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("get => _maxDepth;", output);
         Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Fact]
+    public void MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"body-state-order-{Guid.NewGuid():N}");
+
+        try
+        {
+            string referenceAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateReference",
+                """
+                using System.IO;
+                using System.Runtime.CompilerServices;
+
+                [assembly: ReferenceAssembly]
+
+                namespace BodyStateOrder;
+
+                public abstract class ReorderedOverloads
+                {
+                    public void Load() => throw null!;
+                    public abstract void Load(Stream stream);
+                }
+                """);
+            string runtimeAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateRuntime",
+                """
+                using System.IO;
+
+                namespace BodyStateOrder;
+
+                public abstract class ReorderedOverloads
+                {
+                    public abstract void Load(Stream stream);
+                    public void Load() { }
+                }
+                """);
+            int selectedToken = FindMethodToken(
+                referenceAssembly,
+                "BodyStateOrder.ReorderedOverloads",
+                "Load",
+                parameterCount: 0);
+
+            using (var referenceContext = PdbContext.OpenMetadataOnly(referenceAssembly))
+                Assert.Null(referenceContext.MethodHasBody(selectedToken));
+            using (var runtimeContext = PdbContext.OpenMetadataOnly(runtimeAssembly))
+            {
+                Assert.False(
+                    runtimeContext.MethodHasBody(
+                        "BodyStateOrder.ReorderedOverloads",
+                        "Load",
+                        overloadIndex: 0,
+                        publicOnly: true));
+            }
+
+            bool? bodyState = ApiCommand.ResolveMemberBodyState(
+                runtimeAssembly,
+                "BodyStateOrder.ReorderedOverloads",
+                "Load",
+                overloadIndex: 0,
+                publicOnly: true,
+                referenceAssembly,
+                selectedToken,
+                log: null);
+
+            Assert.Null(bodyState);
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(fixtureDir, recursive: true);
+        }
     }
 
     [Fact]
