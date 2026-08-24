@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -78,8 +80,10 @@ public class ContentShapedMemberProjectionTests
     static MetadataSource OpenFromContent()
     {
         ImmutableArray<byte> image = Image();
+        using var peReader = new PEReader(image);
+        MetadataReader metadata = peReader.GetMetadataReader();
         var reference = ResolvedAssemblyReference.Create(
-            new AssemblyReferenceIdentity("ILInspector.Research.Tests", null, null, null),
+            AssemblyReferenceIdentity.FromAssemblyDefinition(metadata),
             path: null,
             () => new MemoryStream(ImmutableCollectionsMarshal.AsArray(image)!, writable: false),
             AssemblyResolutionProvenance.Package("probe", "1.0.0", "net11.0", rid: null));
