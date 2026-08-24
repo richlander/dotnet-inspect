@@ -52,8 +52,12 @@ test("body targets round-trip through the compact rich-packet tuple", () => {
     selectorKey: "getter",
     metadataToken: 11,
   };
-
   assert.deepEqual(decodeBodyTarget(encodeBodyTarget(target)), target);
+  assert.equal(encodeBodyTarget({
+    memberName: null,
+    selectorKey: null,
+    metadataToken: null,
+  }), null);
   assert.deepEqual(
     decodeBodyTarget(["get_Value", "getter", null]),
     { memberName: "get_Value", selectorKey: "getter", metadataToken: null });
