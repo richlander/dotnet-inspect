@@ -183,6 +183,9 @@ rows are part of the selected table but are not ordinary evidence data:
 - `--rows` and `--tail` select only evidence records;
 - every mandatory ledger/query diagnostic record is appended after that
   selection in deterministic order and does not count toward the row window;
+- `--fields` and `--columns` narrow ordinary evidence fields, but a result that
+  contains mandatory diagnostics unions the requested projection with the
+  section's typed integrity-column descriptor;
 - TSV, table, Markdown, lowered JSON, and JSONL use the same columns;
 - JSONL serializes the discriminator as `recordKind` and emits no second table
   or ad hoc summary object.
@@ -200,6 +203,17 @@ candidate line cannot erase a difference-bearing disposition. Presentation-safe
 partial evidence from a failed disposition is also ordinary, filterable
 `Evidence`; the failed ledger's mandatory diagnostic remains outside the row
 window and cannot be replaced by that partial evidence.
+
+For Implementation Diff, the integrity columns are `Record Kind`, `Work Item`,
+`Participant`, `Member`, `Mechanism`, `Disposition`, `Change`, `Reason`, and
+`Evidence`. A request for a Vector can therefore become a Table when the result
+is incomplete. `ImplementationDiffSectionDescriptor.IntegrityColumns` drives
+both schema declaration and the effective projection passed to Markout, with
+set/order equality gated between those uses. The required columns therefore
+remain in schema order and never come from rendered cell text. A
+diagnostic-free result retains normal projection behavior. Thus neither a
+semantic row window nor projection of an empty diagnostic field can turn a
+typed failure into empty or success-shaped structured output.
 
 ## How dotnet-inspect flags select a shape
 
