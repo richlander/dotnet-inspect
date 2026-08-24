@@ -409,17 +409,19 @@ public class PdbContext : IDisposable
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc,
-            loadLocalPdb: false,
-            loadEmbeddedPdb: true,
-            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
-            expansionBudget: expansionBudget);
+        return OpenValidated(
+            assembly,
+            stream => Open(
+                stream,
+                assembly.Path,
+                assembly.Identity.Name,
+                log,
+                PEStreamOptions.Default,
+                assembly.LastWriteTimeUtc,
+                loadLocalPdb: false,
+                loadEmbeddedPdb: true,
+                maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
+                expansionBudget: expansionBudget));
     }
 
     /// <summary>
@@ -431,15 +433,17 @@ public class PdbContext : IDisposable
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc,
-            loadLocalPdb: false,
-            loadEmbeddedPdb: false);
+        return OpenValidated(
+            assembly,
+            stream => Open(
+                stream,
+                assembly.Path,
+                assembly.Identity.Name,
+                log,
+                PEStreamOptions.Default,
+                assembly.LastWriteTimeUtc,
+                loadLocalPdb: false,
+                loadEmbeddedPdb: false));
     }
 
     /// <summary>
@@ -451,13 +455,15 @@ public class PdbContext : IDisposable
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc);
+        return OpenValidated(
+            assembly,
+            stream => Open(
+                stream,
+                assembly.Path,
+                assembly.Identity.Name,
+                log,
+                PEStreamOptions.Default,
+                assembly.LastWriteTimeUtc));
     }
 
     /// <summary>
@@ -503,14 +509,36 @@ public class PdbContext : IDisposable
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
-            assembly.LastWriteTimeUtc,
-            loadLocalPdb: true);
+        return OpenValidated(
+            assembly,
+            stream => Open(
+                stream,
+                assembly.Path,
+                assembly.Identity.Name,
+                log,
+                PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+                assembly.LastWriteTimeUtc,
+                loadLocalPdb: true));
+    }
+
+    static PdbContext OpenValidated(
+        ResolvedAssemblyReference assembly,
+        Func<Stream, PdbContext> open)
+    {
+        PdbContext context = open(assembly.OpenRead());
+        try
+        {
+            if (!context._peReader.HasMetadata)
+                throw new BadImageFormatException("The resolved image has no managed metadata.");
+
+            assembly.ValidateOpenedMetadata(context._peReader.GetMetadataReader());
+            return context;
+        }
+        catch
+        {
+            context.Dispose();
+            throw;
+        }
     }
 
     static PdbContext Open(

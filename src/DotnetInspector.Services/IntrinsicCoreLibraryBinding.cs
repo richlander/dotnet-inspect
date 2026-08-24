@@ -23,6 +23,7 @@ static class IntrinsicCoreLibraryBinding
                 return CandidateUnavailable();
 
             MetadataReader reader = peReader.GetMetadataReader();
+            requestingAssembly.ValidateOpenedMetadata(reader);
             if (reader.IsAssembly
                 && IsCoreLibraryFacade(
                     AssemblyReferenceIdentity.FromAssemblyDefinition(

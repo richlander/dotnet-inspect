@@ -113,12 +113,18 @@ descriptor overload, while
 `PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`
 drives package provenance through the snapshot reader. Snapshotting preserves
 the original acquisition registration and rejects bytes with a different
-assembly identity. Inspection-root netmodules use the same carrier without
+assembly identity. Descriptor-backed metadata consumers perform the same
+identity check before deriving facts or granting core-library trust, and
+whole-type composition resolves metadata facts and bodies from one validated
+reader. Inspection-root netmodules use the same carrier without
 becoming assembly-binding candidates: their module name is diagnostic and their
 MVID binds every descriptor-backed open, snapshot, and direct whole-type
 definition address to the selected content.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
-`InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
+`InspectionAcquisitionPlanTests.ModuleContentSnapshot_*`,
+`DescriptorContentIdentityTests`, and
+`ReaderConstructionSiteTests.DescriptorOpenReferences_MatchTheReviewedInventory`
+gate those properties.
 
 This closes #4606's platform-in-package carrier bug without pretending that a
 path proves acquisition. The future workspace-admission design goes further:

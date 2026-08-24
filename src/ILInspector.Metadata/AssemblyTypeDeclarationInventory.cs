@@ -74,14 +74,7 @@ public static class AssemblyTypeDeclarationInventoryReader
             }
 
             MetadataReader reader = peReader.GetMetadataReader();
-            AssemblyReferenceIdentity actual =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (actual != assembly.Identity)
-            {
-                return Rejected(
-                    CandidateOpenFailureKind.InvalidImage,
-                    "The opened image identity does not match the acquisition descriptor.");
-            }
+            assembly.ValidateOpenedMetadata(reader);
 
             var definitions =
                 ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
@@ -153,7 +146,7 @@ public static class AssemblyTypeDeclarationInventoryReader
 
             return new AssemblyTypeDeclarationInventoryOutcome.Read(
                 new AssemblyTypeDeclarationInventory(
-                    actual,
+                    assembly.Identity,
                     definitions.ToImmutable(),
                     forwarders.ToImmutable(),
                     meaningfulPublicTypeCount));

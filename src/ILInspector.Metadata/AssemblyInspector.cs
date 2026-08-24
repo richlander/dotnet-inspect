@@ -294,6 +294,10 @@ public static class AssemblyInspector
         ArgumentNullException.ThrowIfNull(assembly);
         using var stream = assembly.OpenRead();
         using var peReader = new PEReader(stream);
+        if (!peReader.HasMetadata)
+            throw new BadImageFormatException("The resolved image has no managed metadata.");
+
+        assembly.ValidateOpenedMetadata(peReader.GetMetadataReader());
         return ExtractReferenceIdentitiesAndCompany(peReader);
     }
 

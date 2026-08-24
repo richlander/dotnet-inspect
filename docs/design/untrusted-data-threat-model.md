@@ -400,7 +400,11 @@ sections consume the descriptor overloads.
 `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
 derives that boundary from compiled CLI call sites. The snapshot overload
 preserves the descriptor's acquisition registration and rejects a different
-assembly identity. Managed netmodule inspection roots retain the same typed
+assembly identity. Every descriptor-backed metadata consumer performs that
+check before deriving facts or granting core-library trust, and whole-type
+composition uses one validated reader for both metadata facts and bodies.
+`ReaderConstructionSiteTests.DescriptorOpenReferences_MatchTheReviewedInventory`
+pins the direct-open inventory. Managed netmodule inspection roots retain the same typed
 acquisition, but every descriptor-backed open and snapshot revalidates the
 module MVID, and modules never enter assembly candidate resolution. Whole-type
 composition resolves their exact TypeDef directly through an MVID-bound address.

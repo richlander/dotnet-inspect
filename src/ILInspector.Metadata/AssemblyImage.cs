@@ -66,7 +66,23 @@ public sealed class AssemblyImage : IDisposable
     /// Opens an image from a resolved assembly reference, using its stream opener. This is the
     /// descriptor-based entry point that keeps callers off bare paths.
     /// </summary>
-    public static AssemblyImage Open(ResolvedAssemblyReference reference) => FromStream(reference.OpenRead());
+    public static AssemblyImage Open(ResolvedAssemblyReference reference)
+    {
+        AssemblyImage image = FromStream(reference.OpenRead());
+        try
+        {
+            if (!image.PEReader.HasMetadata)
+                throw new BadImageFormatException("The resolved image has no managed metadata.");
+
+            reference.ValidateOpenedMetadata(image.PEReader.GetMetadataReader());
+            return image;
+        }
+        catch
+        {
+            image.Dispose();
+            throw;
+        }
+    }
 
     internal static AssemblyImage Open(AssemblyImageSnapshot snapshot)
     {

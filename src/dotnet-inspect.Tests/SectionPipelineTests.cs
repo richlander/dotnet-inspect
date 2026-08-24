@@ -4351,6 +4351,50 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public async Task ProductionScannerCatchBoundary_DoesNotSwallowUnexpectedFailure()
+    {
+        var registry = new ScannerRegistry()
+            .Add(
+                "unexpected",
+                SectionCost.NetworkFree,
+                _ => throw new InvalidOperationException("unexpected"));
+        using var httpClient = new HttpClient();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions(),
+                new DotnetInspector.Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                scanners: ["unexpected"],
+                scannerRegistry: registry));
+    }
+
+    [Fact]
+    public async Task ProductionScannerCatchBoundary_DoesNotSwallowFatalFailure()
+    {
+        var registry = new ScannerRegistry()
+            .Add(
+                "fatal",
+                SectionCost.NetworkFree,
+                _ => throw new OutOfMemoryException("fatal"));
+        using var httpClient = new HttpClient();
+
+        await Assert.ThrowsAsync<OutOfMemoryException>(() =>
+            LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions(),
+                new DotnetInspector.Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                scanners: ["fatal"],
+                scannerRegistry: registry));
+    }
+
+    [Fact]
     public async Task PackageParticipantCatchBoundary_PreservesCancellation()
     {
         await Assert.ThrowsAsync<OperationCanceledException>(

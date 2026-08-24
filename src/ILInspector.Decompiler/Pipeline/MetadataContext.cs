@@ -131,7 +131,7 @@ public sealed class MetadataContext : IDisposable
     /// </summary>
     OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
     {
-        OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly.OpenRead);
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly);
         if (opened is not null)
         {
             CoreLibraryIdentityTrust.GrantIfEntitled(
@@ -233,6 +233,24 @@ internal sealed class OpenedAssembly : IDisposable
     /// </summary>
     public static OpenedAssembly? TryOpen(string path)
         => TryOpen(() => File.OpenRead(path));
+
+    public static OpenedAssembly? TryOpen(ResolvedAssemblyReference assembly)
+    {
+        OpenedAssembly? opened = TryOpen(assembly.OpenRead);
+        if (opened is null)
+            return null;
+
+        try
+        {
+            assembly.ValidateOpenedMetadata(opened.Reader);
+            return opened;
+        }
+        catch
+        {
+            opened.Dispose();
+            throw;
+        }
+    }
 
     public static OpenedAssembly? TryOpen(Func<Stream> openRead)
     {

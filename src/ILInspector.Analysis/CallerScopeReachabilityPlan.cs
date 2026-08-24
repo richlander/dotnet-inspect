@@ -443,6 +443,7 @@ public sealed class CallerScopeReachabilityPlan
                 return CandidateSnapshot.Unopenable(assembly);
 
             MetadataReader reader = pe.GetMetadataReader();
+            assembly.ValidateOpenedMetadata(reader);
             try
             {
                 foreach (AssemblyReferenceHandle handle

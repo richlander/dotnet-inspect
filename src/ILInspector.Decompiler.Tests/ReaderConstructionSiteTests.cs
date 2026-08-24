@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -235,26 +236,30 @@ public sealed class ReaderConstructionSiteTests
                  + "never be mistaken for one. Surfaced only once the predicate "
                  + "widened from PEReader construction to reader acquisition, "
                  + "which is the point of that widening."),
-            ["MemberBodyProducer.ComposeCore(ApiType, Func`1<CompositionDefinition>, Func`3<CompositionDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions)"] =
-                (TrustRole.ObtainsReader,
-                 "Deliberately unclassified: opens the acquired assembly or module "
-                 + "that directly defines a type to read method bodies. This is a "
-                 + "composition path, not an identity grant, and it must not mint "
-                 + "core-library identity."),
             ["MemberBodyProducer.ResolveModuleDefinition(ResolvedAssemblyReference, ApiType)"] =
                 (TrustRole.ObtainsReader,
                  "Deliberately unclassified: reads an acquired netmodule only to "
                  + "bind a TypeDef address by MVID and token. A module has no "
                  + "assembly identity and must never mint core-library identity."),
-            ["MemberBodyProducer.ComposeMemberCore(ApiType, ApiMember, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions, MemberRenderAttributeMode)"] =
-                (TrustRole.ObtainsReader,
-                 "Deliberately unclassified, for the same reason as ComposeCore: a "
-                 + "sibling opened to read one member's body."),
-            ["MemberBodyProducer.ComposeMembersBatch(ApiType, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, MemberRenderAttributeMode)"] =
-                (TrustRole.ObtainsReader,
-                 "Deliberately unclassified, for the same reason as ComposeCore: a "
-                 + "sibling opened to read a batch of bodies."),
         }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    static readonly ImmutableHashSet<string> s_descriptorOpenSites =
+        ImmutableHashSet.Create(
+            StringComparer.Ordinal,
+            "ILInspector.Metadata:ILInspector.Metadata.AssemblyImage.Open(ResolvedAssemblyReference)",
+            "ILInspector.Metadata:ILInspector.Metadata.AssemblyImageSnapshot.OpenSource(ResolvedAssemblyReference)",
+            "ILInspector.Metadata:ILInspector.Metadata.AssemblyInspector.ExtractReferenceIdentitiesAndCompany(ResolvedAssemblyReference)",
+            "ILInspector.Metadata:ILInspector.Metadata.AssemblyTypeDeclarationInventoryReader.Read(ResolvedAssemblyReference)",
+            "ILInspector.Metadata:ILInspector.Metadata.PdbContext.OpenValidated(ResolvedAssemblyReference, Func`2<Stream, PdbContext>)",
+            "ILInspector.Metadata:ILInspector.Metadata.ResolvedAssemblyReference+<>c__DisplayClass32_0.<ObserveOpenReadCancellation>b__0()",
+            "ILInspector.Metadata:ILInspector.Metadata.ResolvedAssemblyReference.WithoutLocalPath()",
+            "ILInspector.Metadata:ILInspector.Metadata.SignatureSpellability.LoadNonPublicTypes(ReferenceKey)",
+            "ILInspector.Decompiler:MemberBodyProducer.ResolveModuleDefinition(ResolvedAssemblyReference, ApiType)",
+            "ILInspector.Decompiler:Pipeline.MetadataSource.OpenCore(ResolvedAssemblyReference, String, Boolean, IAssemblyBindingPolicy, MetadataContext)",
+            "ILInspector.Decompiler:Pipeline.OpenedAssembly.TryOpen(ResolvedAssemblyReference)",
+            "ILInspector.Analysis:ILInspector.Analysis.CallerScopeReachabilityPlan.ReadCandidate(ResolvedAssemblyReference, MetadataTypeDefinitionName)",
+            "ILInspector.Analysis:ILInspector.Analysis.LibraryBodyReferenceMetadataResolver+ReferencedAssemblyMetadata.TryOpen(ResolvedAssemblyReference)",
+            "DotnetInspector.Services:DotnetInspector.Services.IntrinsicCoreLibraryBinding.Select(ResolvedAssemblyReference, Func`2<AssemblyReferenceIdentity, AssemblyBindingSelection>)");
 
     [Fact]
     public void TrustRelevantSites_MatchThePin()
@@ -308,6 +313,45 @@ public sealed class ReaderConstructionSiteTests
 
         Assert.Contains(observed, e => e.Value.HasFlag(TrustRole.ObtainsReader));
         Assert.Contains(observed, e => e.Value.HasFlag(TrustRole.GrantsIdentity));
+    }
+
+    [Fact]
+    public void DescriptorOpenReferences_MatchTheReviewedInventory()
+    {
+        (string Name, string Path)[] assemblies =
+        [
+            ("ILInspector.Metadata", typeof(ResolvedAssemblyReference).Assembly.Location),
+            ("ILInspector.Decompiler", typeof(MetadataSource).Assembly.Location),
+            ("ILInspector.Analysis", typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly.Location),
+            ("DotnetInspector.Services", typeof(DotnetInspector.Services.AssemblyDependencyResolver).Assembly.Location),
+        ];
+
+        var observed = assemblies
+            .SelectMany(assembly =>
+                EnumerateMethods(assembly.Path)
+                    .Where(method => method.Method.OpensDescriptor)
+                    .Select(method => $"{assembly.Name}:{method.Key}"))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.True(
+            observed.SetEquals(s_descriptorOpenSites),
+            "The descriptor OpenRead reference inventory changed. Every site "
+            + "must either validate opened metadata before deriving facts or "
+            + "be a reviewed descriptor-forwarding route. Decompiler reader "
+            + "construction is independently pinned by "
+            + "TrustRelevantSites_MatchThePin."
+            + Environment.NewLine
+            + $"  Unpinned: {Format(observed.Except(s_descriptorOpenSites))}"
+            + Environment.NewLine
+            + $"  Stale: {Format(s_descriptorOpenSites.Except(observed))}");
+
+        static string Format(IEnumerable<string> sites)
+        {
+            string value = string.Join(
+                Environment.NewLine,
+                sites.Order(StringComparer.Ordinal));
+            return value.Length == 0 ? "(none)" : value;
+        }
     }
 
     /// <summary>
@@ -548,7 +592,8 @@ public sealed class ReaderConstructionSiteTests
     readonly record struct ScannedMethod(
         TrustRole Role,
         string DeclaringTypeFullName,
-        bool ReachesTrustTable);
+        bool ReachesTrustTable,
+        bool OpensDescriptor);
 
     static IEnumerable<(ScannedMethod Method, string Key)> EnumerateMethods(string assemblyPath)
     {
@@ -576,9 +621,38 @@ public sealed class ReaderConstructionSiteTests
                 new ScannedMethod(
                     RoleOf(reader, il),
                     declaringType,
-                    ReachesTrustTable(reader, il, key)),
+                    ReachesTrustTable(reader, il, key),
+                    CallsDescriptorOpen(reader, il)),
                 key);
         }
+    }
+
+    static bool CallsDescriptorOpen(MetadataReader reader, byte[] il)
+    {
+        foreach (var instruction in InstructionDecoder.Decode(il))
+        {
+            if (instruction.Operand is not (
+                OperandKind.InlineMethod or OperandKind.InlineTok))
+            {
+                continue;
+            }
+
+            var operand =
+                MetadataTokens.EntityHandle((int)instruction.OperandValue);
+            if (TryDescribeMember(
+                    reader,
+                    operand,
+                    out string declaringType,
+                    out string member)
+                && declaringType
+                    == "ILInspector.Metadata.ResolvedAssemblyReference"
+                && MemberName(member) == "get_OpenRead")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -140,6 +140,7 @@ public sealed class SignatureSpellability
             if (pe.HasMetadata)
             {
                 var reader = pe.GetMetadataReader();
+                resolved.ValidateOpenedMetadata(reader);
                 foreach (var handle in reader.TypeDefinitions)
                 {
                     if (!IsExternallyVisible(reader, handle))

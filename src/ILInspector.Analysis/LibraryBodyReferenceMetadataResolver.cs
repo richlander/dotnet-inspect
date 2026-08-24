@@ -274,6 +274,7 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                     new ReferencedAssemblyMetadata(
                         stream,
                         peReader);
+                assembly.ValidateOpenedMetadata(metadata.Reader);
                 stream = null;
                 peReader = null;
                 return metadata;

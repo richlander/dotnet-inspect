@@ -612,14 +612,8 @@ public static class MemberBodyProducer
                 $"No managed metadata: {module.Path ?? module.Identity.Name}");
 
         MetadataReader reader = peReader.GetMetadataReader();
-        if (reader.IsAssembly)
-            throw new BadImageFormatException(
-                "The acquired netmodule descriptor opened an assembly.");
-
+        module.ValidateOpenedMetadata(reader);
         Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
-        if (module.ModuleVersionId != mvid)
-            throw new BadImageFormatException(
-                "The opened netmodule MVID does not match its descriptor.");
 
         return MetadataTypeDeclarationProbe.ProbeDefinition(reader, name) switch
         {
@@ -656,84 +650,73 @@ public static class MemberBodyProducer
             if (locateType() is not { } definition)
                 return new TypeCompositionResult(Text: null);
 
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
+            // Resolve every handle and derive every fact from the same validated
+            // image that supplies the method bodies.
+            using var pipelineSource = openPipelineSource(
+                definition,
+                context);
+            MetadataReader reader = pipelineSource.Reader;
+
+            if (!definition.Address.TryResolve(
+                    reader,
+                    out TypeDefinitionHandle typeHandle))
+                return new TypeCompositionResult(Text: null);
+
+            // The same resolver resolves cross-assembly type facts
+            // (value-type-ness of a bare token) during import. A shared context
+            // (when a batch caller supplies one) opens each referenced assembly
+            // once across many composed types.
+            var union = TryUnionDeclaration(reader, typeHandle, type);
+
+            var sb = new StringBuilder();
+            if (!string.IsNullOrEmpty(type.Namespace))
             {
-                stream = definition.Assembly.OpenRead();
-                peReader = new PEReader(stream);
-                MetadataReader reader = peReader.GetMetadataReader();
-
-                if (!definition.Address.TryResolve(
-                        reader,
-                        out TypeDefinitionHandle typeHandle))
-                    return new TypeCompositionResult(Text: null);
-
-                    // Bodies are decompiled from the same on-disk assembly the
-                    // forwarder resolved to. The same resolver resolves cross-assembly
-                    // type facts (value-type-ness of a bare token) during import. A
-                    // shared context (when a batch caller supplies one) opens each
-                    // referenced assembly once across many composed types.
-                    using var pipelineSource = openPipelineSource(
-                        definition,
-                        context);
-                    var union = TryUnionDeclaration(reader, typeHandle, type);
-
-                    var sb = new StringBuilder();
-                    if (!string.IsNullOrEmpty(type.Namespace))
-                    {
-                        sb.AppendLf($"namespace {type.Namespace};");
-                        sb.AppendLf();
-                    }
-
-                    // The printer renders every type with its simple name, so there is
-                    // no namespace prefix for HoistUsings to strip into a directive. The
-                    // bodies' namespaces are collected straight from the typed IR
-                    // instead and seeded into the using block; attribute namespaces
-                    // join them so the short attribute names resolve.
-                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-
-                    if (union is not null)
-                        AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
-
-                    var typeDef = reader.GetTypeDefinition(typeHandle);
-                    foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
-                        sb.AppendLf($"[{attribute}]");
-
-                    foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
-                                 union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
-                        sb.AppendLf($"[{attribute}]");
-
-                    sb.AppendLf(TypeDeclaration(type, union));
-                    sb.AppendLf("{");
-
-                    bool any = union is not null;
-                    if (type.Kind == "enum")
-                    {
-                        ComposeEnumValues(sb, type, ref any);
-                    }
-                    else
-                    {
-                        ComposeFields(sb, reader, typeHandle, bodyNamespaces,
-                            CollectFieldInitializers(pipelineSource, reader, typeHandle), ref any);
-                        ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, printerOptions: printerOptions);
-                    }
-
-                    sb.AppendLf("}");
-                    if (!any)
-                        return new TypeCompositionResult(Text: null);
-                    return new TypeCompositionResult(
-                        HoistUsings(
-                            sb.ToString().TrimEnd(),
-                            reader,
-                            type.Namespace,
-                            bodyNamespaces));
+                sb.AppendLf($"namespace {type.Namespace};");
+                sb.AppendLf();
             }
-            finally
+
+            // The printer renders every type with its simple name, so there is
+            // no namespace prefix for HoistUsings to strip into a directive. The
+            // bodies' namespaces are collected straight from the typed IR
+            // instead and seeded into the using block; attribute namespaces
+            // join them so the short attribute names resolve.
+            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+            if (union is not null)
+                AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
+
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
+                sb.AppendLf($"[{attribute}]");
+
+            foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
+                         union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
+                sb.AppendLf($"[{attribute}]");
+
+            sb.AppendLf(TypeDeclaration(type, union));
+            sb.AppendLf("{");
+
+            bool any = union is not null;
+            if (type.Kind == "enum")
             {
-                peReader?.Dispose();
-                stream?.Dispose();
+                ComposeEnumValues(sb, type, ref any);
             }
+            else
+            {
+                ComposeFields(sb, reader, typeHandle, bodyNamespaces,
+                    CollectFieldInitializers(pipelineSource, reader, typeHandle), ref any);
+                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, printerOptions: printerOptions);
+            }
+
+            sb.AppendLf("}");
+            if (!any)
+                return new TypeCompositionResult(Text: null);
+            return new TypeCompositionResult(
+                HoistUsings(
+                    sb.ToString().TrimEnd(),
+                    reader,
+                    type.Namespace,
+                    bodyNamespaces));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -760,60 +743,48 @@ public static class MemberBodyProducer
             if (locateType() is not { } definition)
                 return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
 
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
-            {
-                stream = definition.Assembly.Assembly.OpenRead();
-                peReader = new PEReader(stream);
-                MetadataReader reader = peReader.GetMetadataReader();
+            using var pipelineSource = openPipelineSource(
+                definition,
+                context);
+            MetadataReader reader = pipelineSource.Reader;
 
-                if (!definition.Address.TryResolve(
-                        reader,
-                        out TypeDefinitionHandle typeHandle))
-                    return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
-
-                using var pipelineSource = openPipelineSource(
-                    definition,
-                    context);
-                var union = TryUnionDeclaration(reader, typeHandle, type);
-
-                // The same body/attribute namespaces the whole-type listing
-                // collects for this member — a wrapping consumer emits them as
-                // using directives.
-                var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-                var sb = new StringBuilder();
-                bool any = false;
-                ComposeMembers(
-                    sb,
-                    type,
-                    pipelineSource,
+            if (!definition.Address.TryResolve(
                     reader,
-                    typeHandle,
-                    union,
-                    bodyNamespaces,
-                    ref any,
-                    only: member,
-                    printerOptions: printerOptions,
-                    attributeMode: attributeMode);
+                    out TypeDefinitionHandle typeHandle))
+                return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
 
-                if (!any)
-                    return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+            var union = TryUnionDeclaration(reader, typeHandle, type);
 
-                // Shorten qualified names and normalize newlines exactly as the
-                // whole-type Project listing does, so the per-member text is
-                // byte-identical to this member's segment there. The harvested
-                // imports (body namespaces + qualified prefixes) are returned for
-                // the wrapping consumer to emit; directives are not prepended.
-                var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
-                string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
-                return new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
-            }
-            finally
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
-            }
+            // The same body/attribute namespaces the whole-type listing
+            // collects for this member — a wrapping consumer emits them as
+            // using directives.
+            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+            var sb = new StringBuilder();
+            bool any = false;
+            ComposeMembers(
+                sb,
+                type,
+                pipelineSource,
+                reader,
+                typeHandle,
+                union,
+                bodyNamespaces,
+                ref any,
+                only: member,
+                printerOptions: printerOptions,
+                attributeMode: attributeMode);
+
+            if (!any)
+                return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+
+            // Shorten qualified names and normalize newlines exactly as the
+            // whole-type Project listing does, so the per-member text is
+            // byte-identical to this member's segment there. The harvested
+            // imports (body namespaces + qualified prefixes) are returned for
+            // the wrapping consumer to emit; directives are not prepended.
+            var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+            string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+            return new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -865,69 +836,57 @@ public static class MemberBodyProducer
                 return results;
             }
 
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
+            using var pipelineSource = openPipelineSource(
+                definition,
+                context);
+            MetadataReader reader = pipelineSource.Reader;
+
+            if (!definition.Address.TryResolve(
+                    reader,
+                    out TypeDefinitionHandle typeHandle))
             {
-                stream = definition.Assembly.Assembly.OpenRead();
-                peReader = new PEReader(stream);
-                MetadataReader reader = peReader.GetMetadataReader();
-
-                if (!definition.Address.TryResolve(
-                        reader,
-                        out TypeDefinitionHandle typeHandle))
-                {
-                    FillMissing(absent);
-                    return results;
-                }
-
-                using var pipelineSource = openPipelineSource(
-                    definition,
-                    context);
-                var union = TryUnionDeclaration(reader, typeHandle, type);
-
-                foreach (var member in type.Members)
-                {
-                    try
-                    {
-                        var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-                        var sb = new StringBuilder();
-                        bool any = false;
-                        ComposeMembers(
-                            sb,
-                            type,
-                            pipelineSource,
-                            reader,
-                            typeHandle,
-                            union,
-                            bodyNamespaces,
-                            ref any,
-                            only: member,
-                            attributeMode: attributeMode);
-
-                        if (!any)
-                        {
-                            results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
-                            continue;
-                        }
-
-                        var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
-                        string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
-                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
-                    }
-                    catch (Exception ex) when (ex is not OutOfMemoryException)
-                    {
-                        results[member] = FailedMemberRender(ex);
-                    }
-                }
-
+                FillMissing(absent);
                 return results;
             }
-            finally
+
+            var union = TryUnionDeclaration(reader, typeHandle, type);
+
+            foreach (var member in type.Members)
             {
-                peReader?.Dispose();
-                stream?.Dispose();
+                try
+                {
+                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                    var sb = new StringBuilder();
+                    bool any = false;
+                    ComposeMembers(
+                        sb,
+                        type,
+                        pipelineSource,
+                        reader,
+                        typeHandle,
+                        union,
+                        bodyNamespaces,
+                        ref any,
+                        only: member,
+                        attributeMode: attributeMode);
+
+                    if (!any)
+                    {
+                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+                        continue;
+                    }
+
+                    var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+                    string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+                    results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    results[member] = FailedMemberRender(ex);
+                }
             }
+
+            return results;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

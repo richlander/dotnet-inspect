@@ -356,7 +356,14 @@ internal static class LibraryMetadataService
                         ClassifiedMethodsQuery.Execute(session));
                 }
 
-                catch (Exception ex)
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ObjectDisposedException
+                        or BadImageFormatException
+                        or ArgumentOutOfRangeException
+                        or OverflowException)
                 {
                     logger.LogWarning($"Error opening {path} for scanning: {ex.Message}");
                     if (inspection.ExtensionMemberInspection is null)
@@ -516,7 +523,14 @@ internal static class LibraryMetadataService
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ObjectDisposedException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             logger.LogWarning($"Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
             return null;

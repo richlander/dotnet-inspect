@@ -154,6 +154,20 @@ public static class AssemblyReader
     }
 
     /// <summary>
+    /// Extracts a compact public API summary from the image bound to an
+    /// acquisition descriptor.
+    /// </summary>
+    public static ApiSurface? ExtractApiSummarySurface(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        using AssemblyImage image = AssemblyImage.Open(assembly);
+        return image.HasMetadata
+            ? ApiSurfaceExtractor.ExtractSummary(image.PEReader)
+            : null;
+    }
+
+    /// <summary>
     /// Finds the unique public type matching a full, simple, or generic-aware type query.
     /// Returns null when the assembly cannot be read, has no metadata, has no match,
     /// or has multiple matches.

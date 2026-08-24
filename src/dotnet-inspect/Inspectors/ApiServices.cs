@@ -698,9 +698,8 @@ internal static class ApiServices
             {
                 try
                 {
-                    using Stream stream = group.Assembly.OpenRead();
                     ApiSurface? targetApi =
-                        AssemblyReader.ExtractApiSummarySurface(stream);
+                        AssemblyReader.ExtractApiSummarySurface(group.Assembly);
                     if (targetApi is null)
                         continue;
 
