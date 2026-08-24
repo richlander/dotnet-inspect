@@ -487,7 +487,7 @@ logical selection rule:
 | Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Workspace context id, canonical bundle-relative `ContentRef`, provider handle, and SHA-256 digest |
 | Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Absolute path, retained-snapshot id, digest |
 | Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Both adapters' source-specific provenance and locators |
-| Direct live-member call | One invocation-scoped paired-input designation | Live reader/session and exact method addresses |
+| Direct live-member call | One invocation-scoped paired-input designation | Exact live participant bindings and MVIDs |
 
 A package selection slot describes the request, not whichever framework folder
 won independently on one side. Default highest-compatible selection uses one

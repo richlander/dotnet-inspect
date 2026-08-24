@@ -192,7 +192,9 @@ Implementation Diff defines the current integrity-row schema in
 the one-table shape while preventing a semantic row window from hiding the
 typed reason for an incomplete comparison. Raw rendered-line limits such as
 `-n` remain presentation truncation and do not change the operation's exit
-status.
+status. A session-owned body-added/body-removed record is ordinary `Evidence`,
+not an integrity row: it counts toward `--rows`/`--tail` and remains present
+when no producer-owned display line exists.
 
 ## How dotnet-inspect flags select a shape
 
