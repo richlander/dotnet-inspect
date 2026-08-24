@@ -18,8 +18,8 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 - A lossless raw-row reader is allowed only for a named table where public SRM
   APIs discard required evidence or allocate it before product charging. The
   first and only registered exception is `MethodSemantics`.
-- MetadataPrimitives and its consumers support only `MetadataKind.Ecma335`
-  assembly metadata. Windows Metadata (`WindowsMetadata` and
+- MetadataPrimitives owns the options-independent assembly-format classifier
+  used before product metadata work. Windows Metadata (`WindowsMetadata` and
   `ManagedWindowsMetadata`) is outside project scope, not another semantic
   model this layer must normalize.
 - Metadata, Analysis, Decompiler, Instructions, and ILDiff retain their own
@@ -139,6 +139,40 @@ then construct their native result. A neutral primitive must not return a
 plausible `object`, an empty signature, or a display string on rejection unless
 that value is itself an explicit typed result arm.
 
+### Supported assembly metadata format
+
+`MetadataImageFormatClassifier` is the sole mechanical format gate for product
+assembly metadata. It accepts the acquisition-owned `PEReader`, constructs one
+raw reader with `MetadataReaderOptions.None`, and examines the raw metadata
+root version.
+`rawReader.MetadataVersion.Contains("WindowsRuntime",
+StringComparison.Ordinal)` produces typed `UnsupportedWindowsMetadata`;
+absence of that marker produces `SupportedEcma335`. This is the same version
+discriminator SRM consults before applying optional WinRT projections, but
+unlike `MetadataReader.MetadataKind` it does not change with reader options.
+
+The classifier does not construct a projection-enabled reader, search for
+mscorlib, expose or retain the raw version string, inspect rows or heaps, or
+create projected/raw handle correspondence. A failure to construct the raw
+reader remains malformed metadata rather than unsupported Windows Metadata.
+The classifier retains no reader, block, pointer, handle, or mutable state.
+Acquisition or direct projection APIs whose established return shape has no
+failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
+text; typed query owners catch that specific exception and return their
+unsupported-input result. They must not translate it to malformed input,
+`null`, an empty projection, or partial rows.
+
+Acquisition owners call it before exposing metadata sessions. Public or
+reusable `PEReader` entry points that can bypass those owners call it directly.
+That closure includes `AssemblyImage`, `PdbContext`, Decompiler
+`MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector`
+table/row/reference/heap operation, and the defensive
+`MethodSemanticsRowReader` leaf check. `MDP017` in
+[member inspection planning and Metadata
+projection](design/member-inspection-planning-and-metadata-projection.md) gates
+the inventory, options independence, typed failure, and no-work-before-reject
+properties.
+
 ### Lossless `MethodSemantics` row boundary
 
 `MethodSemanticsRowReader` is the sole registered exception to the normal rule
@@ -170,12 +204,12 @@ a contract violation. It is the sole product invocation owner. Direct primitive
 calls are confined to this leaf's boundary tests, where the test owns the
 reader lifetime.
 
-The Metadata-owned session rejects any `MetadataKind` other than `Ecma335`
-before image admission or primitive invocation. A direct boundary-test call
-receives the same typed unsupported-kind rejection from the leaf before it
-reads table layout. Unsupported Windows Metadata is not reported as malformed
-ECMA-335, and this boundary adds no projected-accessor fallback, dual-reader
-correspondence, or compatibility adapter.
+The Metadata-owned session calls `MetadataImageFormatClassifier` before image
+admission or primitive invocation. A direct boundary-test call reaches the same
+classifier from the leaf before it reads table layout. Unsupported Windows
+Metadata is not reported as malformed ECMA-335, and this boundary adds no
+projected-accessor fallback, dual-reader correspondence, or compatibility
+adapter.
 
 For a supported image, the implementation may use only public SRM layout facts
 to locate the table: its metadata offset, row size, table row counts used to
@@ -261,11 +295,9 @@ slice 8. Its outcome tests must establish:
   each asserts decoded values, while SRM row-size equality separately checks
   the total width;
 - bounded work and allocation before retention on oversized tables; and
-- typed unsupported-kind rejection for `WindowsMetadata` and
-  `ManagedWindowsMetadata` during session construction before primitive
-  invocation, the same close-negative at the direct leaf boundary, and the
-  same supported ECMA-335 result under Browser/Wasm and NativeAOT-compatible
-  hosts.
+- the same supported ECMA-335 result under Browser/Wasm and
+  NativeAOT-compatible hosts; unsupported-format classification and its direct
+  leaf close-negative belong to `MDP017`.
 
 ## Why `TypeRef` remains local
 

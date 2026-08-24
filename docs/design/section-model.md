@@ -315,15 +315,29 @@ rather than unknown or empty.
 
 ### Effective-discovery cache
 
-Cached effective discovery is only valid when all of these match:
+Completed effective-discovery outcomes are scoped to one exact
+`PreflightedInspectionPlan` instance. Cache lookup occurs only after current
+request provenance, execution mode, probe and cost policy, and host capability
+policy have produced that immutable plan. An `Applicable`,
+`Unknown(CapabilityNotRequested | CapabilityDenied | CostDenied |
+ExecutionModeDenied | ProbePolicyDenied)`, or producer-failure result must not
+cross into another plan, even when these ordinary applicability inputs match:
 
 - target identity
 - command and options that affect applicability
 - section catalog version
 - effectiveness probe policy
 
-Changing category scope or effectiveness semantics requires a cache-version
-bump.
+The cache may reuse one section outcome within that plan. Persistent producer
+evidence may be reused by a later plan only after that plan independently
+preflights the producer and its artifact owner revalidates access; the later
+plan then derives its own section outcome. Do not hash or reconstruct host
+authorization into an applicability key: plan-instance scoping preserves the
+complete preflight disposition without creating a second authorization
+currency.
+
+Changing category scope or effectiveness semantics still requires a
+cache-version bump.
 
 ## Selection
 

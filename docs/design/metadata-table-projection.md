@@ -145,10 +145,21 @@ Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
 `AssemblyRef`, `ExportedType`, `GenericParam`, `MethodSpec`, …) and produce, per
 table, its rows with:
 
-This projection supports only `MetadataKind.Ecma335`. Windows Metadata
-(`WindowsMetadata` and `ManagedWindowsMetadata`) is outside dotnet-inspect's
-current project scope and fails as an unsupported input rather than being
-projected through SRM's WinRT view.
+This projection supports ordinary ECMA-335 assembly metadata only. Before any
+table, row, reverse-reference, image-overview, or heap operation constructs its
+`MetadataReaderOptions.None` reader, it calls the MetadataPrimitives-owned
+`MetadataImageFormatClassifier`. That classifier examines the raw metadata
+root version with
+`rawReader.MetadataVersion.Contains("WindowsRuntime",
+StringComparison.Ordinal)`, the ordinal rule SRM uses before optional WinRT
+projection; it does not use the options-dependent
+`MetadataReader.MetadataKind`. Windows Metadata is outside dotnet-inspect's
+current project scope. The direct projector APIs throw
+`UnsupportedMetadataFormatException` before projecting rows or heaps;
+`AssemblyInspectionSession` and query owners map that specific exception to a
+typed unsupported-input result. It must not become `null`, an empty projection,
+partial rows, or malformed ECMA-335. `MDP017` gates every existing entry point
+as well as the CLI metadata lens.
 
 1. **Each column value in raw form**, plus a friendly decode where cheap (flag
    enums, a name/namespace pulled from the string heap, well-known GUIDs). The
