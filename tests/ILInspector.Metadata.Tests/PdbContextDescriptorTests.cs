@@ -528,6 +528,45 @@ public class PdbContextDescriptorTests
                     .InspectAssemblySurface(rejected, subject).Value);
     }
 
+    [Fact]
+    public void EnumerateMemberDocuments_DoesNotClassifyInterfaceMethodImplAsFinalizer()
+    {
+        string path = typeof(PdbContextDescriptorTests).Assembly.Location;
+        byte[] original = File.ReadAllBytes(path);
+        TypeDefinitionHandle typeHandle;
+        MethodDefinitionHandle finalizerHandle;
+        using (var stream = new MemoryStream(original, writable: false))
+        using (var reader = new PEReader(stream))
+        {
+            var metadata = reader.GetMetadataReader();
+            typeHandle = metadata.TypeDefinitions.Single(
+                handle => metadata.StringComparer.Equals(
+                    metadata.GetTypeDefinition(handle).Name,
+                    nameof(PdbFinalizerFixture)));
+            finalizerHandle = metadata.GetTypeDefinition(typeHandle)
+                .GetMethods()
+                .Single(
+                    handle => metadata.StringComparer.Equals(
+                        metadata.GetMethodDefinition(handle).Name,
+                        "Finalize"));
+        }
+
+        byte[] image = ReclassifyTypeAsInterface(original, typeHandle);
+        var descriptor = ResolvedAssemblyReference.Create(
+            ReadIdentity(original),
+            path,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("PDB finalizer interface fixture"));
+
+        using var context = PdbContext.Open(descriptor);
+        Assert.True(context.HasPdb);
+        var documents = context.EnumerateMemberDocuments(
+            new HashSet<int> { MetadataTokens.GetToken(finalizerHandle) }).ToArray();
+
+        Assert.NotEmpty(documents);
+        Assert.All(documents, document => Assert.False(document.IsFinalizer));
+    }
+
     static AssemblyReferenceIdentity ReadIdentity(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -651,6 +690,135 @@ public class PdbContextDescriptorTests
         throw new InvalidOperationException(
             "Expected a CodeView debug-directory entry.");
     }
+
+    static byte[] ReclassifyTypeAsInterface(
+        byte[] image,
+        TypeDefinitionHandle typeHandle)
+    {
+        byte[] patched = (byte[])image.Clone();
+        using var stream = new MemoryStream(image, writable: false);
+        using var reader = new PEReader(stream);
+        int metadataOffset = RvaToFileOffset(
+            reader.PEHeaders,
+            Assert.IsType<CorHeader>(reader.PEHeaders.CorHeader)
+                .MetadataDirectory.RelativeVirtualAddress);
+        int tableStreamOffset = FindTableStreamOffset(
+            patched,
+            metadataOffset);
+        int typeDefinitionOffset = TypeDefinitionRowOffset(
+            patched,
+            tableStreamOffset,
+            MetadataTokens.GetRowNumber(typeHandle));
+        var attributes = (TypeAttributes)BinaryPrimitives.ReadUInt32LittleEndian(
+            patched.AsSpan(typeDefinitionOffset, sizeof(uint)));
+        attributes &= ~TypeAttributes.ClassSemanticsMask;
+        attributes |= TypeAttributes.Interface | TypeAttributes.Abstract;
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            patched.AsSpan(typeDefinitionOffset, sizeof(uint)),
+            (uint)attributes);
+        return patched;
+    }
+
+    static int FindTableStreamOffset(byte[] image, int metadataOffset)
+    {
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataOffset + 12, sizeof(int)));
+        int streamHeaders = metadataOffset + 16 + Align4(versionLength);
+        ushort streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(streamHeaders + 2, sizeof(ushort)));
+        int offset = streamHeaders + 4;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int relativeOffset = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(offset, sizeof(int)));
+            int nameOffset = offset + 8;
+            int nameLength = 0;
+            while (image[nameOffset + nameLength] != 0)
+                nameLength++;
+            if (nameLength == 2
+                && image[nameOffset] == (byte)'#'
+                && image[nameOffset + 1] == (byte)'~')
+            {
+                return metadataOffset + relativeOffset;
+            }
+
+            offset = nameOffset + Align4(nameLength + 1);
+        }
+
+        throw new InvalidOperationException(
+            "Expected a compressed metadata table stream.");
+    }
+
+    static int TypeDefinitionRowOffset(
+        byte[] image,
+        int tableStreamOffset,
+        int rowNumber)
+    {
+        const int TypeDefinitionTable = 2;
+        byte heapSizes = image[tableStreamOffset + 6];
+        ulong validTables = BinaryPrimitives.ReadUInt64LittleEndian(
+            image.AsSpan(tableStreamOffset + 8, sizeof(ulong)));
+        int rowCountOffset = tableStreamOffset + 24;
+        Span<int> rowCounts = stackalloc int[64];
+        for (int table = 0; table < rowCounts.Length; table++)
+        {
+            if ((validTables & (1UL << table)) == 0)
+                continue;
+
+            rowCounts[table] = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(rowCountOffset, sizeof(int)));
+            rowCountOffset += sizeof(int);
+        }
+
+        if (rowNumber <= 0 || rowNumber > rowCounts[TypeDefinitionTable])
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowNumber));
+        }
+
+        int stringIndexSize = (heapSizes & 0x01) != 0 ? 4 : 2;
+        int guidIndexSize = (heapSizes & 0x02) != 0 ? 4 : 2;
+        int tableDataOffset = rowCountOffset;
+        int moduleRowSize = 2 + stringIndexSize + 3 * guidIndexSize;
+        int resolutionScopeSize = CodedIndexSize(
+            rowCounts,
+            tagBits: 2,
+            0,
+            1,
+            26,
+            35);
+        int typeReferenceRowSize = resolutionScopeSize + 2 * stringIndexSize;
+        int typeDefinitionOrReferenceSize = CodedIndexSize(
+            rowCounts,
+            tagBits: 2,
+            1,
+            2,
+            27);
+        int typeDefinitionRowSize =
+            4
+            + 2 * stringIndexSize
+            + typeDefinitionOrReferenceSize
+            + TableIndexSize(rowCounts[4])
+            + TableIndexSize(rowCounts[6]);
+        return tableDataOffset
+            + rowCounts[0] * moduleRowSize
+            + rowCounts[1] * typeReferenceRowSize
+            + (rowNumber - 1) * typeDefinitionRowSize;
+    }
+
+    static int CodedIndexSize(
+        ReadOnlySpan<int> rowCounts,
+        int tagBits,
+        params int[] tables)
+    {
+        int maximumRows = 0;
+        foreach (int table in tables)
+            maximumRows = Math.Max(maximumRows, rowCounts[table]);
+        return maximumRows < 1 << (16 - tagBits) ? 2 : 4;
+    }
+
+    static int TableIndexSize(int rows) => rows < 1 << 16 ? 2 : 4;
+
+    static int Align4(int value) => (value + 3) & ~3;
 
     static (byte[] Image, int ImageStart)
         PrefixWithDecoyEmbeddedPdbHeader(byte[] image)
@@ -807,6 +975,16 @@ public class PdbContextDescriptorTests
                 throw cleanupFailure;
             }
             base.Dispose(disposing);
+        }
+    }
+
+    sealed class PdbFinalizerFixture
+    {
+        static int s_touch;
+
+        ~PdbFinalizerFixture()
+        {
+            s_touch++;
         }
     }
 }

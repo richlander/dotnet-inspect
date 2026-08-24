@@ -186,6 +186,41 @@ public class ImplicitFinalizerDetectionTests
     }
 
     [Fact]
+    public void MalformedValueTypeAndDelegateOwnersAreNotFinalizers()
+    {
+        foreach (var (name, baseKind) in new[]
+                 {
+                     ("ValueLike", BaseKind.ValueType),
+                     ("DelegateLike", BaseKind.MulticastDelegate),
+                 })
+        {
+            byte[] image = BuildImage(
+                new TypeSpec(
+                    name,
+                    baseKind,
+                    new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                    OverrideDeclarationSignature: VoidNullary));
+            using var stream = new MemoryStream(image);
+            using var reader = new PEReader(stream);
+            var metadata = reader.GetMetadataReader();
+            MethodDefinitionHandle finalizer = metadata
+                .GetTypeDefinition(
+                    metadata.TypeDefinitions.Single(
+                        handle => metadata.StringComparer.Equals(
+                            metadata.GetTypeDefinition(handle).Name,
+                            name)))
+                .GetMethods()
+                .Single();
+
+            // PDB projection calls IsFinalizerMethod directly, while API
+            // extraction already has a class-kind gate. Both must reject the
+            // malformed finalizer-shaped MethodImpl owner.
+            Assert.False(ApiSurfaceExtractor.IsFinalizerMethod(metadata, finalizer));
+            Assert.False(ExtractMember(image, name, "Finalize").IsFinalizer);
+        }
+    }
+
+    [Fact]
     public void InAssemblyObjectRoot_DerivedFinalize_IsClassifiedAsFinalizer()
     {
         // Inspecting the core library that defines System.Object itself: the genuine
@@ -278,6 +313,8 @@ public class ImplicitFinalizerDetectionTests
     {
         Object,
         Exception,
+        ValueType,
+        MulticastDelegate,
         Def,
         ModuleRef,
         MalformedModuleRef,
@@ -288,6 +325,9 @@ public class ImplicitFinalizerDetectionTests
     {
         public static readonly BaseKind Object = new(BaseTag.Object, null);
         public static readonly BaseKind Exception = new(BaseTag.Exception, null);
+        public static readonly BaseKind ValueType = new(BaseTag.ValueType, null);
+        public static readonly BaseKind MulticastDelegate =
+            new(BaseTag.MulticastDelegate, null);
         public static readonly BaseKind Nil = new(BaseTag.Nil, null);
         public static BaseKind Def(string name) => new(BaseTag.Def, name);
         public static BaseKind ModuleRef(string name) =>
@@ -325,9 +365,15 @@ public class ImplicitFinalizerDetectionTests
 
         EntityHandle objectRef = default;
         EntityHandle exceptionRef = default;
+        EntityHandle valueTypeRef = default;
+        EntityHandle multicastDelegateRef = default;
         if (Array.Exists(
                 types,
-                static type => type.Base.Tag is BaseTag.Object or BaseTag.Exception
+                static type => type.Base.Tag is
+                    BaseTag.Object
+                    or BaseTag.Exception
+                    or BaseTag.ValueType
+                    or BaseTag.MulticastDelegate
                     || type.OverrideDeclarationSignature is not null))
         {
             // Cross-assembly fixtures use the real core-library identity. The
@@ -348,6 +394,14 @@ public class ImplicitFinalizerDetectionTests
                 coreLib,
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Exception"));
+            valueTypeRef = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("ValueType"));
+            multicastDelegateRef = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("MulticastDelegate"));
         }
 
         // Shared trivial `ret` body; the extractor never reads method bodies.
@@ -373,6 +427,8 @@ public class ImplicitFinalizerDetectionTests
             {
                 BaseTag.Object => objectRef,
                 BaseTag.Exception => exceptionRef,
+                BaseTag.ValueType => valueTypeRef,
+                BaseTag.MulticastDelegate => multicastDelegateRef,
                 BaseTag.Def => defHandles[types[i].Base.DefName!],
                 BaseTag.ModuleRef => metadata.AddTypeReference(
                     module,

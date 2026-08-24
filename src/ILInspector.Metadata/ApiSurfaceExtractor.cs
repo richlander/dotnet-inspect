@@ -185,7 +185,11 @@ public static class ApiSurfaceExtractor
         var localTypes = currentScope is null
             ? []
             : LocalTypes(reader, currentScope, surface, budget: null);
-        var accessorMethods = AccessorMethods(reader, surface, budget: null);
+        var accessorMethods = ReadAccessorMethods(
+            reader,
+            surface,
+            budget: null,
+            currentScope: currentScope);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -673,8 +677,12 @@ public static class ApiSurfaceExtractor
             ? []
             : LocalTypes(reader, currentScope, surface, budget);
         var accessorMethods = typesOnly
-            ? []
-            : AccessorMethods(reader, surface, budget);
+            ? new AccessorMethodOwnership()
+            : ReadAccessorMethods(
+                reader,
+                surface,
+                budget,
+                currentScope);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -1043,6 +1051,7 @@ public static class ApiSurfaceExtractor
                         || methodAccess != MethodAttributes.Public
                         || methodName.Contains('.', StringComparison.Ordinal));
                 var isFinalizer = apiType.Kind == "class"
+                    && IsFinalizerOwner(reader, typeDef)
                     && method.GetGenericParameters().Count == 0
                     && (objectFinalizeOverrides.Contains(methodHandle)
                         || IsImplicitObjectFinalizeOverride(
@@ -1318,11 +1327,13 @@ public static class ApiSurfaceExtractor
                 var prop = reader.GetPropertyDefinition(propHandle);
                 var accessors = prop.GetAccessors();
                 MethodDefinitionHandle getterHandle =
-                    !accessors.Getter.IsNil && accessorMethods.Contains(accessors.Getter)
+                    !accessors.Getter.IsNil
+                    && accessorMethods.Contains(propHandle, accessors.Getter)
                         ? accessors.Getter
                         : default;
                 MethodDefinitionHandle setterHandle =
-                    !accessors.Setter.IsNil && accessorMethods.Contains(accessors.Setter)
+                    !accessors.Setter.IsNil
+                    && accessorMethods.Contains(propHandle, accessors.Setter)
                         ? accessors.Setter
                         : default;
                 if (getterHandle.IsNil && setterHandle.IsNil)
@@ -1737,6 +1748,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         accessors,
                         accessorMethods,
+                        eventHandle,
                         includeAll,
                         out var selectedAccessors))
                 {
@@ -1969,7 +1981,7 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         bool isExtensionClass,
         Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions,
-        IReadOnlySet<MethodDefinitionHandle> accessorMethods,
+        AccessorMethodOwnership accessorMethods,
         MetadataTypeScope? currentScope,
         IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> localTypes)
     {
@@ -2005,6 +2017,7 @@ public static class ApiSurfaceExtractor
                     || methodAccess != MethodAttributes.Public
                     || methodName.Contains('.', StringComparison.Ordinal));
             bool isFinalizer = apiType.Kind == "class"
+                && IsFinalizerOwner(reader, typeDef)
                 && method.GetGenericParameters().Count == 0
                 && (objectFinalizeOverrides.Contains(methodHandle)
                     || IsImplicitObjectFinalizeOverride(
@@ -2067,11 +2080,13 @@ public static class ApiSurfaceExtractor
             var property = reader.GetPropertyDefinition(propertyHandle);
             var accessors = property.GetAccessors();
             MethodDefinitionHandle getterHandle =
-                !accessors.Getter.IsNil && accessorMethods.Contains(accessors.Getter)
+                !accessors.Getter.IsNil
+                && accessorMethods.Contains(propertyHandle, accessors.Getter)
                     ? accessors.Getter
                     : default;
             MethodDefinitionHandle setterHandle =
-                !accessors.Setter.IsNil && accessorMethods.Contains(accessors.Setter)
+                !accessors.Setter.IsNil
+                && accessorMethods.Contains(propertyHandle, accessors.Setter)
                     ? accessors.Setter
                     : default;
             if (getterHandle.IsNil && setterHandle.IsNil)
@@ -2130,6 +2145,7 @@ public static class ApiSurfaceExtractor
                     reader,
                     accessors,
                     accessorMethods,
+                    eventHandle,
                     includeAll: false,
                     out _))
             {
@@ -2255,12 +2271,13 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    static HashSet<MethodDefinitionHandle> AccessorMethods(
+    static AccessorMethodOwnership ReadAccessorMethods(
         MetadataReader reader,
         ApiSurface surface,
-        ExtractionBudget? budget)
+        ExtractionBudget? budget,
+        MetadataTypeScope? currentScope)
     {
-        var methods = new HashSet<MethodDefinitionHandle>();
+        var methods = new AccessorMethodOwnership();
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             try
@@ -2346,15 +2363,43 @@ public static class ApiSurfaceExtractor
             }
         }
 
-        methods.UnionWith(ExtensionPropertyImplementationMethods(reader, surface, budget));
+        methods.AddExtensionImplementations(
+            ExtensionPropertyImplementationMethods(
+                reader,
+                surface,
+                budget,
+                currentScope));
         return methods;
+    }
+
+    private sealed class AccessorMethodOwnership
+    {
+        readonly HashSet<MethodDefinitionHandle> _methods = [];
+        readonly HashSet<(EntityHandle Association, MethodDefinitionHandle Method)> _associations = [];
+
+        internal bool Contains(MethodDefinitionHandle method) => _methods.Contains(method);
+
+        internal bool Contains(EntityHandle association, MethodDefinitionHandle method)
+            => _associations.Contains((association, method));
+
+        internal void Add(EntityHandle association, MethodDefinitionHandle method)
+        {
+            _methods.Add(method);
+            _associations.Add((association, method));
+        }
+
+        internal void AddExtensionImplementations(
+            IEnumerable<MethodDefinitionHandle> methods)
+        {
+            _methods.UnionWith(methods);
+        }
     }
 
     private static void AddOwnedAccessor(
         MetadataReader reader,
         ApiSurface surface,
         ExtractionBudget? budget,
-        HashSet<MethodDefinitionHandle> methods,
+        AccessorMethodOwnership methods,
         TypeDefinitionHandle owningType,
         EntityHandle association,
         MethodDefinitionHandle accessor,
@@ -2368,7 +2413,7 @@ public static class ApiSurfaceExtractor
             var declaringType = reader.GetMethodDefinition(accessor).GetDeclaringType();
             if (declaringType == owningType)
             {
-                methods.Add(accessor);
+                methods.Add(association, accessor);
                 return;
             }
 
@@ -2403,7 +2448,8 @@ public static class ApiSurfaceExtractor
     private static bool TrySelectEventAccessors(
         MetadataReader reader,
         EventAccessors accessors,
-        IReadOnlySet<MethodDefinitionHandle> ownedAccessorMethods,
+        AccessorMethodOwnership ownedAccessorMethods,
+        EventDefinitionHandle association,
         bool includeAll,
         out EventAccessorSelection selection)
     {
@@ -2430,7 +2476,7 @@ public static class ApiSurfaceExtractor
         return true;
 
         MethodDefinitionHandle Owned(MethodDefinitionHandle handle) =>
-            !handle.IsNil && ownedAccessorMethods.Contains(handle)
+            !handle.IsNil && ownedAccessorMethods.Contains(association, handle)
                 ? handle
                 : default;
 
@@ -2453,7 +2499,8 @@ public static class ApiSurfaceExtractor
     static HashSet<MethodDefinitionHandle> ExtensionPropertyImplementationMethods(
         MetadataReader reader,
         ApiSurface surface,
-        ExtractionBudget? budget)
+        ExtractionBudget? budget,
+        MetadataTypeScope? currentScope)
     {
         Action<int>? beforeDecodeWork =
             budget is null ? null : budget.ObservePendingDecodeWork;
@@ -2532,6 +2579,7 @@ public static class ApiSurfaceExtractor
                                 reader,
                                 reader.GetMethodDefinition(markerMethodHandle),
                                 context,
+                                currentScope,
                                 beforeDecodeWork,
                                 out var markerSignature)
                             || markerSignature.ParameterTypes.Length != 1
@@ -2539,6 +2587,7 @@ public static class ApiSurfaceExtractor
                                 reader,
                                 property,
                                 context,
+                                currentScope,
                                 beforeDecodeWork,
                                 out var propertySignature))
                         {
@@ -2571,6 +2620,7 @@ public static class ApiSurfaceExtractor
                                         extensionClassContext,
                                         method,
                                         beforeDecodeWork),
+                                    currentScope,
                                     beforeDecodeWork,
                                     out var implementationSignature))
                             {
@@ -2591,9 +2641,14 @@ public static class ApiSurfaceExtractor
                                     includeValue: setter)
                                 && method.GetGenericParameters().Count == implementationGenericArity
                                 && (getter
-                                    ? implementationSignature.ReturnType
-                                        == propertySignature.ReturnType
-                                    : implementationSignature.ReturnType == "void"))
+                                    ? ExtensionSignatureTypesEqual(
+                                        implementationSignature.ReturnType,
+                                        propertySignature.ReturnType)
+                                    : implementationSignature.ReturnType
+                                        is PrimitiveExtensionSignatureType
+                                        {
+                                            TypeCode: PrimitiveTypeCode.Void
+                                        }))
                             {
                                 methods.Add(methodHandle);
                             }
@@ -2615,74 +2670,424 @@ public static class ApiSurfaceExtractor
     }
 
     private readonly record struct ExtensionDecodedSignature(
-        string ReturnType,
-        ImmutableArray<string> ParameterTypes);
+        ExtensionSignatureType ReturnType,
+        ImmutableArray<ExtensionSignatureType> ParameterTypes);
 
     private static bool TryDecodeExtensionSignature(
         MetadataReader reader,
         MethodDefinition method,
         GenericContext context,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork,
         out ExtensionDecodedSignature signature)
     {
+        var provider = new ExtensionSignatureTypeProvider(
+            currentScope,
+            beforeDecodeWork);
         var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
-            new TypeNodeProvider(
-                beforeRetain: null,
-                beforeMaterialize: beforeDecodeWork),
+            provider,
             context,
-            (TypeNode)new DegradedTypeNode());
-        return TryRenderExtensionSignature(decoded, beforeDecodeWork, out signature);
+            fallbackReturn: null);
+        return TryReadExtensionSignature(decoded, out signature);
     }
 
     private static bool TryDecodeExtensionSignature(
         MetadataReader reader,
         PropertyDefinition property,
         GenericContext context,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork,
         out ExtensionDecodedSignature signature)
     {
+        var provider = new ExtensionSignatureTypeProvider(
+            currentScope,
+            beforeDecodeWork);
         var decoded = GuardedProviderDecode.PropertyResult(
             reader,
             property,
-            new TypeNodeProvider(
-                beforeRetain: null,
-                beforeMaterialize: beforeDecodeWork),
+            provider,
             context,
-            (TypeNode)new DegradedTypeNode());
-        return TryRenderExtensionSignature(decoded, beforeDecodeWork, out signature);
+            fallbackReturn: null);
+        return TryReadExtensionSignature(decoded, out signature);
     }
 
-    private static bool TryRenderExtensionSignature(
-        GuardedProviderDecode.DecodeResult<MethodSignature<TypeNode>> decoded,
-        Action<int>? beforeDecodeWork,
+    private static bool TryReadExtensionSignature(
+        GuardedProviderDecode.DecodeResult<
+            MethodSignature<ExtensionSignatureType?>> decoded,
         out ExtensionDecodedSignature signature)
     {
         if (decoded.IsDegraded
-            || decoded.Value.ReturnType.IsDegraded
-            || decoded.Value.ParameterTypes.Any(static parameter => parameter.IsDegraded))
+            || decoded.Value.ReturnType is null
+            || decoded.Value.ParameterTypes.Any(static parameter => parameter is null))
         {
             signature = default;
             return false;
         }
 
-        beforeDecodeWork?.Invoke(
-            checked(16 + decoded.Value.ParameterTypes.Length * 8));
-        var parameterTypes = ImmutableArray.CreateBuilder<string>(
+        var parameterTypes = ImmutableArray.CreateBuilder<ExtensionSignatureType>(
             decoded.Value.ParameterTypes.Length);
-        foreach (var parameter in decoded.Value.ParameterTypes)
-            parameterTypes.Add(parameter.Render());
+        foreach (ExtensionSignatureType? parameter in decoded.Value.ParameterTypes)
+            parameterTypes.Add(parameter!);
         signature = new ExtensionDecodedSignature(
-            decoded.Value.ReturnType.Render(),
+            decoded.Value.ReturnType,
             parameterTypes.MoveToImmutable());
         return true;
     }
 
+    private abstract record ExtensionSignatureType;
+
+    private sealed record PrimitiveExtensionSignatureType(
+        PrimitiveTypeCode TypeCode)
+        : ExtensionSignatureType;
+
+    private sealed record NamedExtensionSignatureType(
+        MetadataNamedTypeIdentity Identity)
+        : ExtensionSignatureType;
+
+    private sealed record ArrayExtensionSignatureType(
+        ExtensionSignatureType ElementType,
+        int Rank,
+        ImmutableArray<int> Sizes,
+        ImmutableArray<int> LowerBounds)
+        : ExtensionSignatureType;
+
+    private sealed record WrappedExtensionSignatureType(
+        ExtensionSignatureType ElementType,
+        ExtensionSignatureTypeKind Kind)
+        : ExtensionSignatureType;
+
+    private sealed record GenericExtensionSignatureType(
+        ExtensionSignatureType GenericType,
+        ImmutableArray<ExtensionSignatureType> TypeArguments)
+        : ExtensionSignatureType;
+
+    private sealed record GenericParameterExtensionSignatureType(
+        string? Name,
+        bool IsMethodParameter,
+        int Index)
+        : ExtensionSignatureType;
+
+    private sealed record FunctionPointerExtensionSignatureType(
+        SignatureCallingConvention CallingConvention,
+        SignatureAttributes Attributes,
+        int GenericParameterCount,
+        int RequiredParameterCount,
+        ImmutableArray<ExtensionSignatureType> ParameterTypes,
+        ExtensionSignatureType ReturnType)
+        : ExtensionSignatureType;
+
+    private sealed record ModifiedExtensionSignatureType(
+        ExtensionSignatureType Modifier,
+        ExtensionSignatureType UnmodifiedType,
+        bool IsRequired)
+        : ExtensionSignatureType;
+
+    private enum ExtensionSignatureTypeKind
+    {
+        SzArray,
+        ByReference,
+        Pointer,
+        Pinned,
+    }
+
+    private sealed class ExtensionSignatureTypeProvider(
+        MetadataTypeScope? currentScope,
+        Action<int>? beforeDecodeWork)
+        : ISignatureTypeProvider<ExtensionSignatureType?, GenericContext?>
+    {
+        public ExtensionSignatureType? GetPrimitiveType(
+            PrimitiveTypeCode typeCode)
+        {
+            Observe(16);
+            return new PrimitiveExtensionSignatureType(typeCode);
+        }
+
+        public ExtensionSignatureType? GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+            => currentScope is null
+                ? null
+                : ReadDefinitionIdentity(
+                    reader,
+                    handle,
+                    currentScope,
+                    beforeDecodeWork) is { } identity
+                    ? new NamedExtensionSignatureType(identity)
+                    : null;
+
+        public ExtensionSignatureType? GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+            => ReadReferenceIdentity(
+                    reader,
+                    handle,
+                    currentScope,
+                    beforeDecodeWork) is { } identity
+                ? new NamedExtensionSignatureType(identity)
+                : null;
+
+        public ExtensionSignatureType? GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+            => GuardedProviderDecode.TypeSpec(
+                reader,
+                handle,
+                this,
+                context,
+                fallback: null);
+
+        public ExtensionSignatureType? GetSZArrayType(
+            ExtensionSignatureType? elementType)
+            => Wrap(elementType, ExtensionSignatureTypeKind.SzArray);
+
+        public ExtensionSignatureType? GetArrayType(
+            ExtensionSignatureType? elementType,
+            ArrayShape shape)
+        {
+            Observe(checked(16L + Math.Max(shape.Rank, 0)));
+            return elementType is null
+                ? null
+                : new ArrayExtensionSignatureType(
+                    elementType,
+                    shape.Rank,
+                    shape.Sizes,
+                    shape.LowerBounds);
+        }
+
+        public ExtensionSignatureType? GetByReferenceType(
+            ExtensionSignatureType? elementType)
+            => Wrap(elementType, ExtensionSignatureTypeKind.ByReference);
+
+        public ExtensionSignatureType? GetPointerType(
+            ExtensionSignatureType? elementType)
+            => Wrap(elementType, ExtensionSignatureTypeKind.Pointer);
+
+        public ExtensionSignatureType? GetPinnedType(
+            ExtensionSignatureType? elementType)
+            => Wrap(elementType, ExtensionSignatureTypeKind.Pinned);
+
+        public ExtensionSignatureType? GetGenericInstantiation(
+            ExtensionSignatureType? genericType,
+            ImmutableArray<ExtensionSignatureType?> typeArguments)
+        {
+            Observe(checked(16L + typeArguments.Length * 8L));
+            if (genericType is null
+                || typeArguments.Any(static argument => argument is null))
+            {
+                return null;
+            }
+
+            var arguments = ImmutableArray.CreateBuilder<ExtensionSignatureType>(
+                typeArguments.Length);
+            foreach (ExtensionSignatureType? argument in typeArguments)
+                arguments.Add(argument!);
+            return new GenericExtensionSignatureType(
+                genericType,
+                arguments.MoveToImmutable());
+        }
+
+        public ExtensionSignatureType? GetGenericTypeParameter(
+            GenericContext? context,
+            int index)
+            => GenericParameter(
+                context?.TypeParameters,
+                index,
+                isMethodParameter: false);
+
+        public ExtensionSignatureType? GetGenericMethodParameter(
+            GenericContext? context,
+            int index)
+            => GenericParameter(
+                context?.MethodParameters,
+                index,
+                isMethodParameter: true);
+
+        public ExtensionSignatureType? GetFunctionPointerType(
+            MethodSignature<ExtensionSignatureType?> signature)
+        {
+            Observe(checked(16L + signature.ParameterTypes.Length * 8L));
+            if (signature.ReturnType is null
+                || signature.ParameterTypes.Any(static parameter => parameter is null))
+            {
+                return null;
+            }
+
+            var parameters = ImmutableArray.CreateBuilder<ExtensionSignatureType>(
+                signature.ParameterTypes.Length);
+            foreach (ExtensionSignatureType? parameter in signature.ParameterTypes)
+                parameters.Add(parameter!);
+            return new FunctionPointerExtensionSignatureType(
+                signature.Header.CallingConvention,
+                signature.Header.Attributes,
+                signature.GenericParameterCount,
+                signature.RequiredParameterCount,
+                parameters.MoveToImmutable(),
+                signature.ReturnType);
+        }
+
+        public ExtensionSignatureType? GetModifiedType(
+            ExtensionSignatureType? modifier,
+            ExtensionSignatureType? unmodifiedType,
+            bool isRequired)
+        {
+            Observe(16);
+            return modifier is null || unmodifiedType is null
+                ? null
+                : new ModifiedExtensionSignatureType(
+                    modifier,
+                    unmodifiedType,
+                    isRequired);
+        }
+
+        ExtensionSignatureType? Wrap(
+            ExtensionSignatureType? elementType,
+            ExtensionSignatureTypeKind kind)
+        {
+            Observe(16);
+            return elementType is null
+                ? null
+                : new WrappedExtensionSignatureType(elementType, kind);
+        }
+
+        ExtensionSignatureType? GenericParameter(
+            IReadOnlyList<string>? parameters,
+            int index,
+            bool isMethodParameter)
+        {
+            Observe(16);
+            if (index < 0)
+                return null;
+
+            string? name = parameters is not null && index < parameters.Count
+                ? parameters[index]
+                : null;
+            return new GenericParameterExtensionSignatureType(
+                name,
+                isMethodParameter,
+                index);
+        }
+
+        void Observe(long units) =>
+            beforeDecodeWork?.Invoke((int)Math.Min(units, int.MaxValue));
+    }
+
+    // Extension markers join independently decoded property and implementation
+    // signatures, whose generic contexts may carry equivalent source names.
+    // MethodImpl ownership instead follows metadata identity, where that name
+    // bridge could turn unrelated generic parameters into the same interface.
+    // The structural representation remains shared so the guarded decoder and
+    // safety accounting have one owner; only this extension-specific comparison
+    // permits the source-name bridge.
+    private static bool ExtensionSignatureTypesEqual(
+        ExtensionSignatureType left,
+        ExtensionSignatureType right)
+        => SignatureTypesEqual(left, right, bridgeGenericParameterNames: true);
+
+    private static bool MethodImplSignatureTypesEqual(
+        ExtensionSignatureType left,
+        ExtensionSignatureType right)
+        => SignatureTypesEqual(left, right, bridgeGenericParameterNames: false);
+
+    private static bool SignatureTypesEqual(
+        ExtensionSignatureType left,
+        ExtensionSignatureType right,
+        bool bridgeGenericParameterNames)
+        => (left, right) switch
+        {
+            (PrimitiveExtensionSignatureType l, PrimitiveExtensionSignatureType r) =>
+                l.TypeCode == r.TypeCode,
+            (NamedExtensionSignatureType l, NamedExtensionSignatureType r) =>
+                MetadataNamedTypeIdentityComparer.Instance.Equals(
+                    l.Identity,
+                    r.Identity),
+            (ArrayExtensionSignatureType l, ArrayExtensionSignatureType r) =>
+                l.Rank == r.Rank
+                && l.Sizes.SequenceEqual(r.Sizes)
+                && l.LowerBounds.SequenceEqual(r.LowerBounds)
+                && SignatureTypesEqual(
+                    l.ElementType,
+                    r.ElementType,
+                    bridgeGenericParameterNames),
+            (WrappedExtensionSignatureType l, WrappedExtensionSignatureType r) =>
+                l.Kind == r.Kind
+                && SignatureTypesEqual(
+                    l.ElementType,
+                    r.ElementType,
+                    bridgeGenericParameterNames),
+            (GenericExtensionSignatureType l, GenericExtensionSignatureType r) =>
+                l.TypeArguments.Length == r.TypeArguments.Length
+                && SignatureTypesEqual(
+                    l.GenericType,
+                    r.GenericType,
+                    bridgeGenericParameterNames)
+                && SignatureTypeSequencesEqual(
+                    l.TypeArguments,
+                    r.TypeArguments,
+                    bridgeGenericParameterNames),
+            (GenericParameterExtensionSignatureType l, GenericParameterExtensionSignatureType r) =>
+                bridgeGenericParameterNames
+                && l.Name is not null
+                && r.Name is not null
+                    ? StringComparer.Ordinal.Equals(l.Name, r.Name)
+                    : l.IsMethodParameter == r.IsMethodParameter
+                    && l.Index == r.Index,
+            (FunctionPointerExtensionSignatureType l, FunctionPointerExtensionSignatureType r) =>
+                l.CallingConvention == r.CallingConvention
+                && l.Attributes == r.Attributes
+                && l.GenericParameterCount == r.GenericParameterCount
+                && l.RequiredParameterCount == r.RequiredParameterCount
+                && SignatureTypesEqual(
+                    l.ReturnType,
+                    r.ReturnType,
+                    bridgeGenericParameterNames)
+                && SignatureTypeSequencesEqual(
+                    l.ParameterTypes,
+                    r.ParameterTypes,
+                    bridgeGenericParameterNames),
+            (ModifiedExtensionSignatureType l, ModifiedExtensionSignatureType r) =>
+                l.IsRequired == r.IsRequired
+                && SignatureTypesEqual(
+                    l.Modifier,
+                    r.Modifier,
+                    bridgeGenericParameterNames)
+                && SignatureTypesEqual(
+                    l.UnmodifiedType,
+                    r.UnmodifiedType,
+                    bridgeGenericParameterNames),
+            _ => false,
+        };
+
+    private static bool SignatureTypeSequencesEqual(
+        ImmutableArray<ExtensionSignatureType> left,
+        ImmutableArray<ExtensionSignatureType> right,
+        bool bridgeGenericParameterNames)
+    {
+        if (left.Length != right.Length)
+            return false;
+
+        for (int index = 0; index < left.Length; index++)
+        {
+            if (!SignatureTypesEqual(
+                    left[index],
+                    right[index],
+                    bridgeGenericParameterNames))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static bool ExtensionParametersMatch(
-        ImmutableArray<string> implementation,
+        ImmutableArray<ExtensionSignatureType> implementation,
         ExtensionDecodedSignature property,
-        string receiver,
+        ExtensionSignatureType receiver,
         bool includeReceiver,
         bool includeValue)
     {
@@ -2695,28 +3100,25 @@ public static class ApiSurfaceExtractor
 
         int index = 0;
         if (includeReceiver
-            && !string.Equals(
+            && !ExtensionSignatureTypesEqual(
                 implementation[index++],
-                receiver,
-                StringComparison.Ordinal))
+                receiver))
         {
             return false;
         }
-        foreach (string parameter in property.ParameterTypes)
+        foreach (ExtensionSignatureType parameter in property.ParameterTypes)
         {
-            if (!string.Equals(
+            if (!ExtensionSignatureTypesEqual(
                     implementation[index++],
-                    parameter,
-                    StringComparison.Ordinal))
+                    parameter))
             {
                 return false;
             }
         }
         return !includeValue
-            || string.Equals(
+            || ExtensionSignatureTypesEqual(
                 implementation[index],
-                property.ReturnType,
-                StringComparison.Ordinal);
+                property.ReturnType);
     }
 
     private static bool HasAccessorName(
@@ -3365,17 +3767,35 @@ public static class ApiSurfaceExtractor
             return InterfaceMethodImplOwnership.ProvenNonInterface;
         }
 
-        foreach (var handle in typeDef.GetInterfaceImplementations())
-        {
-            if (reader.GetInterfaceImplementation(handle).Interface == declaringType)
-                return InterfaceMethodImplOwnership.ProvenInterface;
-        }
-
         var declarationIdentity = TryGetNamedTypeIdentity(
             reader,
             declaringType,
             currentScope,
             beforeDecodeWork);
+        var declarationSignature = TryGetExtensionSignatureType(
+            reader,
+            declaringType,
+            currentScope,
+            beforeDecodeWork);
+        foreach (var handle in typeDef.GetInterfaceImplementations())
+        {
+            EntityHandle interfaceType =
+                reader.GetInterfaceImplementation(handle).Interface;
+            if (interfaceType == declaringType
+                || declarationSignature is not null
+                && TryGetExtensionSignatureType(
+                        reader,
+                        interfaceType,
+                        currentScope,
+                        beforeDecodeWork) is { } interfaceSignature
+                && MethodImplSignatureTypesEqual(
+                    interfaceSignature,
+                    declarationSignature))
+            {
+                return InterfaceMethodImplOwnership.ProvenInterface;
+            }
+        }
+
         if (IsSystemObjectType(reader, declaringType, beforeDecodeWork)
             || TargetsClassHierarchy(
                 reader,
@@ -3389,16 +3809,41 @@ public static class ApiSurfaceExtractor
             return InterfaceMethodImplOwnership.ProvenNonInterface;
         }
 
-        var pending = new Queue<EntityHandle>();
-        HashSet<TypeDefinitionHandle> visitedLocalInterfaces = [];
+        var pending = new Queue<InterfaceImplementationCandidate>();
+        var visitedLocalInterfaces = new List<InterfaceImplementationCandidate>();
+        var traversalBudget = new InterfaceImplementationTraversalBudget(
+            beforeDecodeWork);
         bool hasUnresolvedExternalOwnership = declarationIdentity is null
+            || declarationSignature is null
             || !TryGetUniqueLocalType(localTypes, declarationIdentity, out _);
         var currentType = typeDef;
         HashSet<TypeDefinitionHandle> visitedBaseTypes = [];
         while (true)
         {
             foreach (var handle in currentType.GetInterfaceImplementations())
-                pending.Enqueue(reader.GetInterfaceImplementation(handle).Interface);
+            {
+                EntityHandle interfaceType =
+                    reader.GetInterfaceImplementation(handle).Interface;
+                if (TryGetExtensionSignatureType(
+                        reader,
+                        interfaceType,
+                        currentScope,
+                        beforeDecodeWork) is { } interfaceSignature)
+                {
+                    if (ContainsUnsubstitutedGenericParameter(interfaceSignature)
+                        || !traversalBudget.TryEnqueue(
+                            interfaceType,
+                            interfaceSignature,
+                            pending))
+                    {
+                        hasUnresolvedExternalOwnership = true;
+                    }
+                }
+                else
+                {
+                    hasUnresolvedExternalOwnership = true;
+                }
+            }
 
             var baseType = currentType.BaseType;
             if (baseType.IsNil
@@ -3420,30 +3865,16 @@ public static class ApiSurfaceExtractor
             currentType = reader.GetTypeDefinition(baseDefinition);
         }
 
-        while (pending.TryDequeue(out var interfaceType))
+        while (pending.TryDequeue(out var candidate))
         {
-            if (interfaceType == declaringType)
-                return InterfaceMethodImplOwnership.ProvenInterface;
-            if (TryGetNamedTypeIdentity(
-                    reader,
-                    interfaceType,
-                    currentScope,
-                    beforeDecodeWork) is not { } interfaceIdentity)
+            if (candidate.Handle == declaringType
+                || declarationSignature is not null
+                && MethodImplSignatureTypesEqual(
+                    candidate.Identity,
+                    declarationSignature))
             {
-                hasUnresolvedExternalOwnership = true;
-                continue;
-            }
-            if (declarationIdentity is not null
-                && HaveSameNamedType(
-                    reader,
-                    interfaceType,
-                    interfaceIdentity,
-                    declaringType,
-                    declarationIdentity,
-                    currentScope,
-                    localTypes,
-                    beforeDecodeWork))
                 return InterfaceMethodImplOwnership.ProvenInterface;
+            }
 
             // Same-module definitions let us close inherited InterfaceImpl edges.
             // External inheritance cannot be proven from this reader alone. Keep
@@ -3451,7 +3882,7 @@ public static class ApiSurfaceExtractor
             // extraction does not silently drop a possible explicit implementation.
             if (!TryResolveKnownLocalType(
                     reader,
-                    interfaceType,
+                    candidate.Handle,
                     currentScope,
                     localTypes,
                     beforeDecodeWork,
@@ -3460,18 +3891,432 @@ public static class ApiSurfaceExtractor
                 hasUnresolvedExternalOwnership = true;
                 continue;
             }
-            if (!visitedLocalInterfaces.Add(interfaceHandle))
+            if (visitedLocalInterfaces.Any(
+                    visited => visited.Handle == interfaceHandle
+                        && MethodImplSignatureTypesEqual(
+                            visited.Identity,
+                            candidate.Identity)))
+            {
                 continue;
+            }
+            visitedLocalInterfaces.Add(
+                new InterfaceImplementationCandidate(
+                    interfaceHandle,
+                    candidate.Identity));
 
             var interfaceDefinition = reader.GetTypeDefinition(interfaceHandle);
             foreach (var handle in interfaceDefinition.GetInterfaceImplementations())
-                pending.Enqueue(reader.GetInterfaceImplementation(handle).Interface);
+            {
+                EntityHandle inheritedInterface =
+                    reader.GetInterfaceImplementation(handle).Interface;
+                if (TryGetExtensionSignatureType(
+                        reader,
+                        inheritedInterface,
+                        currentScope,
+                        beforeDecodeWork) is not { } inheritedSignature)
+                {
+                    hasUnresolvedExternalOwnership = true;
+                    continue;
+                }
+
+                if (!traversalBudget.TrySubstitute(
+                        inheritedSignature,
+                        candidate.Identity,
+                        out var substitutedInterface)
+                    || ContainsUnsubstitutedGenericParameter(
+                        substitutedInterface)
+                    || !traversalBudget.TryEnqueue(
+                        inheritedInterface,
+                        substitutedInterface,
+                        pending))
+                {
+                    hasUnresolvedExternalOwnership = true;
+                }
+            }
         }
 
         return hasUnresolvedExternalOwnership
             ? InterfaceMethodImplOwnership.UnresolvedExternalInheritance
             : InterfaceMethodImplOwnership.ProvenNonInterface;
     }
+
+    private readonly record struct InterfaceImplementationCandidate(
+        EntityHandle Handle,
+        ExtensionSignatureType Identity);
+
+    /// <summary>
+    /// Bounds the constructed identities created while following InterfaceImpl
+    /// inheritance. The visited key must include arguments: handle-only keys
+    /// conflate distinct constructed interfaces, while a key containing every
+    /// construction does not terminate for <c>I&lt;T&gt; : I&lt;I&lt;T&gt;&gt;</c>.
+    /// A refused candidate is intentionally reported to the caller as
+    /// unresolved ownership, preserving the MethodImpl body rather than
+    /// confidently suppressing it as an ordinary method.
+    /// </summary>
+    private sealed class InterfaceImplementationTraversalBudget(
+        Action<int>? observeDecodeWork)
+    {
+        int _candidateCount;
+        int _workNodes;
+
+        internal bool TryEnqueue(
+            EntityHandle handle,
+            ExtensionSignatureType identity,
+            Queue<InterfaceImplementationCandidate> pending)
+        {
+            if (_candidateCount >=
+                    MetadataSafetyPolicy.MaxConstructedInterfaceImplementationCandidates
+                || !TryMeasureIdentity(identity, out int nodes)
+                || !TryCharge(nodes))
+            {
+                return false;
+            }
+
+            _candidateCount++;
+            pending.Enqueue(
+                new InterfaceImplementationCandidate(handle, identity));
+            return true;
+        }
+
+        internal bool TrySubstitute(
+            ExtensionSignatureType inheritedInterface,
+            ExtensionSignatureType constructedInterface,
+            out ExtensionSignatureType substitutedInterface)
+        {
+            if (!TryMeasureSubstitution(
+                    inheritedInterface,
+                    constructedInterface,
+                    out int nodes)
+                || !TryCharge(nodes))
+            {
+                substitutedInterface = default!;
+                return false;
+            }
+
+            substitutedInterface = SubstituteInterfaceTypeParameters(
+                inheritedInterface,
+                constructedInterface);
+            return true;
+        }
+
+        bool TryCharge(int nodes)
+        {
+            if (nodes > MetadataSafetyPolicy.MaxConstructedInterfaceImplementationWorkNodes
+                - _workNodes)
+            {
+                return false;
+            }
+
+            // This model is allocated by substitution after SRM decodes the
+            // metadata signature, so charge it through the same extraction-wide
+            // work ledger that pays for all other signature-derived shapes.
+            observeDecodeWork?.Invoke(nodes);
+            _workNodes += nodes;
+            return true;
+        }
+
+        static bool TryMeasureIdentity(
+            ExtensionSignatureType identity,
+            out int nodes)
+        {
+            nodes = 0;
+            return TryMeasureIdentity(identity, depth: 1, ref nodes);
+        }
+
+        static bool TryMeasureIdentity(
+            ExtensionSignatureType type,
+            int depth,
+            ref int nodes)
+        {
+            if (!TryCountNode(depth, ref nodes))
+                return false;
+
+            return type switch
+            {
+                PrimitiveExtensionSignatureType
+                    or NamedExtensionSignatureType
+                    or GenericParameterExtensionSignatureType => true,
+                ArrayExtensionSignatureType array => TryMeasureIdentity(
+                    array.ElementType,
+                    depth + 1,
+                    ref nodes),
+                WrappedExtensionSignatureType wrapped => TryMeasureIdentity(
+                    wrapped.ElementType,
+                    depth + 1,
+                    ref nodes),
+                GenericExtensionSignatureType generic =>
+                    TryMeasureIdentity(generic.GenericType, depth + 1, ref nodes)
+                    && TryMeasureIdentities(
+                        generic.TypeArguments,
+                        depth + 1,
+                        ref nodes),
+                FunctionPointerExtensionSignatureType functionPointer =>
+                    TryMeasureIdentity(
+                        functionPointer.ReturnType,
+                        depth + 1,
+                        ref nodes)
+                    && TryMeasureIdentities(
+                        functionPointer.ParameterTypes,
+                        depth + 1,
+                        ref nodes),
+                ModifiedExtensionSignatureType modified =>
+                    TryMeasureIdentity(modified.Modifier, depth + 1, ref nodes)
+                    && TryMeasureIdentity(
+                        modified.UnmodifiedType,
+                        depth + 1,
+                        ref nodes),
+                _ => false,
+            };
+        }
+
+        static bool TryMeasureIdentities(
+            ImmutableArray<ExtensionSignatureType> types,
+            int depth,
+            ref int nodes)
+        {
+            foreach (ExtensionSignatureType type in types)
+            {
+                if (!TryMeasureIdentity(type, depth, ref nodes))
+                    return false;
+            }
+            return true;
+        }
+
+        static bool TryMeasureSubstitution(
+            ExtensionSignatureType inheritedInterface,
+            ExtensionSignatureType constructedInterface,
+            out int nodes)
+        {
+            ImmutableArray<ExtensionSignatureType> arguments =
+                constructedInterface is GenericExtensionSignatureType generic
+                    ? generic.TypeArguments
+                    : [];
+            nodes = 0;
+            return TryMeasureSubstitution(
+                inheritedInterface,
+                arguments,
+                depth: 1,
+                ref nodes);
+        }
+
+        static bool TryMeasureSubstitution(
+            ExtensionSignatureType type,
+            ImmutableArray<ExtensionSignatureType> arguments,
+            int depth,
+            ref int nodes)
+        {
+            if (type is GenericParameterExtensionSignatureType
+                {
+                    IsMethodParameter: false,
+                    Index: var index
+                }
+                && index < arguments.Length)
+            {
+                return TryMeasureIdentity(arguments[index], depth, ref nodes);
+            }
+
+            if (!TryCountNode(depth, ref nodes))
+                return false;
+
+            return type switch
+            {
+                PrimitiveExtensionSignatureType
+                    or NamedExtensionSignatureType
+                    or GenericParameterExtensionSignatureType => true,
+                ArrayExtensionSignatureType array => TryMeasureSubstitution(
+                    array.ElementType,
+                    arguments,
+                    depth + 1,
+                    ref nodes),
+                WrappedExtensionSignatureType wrapped => TryMeasureSubstitution(
+                    wrapped.ElementType,
+                    arguments,
+                    depth + 1,
+                    ref nodes),
+                GenericExtensionSignatureType generic =>
+                    TryMeasureSubstitution(
+                        generic.GenericType,
+                        arguments,
+                        depth + 1,
+                        ref nodes)
+                    && TryMeasureSubstitutions(
+                        generic.TypeArguments,
+                        arguments,
+                        depth + 1,
+                        ref nodes),
+                FunctionPointerExtensionSignatureType functionPointer =>
+                    TryMeasureSubstitution(
+                        functionPointer.ReturnType,
+                        arguments,
+                        depth + 1,
+                        ref nodes)
+                    && TryMeasureSubstitutions(
+                        functionPointer.ParameterTypes,
+                        arguments,
+                        depth + 1,
+                        ref nodes),
+                ModifiedExtensionSignatureType modified =>
+                    TryMeasureSubstitution(
+                        modified.Modifier,
+                        arguments,
+                        depth + 1,
+                        ref nodes)
+                    && TryMeasureSubstitution(
+                        modified.UnmodifiedType,
+                        arguments,
+                        depth + 1,
+                        ref nodes),
+                _ => false,
+            };
+        }
+
+        static bool TryMeasureSubstitutions(
+            ImmutableArray<ExtensionSignatureType> types,
+            ImmutableArray<ExtensionSignatureType> arguments,
+            int depth,
+            ref int nodes)
+        {
+            foreach (ExtensionSignatureType type in types)
+            {
+                if (!TryMeasureSubstitution(
+                        type,
+                        arguments,
+                        depth,
+                        ref nodes))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        static bool TryCountNode(int depth, ref int nodes)
+        {
+            if (depth >
+                    MetadataSafetyPolicy.MaxConstructedInterfaceImplementationDepth
+                || nodes >=
+                    MetadataSafetyPolicy.MaxConstructedInterfaceImplementationWorkNodes)
+            {
+                return false;
+            }
+
+            nodes++;
+            return true;
+        }
+    }
+
+    private static bool ContainsUnsubstitutedGenericParameter(
+        ExtensionSignatureType type)
+        => type switch
+        {
+            GenericParameterExtensionSignatureType => true,
+            ArrayExtensionSignatureType array =>
+                ContainsUnsubstitutedGenericParameter(array.ElementType),
+            WrappedExtensionSignatureType wrapped =>
+                ContainsUnsubstitutedGenericParameter(wrapped.ElementType),
+            GenericExtensionSignatureType generic =>
+                ContainsUnsubstitutedGenericParameter(generic.GenericType)
+                || generic.TypeArguments.Any(
+                    ContainsUnsubstitutedGenericParameter),
+            FunctionPointerExtensionSignatureType functionPointer =>
+                ContainsUnsubstitutedGenericParameter(functionPointer.ReturnType)
+                || functionPointer.ParameterTypes.Any(
+                    ContainsUnsubstitutedGenericParameter),
+            ModifiedExtensionSignatureType modified =>
+                ContainsUnsubstitutedGenericParameter(modified.Modifier)
+                || ContainsUnsubstitutedGenericParameter(
+                    modified.UnmodifiedType),
+            _ => false,
+        };
+
+    private static ExtensionSignatureType? TryGetExtensionSignatureType(
+        MetadataReader reader,
+        EntityHandle handle,
+        MetadataTypeScope? currentScope,
+        Action<int>? beforeDecodeWork)
+    {
+        var provider = new ExtensionSignatureTypeProvider(
+            currentScope,
+            beforeDecodeWork);
+        return handle.Kind switch
+        {
+            HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeReference => provider.GetTypeFromReference(
+                reader,
+                (TypeReferenceHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeSpecification => provider.GetTypeFromSpecification(
+                reader,
+                context: null,
+                handle: (TypeSpecificationHandle)handle,
+                rawTypeKind: 0),
+            _ => null,
+        };
+    }
+
+    private static ExtensionSignatureType SubstituteInterfaceTypeParameters(
+        ExtensionSignatureType type,
+        ExtensionSignatureType constructedInterface)
+    {
+        ImmutableArray<ExtensionSignatureType> arguments =
+            constructedInterface is GenericExtensionSignatureType generic
+                ? generic.TypeArguments
+                : [];
+        return SubstituteInterfaceTypeParameters(type, arguments);
+    }
+
+    private static ExtensionSignatureType SubstituteInterfaceTypeParameters(
+        ExtensionSignatureType type,
+        ImmutableArray<ExtensionSignatureType> arguments)
+        => type switch
+        {
+            GenericParameterExtensionSignatureType
+                {
+                    IsMethodParameter: false,
+                    Index: var index
+                }
+                when index < arguments.Length => arguments[index],
+            ArrayExtensionSignatureType array => new ArrayExtensionSignatureType(
+                SubstituteInterfaceTypeParameters(array.ElementType, arguments),
+                array.Rank,
+                array.Sizes,
+                array.LowerBounds),
+            WrappedExtensionSignatureType wrapped => new WrappedExtensionSignatureType(
+                SubstituteInterfaceTypeParameters(wrapped.ElementType, arguments),
+                wrapped.Kind),
+            GenericExtensionSignatureType generic => new GenericExtensionSignatureType(
+                SubstituteInterfaceTypeParameters(generic.GenericType, arguments),
+                generic.TypeArguments.Select(
+                    argument => SubstituteInterfaceTypeParameters(
+                        argument,
+                        arguments)).ToImmutableArray()),
+            FunctionPointerExtensionSignatureType functionPointer =>
+                new FunctionPointerExtensionSignatureType(
+                    functionPointer.CallingConvention,
+                    functionPointer.Attributes,
+                    functionPointer.GenericParameterCount,
+                    functionPointer.RequiredParameterCount,
+                    functionPointer.ParameterTypes.Select(
+                        parameter => SubstituteInterfaceTypeParameters(
+                            parameter,
+                            arguments)).ToImmutableArray(),
+                    SubstituteInterfaceTypeParameters(
+                        functionPointer.ReturnType,
+                        arguments)),
+            ModifiedExtensionSignatureType modified =>
+                new ModifiedExtensionSignatureType(
+                    SubstituteInterfaceTypeParameters(
+                        modified.Modifier,
+                        arguments),
+                    SubstituteInterfaceTypeParameters(
+                        modified.UnmodifiedType,
+                        arguments),
+                    modified.IsRequired),
+            _ => type,
+        };
 
     private static bool TargetsClassHierarchy(
         MetadataReader reader,
@@ -4241,6 +5086,8 @@ public static class ApiSurfaceExtractor
 
         var typeHandle = method.GetDeclaringType();
         var typeDef = reader.GetTypeDefinition(typeHandle);
+        if (!IsFinalizerOwner(reader, typeDef))
+            return false;
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
@@ -4259,6 +5106,34 @@ public static class ApiSurfaceExtractor
             method,
             currentScope: null,
             localTypes: null);
+    }
+
+    private static bool IsFinalizerOwner(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        if ((type.Attributes & TypeAttributes.Interface) != 0)
+            return false;
+
+        // Keep the PDB-only classifier aligned with API extraction's
+        // class-only gate. A malformed value type or delegate can carry a
+        // finalizer-shaped MethodImpl, but it is not a class destructor.
+        try
+        {
+            return TypeResolver.GetTypeName(reader, type.BaseType) is not (
+                "System.Enum"
+                or "System.ValueType"
+                or "System.Delegate"
+                or "System.MulticastDelegate");
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            // PDB projection has no surface failure channel. Treat a malformed
+            // owner as not proven to be a class instead of leaking a reader
+            // exception from a finalizer predicate.
+            return false;
+        }
     }
 
     // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set

@@ -124,6 +124,25 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_PreservesExtensionPropertyLookalikeWithOptionalModifier()
+    {
+        using var stream = new MemoryStream(
+            EmitExtensionPropertyImplementationLookalike());
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var host = Assert.Single(surface.Types, type => type.Name == "Host");
+        var lookalike = Assert.Single(
+            host.Members,
+            member => member.Kind == "method" && member.Name == "get_Value");
+
+        Assert.Equal("bool get_Value(int arg0)", lookalike.Signature);
+        Assert.NotNull(
+            Assert.Single(lookalike.SignatureModel!.Parameters).StructuralType);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
     public void Extract_PreservesRefReadonlyReturnInMethodSignatures()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -1541,6 +1560,78 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RecognizesExactConstructedInterfaceMethodImpl()
+    {
+        using var stream = new MemoryStream(
+            EmitConstructedInterfaceMethodImpl(matchesImplementedInterface: true));
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var member = Assert.Single(
+            Assert.Single(surface.Types, type => type.Name == "Implementation").Members,
+            candidate => candidate.Name == "Mapped");
+
+        Assert.Equal("explicit-interface-implementation", member.Kind);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
+    public void Extract_RejectsMismatchedConstructedInterfaceMethodImpl()
+    {
+        using var stream = new MemoryStream(
+            EmitConstructedInterfaceMethodImpl(matchesImplementedInterface: false));
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var member = Assert.Single(
+            Assert.Single(surface.Types, type => type.Name == "Implementation").Members,
+            candidate => candidate.Name == "Mapped");
+
+        Assert.Equal("method", member.Kind);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
+    public void Extract_PreservesMethodImplThroughUnsubstitutedGenericBaseInterface()
+    {
+        using var stream = new MemoryStream(
+            EmitInterfaceInheritedThroughConstructedGenericBase());
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var member = Assert.Single(
+            Assert.Single(surface.Types, type => type.Name == "Derived").Members,
+            candidate => candidate.Name == "Mapped");
+
+        // Base<int>'s InterfaceImpl is encoded as I<!0>. Until the base
+        // construction is carried through this walk, treating it as a proven
+        // non-match would hide a possible explicit implementation.
+        Assert.Equal("explicit-interface-implementation", member.Kind);
+        Assert.Null(member.Accessibility);
+    }
+
+    [Fact]
+    public void Extract_MalformedRecursiveConstructedInterfaceInheritanceIsBoundedAndVisible()
+    {
+        using var stream = new MemoryStream(
+            EmitRecursiveConstructedInterfaceMethodImpl());
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                type => type.Name == "Implementation").Members,
+            candidate => candidate.Name == "Mapped");
+
+        // IRecursive<T> : IRecursive<IRecursive<T>> grows its constructed
+        // identity at every breadth-first edge. Hitting the safety bound is
+        // unresolved ownership, not proof that this named method is ordinary.
+        Assert.Equal("explicit-interface-implementation", member.Kind);
+        Assert.Null(member.Accessibility);
+    }
+
+    [Fact]
     public void Extract_TreatsAssemblySimpleNamesCaseInsensitivelyForClassOverrides()
     {
         using var stream = new MemoryStream(EmitCaseVariantClassOverride());
@@ -1778,7 +1869,7 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
-    public void Extract_ReportsCrossTypeAccessorWithoutSuppressingUnrelatedMethod()
+    public void Extract_DoesNotReuseAccessorOwnershipAcrossAssociations()
     {
         byte[] image = EmitCrossTypeMethodSemantics();
         ApiSurface surface;
@@ -1790,20 +1881,49 @@ public class ApiSurfaceExtractorTests
         var victim = Assert.Single(surface.Types, candidate => candidate.Name == "Victim");
 
         Assert.DoesNotContain(holder.Members, member => member.Kind == "property");
-        Assert.Contains(victim.Members, member => member.Kind == "method" && member.Name == "UnrelatedMethod");
+        Assert.DoesNotContain(holder.Members, member => member.Kind == "event");
+        Assert.Contains(victim.Members, member => member.Kind == "property" && member.Name == "Owned");
+        Assert.Contains(victim.Members, member => member.Kind == "event" && member.Name == "OwnedEvent");
+        Assert.DoesNotContain(
+            victim.Members,
+            member => member.Kind == "method"
+                && member.Name is "get_Owned" or "add_OwnedEvent" or "remove_OwnedEvent");
         Assert.Contains(
             surface.InspectionFailures,
             failure => failure.Operation == "property getter"
+                && failure.Detail.Contains("not association owner", StringComparison.Ordinal));
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation == "event adder"
                 && failure.Detail.Contains("not association owner", StringComparison.Ordinal));
 
         using var summaryStream = new MemoryStream(image);
         using var summaryReader = new PEReader(summaryStream);
         var summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
-        Assert.Equal(0, summary.PublicPropertyCount);
+        Assert.Equal(1, summary.PublicPropertyCount);
+        Assert.Equal(1, summary.PublicEventCount);
         Assert.Contains(
             summary.InspectionFailures,
             failure => failure.Operation == "property getter"
                 && failure.Detail.Contains("not association owner", StringComparison.Ordinal));
+        Assert.Contains(
+            summary.InspectionFailures,
+            failure => failure.Operation == "event adder"
+                && failure.Detail.Contains("not association owner", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Extract_ForeignAssociationDoesNotSuppressNamedMethodOnOwningType()
+    {
+        using var stream = new MemoryStream(EmitCrossTypeMethodSemantics());
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var victim = Assert.Single(surface.Types, candidate => candidate.Name == "Victim");
+
+        Assert.Contains(
+            victim.Members,
+            member => member.Kind == "method" && member.Name == "get_Foreign");
     }
 
     [Fact]
@@ -2435,7 +2555,7 @@ public class ApiSurfaceExtractorTests
             objectRef,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
+        var victim = metadata.AddTypeDefinition(
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class,
             default,
             metadata.GetOrAddString("Victim"),
@@ -2443,23 +2563,530 @@ public class ApiSurfaceExtractorTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
-        var unrelatedMethod = metadata.AddMethodDefinition(
+        var ownedGetter = metadata.AddMethodDefinition(
             System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.HideBySig,
             System.Reflection.MethodImplAttributes.IL,
-            metadata.GetOrAddString("UnrelatedMethod"),
+            metadata.GetOrAddString("get_Owned"),
             metadata.GetOrAddBlob(Int32NullaryInstanceSignature()),
             bodyOffset,
             parameterList: MetadataTokens.ParameterHandle(1));
-        var property = metadata.AddProperty(
+        var foreignGetter = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Foreign"),
+            metadata.GetOrAddBlob(Int32NullaryInstanceSignature()),
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        var ownedAdder = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("add_OwnedEvent"),
+            metadata.GetOrAddBlob(VoidNullaryInstanceSignature()),
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        var ownedRemover = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("remove_OwnedEvent"),
+            metadata.GetOrAddBlob(VoidNullaryInstanceSignature()),
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        var stolenProperty = metadata.AddProperty(
             System.Reflection.PropertyAttributes.None,
             metadata.GetOrAddString("Value"),
             metadata.GetOrAddBlob(Int32PropertySignature()));
-        metadata.AddPropertyMap(holder, property);
+        var ownedProperty = metadata.AddProperty(
+            System.Reflection.PropertyAttributes.None,
+            metadata.GetOrAddString("Owned"),
+            metadata.GetOrAddBlob(Int32PropertySignature()));
+        metadata.AddPropertyMap(holder, stolenProperty);
+        metadata.AddPropertyMap(victim, ownedProperty);
+        metadata.AddMethodSemantics(
+            stolenProperty,
+            System.Reflection.MethodSemanticsAttributes.Getter,
+            foreignGetter);
+        metadata.AddMethodSemantics(
+            ownedProperty,
+            System.Reflection.MethodSemanticsAttributes.Getter,
+            ownedGetter);
+
+        var stolenEvent = metadata.AddEvent(
+            System.Reflection.EventAttributes.None,
+            metadata.GetOrAddString("Changed"),
+            objectRef);
+        var ownedEvent = metadata.AddEvent(
+            System.Reflection.EventAttributes.None,
+            metadata.GetOrAddString("OwnedEvent"),
+            objectRef);
+        metadata.AddEventMap(holder, stolenEvent);
+        metadata.AddEventMap(victim, ownedEvent);
+        foreach (var @event in new[] { stolenEvent, ownedEvent })
+        {
+            metadata.AddMethodSemantics(
+                @event,
+                System.Reflection.MethodSemanticsAttributes.Adder,
+                ownedAdder);
+            metadata.AddMethodSemantics(
+                @event,
+                System.Reflection.MethodSemanticsAttributes.Remover,
+                ownedRemover);
+        }
+        return SerializeAdversarialMetadata(metadata, methodBodies);
+    }
+
+    static byte[] EmitExtensionPropertyImplementationLookalike()
+    {
+        var metadata = CreateAdversarialMetadata(
+            "ExtensionPropertyImplementationLookalike");
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        var extensionAttribute = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("ExtensionAttribute"));
+        var markerAttribute = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("ExtensionMarkerAttribute"));
+        var modifier = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsConst"));
+        BlobHandle attributeConstructorSignature =
+            metadata.GetOrAddBlob(VoidNullaryInstanceSignature());
+        var extensionConstructor = metadata.AddMemberReference(
+            extensionAttribute,
+            metadata.GetOrAddString(".ctor"),
+            attributeConstructorSignature);
+        var markerConstructor = metadata.AddMemberReference(
+            markerAttribute,
+            metadata.GetOrAddString(".ctor"),
+            attributeConstructorSignature);
+        BlobHandle emptyAttribute = metadata.GetOrAddBlob(
+            new byte[] { 0x01, 0x00 });
+        var markerValue = new BlobBuilder();
+        markerValue.WriteUInt16(1);
+        markerValue.WriteSerializedString("Marker");
+
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = AddRetBody(methodBodies);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var host = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var group = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.NestedPublic
+                | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Group"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+        var marker = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.NestedPublic
+                | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Marker"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(4));
+        metadata.AddNestedType(group, host);
+        metadata.AddNestedType(marker, group);
+
+        BlobHandle implementationSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x01, 0x02, 0x08 }); // static bool (int)
+        metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Static
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            implementationSignature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var modifiedSignature = new BlobBuilder();
+        modifiedSignature.WriteByte(0x00); // static default
+        modifiedSignature.WriteByte(0x01); // one parameter
+        modifiedSignature.WriteByte(0x02); // bool return
+        modifiedSignature.WriteByte(0x20); // modopt
+        modifiedSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(modifier) << 2 | 1);
+        modifiedSignature.WriteByte(0x08); // int32
+        metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Static
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(modifiedSignature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var getter = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.SpecialName
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x02 }), // instance bool ()
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Static
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("<Extension>$"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x01, 0x01, 0x08 }), // static void (int)
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var property = metadata.AddProperty(
+            System.Reflection.PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x08, 0x00, 0x02 })); // bool Value
+        metadata.AddPropertyMap(group, property);
         metadata.AddMethodSemantics(
             property,
             System.Reflection.MethodSemanticsAttributes.Getter,
-            unrelatedMethod);
+            getter);
+        metadata.AddCustomAttribute(host, extensionConstructor, emptyAttribute);
+        metadata.AddCustomAttribute(group, extensionConstructor, emptyAttribute);
+        metadata.AddCustomAttribute(
+            property,
+            markerConstructor,
+            metadata.GetOrAddBlob(markerValue));
         return SerializeAdversarialMetadata(metadata, methodBodies);
+    }
+
+    static byte[] EmitConstructedInterfaceMethodImpl(
+        bool matchesImplementedInterface)
+    {
+        var metadata = CreateAdversarialMetadata("ConstructedInterfaceMethodImpl");
+        var objectRef = AddCoreLibraryReferences(metadata);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = AddRetBody(methodBodies);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var contract = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("IContract`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var implementation = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Implementation"),
+            objectRef,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddGenericParameter(
+            contract,
+            System.Reflection.GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        BlobHandle signature = metadata.GetOrAddBlob(
+            VoidNullaryInstanceSignature());
+        metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Abstract
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signature,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        var body = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signature,
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        TypeSpecificationHandle implemented =
+            AddConstructedInterface(metadata, contract, SignatureTypeCode.String);
+        TypeSpecificationHandle declaration =
+            AddConstructedInterface(
+                metadata,
+                contract,
+                matchesImplementedInterface
+                    ? SignatureTypeCode.String
+                    : SignatureTypeCode.Int32);
+        metadata.AddInterfaceImplementation(implementation, implemented);
+        metadata.AddMethodImplementation(
+            implementation,
+            body,
+            metadata.AddMemberReference(
+                declaration,
+                metadata.GetOrAddString("Mapped"),
+                signature));
+        return SerializeAdversarialMetadata(metadata, methodBodies);
+    }
+
+    static byte[] EmitInterfaceInheritedThroughConstructedGenericBase()
+    {
+        var metadata = CreateAdversarialMetadata("ConstructedGenericBaseInterface");
+        var objectRef = AddCoreLibraryReferences(metadata);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = AddRetBody(methodBodies);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var contract = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("IContract`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var genericBase = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Base`1"),
+            objectRef,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        TypeSpecificationHandle baseOfInt = AddConstructedInterface(
+            metadata,
+            genericBase,
+            SignatureTypeCode.Int32);
+        var derived = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Derived"),
+            baseOfInt,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddGenericParameter(
+            contract,
+            System.Reflection.GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            genericBase,
+            System.Reflection.GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        BlobHandle signature = metadata.GetOrAddBlob(
+            VoidNullaryInstanceSignature());
+        metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Abstract
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signature,
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        var body = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signature,
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        metadata.AddInterfaceImplementation(
+            genericBase,
+            AddConstructedInterfaceWithTypeParameter(
+                metadata,
+                contract,
+                parameterIndex: 0));
+        metadata.AddMethodImplementation(
+            derived,
+            body,
+            metadata.AddMemberReference(
+                AddConstructedInterface(
+                    metadata,
+                    contract,
+                    SignatureTypeCode.Int32),
+                metadata.GetOrAddString("Mapped"),
+                signature));
+        return SerializeAdversarialMetadata(metadata, methodBodies);
+    }
+
+    static byte[] EmitRecursiveConstructedInterfaceMethodImpl()
+    {
+        var metadata = CreateAdversarialMetadata("RecursiveConstructedInterface");
+        var objectRef = AddCoreLibraryReferences(metadata);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = AddRetBody(methodBodies);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var target = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("ITarget"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var recursive = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Interface
+                | System.Reflection.TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("IRecursive`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var implementation = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Implementation"),
+            objectRef,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            recursive,
+            System.Reflection.GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        BlobHandle signature = metadata.GetOrAddBlob(
+            VoidNullaryInstanceSignature());
+        var body = metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.Final
+                | System.Reflection.MethodAttributes.Virtual
+                | System.Reflection.MethodAttributes.NewSlot
+                | System.Reflection.MethodAttributes.HideBySig,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signature,
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        metadata.AddInterfaceImplementation(
+            recursive,
+            AddRecursiveInterface(metadata, recursive));
+        metadata.AddInterfaceImplementation(
+            implementation,
+            AddConstructedInterface(
+                metadata,
+                recursive,
+                SignatureTypeCode.Int32));
+        metadata.AddMethodImplementation(
+            implementation,
+            body,
+            metadata.AddMemberReference(
+                target,
+                metadata.GetOrAddString("Mapped"),
+                signature));
+        return SerializeAdversarialMetadata(metadata, methodBodies);
+    }
+
+    static TypeSpecificationHandle AddConstructedInterface(
+        MetadataBuilder metadata,
+        TypeDefinitionHandle contract,
+        SignatureTypeCode argument)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15); // generic instantiation
+        signature.WriteByte(0x12); // class
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(contract) << 2);
+        signature.WriteByte(0x01); // one type argument
+        signature.WriteByte((byte)argument);
+        return metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+    }
+
+    static TypeSpecificationHandle AddConstructedInterfaceWithTypeParameter(
+        MetadataBuilder metadata,
+        TypeDefinitionHandle contract,
+        int parameterIndex)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15); // generic instantiation
+        signature.WriteByte(0x12); // class
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(contract) << 2);
+        signature.WriteByte(0x01); // one type argument
+        signature.WriteByte(0x13); // VAR
+        signature.WriteCompressedInteger(parameterIndex);
+        return metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+    }
+
+    static TypeSpecificationHandle AddRecursiveInterface(
+        MetadataBuilder metadata,
+        TypeDefinitionHandle recursive)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15); // generic instantiation
+        signature.WriteByte(0x12); // class
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(recursive) << 2);
+        signature.WriteByte(0x01); // one type argument
+        signature.WriteByte(0x15); // generic instantiation
+        signature.WriteByte(0x12); // class
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(recursive) << 2);
+        signature.WriteByte(0x01); // one type argument
+        signature.WriteByte(0x13); // VAR
+        signature.WriteByte(0x00); // !0
+        return metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
     }
 
     static MetadataBuilder CreateAdversarialMetadata(string assemblyName)
