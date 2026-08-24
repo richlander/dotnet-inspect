@@ -69,6 +69,17 @@ literal token `PR #<number>` or `PR <number>`, plus the branch or expected head
 when relevant. Round completions must use the report in
 [`docs/round-orchestration.md`](docs/round-orchestration.md#the-round-report).
 
+### Separate status from approval prompts
+
+When a decision needs supporting status or analysis, emit that material first
+as normal visible assistant output. Only after it appears in the session log
+may you open the interactive approval prompt.
+
+The prompt contains only the concise decision question and short answer labels.
+Do not repeat or move the round report, architectural checkpoint, carry-forward
+analysis, evidence, or recommendation into the prompt. The prompt is a control,
+not the record.
+
 ### Publish your state where tooling can read it
 
 Update both window-scoped options whenever state changes:
@@ -86,8 +97,8 @@ tmux set -w -t "$TMUX_PANE" -u @agent_state
 
 Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
 `pr` and `head`; add `round`, `reviews`, `blocked`, and `rec` when applicable.
-Values contain no spaces. `rec` is `wait`, `merge`, `approve`, or `stop`.
-Clear both options when the window no longer owns a PR.
+Values contain no spaces. `rec` is `continue`, `wait`, `merge`, `approve`, or
+`stop`. Clear both options when the window no longer owns a PR.
 
 ### Signal when you need a person
 
@@ -508,8 +519,10 @@ A review is **review-clean** when public reconciliation leaves no finding
 unresolved and the head did not move in response. A justified dismissal counts
 only when recorded publicly. A fix-producing round can complete but is not
 review-clean; only the replacement head can earn that status. A review-clean
-round ends adversarial review. The report classification `clean` is narrower:
-use it only when reviewers returned no findings.
+round ends adversarial review. The report classification `clean` is narrower
+and mandatory when every required reviewer returned no findings and the locked
+head stayed unchanged. Use `converging`, `neutral`, or `diverging` only when at
+least one reviewer returned a finding.
 
 #### Recovery transitions
 
@@ -560,6 +573,10 @@ the change and the user approves, integrate that exact tip and carry the clean
 reviews to the new head without another round. If the tip moves again before
 integration, re-analyze and ask again. A decline leaves the reviewed head
 blocked; do not re-ask.
+
+Publish the analysis and recommendation as normal session output before opening
+the approval prompt. The prompt asks only whether to carry the clean reviews
+forward to the named tip.
 
 If the range can interact, carry-forward is unavailable. Ask whether to
 integrate, validate, and re-review, or leave the PR blocked. Do not re-ask after
@@ -623,9 +640,15 @@ current PR.
 
 ### Stop after six rounds
 
-Do not start round 7 without user approval. Each approval allows at most six
-more rounds; stop sooner when review converges. Conflict recovery may resolve
-and push immediately, but reviewers still wait for approval at the boundary.
+Rounds 1-6 are the initial authorized block. Within an authorized block, a
+fix-producing round that requires replacement review continues automatically
+to the next round. Report `Recommendation: continue` and begin the next
+candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
+
+Approval is required only before rounds 7, 13, 19, and so on. Each approval
+allows at most six more rounds; stop sooner when review converges. At a block
+boundary, conflict recovery may resolve and push immediately, but reviewers
+still wait for approval.
 
 Before requesting another block, answer:
 
@@ -648,6 +671,10 @@ implementation block, switch to a docs-only design PR, or stop. If consecutive
 rounds only strengthen the harness while the product goes unchallenged, report
 that count and recommend a final round or a stop waiver rather than continuing
 by reflex.
+
+Publish the complete checkpoint as normal session output before opening the
+approval prompt. The prompt asks only which recommended action to authorize; it
+must not contain the checkpoint itself.
 
 ## Lead with the demo
 

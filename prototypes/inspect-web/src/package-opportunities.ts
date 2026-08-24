@@ -29,6 +29,7 @@ export interface PackageOpportunitiesBindingActions {
 
 export interface PackageOpportunityTarget {
   typeId: string;
+  sourceIdentity: "legacy" | "exact" | "unknown";
   sourceDefinitionId: string | null;
   sourceAssembly: string | null;
   sourceAssemblyVersion: string | null;
@@ -45,6 +46,11 @@ export function bindPackageOpportunities(
       "click",
       () => actions.onTypeSelect({
         typeId: button.dataset.oppType ?? "",
+        sourceIdentity: button.dataset.oppSourceIdentity === "exact"
+          ? "exact"
+          : button.dataset.oppSourceIdentity === "unknown"
+            ? "unknown"
+            : "legacy",
         sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
         sourceAssembly: button.dataset.oppSourceAssembly ?? null,
         sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,
@@ -106,9 +112,14 @@ function renderLookForChips(lookFor: string, escapeHtml: (value: unknown) => str
 function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown) => string): string {
   const api = splitApiName(item.api);
   const kind = splitOpportunityKind(item.integrationType);
-  const sourceIdentity = item.sourceDefinitionId
-    ? ` data-opp-source-definition="${escapeHtml(item.sourceDefinitionId)}" data-opp-source-assembly="${escapeHtml(item.sourceAssembly)}" data-opp-source-version="${escapeHtml(item.sourceAssemblyVersion)}" data-opp-source-culture="${escapeHtml(item.sourceAssemblyCulture ?? "")}" data-opp-source-token="${escapeHtml(item.sourceAssemblyPublicKeyToken ?? "")}"`
-    : "";
+  const hasSourceIdentity = Object.prototype.hasOwnProperty.call(
+    item,
+    "sourceDefinitionId");
+  const sourceIdentity = !hasSourceIdentity
+    ? ""
+    : item.sourceDefinitionId
+      ? ` data-opp-source-identity="exact" data-opp-source-definition="${escapeHtml(item.sourceDefinitionId)}" data-opp-source-assembly="${escapeHtml(item.sourceAssembly)}" data-opp-source-version="${escapeHtml(item.sourceAssemblyVersion)}" data-opp-source-culture="${escapeHtml(item.sourceAssemblyCulture ?? "")}" data-opp-source-token="${escapeHtml(item.sourceAssemblyPublicKeyToken ?? "")}"`
+      : ` data-opp-source-identity="unknown"`;
   const kindHtml = kind.package
     ? `<button class="opp-package-chip" data-opp-package="${escapeHtml(kind.package)}" title="Load ${escapeHtml(kind.package)} into the workspace">${escapeHtml(kind.package)}</button>${kind.text ? `<span class="opp-kind-text">${escapeHtml(kind.text)}</span>` : ""}`
     : `<span class="opp-kind-text">${escapeHtml(item.integrationType)}</span>`;
