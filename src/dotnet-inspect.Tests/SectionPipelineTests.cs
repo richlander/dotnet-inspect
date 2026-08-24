@@ -4351,6 +4351,57 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public async Task PackageParticipantCatchBoundary_PreservesCancellation()
+    {
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => InspectPackageParticipantWithQueryFailure(
+                new OperationCanceledException("cancelled")));
+    }
+
+    [Fact]
+    public async Task PackageParticipantCatchBoundary_DoesNotSwallowExecutorFailure()
+    {
+        await Assert.ThrowsAsync<InspectionQueryException>(
+            () => InspectPackageParticipantWithQueryFailure(
+                new InspectionQueryException("query contract failed")));
+    }
+
+    [Fact]
+    public async Task PackageParticipantCatchBoundary_DoesNotSwallowDeclarationViolation()
+    {
+        await Assert.ThrowsAsync<QueryCostDeclarationException>(
+            () => InspectPackageParticipantWithQueryFailure(
+                new QueryCostDeclarationException(
+                    "cost declaration failed")));
+    }
+
+    static async Task InspectPackageParticipantWithQueryFailure(
+        Exception failure)
+    {
+        var query = new InspectionQuery<int>(
+            "package-participant-failure",
+            InspectionCost.NetworkFree);
+        var registry = LibrarySections.CreateQueryRegistry()
+            .Add<int>(query, _ => throw failure);
+        using var httpClient = new HttpClient();
+        string assemblyPath =
+            typeof(SectionPipelineTests).Assembly.Location;
+
+        await LibraryCommand.CollectPackageInspectionsAsync(
+            [assemblyPath],
+            new LibraryOptions(),
+            new VerboseLogger(false),
+            packageName: null,
+            packageVersion: null,
+            extractPath:
+                Path.GetDirectoryName(assemblyPath)!,
+            httpClient,
+            signatureResult: null,
+            queries: [query],
+            queryRegistry: registry);
+    }
+
+    [Fact]
     public async Task ProductionQueryCatchBoundary_DoesNotSwallowUnknownDemand()
     {
         var query = new InspectionQuery<int>("unregistered", InspectionCost.NetworkFree);

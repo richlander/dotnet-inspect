@@ -967,7 +967,7 @@ public class LibraryCommand
                         inspection));
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
             CommandError.Write(ex);
             return 1;
@@ -2756,14 +2756,14 @@ public class LibraryCommand
         }
     }
 
-    private readonly record struct PackageInspectionCollection(
+    internal readonly record struct PackageInspectionCollection(
         List<LibraryInspection> Inspections,
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
             IdentifierAuditFailures);
 
-    private static async Task<PackageInspectionCollection>
+    internal static async Task<PackageInspectionCollection>
         CollectPackageInspectionsAsync(
         List<string> assemblyPaths, LibraryOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
@@ -2793,6 +2793,30 @@ public class LibraryCommand
                     extractPath,
                     targetPath)
                 .Replace('\\', '/');
+            ResolvedAssemblyReference? assemblyReference;
+            try
+            {
+                assemblyReference =
+                    integrations?.AssemblyForInspection(targetPath)
+                    ?? ResolvedAssemblyReference
+                        .CreateInspectionReferenceFromPathIfManaged(
+                            targetPath,
+                            inspectionProvenance);
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or NotSupportedException
+                    or ObjectDisposedException
+                    or BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                logger.LogWarning(
+                    $"Could not read library: {Path.GetFileName(targetPath)}: "
+                    + ex.Message);
+                continue;
+            }
 
             LibraryInspection? inspection;
             try
@@ -2808,11 +2832,7 @@ public class LibraryCommand
                     scannerRegistry: scannerRegistry,
                     queries: queries,
                     queryRegistry: queryRegistry,
-                    assemblyReference:
-                        integrations?.AssemblyForInspection(targetPath)
-                        ?? ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(
-                            targetPath,
-                            inspectionProvenance),
+                    assemblyReference: assemblyReference,
                     integrationsEntry:
                         integrations?.EntryFor(targetPath),
                     integrationOpportunitiesEntry:
@@ -2826,13 +2846,6 @@ public class LibraryCommand
             {
                 identifierAuditFailures.Add(
                     (relativePath, ex.FailureKind));
-                continue;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    $"Could not read library: {Path.GetFileName(targetPath)}: "
-                    + ex.Message);
                 continue;
             }
             if (inspection == null)

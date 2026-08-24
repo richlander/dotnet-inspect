@@ -703,8 +703,9 @@ Several current types are migration inputs, not target precedent:
 - `ResolvedAssemblyReference` also carries managed netmodule inspection roots so
   current decompiler consumers retain typed acquisition. Those descriptors use
   module name only as a diagnostic label, bind snapshots by MVID, and are
-  excluded from assembly candidate resolution; whole-type inspection addresses
-  their TypeDefs directly by MVID and token. A future neutral artifact handle
+  excluded from assembly candidate resolution. Every descriptor-backed open
+  revalidates the module MVID; whole-type inspection addresses TypeDefs directly
+  by MVID and token. A future neutral artifact handle
   should represent this case without giving a module an assembly-shaped type.
 - `MetadataContext.Open(string)`, `MetadataSource.OpenCore(string, ...)`, and
   `MetadataSource.OpenFromPrefetchedImage` treat a raw path, or a path paired

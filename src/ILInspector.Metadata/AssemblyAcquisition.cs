@@ -555,35 +555,7 @@ public sealed class ResolvedAssemblyReference
         }
 
         MetadataReader metadata = peReader.GetMetadataReader();
-        if (ModuleVersionId is { } expectedModuleVersionId)
-        {
-            if (metadata.IsAssembly
-                || metadata.GetGuid(metadata.GetModuleDefinition().Mvid)
-                    != expectedModuleVersionId)
-            {
-                throw new BadImageFormatException(
-                    "The prefetched image does not match the acquired "
-                    + $"netmodule MVID '{expectedModuleVersionId}'.");
-            }
-        }
-        else
-        {
-            if (!metadata.IsAssembly)
-            {
-                throw new BadImageFormatException(
-                    "The prefetched image is a netmodule, not the acquired "
-                    + $"assembly '{Identity}'.");
-            }
-
-            AssemblyReferenceIdentity actual =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
-            if (!Identity.IsEquivalentTo(actual))
-            {
-                throw new BadImageFormatException(
-                    $"The prefetched image identity '{actual}' does not match "
-                    + $"the acquired assembly identity '{Identity}'.");
-            }
-        }
+        ValidateOpenedMetadata(metadata);
 
         return new ResolvedAssemblyReference(
             Registration,
@@ -593,6 +565,50 @@ public sealed class ResolvedAssemblyReference
             () => new MemoryStream(image.ToArray(), writable: false),
             Provenance,
             LastWriteTimeUtc);
+    }
+
+    /// <summary>
+    /// Verifies that opened metadata still represents this acquired assembly
+    /// or netmodule.
+    /// </summary>
+    /// <remarks>
+    /// `DescriptorContentIdentityTests` gates descriptor-backed decompiler
+    /// opens; `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
+    /// `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate immutable
+    /// snapshots.
+    /// </remarks>
+    public void ValidateOpenedMetadata(MetadataReader metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        if (ModuleVersionId is { } expectedModuleVersionId)
+        {
+            if (metadata.IsAssembly
+                || metadata.GetGuid(metadata.GetModuleDefinition().Mvid)
+                    != expectedModuleVersionId)
+            {
+                throw new BadImageFormatException(
+                    "The opened image does not match the acquired "
+                    + $"netmodule MVID '{expectedModuleVersionId}'.");
+            }
+        }
+        else
+        {
+            if (!metadata.IsAssembly)
+            {
+                throw new BadImageFormatException(
+                    "The opened image is a netmodule, not the acquired "
+                    + $"assembly '{Identity}'.");
+            }
+
+            AssemblyReferenceIdentity actual =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
+            if (!Identity.IsEquivalentTo(actual))
+            {
+                throw new BadImageFormatException(
+                    $"The opened image identity '{actual}' does not match "
+                    + $"the acquired assembly identity '{Identity}'.");
+            }
+        }
     }
 
     internal ResolvedAssemblyReference WithOpenRead(

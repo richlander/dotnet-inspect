@@ -115,8 +115,8 @@ drives package provenance through the snapshot reader. Snapshotting preserves
 the original acquisition registration and rejects bytes with a different
 assembly identity. Inspection-root netmodules use the same carrier without
 becoming assembly-binding candidates: their module name is diagnostic and their
-MVID binds snapshots and direct whole-type definition addresses to the selected
-content.
+MVID binds every descriptor-backed open, snapshot, and direct whole-type
+definition address to the selected content.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
 `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 

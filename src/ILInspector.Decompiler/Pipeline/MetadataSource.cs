@@ -413,6 +413,7 @@ public sealed class MetadataSource : IDisposable
             if (!peReader.HasMetadata)
                 throw new BadImageFormatException($"No managed metadata: {assembly.Identity.Name}");
             var reader = peReader.GetMetadataReader();
+            assembly.ValidateOpenedMetadata(reader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;

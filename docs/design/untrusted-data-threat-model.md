@@ -401,9 +401,9 @@ sections consume the descriptor overloads.
 derives that boundary from compiled CLI call sites. The snapshot overload
 preserves the descriptor's acquisition registration and rejects a different
 assembly identity. Managed netmodule inspection roots retain the same typed
-acquisition, but snapshot integrity uses the module MVID and they never enter
-assembly candidate resolution. Whole-type composition resolves their exact
-TypeDef directly through an MVID-bound address.
+acquisition, but every descriptor-backed open and snapshot revalidates the
+module MVID, and modules never enter assembly candidate resolution. Whole-type
+composition resolves their exact TypeDef directly through an MVID-bound address.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
 `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 
