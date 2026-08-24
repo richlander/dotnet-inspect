@@ -194,7 +194,12 @@ typed reason for an incomplete comparison. Raw rendered-line limits such as
 `-n` remain presentation truncation and do not change the operation's exit
 status. A session-owned body-added/body-removed record is ordinary `Evidence`,
 not an integrity row: it counts toward `--rows`/`--tail` and remains present
-when no producer-owned display line exists.
+when no producer-owned display line exists. Implementation Diff chooses both
+producer and session fallbacks after native-line filtering, so removing every
+candidate line cannot erase a difference-bearing disposition. Presentation-safe
+partial evidence from a failed disposition is also ordinary, filterable
+`Evidence`; the failed ledger's mandatory diagnostic remains outside the row
+window and cannot be replaced by that partial evidence.
 
 ## How dotnet-inspect flags select a shape
 

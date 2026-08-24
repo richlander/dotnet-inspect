@@ -158,11 +158,13 @@ The common selected-member provenance creates two correlated selection
 requests, not one physical target. Each donor independently mints its own
 `BodyEvidenceTarget` from that donor's API/metadata surface: an exact
 `MetadataMethodAddress` or a carried `MemberBodyTarget`. Each target resolves
-only inside its donor participant. Metadata validates both side-local targets
-before the round-trip request explicitly authorizes the two resolved addresses
-through `DirectMemberPairingDesignation`; neither the common provenance,
-`ResearchMemberIdentity`, an inferred correspondence key, nor one donor's
-strict target pairs the donors.
+only inside its donor participant. The round-trip request first creates a
+`DirectMemberPairingDesignation` that authorizes only the two live donor
+participants and retains their MVIDs. It then constructs
+`DirectMemberComparisonInput` with each Metadata-validated exact address and
+relationship role. Neither the common provenance, `ResearchMemberIdentity`, an
+inferred correspondence key, one donor's strict target, nor the exact addresses
+themselves pair the donors.
 The direct donor comparison applies the existing C# and IL diff contracts.
 Separate original-to-cluster and original-to-all resolution and diff results
 remain available as fidelity evidence, but they are not substituted for the
@@ -515,6 +517,9 @@ required preservation boundary.
 - Scope A/B fixtures change compiler options, references, replacements, body
   policy, normalization, and input identity one at a time and require a typed
   `Unavailable` context-mismatch result.
+- A direct-donor fixture proves the pairing designation retains only participant
+  bindings/MVIDs, the comparison input separately retains both exact
+  addresses/roles, and a wrong-participant address fails validation.
 - A reference fixture supplies different binaries with the same assembly identity
   and requires their content-hash mismatch to make scope A/B unavailable.
 - C# and IL tests retain producer-native unavailable and failed results.
