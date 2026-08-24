@@ -56,7 +56,10 @@ public class NuGetClient(HttpClient client)
             baseAddress,
             $"{Uri.EscapeDataString(normalizedId)}/index.json");
         PackageSourceCredential? endpointCredential =
-            CredentialForEndpoint(sourceUrl, url, credential);
+            NuGetSourceRequest.CredentialForEndpoint(
+                sourceUrl,
+                url,
+                credential);
 
         try
         {
@@ -65,7 +68,9 @@ public class NuGetClient(HttpClient client)
                 {
                     using HttpRequestMessage request =
                         NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
-                    ApplyCredential(request, endpointCredential);
+                    NuGetSourceRequest.ApplyCredential(
+                        request,
+                        endpointCredential);
                     using HttpResponseMessage response = await client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
@@ -186,14 +191,19 @@ public class NuGetClient(HttpClient client)
                 $"{Uri.EscapeDataString(id)}/{Uri.EscapeDataString(ver)}/"
                 + $"{Uri.EscapeDataString($"{id}.{ver}.nupkg")}");
             PackageSourceCredential? endpointCredential =
-                CredentialForEndpoint(sourceUrl, url, credential);
+                NuGetSourceRequest.CredentialForEndpoint(
+                    sourceUrl,
+                    url,
+                    credential);
 
             return await operation.RunStreamingRequestAsync(
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
                         NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
-                    ApplyCredential(request, endpointCredential);
+                    NuGetSourceRequest.ApplyCredential(
+                        request,
+                        endpointCredential);
                     HttpResponseMessage response = await client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
@@ -247,6 +257,14 @@ public class NuGetClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetOperationDeadline operation)
     {
+        if (!NuGetSourceRequest.TryEndpointUrl(
+                serviceIndexUrl,
+                out string normalizedServiceIndexUrl))
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.");
+        }
+
         ServiceIndex? index;
         try
         {
@@ -254,8 +272,12 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGet(serviceIndexUrl);
-                    ApplyCredential(request, credential);
+                        NuGetHttpRequest
+                            .CreateGetPreservingPathAndQuery(
+                                normalizedServiceIndexUrl);
+                    NuGetSourceRequest.ApplyCredential(
+                        request,
+                        credential);
                     using HttpResponseMessage response = await client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
@@ -470,48 +492,6 @@ public class NuGetClient(HttpClient client)
     private NuGetOperationDeadline CreateOperation(
         CancellationToken cancellationToken) =>
         new(_options, client.Timeout, cancellationToken);
-
-    private static void ApplyCredential(HttpRequestMessage request, PackageSourceCredential? credential)
-    {
-        if (credential is not null)
-        {
-            string encoded = Convert.ToBase64String(
-                System.Text.Encoding.ASCII.GetBytes($"{credential.Username}:{credential.Password}"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", encoded);
-        }
-    }
-
-    private static PackageSourceCredential? CredentialForEndpoint(
-        string? sourceUrl,
-        string endpointUrl,
-        PackageSourceCredential? credential)
-    {
-        if (credential is null || sourceUrl is null)
-            return credential;
-
-        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
-            || !Uri.TryCreate(endpointUrl, UriKind.Absolute, out Uri? endpoint))
-        {
-            return null;
-        }
-
-        try
-        {
-            return source.Scheme.Equals(
-                    endpoint.Scheme,
-                    StringComparison.OrdinalIgnoreCase)
-                && source.IdnHost.Equals(
-                    endpoint.IdnHost,
-                    StringComparison.OrdinalIgnoreCase)
-                && source.Port == endpoint.Port
-                    ? credential
-                    : null;
-        }
-        catch (UriFormatException)
-        {
-            return null;
-        }
-    }
 
     internal static string? FindLatestVersion(IReadOnlyList<string> versions, bool includePrerelease)
     {
