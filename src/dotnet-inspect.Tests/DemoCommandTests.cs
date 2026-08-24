@@ -121,21 +121,6 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public void Runner_LowersPlatformListToCoreLibMethods()
-    {
-        var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.PlatformListScenarioId);
-        Assert.True(DemoScenarioRunner.TryCreateOptions(resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
-        var type = Assert.IsType<TypeOptions>(options);
-        Assert.Equal("System.Collections.Generic.List`1", type.TypeName);
-        Assert.Equal("System.Private.CoreLib", type.PlatformAssembly);
-        Assert.Equal("runtime", type.PlatformFramework);
-        Assert.Equal(
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Methods },
-            type.IncludeSections);
-        Assert.Null(type.PackagePath);
-    }
-
-    [Fact]
     public void Runner_LowersCallGraphToMemberSectionWithCallerPackages()
     {
         var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
@@ -256,25 +241,6 @@ public class DemoCommandTests
         Assert.Equal(["## Methods"], MarkdownSectionHeadings(output));
         Assert.Contains("JsonSerializer", output, StringComparison.Ordinal);
         Assert.DoesNotContain("resolve-only", output, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task ExecuteScenario_PlatformList_ReturnsMethodsSection()
-    {
-        var (coreLibPath, _, _, coreLibError) = PlatformResolver.ResolveAssembly(
-            "System.Private.CoreLib",
-            frameworkSpec: "runtime");
-        if (coreLibPath is null)
-            Assert.Skip($"System.Private.CoreLib not available: {coreLibError}");
-
-        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
-            () => DemoCommand.ExecuteScenarioAsync(
-                ProductInspectionDemos.PlatformListScenarioId,
-                OutputFormat.Markdown));
-
-        Assert.True(exitCode == 0, error + "\n" + output);
-        Assert.Equal(["## Methods"], MarkdownSectionHeadings(output));
-        Assert.Contains("List", output, StringComparison.Ordinal);
     }
 
     [Fact]

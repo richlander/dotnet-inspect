@@ -4,7 +4,9 @@ export interface GraphBackBindingActions {
 
 export interface CallGraphNodeBinding {
   onSelect: () => void;
+  label: string;
   platform?: boolean;
+  blocked?: boolean;
 }
 
 export interface GraphPanZoomBindingOptions {
@@ -223,9 +225,17 @@ export function bindGraphPanZoom(
       if (!binding) return;
       node.classList.add("nav-node");
       if (binding.platform) node.classList.add("platform-node");
-      node.style.cursor = "pointer";
+      node.style.cursor = binding.blocked ? "not-allowed" : "pointer";
+      node.setAttribute("tabindex", "0");
+      node.setAttribute("role", "button");
+      node.setAttribute("aria-label", binding.label);
       node.addEventListener("click", () => {
         if (!moved) binding.onSelect();
+      });
+      node.addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        binding.onSelect();
       });
     });
   }
