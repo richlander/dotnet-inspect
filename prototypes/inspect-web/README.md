@@ -533,15 +533,18 @@ following the Metadata explorer's full-bleed interaction model without creating
 a second site or URL. Opening it validates the document, indexes structural
 spans by canonical line, and prepares the projection once per result; selection
 changes and later reopens reuse that immutable projection. The explorer renders
-canonical lines beside anchored and explicitly unanchored facts; supports C#/IL
-visibility, independent fact and exact-node selection, and follows pointer or
-keyboard activation to the tightest structural node. Source activation toggles
-a persistent node selection even when a Finding targets that node: a blue exact
-caret annotation discloses the selected range and related Finding details until
-the node is activated again or selection is cleared. Activating a Finding does
-not clear that node and adds its own orange target caret. The `fact, source
-node, node-kind, and clear actions preserve distinct selection semantics` test
-gates that separation.
+canonical lines beside anchored and explicitly unanchored facts; starts with C#
+visible and IL hidden; supports independent fact and exact-node selection; and
+follows pointer or keyboard activation to the tightest structural node. Source
+activation toggles that node in a persistent set even when a Finding targets
+it: each active node has a blue exact caret until that node is activated again
+or selection is cleared. Activating another node preserves prior node carets.
+All anchored Findings start active with orange target carets; Finding focus and
+caret visibility remain separate so focusing one Finding does not hide the
+others. Clear removes every source and Finding caret. Caret descriptions use
+separate unnumbered rows aligned with the caret start rather than extending
+after the caret run. The `fact, source node, node-kind, and clear actions
+preserve distinct selection semantics` test gates that separation.
 
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
 multi-line source constructs. CodeLens is globally on or off; its unnumbered

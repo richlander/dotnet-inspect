@@ -24,6 +24,7 @@ export interface AnnotatedSourceExplorerState {
   media: Record<SourceMedium, boolean>;
   codeLens: boolean;
   selectedFactId: number | null;
+  activeFactIds: readonly number[];
   selectedCaptureIndex: number | null;
   selectedNodeIds: readonly number[];
   selectedKind: string;
@@ -250,9 +251,10 @@ export function createAnnotatedSourceExplorerState(
   document: AnnotatedSourceDocument,
   initial: Partial<Omit<AnnotatedSourceExplorerState, "prepared">> = {},
 ): AnnotatedSourceExplorerState {
+  const anchoredFactIds = new Set(document.targets.map(target => target.fact_id));
   const media = {
     CSharp: initial.media?.CSharp !== false,
-    Il: initial.media?.Il !== false,
+    Il: initial.media?.Il === true,
   };
   if (!MEDIA.some(medium => media[medium])) media.CSharp = true;
 
@@ -261,6 +263,10 @@ export function createAnnotatedSourceExplorerState(
     media,
     codeLens: initial.codeLens !== false,
     selectedFactId: initial.selectedFactId ?? null,
+    activeFactIds: [...new Set(
+      initial.activeFactIds
+        ?? anchoredFactIds,
+    )].filter(id => anchoredFactIds.has(id)),
     selectedCaptureIndex: initial.selectedCaptureIndex ?? null,
     selectedNodeIds: [...new Set(initial.selectedNodeIds ?? [])],
     selectedKind: initial.selectedKind ?? "",
@@ -282,10 +288,16 @@ export function reduceAnnotatedSourceExplorerState(
       return { ...state, codeLens: !state.codeLens };
     case "select-fact": {
       if (!document.facts.some(fact => fact.id === action.factId)) return state;
-      const selectedFactId = state.selectedFactId === action.factId ? null : action.factId;
+      const selected = state.selectedFactId === action.factId;
+      const anchored = document.targets.some(target => target.fact_id === action.factId);
       return {
         ...state,
-        selectedFactId,
+        selectedFactId: selected ? null : action.factId,
+        activeFactIds: !anchored
+          ? state.activeFactIds
+          : selected
+            ? state.activeFactIds.filter(id => id !== action.factId)
+            : [...new Set([...state.activeFactIds, action.factId])],
         selectedCaptureIndex: null,
         selectedKind: "",
         selectedRegionRole: "",
@@ -300,7 +312,6 @@ export function reduceAnnotatedSourceExplorerState(
         ...state,
         selectedFactId: null,
         selectedCaptureIndex,
-        selectedNodeIds: [],
         selectedKind: "",
         selectedRegionRole: "",
       };
@@ -310,10 +321,7 @@ export function reduceAnnotatedSourceExplorerState(
       return {
         ...state,
         selectedCaptureIndex: null,
-        selectedNodeIds:
-          state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === action.nodeId
-            ? []
-            : [action.nodeId],
+        selectedNodeIds: toggleId(state.selectedNodeIds, action.nodeId),
         selectedKind: "",
         selectedRegionRole: "",
       };
@@ -323,10 +331,8 @@ export function reduceAnnotatedSourceExplorerState(
         ...state,
         selectedCaptureIndex: null,
         selectedNodeIds: node
-          ? state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === node.id
-            ? []
-            : [node.id]
-          : [],
+          ? toggleId(state.selectedNodeIds, node.id)
+          : state.selectedNodeIds,
         selectedKind: "",
         selectedRegionRole: "",
       };
@@ -359,6 +365,7 @@ export function reduceAnnotatedSourceExplorerState(
       return {
         ...state,
         selectedFactId: null,
+        activeFactIds: [],
         selectedCaptureIndex: null,
         selectedNodeIds: [],
         selectedKind: "",
@@ -367,6 +374,10 @@ export function reduceAnnotatedSourceExplorerState(
   }
   const unhandledAction: never = action;
   throw new Error(`Unsupported annotated source explorer action: ${String(unhandledAction)}`);
+}
+
+function toggleId(ids: readonly number[], id: number): number[] {
+  return ids.includes(id) ? ids.filter(candidate => candidate !== id) : [...ids, id];
 }
 
 export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions): string {
@@ -414,6 +425,7 @@ export function renderAnnotatedSourceExplorer(
   const unanchoredIds = new Set(view.unanchoredFactIds);
   const anchoredFacts = view.facts.filter(fact => !unanchoredIds.has(fact.id));
   const unanchoredFacts = view.facts.filter(fact => unanchoredIds.has(fact.id));
+  const activeFactIds = new Set(state.activeFactIds);
   const selectedCapture = view.selectedCaptureIndex === null
     ? null
     : view.captures[view.selectedCaptureIndex];
@@ -441,25 +453,27 @@ export function renderAnnotatedSourceExplorer(
     result.document.text);
   const codeLensNodeIds = new Set(
     [...codeLensAnnotations.values()].flat().map(annotation => annotation.nodeId));
-  const nodeCaretAnnotations = directlySelectedNode
-    && !codeLensNodeIds.has(directlySelectedNode.id)
-    ? sourceNodeCaretAnnotations(
-        directlySelectedNode,
+  const nodeCaretAnnotations = combineCaretAnnotations(
+    persistentSelectedNodes
+      .filter(node => !codeLensNodeIds.has(node.id))
+      .map(node => sourceNodeCaretAnnotations(
+        node,
         view.lines,
         result.document.text,
-        kindLabels.get(directlySelectedNode.kind) ?? directlySelectedNode.kind,
-        directlySelectedNodeFacts)
-    : new Map<number, readonly SourceNodeCaretAnnotation[]>();
-  const selectedFact = view.selectedFactId === null ? null : view.facts[view.selectedFactId];
-  const findingCaretAnnotations = selectedFact
-    ? sourceFindingCaretAnnotations(
-        selectedFact,
-        selectedFact.nodeIds
+        kindLabels.get(node.kind) ?? node.kind,
+        view.facts.filter(fact => fact.nodeIds.includes(node.id)))));
+  const findingCaretAnnotations = combineCaretAnnotations(
+    state.activeFactIds.flatMap(factId => {
+      const fact = view.facts[factId];
+      if (!fact || unanchoredIds.has(fact.id)) return [];
+      return [sourceFindingCaretAnnotations(
+        fact,
+        fact.nodeIds
           .map(id => nodeById.get(id))
           .filter((node): node is AnnotatedSourceNode => node !== undefined),
         view.lines,
-        result.document.text)
-    : new Map<number, readonly SourceNodeCaretAnnotation[]>();
+        result.document.text)];
+    }));
 
   const mediumButtons = MEDIA.map(medium =>
     `<button type="button" class="annotated-medium${view.media[medium] ? " on" : ""}" data-ase-medium="${medium}" aria-pressed="${view.media[medium]}">${escapeHtml(MEDIUM_LABELS[medium])}</button>`,
@@ -558,12 +572,17 @@ export function renderAnnotatedSourceExplorer(
     const carets = [
       ...(nodeCaretAnnotations.get(line.start) ?? []),
       ...(findingCaretAnnotations.get(line.start) ?? []),
-    ].map(annotation =>
-      `<div class="annotated-node-caret ${annotation.plane}" aria-label="${escapeHtml(annotation.accessibleLabel)}">
+    ].map(annotation => `
+      <div class="annotated-node-caret ${annotation.plane}" aria-label="${escapeHtml(annotation.accessibleLabel)}">
         <span class="annotated-line-number"></span>
         ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
-        <span class="annotated-line-text" aria-hidden="true">${escapeHtml(annotation.prefix)}<span class="annotated-caret-run">${"^".repeat(annotation.length)}</span>${annotation.label ? `<span class="annotated-caret-label"> ${escapeHtml(annotation.label)}</span>` : ""}</span>
-      </div>`,
+        <span class="annotated-line-text" aria-hidden="true">${escapeHtml(annotation.prefix)}<span class="annotated-caret-run">${"^".repeat(annotation.length)}</span></span>
+      </div>
+      ${annotation.label ? `<div class="annotated-caret-detail ${annotation.plane}">
+        <span class="annotated-line-number"></span>
+        ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
+        <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<span class="annotated-caret-label">${escapeHtml(annotation.label)}</span></span>
+      </div>` : ""}`,
     ).join("") ?? "";
     return lenses + sourceLine + carets;
   }).join("");
@@ -607,7 +626,7 @@ export function renderAnnotatedSourceExplorer(
           <section class="ase-inspector-section">
             <div class="ase-section-heading">
               <div><span>Selection</span><strong>${escapeHtml(directlySelectedNode ? `Node #${directlySelectedNode.id}` : selectionTitle(view.selectedFactId, selectedCapture, selectedNodes, selectedKindLabel, state.selectedRegionRole, selectedRegions.length))}</strong></div>
-              ${view.selectedFactId !== null || selectedCapture !== null || selectedNodes.length > 0 || selectedRegions.length > 0 ? `<button id="ase-clear" type="button">clear</button>` : ""}
+              ${view.selectedFactId !== null || state.activeFactIds.length > 0 || selectedCapture !== null || state.selectedNodeIds.length > 0 || selectedRegions.length > 0 ? `<button id="ase-clear" type="button">clear</button>` : ""}
             </div>
             ${selectedRegions.length > 0
               ? regionSelectionHtml(selectedRegions, state.prepared, escapeHtml)
@@ -618,16 +637,17 @@ export function renderAnnotatedSourceExplorer(
                       directlySelectedNode,
                       directlySelectedNodeFacts,
                       kindLabels,
+                      activeFactIds,
                       escapeHtml)
                   : selectionHtml(selectedNodes, escapeHtml)}
           </section>
           <section class="ase-inspector-section">
             <div class="ase-section-heading"><div><span>Semantic plane</span><strong>Anchored facts</strong></div><em>${anchoredFacts.length}</em></div>
-            <div class="ase-fact-list">${factListHtml(anchoredFacts, escapeHtml, "No anchored facts were observed.")}</div>
+            <div class="ase-fact-list">${factListHtml(anchoredFacts, activeFactIds, escapeHtml, "No anchored facts were observed.")}</div>
           </section>
           <section class="ase-inspector-section">
             <div class="ase-section-heading"><div><span>No invented coordinate</span><strong>Unanchored facts</strong></div><em>${unanchoredFacts.length}</em></div>
-            <div class="ase-fact-list">${factListHtml(unanchoredFacts, escapeHtml, "None")}</div>
+            <div class="ase-fact-list">${factListHtml(unanchoredFacts, activeFactIds, escapeHtml, "None")}</div>
           </section>
         </aside>
       </div>
@@ -737,7 +757,7 @@ function sourceFindingCaretAnnotations(
         const coordinates = `[${start}..${end})`;
         const annotation = {
           accessibleLabel:
-            `Selected Finding ${factDescription(fact)}, target range ${coordinates}`,
+            `Finding ${factDescription(fact)}, target range ${coordinates}`,
           label: `${factDescription(fact)} · ${coordinates}`,
           length: end - start,
           plane: "finding" as const,
@@ -753,6 +773,20 @@ function sourceFindingCaretAnnotations(
     }
   }
   return annotations;
+}
+
+function combineCaretAnnotations(
+  sources: readonly ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]>[],
+): ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]> {
+  const combined = new Map<number, SourceNodeCaretAnnotation[]>();
+  for (const source of sources) {
+    for (const [lineStart, annotations] of source) {
+      const existing = combined.get(lineStart);
+      if (existing) existing.push(...annotations);
+      else combined.set(lineStart, [...annotations]);
+    }
+  }
+  return combined;
 }
 
 function factDescription(fact: AnnotatedViewFact): string {
@@ -864,6 +898,7 @@ function sourceNodeSelectionHtml(
   node: AnnotatedSourceNode,
   facts: readonly AnnotatedViewFact[],
   labels: ReadonlyMap<string, string>,
+  activeFactIds: ReadonlySet<number>,
   escapeHtml: EscapeHtml,
 ): string {
   const kindLabel = labels.get(node.kind) ?? node.kind;
@@ -874,7 +909,7 @@ function sourceNodeSelectionHtml(
         ? `<p class="ase-node-facts-empty">No Findings target this source node.</p>`
         : `<div class="ase-node-facts">
             <span>Findings at this node</span>
-            ${facts.map(fact => factHtml(fact, escapeHtml)).join("")}
+            ${facts.map(fact => factHtml(fact, activeFactIds, escapeHtml)).join("")}
           </div>`}
     </div>`;
 }
@@ -1014,15 +1049,20 @@ function selectionHtml(
 
 function factListHtml(
   facts: readonly AnnotatedViewFact[],
+  activeFactIds: ReadonlySet<number>,
   escapeHtml: EscapeHtml,
   emptyText: string,
 ): string {
   if (facts.length === 0) return `<p class="ase-empty">${escapeHtml(emptyText)}</p>`;
-  return facts.map(fact => factHtml(fact, escapeHtml)).join("");
+  return facts.map(fact => factHtml(fact, activeFactIds, escapeHtml)).join("");
 }
 
-function factHtml(fact: AnnotatedViewFact, escapeHtml: EscapeHtml): string {
-  return `<button type="button" class="annotated-fact${fact.selected ? " selected" : ""}${fact.anchored ? "" : " unanchored"}" data-ase-fact="${fact.id}" aria-pressed="${fact.selected}">
+function factHtml(
+  fact: AnnotatedViewFact,
+  activeFactIds: ReadonlySet<number>,
+  escapeHtml: EscapeHtml,
+): string {
+  return `<button type="button" class="annotated-fact${fact.selected ? " selected" : ""}${fact.anchored ? "" : " unanchored"}" data-ase-fact="${fact.id}" aria-pressed="${activeFactIds.has(fact.id)}">
       <span class="annotated-fact-descriptor">${escapeHtml(fact.descriptor)}</span>
       <span class="annotated-fact-category">${escapeHtml(fact.category)}</span>
       ${fact.detail ? `<span class="annotated-fact-detail">${escapeHtml(fact.detail)}</span>` : ""}

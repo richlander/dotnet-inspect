@@ -521,9 +521,10 @@ const initialState = {
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
   memberAnnotatedKey: "",
-  memberAnnotatedMedia: { CSharp: true, Il: true },
+  memberAnnotatedMedia: { CSharp: true, Il: false },
   memberAnnotatedCodeLens: true,
   memberAnnotatedFactId: null,
+  memberAnnotatedActiveFactIds: null,
   memberAnnotatedCaptureIndex: null,
   memberAnnotatedNodeIds: [],
   memberAnnotatedKind: "",
@@ -654,6 +655,7 @@ interface StateOverrides {
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedCodeLens: boolean;
   memberAnnotatedFactId: number | null;
+  memberAnnotatedActiveFactIds: number[] | null;
   memberAnnotatedCaptureIndex: number | null;
   memberAnnotatedNodeIds: number[];
   memberAnnotatedKind: string;
@@ -3656,6 +3658,9 @@ function openAnnotatedSourceExplorer() {
     media: state.memberAnnotatedMedia,
     codeLens: state.memberAnnotatedCodeLens,
     selectedFactId: state.memberAnnotatedFactId,
+    ...(state.memberAnnotatedActiveFactIds === null
+      ? {}
+      : { activeFactIds: state.memberAnnotatedActiveFactIds }),
     selectedCaptureIndex: state.memberAnnotatedCaptureIndex,
     selectedNodeIds: state.memberAnnotatedNodeIds,
     selectedKind: state.memberAnnotatedKind,
@@ -3670,6 +3675,7 @@ function closeAnnotatedSourceExplorer() {
   state.memberAnnotatedMedia = { ...state.annotatedExplorer.media };
   state.memberAnnotatedCodeLens = state.annotatedExplorer.codeLens;
   state.memberAnnotatedFactId = state.annotatedExplorer.selectedFactId;
+  state.memberAnnotatedActiveFactIds = [...state.annotatedExplorer.activeFactIds];
   state.memberAnnotatedCaptureIndex = state.annotatedExplorer.selectedCaptureIndex;
   state.memberAnnotatedNodeIds = [...state.annotatedExplorer.selectedNodeIds];
   state.memberAnnotatedKind = state.annotatedExplorer.selectedKind;
@@ -7199,6 +7205,7 @@ function invalidateSourceCaches() {
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
   state.memberAnnotatedFactId = null;
+  state.memberAnnotatedActiveFactIds = null;
   state.memberAnnotatedCodeLens = true;
   state.memberAnnotatedCaptureIndex = null;
   state.memberAnnotatedNodeIds = [];

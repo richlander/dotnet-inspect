@@ -221,12 +221,14 @@ test("the app routes the member tab into the TypeScript explorer", () => {
   assert.match(appSource, /#open-annotated-explorer/);
   assert.match(appSource, /if \(state\.annotatedExplorer\)/);
   assert.match(appSource, /renderAnnotatedSourceExplorer\(\)/);
+  assert.match(appSource, /memberAnnotatedActiveFactIds/);
 });
 
 test("the explorer presents canonical text beside anchored and unanchored facts", () => {
+  const state = createAnnotatedSourceExplorerState(sampleDocument);
   const html = renderAnnotatedSourceExplorer({
     result,
-    state: createAnnotatedSourceExplorerState(sampleDocument),
+    state,
     title: "Example.Run",
     subtitle: "public object Run()",
     escapeHtml,
@@ -234,7 +236,8 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
 
   assert.match(html, /class="annotated-explorer"/);
   assert.match(html, /Example\.Run/);
-  assert.match(html, /IL_0001: newobj instance void System\.Object::\.ctor\(\)/);
+  assert.deepEqual(state.media, { CSharp: true, Il: false });
+  assert.doesNotMatch(html, /IL_0001: newobj instance void System\.Object::\.ctor\(\)/);
   assert.match(html, /Anchored facts/);
   assert.match(html, /alloc\.new/);
   assert.match(html, /Unanchored facts/);
@@ -242,6 +245,11 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.match(html, /<strong>CodeLens<\/strong>/);
   assert.match(html, /data-ase-codelens-toggle aria-pressed="true"/);
   assert.match(html, /finding available/);
+  assert.deepEqual(state.activeFactIds, [0, 1]);
+  assert.equal([...html.matchAll(/class="annotated-node-caret finding"/g)].length, 2);
+  assert.match(html, /class="annotated-caret-detail finding"/);
+  assert.match(html, /annotated-caret-label">alloc\.new: object/);
+  assert.match(html, /data-ase-fact="2" aria-pressed="false"/);
 });
 
 test("fact, source node, node-kind, and clear actions preserve distinct selection semantics", () => {
@@ -252,6 +260,7 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     { type: "select-fact", factId: 0 },
   );
   assert.equal(fact.selectedFactId, 0);
+  assert.deepEqual(fact.activeFactIds, [0, 1]);
   assert.deepEqual(fact.selectedNodeIds, []);
   assert.equal(fact.prepared, initial.prepared);
   const factHtml = renderAnnotatedSourceExplorer({
@@ -264,6 +273,7 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   assert.match(factHtml, /annotated-span addressable has-fact selected semantic/);
   assert.doesNotMatch(factHtml, /selected structural/);
   assert.match(factHtml, /class="annotated-node-caret finding"/);
+  assert.match(factHtml, /class="annotated-caret-detail finding"/);
   assert.match(factHtml, /alloc\.new:/);
 
   const source = reduceAnnotatedSourceExplorerState(
@@ -286,6 +296,30 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   assert.match(sourceHtml, /Findings at this node/);
   assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="true"/);
   assert.match(sourceHtml, /selected semantic/);
+
+  const secondSource = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    { ...source, media: { CSharp: true, Il: true } },
+    { type: "select-offset", offset: sampleDocument.text.indexOf("IL_0001") },
+  );
+  assert.deepEqual(secondSource.selectedNodeIds, [1, 3]);
+  const secondSourceHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: secondSource,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.equal(
+    [...secondSourceHtml.matchAll(/class="annotated-node-caret source"/g)].length,
+    2,
+  );
+  const secondSourceToggledOff = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    secondSource,
+    { type: "select-offset", offset: sampleDocument.text.indexOf("IL_0001") },
+  );
+  assert.deepEqual(secondSourceToggledOff.selectedNodeIds, [1]);
 
   const sourceToggledOff = reduceAnnotatedSourceExplorerState(
     sampleDocument,
@@ -334,15 +368,31 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     { type: "clear-selection" },
   );
   assert.deepEqual(cleared.selectedNodeIds, []);
+  assert.deepEqual(cleared.activeFactIds, []);
   assert.equal(cleared.selectedKind, "");
   assert.equal(cleared.selectedRegionRole, "");
+  const clearedHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: cleared,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.doesNotMatch(clearedHtml, /class="annotated-node-caret/);
+  assert.doesNotMatch(clearedHtml, /id="ase-clear"/);
 });
 
 test("media actions refuse an empty-looking document", () => {
   const initial = createAnnotatedSourceExplorerState(sampleDocument);
-  const csharpOff = reduceAnnotatedSourceExplorerState(
+  assert.deepEqual(initial.media, { CSharp: true, Il: false });
+  const both = reduceAnnotatedSourceExplorerState(
     sampleDocument,
     initial,
+    { type: "toggle-medium", medium: "Il" },
+  );
+  const csharpOff = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    both,
     { type: "toggle-medium", medium: "CSharp" },
   );
   assert.deepEqual(csharpOff.media, { CSharp: false, Il: true });
@@ -609,7 +659,9 @@ test("merged source labels only C# and IL at medium boundaries", () => {
 
   const html = renderAnnotatedSourceExplorer({
     result: { ...result, document: groupedDocument },
-    state: createAnnotatedSourceExplorerState(groupedDocument),
+    state: createAnnotatedSourceExplorerState(groupedDocument, {
+      media: { CSharp: true, Il: true },
+    }),
     title: "Example.Grouped",
     subtitle: "void Grouped()",
     escapeHtml,
@@ -621,12 +673,12 @@ test("merged source labels only C# and IL at medium boundaries", () => {
   assert.match(html, /annotated-line-medium"><\/span>/);
 
   for (const medium of ["CSharp", "Il"] as const) {
-    const hiddenMedium = medium === "CSharp" ? "Il" : "CSharp";
-    const singleMediumState = reduceAnnotatedSourceExplorerState(
-      groupedDocument,
-      createAnnotatedSourceExplorerState(groupedDocument),
-      { type: "toggle-medium", medium: hiddenMedium },
-    );
+    const singleMediumState = createAnnotatedSourceExplorerState(groupedDocument, {
+      media: {
+        CSharp: medium === "CSharp",
+        Il: medium === "Il",
+      },
+    });
     const singleMediumHtml = renderAnnotatedSourceExplorer({
       result: { ...result, document: groupedDocument },
       state: singleMediumState,
@@ -643,9 +695,12 @@ test("merged source labels only C# and IL at medium boundaries", () => {
 test("source carets inherit exact source glyph metrics", () => {
   assert.match(
     styles,
-    /\.annotated-node-caret\s*\{[^}]*font:\s*inherit;[^}]*line-height:\s*1\.2;/,
+    /\.annotated-caret-detail\s*\{[^}]*font:\s*inherit;[^}]*line-height:\s*1\.2;/,
   );
-  assert.match(styles, /\.annotated-caret-label\s*\{[^}]*font-size:\s*11px;/);
+  assert.match(
+    styles,
+    /\.annotated-caret-label\s*\{[^}]*max-width:\s*64ch;[^}]*font-size:\s*11px;[^}]*white-space:\s*normal;/,
+  );
 });
 
 test("C# syntax tokenization is reused across interaction renders", () => {
@@ -801,7 +856,22 @@ test("fact buttons expose their toggle state", () => {
   });
 
   assert.match(html, /data-ase-fact="0" aria-pressed="true"/);
-  assert.match(html, /data-ase-fact="1" aria-pressed="false"/);
+  assert.match(html, /data-ase-fact="1" aria-pressed="true"/);
+
+  const toggledOff = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    selected,
+    { type: "select-fact", factId: 0 },
+  );
+  const toggledOffHtml = renderAnnotatedSourceExplorer({
+    result,
+    state: toggledOff,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+  assert.match(toggledOffHtml, /data-ase-fact="0" aria-pressed="false"/);
+  assert.match(toggledOffHtml, /data-ase-fact="1" aria-pressed="true"/);
 });
 
 test("reopening an unchanged document reuses its prepared projection", () => {
