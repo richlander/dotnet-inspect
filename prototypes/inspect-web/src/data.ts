@@ -1312,19 +1312,33 @@ export function graphMemberSelection(
   groups: readonly GraphMemberGroup[],
   target: GraphMemberTarget,
 ): GraphMemberSelection | null {
-  const bodyMatches: GraphMemberSelection[] = [];
+  const bodyMatches: (
+    GraphMemberSelection & { token: number | undefined }
+  )[] = [];
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
     const group = groups[groupIndex];
     for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
       const overload = group.overloads[overloadIndex];
-      if ((overload.bodySelectors ?? []).some(body =>
-        body.memberName === target.memberName
-        && body.selectorKey === target.selectorKey)) {
-        bodyMatches.push({ groupIndex, overloadIndex });
+      for (const body of overload.bodySelectors ?? []) {
+        if (body.memberName === target.memberName
+          && body.selectorKey === target.selectorKey) {
+          bodyMatches.push({ groupIndex, overloadIndex, token: body.token });
+        }
       }
     }
   }
-  if (bodyMatches.length === 1) return bodyMatches[0];
+  if (bodyMatches.length > 0) {
+    const [first] = bodyMatches;
+    if (bodyMatches.length === 1
+      || (first.token != null
+        && bodyMatches.every(match => match.token === first.token))) {
+      return {
+        groupIndex: first.groupIndex,
+        overloadIndex: first.overloadIndex,
+      };
+    }
+    return null;
+  }
 
   const ownerMatches: GraphMemberSelection[] = [];
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {

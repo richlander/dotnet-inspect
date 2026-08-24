@@ -847,6 +847,108 @@ public sealed class BrowserEngineBoundaryTests
         Assert.True(targets.Contains(frameworks[^1]));
     }
 
+    [Fact]
+    public async Task PlatformWorkspace_UnknownFamilyProbePreservesTrimmedCumulativeState()
+    {
+        const string version = "11.0.2601";
+        const string runtimePackage =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string aspNetPackage =
+            "microsoft.aspnetcore.app.runtime.linux-x64";
+        byte[] runtimeNupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        byte[] aspNetNupkg = PlatformPackage(
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        var handler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [runtimePackage] = runtimeNupkg,
+                [aspNetPackage] = aspNetNupkg,
+            });
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        string[] frameworks =
+        [
+            "net11.0-r26-retention-a",
+            "net11.0-r26-retention-b",
+            "net11.0-r26-retention-c",
+            "net11.0-r26-retention-d",
+            "net11.0-r26-retention-e",
+        ];
+
+        foreach (string framework in frameworks[..4])
+        {
+            using BrowserPlatformScopeResolution resolution =
+                await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    framework,
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+        }
+
+        var aspNetDownloadStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueAspNetDownload = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        handler.BeforeDownloadAsync = async package =>
+        {
+            if (!package.Equals(
+                    aspNetPackage,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            aspNetDownloadStarted.TrySetResult();
+            await continueAspNetDownload.Task.WaitAsync(
+                TestContext.Current.CancellationToken);
+        };
+        Task<BrowserPlatformScopeResolution> expansion =
+            BrowserPlatformWorkspace.OpenAssemblyAsync(
+                frameworks[0],
+                "InspectWeb.Engine.Tests.dll",
+                "",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        try
+        {
+            await aspNetDownloadStarted.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            using BrowserPlatformScopeResolution competing =
+                await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    frameworks[4],
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            continueAspNetDownload.TrySetResult();
+        }
+
+        using BrowserPlatformScopeResolution expanded = await expansion;
+        Assert.Equal(
+            "netcore.app",
+            expanded.Scope.PlatformPackForAssembly(
+                "System.Private.CoreLib"));
+        Assert.Equal(
+            "aspnetcore.app",
+            expanded.Scope.PlatformPackForAssembly(
+                "InspectWeb.Engine.Tests"));
+        Assert.Equal(2, expanded.Scope.Members.Length);
+    }
+
     [Theory]
     [InlineData("https://raw.githubusercontent.com/org/repo/commit/A.cs", true)]
     [InlineData("https://dev.azure.com/org/project/_apis/git/A.cs", true)]
@@ -3533,8 +3635,9 @@ public sealed class BrowserEngineBoundaryTests
         IReadOnlyDictionary<string, byte[]> packages) : HttpMessageHandler
     {
         public Action<string>? BeforeDownload { get; set; }
+        public Func<string, Task>? BeforeDownloadAsync { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
@@ -3547,17 +3650,19 @@ public sealed class BrowserEngineBoundaryTests
                         $"https://api.nuget.org/v3-flatcontainer/{package}/index.json",
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    return Json($$"""{"versions":["{{version}}"]}""");
+                    return await Json(
+                        $$"""{"versions":["{{version}}"]}""").ConfigureAwait(false);
                 }
 
                 if (url.Equals(
                         $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    return Json(
+                    return await Json(
                         "{\"items\":[{\"items\":[{\"catalogEntry\":{\"version\":\""
                         + version
-                        + "\",\"listed\":true}}]}]}");
+                        + "\",\"listed\":true}}]}]}")
+                        .ConfigureAwait(false);
                 }
 
                 if (url.Equals(
@@ -3565,18 +3670,18 @@ public sealed class BrowserEngineBoundaryTests
                         StringComparison.OrdinalIgnoreCase))
                 {
                     BeforeDownload?.Invoke(packageId);
-                    return Task.FromResult(
-                        new HttpResponseMessage(
-                            System.Net.HttpStatusCode.OK)
-                        {
-                            Content = new ByteArrayContent(nupkg),
-                        });
+                    if (BeforeDownloadAsync is { } beforeDownload)
+                        await beforeDownload(packageId).ConfigureAwait(false);
+                    return new HttpResponseMessage(
+                        System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(nupkg),
+                    };
                 }
             }
 
-            return Task.FromResult(
-                new HttpResponseMessage(
-                    System.Net.HttpStatusCode.NotFound));
+            return new HttpResponseMessage(
+                System.Net.HttpStatusCode.NotFound);
         }
 
         static Task<HttpResponseMessage> Json(string json) =>

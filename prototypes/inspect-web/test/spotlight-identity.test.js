@@ -3018,7 +3018,7 @@ test("call graph navigation prefers exact metadata type identity", () => {
 });
 
 test("call graph navigation resolves accessor selectors across image-local token skew", () => {
-  const groups = [{
+  const group = {
     overloads: [{
       graphSelectorKey: "property-selector",
       bodySelectors: [{
@@ -3027,17 +3027,60 @@ test("call graph navigation resolves accessor selectors across image-local token
         selectorKey: "getter-selector"
       }]
     }]
-  }];
+  };
 
   assert.deepEqual(
-    graphMemberSelection(groups, {
+    graphMemberSelection([group], {
+      metadataToken: 456,
+      memberName: "get_P",
+      selectorKey: "getter-selector"
+    }),
+    { groupIndex: 0, overloadIndex: 0 });
+  assert.deepEqual(
+    graphMemberSelection([group, group], {
       metadataToken: 456,
       memberName: "get_P",
       selectorKey: "getter-selector"
     }),
     { groupIndex: 0, overloadIndex: 0 });
   assert.equal(
-    graphMemberSelection([...groups, ...groups], {
+    graphMemberSelection([
+      group,
+      {
+        overloads: [{
+          graphSelectorKey: "getter-selector",
+          bodySelectors: [{
+            token: 124,
+            memberName: "get_P",
+            selectorKey: "getter-selector"
+          }]
+        }]
+      }
+    ], {
+      metadataToken: 456,
+      memberName: "get_P",
+      selectorKey: "getter-selector"
+    }),
+    null);
+  assert.equal(
+    graphMemberSelection([
+      {
+        overloads: [{
+          bodySelectors: [{
+            memberName: "get_P",
+            selectorKey: "getter-selector"
+          }]
+        }]
+      },
+      {
+        overloads: [{
+          bodySelectors: [{
+            memberName: "get_P",
+            selectorKey: "getter-selector"
+          }]
+        }]
+      }
+    ], {
       metadataToken: 456,
       memberName: "get_P",
       selectorKey: "getter-selector"

@@ -127,6 +127,8 @@ internal sealed record BrowserPlatformAssemblyRequest(
 /// bound as package scopes.
 /// <c>BrowserEngineBoundaryTests.PlatformWorkspace_ReplacementDefersDisposalUntilLastLeaseEnds</c>
 /// gates the replacement lifetime.
+/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_UnknownFamilyProbePreservesTrimmedCumulativeState</c>
+/// gates cumulative state across probe suspension and scope eviction.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformWorkspace
@@ -368,6 +370,8 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
+        Targets.TryGetValue(targetKey, out TargetState? state);
+        state ??= new TargetState();
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
@@ -375,7 +379,8 @@ internal static class BrowserPlatformWorkspace
             host,
             deadline,
             packageLeases,
-            declaration: null).ConfigureAwait(false);
+            declaration: null,
+            state: state).ConfigureAwait(false);
     }
 
     static async Task<BrowserPlatformScopeResolution> OpenUnattributedCoreAsync(
@@ -413,7 +418,8 @@ internal static class BrowserPlatformWorkspace
                 host,
                 deadline,
                 packageLeases,
-                declaration: null).ConfigureAwait(false);
+                declaration: null,
+                state: state).ConfigureAwait(false);
         }
 
         string? residentPack = state.Scope is { } retained
@@ -429,7 +435,8 @@ internal static class BrowserPlatformWorkspace
                 host,
                 deadline,
                 packageLeases,
-                declaration: null).ConfigureAwait(false);
+                declaration: null,
+                state: state).ConfigureAwait(false);
         }
 
         using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
@@ -502,7 +509,8 @@ internal static class BrowserPlatformWorkspace
             host,
             deadline,
             packageLeases,
-            declaration: useDeclaration ? selected : null).ConfigureAwait(false);
+            declaration: useDeclaration ? selected : null,
+            state: state).ConfigureAwait(false);
     }
 
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
@@ -512,11 +520,10 @@ internal static class BrowserPlatformWorkspace
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
         BrowserPackageWorkspace.PackageLeaseSet packageLeases,
-        PlatformLoadAttempt? declaration)
+        PlatformLoadAttempt? declaration,
+        TargetState state)
     {
         deadline.Token.ThrowIfCancellationRequested();
-        Targets.TryGetValue(targetKey, out TargetState? state);
-        state ??= new TargetState();
         state.LastAccess = ++_targetClock;
 
         foreach (PlatformSelection selection in selections)
