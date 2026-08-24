@@ -50,13 +50,16 @@
   control or bidi text, package-source declarations, cleared restore sources,
   concerning SourceLink text, and literal parent-path references while keeping
   artifact text visually encoded in terminal output (#4408).
-- Package signature inspection now verifies signed archive content against its
-  embedded hash and validates NuGet signer, repository, certificate, and
-  accepted timestamp profiles before reporting valid provenance. Malformed
-  signature entries and invalid profiles fail closed. The `Repository` field
-  now reports the verified repository certificate identity instead of a fixed
-  `nuget.org` value, and `Repository Verified` is present only for a valid
-  repository countersignature (#4408).
+- **Breaking:** Package signature inspection now verifies signed archive
+  content against its embedded hash and validates NuGet signer, repository,
+  certificate, and accepted timestamp profiles before reporting valid
+  provenance. Malformed signature entries and invalid profiles fail closed.
+  For a valid repository signature without a verified author signature, the
+  Signature section now reports `Author Verified: No`, where v0.21.0 omitted
+  that field. The `Repository` field now reports the verified repository
+  certificate identity instead of a fixed `nuget.org` value, and `Repository
+  Verified` is present when a valid repository signature is established,
+  either as the primary signature or a valid countersignature (#4408).
 - Package Signals now include default `Provenance / Signature` and
   `NuGet / Listing` rows for the verified signature and Gallery listing facts
   already acquired by package inspection (#4408, #4486).
