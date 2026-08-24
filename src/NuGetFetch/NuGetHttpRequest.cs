@@ -71,6 +71,7 @@ internal static class NuGetHttpRequest
                 new Dictionary<string, object>
                 {
                     ["credentials"] = "omit",
+                    ["redirect"] = "error",
                 });
         }
     }
