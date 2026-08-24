@@ -190,7 +190,7 @@ window nobody can identify.
 ### Claiming ready to merge
 
 Getting CI green and the branch mergeable is part of finishing the work. Pursue
-both; handing over a red or conflicted PR you could have fixed is not a handover.
+both; handing over a red or conflicted PR you could have fixed is not an effective handover.
 
 **This section is about what you may claim, not about when you may integrate.**
 Integration cadence is already specified and this does not modify it: the two
