@@ -555,9 +555,11 @@ or selection is cleared. Activating another node preserves prior node carets.
 All anchored Findings start active with orange target carets; Finding focus and
 caret visibility remain separate so focusing one Finding does not hide the
 others. Clear removes every source and Finding caret. Caret descriptions use
-separate unnumbered rows aligned with the caret start rather than extending
-after the caret run. The `fact, source node, node-kind, and clear actions
-preserve distinct selection semantics` test gates that separation.
+compact unnumbered rows aligned with the caret start rather than extending
+after the caret run. When source and Finding attribution share one exact node,
+the renderer emits one caret and stacks the distinct source and Finding chips
+beneath it. The `fact, source node, node-kind, and clear actions preserve
+distinct selection semantics` test gates that separation.
 
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
 multi-line source constructs. CodeLens is globally on or off; its unnumbered

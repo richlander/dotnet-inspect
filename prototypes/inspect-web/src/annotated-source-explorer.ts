@@ -460,8 +460,7 @@ export function renderAnnotatedSourceExplorer(
         node,
         view.lines,
         result.document.text,
-        kindLabels.get(node.kind) ?? node.kind,
-        view.facts.filter(fact => fact.nodeIds.includes(node.id)))));
+        kindLabels.get(node.kind) ?? node.kind)));
   const findingCaretAnnotations = combineCaretAnnotations(
     state.activeFactIds.flatMap(factId => {
       const fact = view.facts[factId];
@@ -569,21 +568,27 @@ export function renderAnnotatedSourceExplorer(
         : ""}
       <span class="annotated-line-text">${segments}</span>
     </div>`;
-    const carets = [
+    const carets = groupCaretAnnotations([
       ...(nodeCaretAnnotations.get(line.start) ?? []),
       ...(findingCaretAnnotations.get(line.start) ?? []),
-    ].map(annotation => `
-      <div class="annotated-node-caret ${annotation.plane}" aria-label="${escapeHtml(annotation.accessibleLabel)}">
+    ]).map(annotation => {
+      const planes = [...annotation.planes].join(" ");
+      const caret = `<div class="annotated-node-caret ${planes}" aria-label="${escapeHtml(annotation.accessibleLabel)}">
         <span class="annotated-line-number"></span>
         ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
         <span class="annotated-line-text" aria-hidden="true">${escapeHtml(annotation.prefix)}<span class="annotated-caret-run">${"^".repeat(annotation.length)}</span></span>
-      </div>
-      ${annotation.label ? `<div class="annotated-caret-detail ${annotation.plane}">
-        <span class="annotated-line-number"></span>
-        ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
-        <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<span class="annotated-caret-label">${escapeHtml(annotation.label)}</span></span>
-      </div>` : ""}`,
-    ).join("") ?? "";
+      </div>`;
+      const detail = annotation.labels.length === 0
+        ? ""
+        : `<div class="annotated-caret-detail ${planes}">
+          <span class="annotated-line-number"></span>
+          ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
+          <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<span class="annotated-caret-label-stack">${annotation.labels
+            .map(label => `<span class="annotated-caret-label ${label.plane}">${escapeHtml(label.text)}</span>`)
+            .join("")}</span></span>
+        </div>`;
+      return caret + detail;
+    }).join("");
     return lenses + sourceLine + carets;
   }).join("");
 
@@ -658,7 +663,16 @@ interface SourceNodeCaretAnnotation {
   accessibleLabel: string;
   label: string;
   length: number;
+  nodeId: number;
   plane: "source" | "finding";
+  prefix: string;
+}
+
+interface SourceCaretGroup {
+  accessibleLabel: string;
+  labels: readonly { plane: "source" | "finding"; text: string }[];
+  length: number;
+  planes: ReadonlySet<"source" | "finding">;
   prefix: string;
 }
 
@@ -704,7 +718,6 @@ function sourceNodeCaretAnnotations(
   lines: readonly { start: number; end: number }[],
   text: string,
   kindLabel: string,
-  facts: readonly AnnotatedViewFact[],
 ): ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]> {
   const annotations = new Map<number, SourceNodeCaretAnnotation[]>();
   let labelPending = true;
@@ -715,20 +728,16 @@ function sourceNodeCaretAnnotations(
       const end = Math.min(line.end, spanEnd);
       if (start >= end) continue;
       const coordinates = `[${start}..${end})`;
-      const factSummary = facts.length === 0
-        ? ""
-        : ` · ${facts.length} finding${facts.length === 1 ? "" : "s"}: ${facts
-            .map(factDescription)
-            .join(", ")}`;
       const label = labelPending
-        ? `#${node.id} ${kindLabel} · ${coordinates}${factSummary}`
+        ? `#${node.id} ${kindLabel} · ${coordinates}`
         : "";
       labelPending = false;
       const annotation = {
         accessibleLabel:
-          `Selected source node #${node.id} ${kindLabel}, range ${coordinates}${factSummary}`,
+          `Selected source node #${node.id} ${kindLabel}, range ${coordinates}`,
         label,
         length: end - start,
+        nodeId: node.id,
         plane: "source" as const,
         prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
       };
@@ -760,6 +769,7 @@ function sourceFindingCaretAnnotations(
             `Finding ${factDescription(fact)}, target range ${coordinates}`,
           label: `${factDescription(fact)} · ${coordinates}`,
           length: end - start,
+          nodeId: node.id,
           plane: "finding" as const,
           prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
         };
@@ -787,6 +797,46 @@ function combineCaretAnnotations(
     }
   }
   return combined;
+}
+
+function groupCaretAnnotations(
+  annotations: readonly SourceNodeCaretAnnotation[],
+): SourceCaretGroup[] {
+  const groups = new Map<string, {
+    accessibleLabels: string[];
+    labels: { plane: "source" | "finding"; text: string }[];
+    length: number;
+    planes: Set<"source" | "finding">;
+    prefix: string;
+  }>();
+  for (const annotation of annotations) {
+    const key = `${annotation.nodeId}\0${annotation.prefix}\0${annotation.length}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        accessibleLabels: [],
+        labels: [],
+        length: annotation.length,
+        planes: new Set(),
+        prefix: annotation.prefix,
+      };
+      groups.set(key, group);
+    }
+    group.accessibleLabels.push(annotation.accessibleLabel);
+    group.planes.add(annotation.plane);
+    if (annotation.label
+      && !group.labels.some(label =>
+        label.plane === annotation.plane && label.text === annotation.label)) {
+      group.labels.push({ plane: annotation.plane, text: annotation.label });
+    }
+  }
+  return [...groups.values()].map(group => ({
+    accessibleLabel: group.accessibleLabels.join("; "),
+    labels: group.labels,
+    length: group.length,
+    planes: group.planes,
+    prefix: group.prefix,
+  }));
 }
 
 function factDescription(fact: AnnotatedViewFact): string {

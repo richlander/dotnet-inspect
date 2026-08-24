@@ -248,7 +248,7 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.deepEqual(state.activeFactIds, [0, 1]);
   assert.equal([...html.matchAll(/class="annotated-node-caret finding"/g)].length, 2);
   assert.match(html, /class="annotated-caret-detail finding"/);
-  assert.match(html, /annotated-caret-label">alloc\.new: object/);
+  assert.match(html, /annotated-caret-label finding">alloc\.new: object/);
   assert.match(html, /data-ase-fact="2" aria-pressed="false"/);
 });
 
@@ -275,6 +275,7 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
   assert.match(factHtml, /class="annotated-node-caret finding"/);
   assert.match(factHtml, /class="annotated-caret-detail finding"/);
   assert.match(factHtml, /alloc\.new:/);
+  assert.match(factHtml, /<\/div><div class="annotated-node-caret/);
 
   const source = reduceAnnotatedSourceExplorerState(
     sampleDocument,
@@ -290,9 +291,14 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     subtitle: "public object Run()",
     escapeHtml,
   });
-  assert.match(sourceHtml, /class="annotated-node-caret source"/);
-  assert.match(sourceHtml, /class="annotated-node-caret finding"/);
-  assert.match(sourceHtml, /#1 ObjectCreationExpression · \[\d+\.\.\d+\) · 1 finding: alloc\.new/);
+  assert.match(sourceHtml, /class="annotated-node-caret source finding"/);
+  assert.equal(
+    [...sourceHtml.matchAll(/class="annotated-node-caret source finding"/g)].length,
+    1,
+  );
+  assert.match(sourceHtml, /annotated-caret-label source">#1 ObjectCreationExpression · \[\d+\.\.\d+\)/);
+  assert.match(sourceHtml, /annotated-caret-label finding">alloc\.new: object/);
+  assert.doesNotMatch(sourceHtml, /1 finding: alloc\.new/);
   assert.match(sourceHtml, /Findings at this node/);
   assert.match(sourceHtml, /data-ase-fact="0" aria-pressed="true"/);
   assert.match(sourceHtml, /selected semantic/);
@@ -311,7 +317,7 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     escapeHtml,
   });
   assert.equal(
-    [...secondSourceHtml.matchAll(/class="annotated-node-caret source"/g)].length,
+    [...secondSourceHtml.matchAll(/class="annotated-node-caret [^"]*source/g)].length,
     2,
   );
   const secondSourceToggledOff = reduceAnnotatedSourceExplorerState(
@@ -695,11 +701,15 @@ test("merged source labels only C# and IL at medium boundaries", () => {
 test("source carets inherit exact source glyph metrics", () => {
   assert.match(
     styles,
-    /\.annotated-caret-detail\s*\{[^}]*font:\s*inherit;[^}]*line-height:\s*1\.2;/,
+    /\.annotated-caret-detail\s*\{[^}]*min-height:\s*0;[^}]*font:\s*inherit;[^}]*line-height:\s*1;/,
   );
   assert.match(
     styles,
-    /\.annotated-caret-label\s*\{[^}]*max-width:\s*64ch;[^}]*margin-left:\s*-6px;[^}]*font-size:\s*11px;[^}]*white-space:\s*normal;/,
+    /\.annotated-caret-label-stack\s*\{[^}]*gap:\s*2px;[^}]*margin-left:\s*-5px;/,
+  );
+  assert.match(
+    styles,
+    /\.annotated-caret-label\s*\{[^}]*max-width:\s*76ch;[^}]*font:\s*10px\/1\.25 var\(--mono\);[^}]*white-space:\s*normal;/,
   );
 });
 
