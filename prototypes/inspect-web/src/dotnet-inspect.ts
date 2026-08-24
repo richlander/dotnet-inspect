@@ -1816,6 +1816,14 @@ function selectedGraphMemberGroup(type: BrowserTypeSurface) {
     && group.overloads.some(overload => overload.graphOnly));
 }
 
+function memberSelectionIsAvailable(
+  type: BrowserTypeSurface,
+  visible: readonly { key: string }[],
+) {
+  return visible.some(group => group.key === state.selectedMemberKey)
+    || selectedGraphMemberGroup(type) != null;
+}
+
 function memberKinds(type: BrowserTypeSurface) {
   return [...new Set(publicMemberGroups(type).map(group => group.kind))];
 }
@@ -2000,8 +2008,7 @@ function enterMemberScope() {
   state.lens = "api";
   state.memberBrowseTypeId = type.id;
   const visible = visibleMemberGroups(type);
-  const selectedIsVisible = visible.some(group => group.key === state.selectedMemberKey);
-  if (!selectedIsVisible) {
+  if (!memberSelectionIsAvailable(type, visible)) {
     if (visible.length) openMemberGroup(visible[0].key);
     else {
       state.selectedMemberKey = "";
@@ -2016,7 +2023,7 @@ function normalizeMemberSelection() {
   const type = selectedType();
   if (!type || !state.selectedMemberKey) return;
   const visible = visibleMemberGroups(type);
-  if (!visible.some(group => group.key === state.selectedMemberKey)) {
+  if (!memberSelectionIsAvailable(type, visible)) {
     state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;

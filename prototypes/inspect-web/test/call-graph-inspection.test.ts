@@ -708,10 +708,15 @@ test("platform drill completion cannot publish after its view owner changes", as
   const request = deferred<BrowserCallGraph>();
   let current = true;
   let graphRenders = 0;
+  let memberRenders = 0;
   const state = inspectionState({ memberCallGraphSeq: 5 });
   const coordinator = createCallGraphInspectionCoordinator(
     inspectionDependencies(state, {
       queryPlatform: async () => request.promise,
+      renderPreservingMemberFocus: () => {
+        memberRenders++;
+        return focusSnapshot();
+      },
       renderCallGraph: async () => {
         graphRenders++;
       },
@@ -723,19 +728,25 @@ test("platform drill completion cannot publish after its view owner changes", as
   await load;
 
   assert.equal(state.platformStack.length, 0);
-  assert.equal(state.platformDrillLoading, true);
+  assert.equal(state.platformDrillLoading, false);
   assert.equal(state.platformDrillError, "");
   assert.equal(graphRenders, 0);
+  assert.equal(memberRenders, 2);
 });
 
 test("platform drill failures stay silent after their view owner changes", async () => {
   const request = deferred<BrowserCallGraph>();
   let current = true;
   let graphRenders = 0;
+  let memberRenders = 0;
   const state = inspectionState({ memberCallGraphSeq: 5 });
   const coordinator = createCallGraphInspectionCoordinator(
     inspectionDependencies(state, {
       queryPlatform: async () => request.promise,
+      renderPreservingMemberFocus: () => {
+        memberRenders++;
+        return focusSnapshot();
+      },
       renderCallGraph: async () => {
         graphRenders++;
       },
@@ -747,9 +758,10 @@ test("platform drill failures stay silent after their view owner changes", async
   await load;
 
   assert.equal(state.platformStack.length, 0);
-  assert.equal(state.platformDrillLoading, true);
+  assert.equal(state.platformDrillLoading, false);
   assert.equal(state.platformDrillError, "");
   assert.equal(graphRenders, 0);
+  assert.equal(memberRenders, 2);
 });
 
 test("duplicate platform drill requests do not query or render", async () => {

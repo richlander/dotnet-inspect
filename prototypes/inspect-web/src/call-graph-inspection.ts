@@ -224,15 +224,26 @@ export function createCallGraphInspectionCoordinator(
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       const ownsRequest = () =>
         sequence === state.memberCallGraphSeq && request.isCurrent();
+      const abandonStaleRequest = () => {
+        if (sequence !== state.memberCallGraphSeq) return;
+        state.platformDrillLoading = false;
+        dependencies.renderPreservingMemberFocus();
+      };
       try {
         const graph = await dependencies.queryPlatform(request);
-        if (!ownsRequest()) return;
+        if (!ownsRequest()) {
+          abandonStaleRequest();
+          return;
+        }
         state.platformStack.push({ graph, title: request.title });
         state.platformDrillLoading = false;
         dependencies.renderPreservingMemberFocus(preservedFocus);
         await dependencies.renderCallGraph();
       } catch (error) {
-        if (!ownsRequest()) return;
+        if (!ownsRequest()) {
+          abandonStaleRequest();
+          return;
+        }
         state.platformDrillLoading = false;
         state.platformDrillError =
           `Could not descend into ${request.errorTarget}: ${dependencies.describeError(error)}`;

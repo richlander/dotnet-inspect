@@ -246,8 +246,41 @@ interface DecodedShareState {
 
 type ShareStateResult = DecodedShareState | { error: string } | null;
 
+const invalidShareState =
+  "The shared workspace state is invalid and was ignored.";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function richSharePacketIsValid(
+  raw: Record<string, unknown>,
+  sourceIndexes: readonly number[],
+): raw is Record<string, unknown> & { a: number } {
+  if (typeof raw.a !== "number"
+    || !Number.isInteger(raw.a)
+    || raw.a < 0
+    || raw.a >= sourceIndexes.length) {
+    return false;
+  }
+
+  const optionalStrings = ["l", "v", "y", "m", "c", "q", "k", "e", "r"];
+  if (optionalStrings.some(key => hasOwn(raw, key) && typeof raw[key] !== "string"))
+    return false;
+  if (hasOwn(raw, "p") && platformPackToken(raw.p) === null) return false;
+  if (hasOwn(raw, "o")
+    && (typeof raw.o !== "number"
+      || !Number.isInteger(raw.o)
+      || raw.o < 0)) {
+    return false;
+  }
+  if (hasOwn(raw, "d") && decodeBodyTarget(raw.d) === null) return false;
+  if (hasOwn(raw, "b") && raw.b !== 1) return false;
+  return true;
 }
 
 function base64UrlEncode(text: string): string {
@@ -340,11 +373,11 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
       if (normalized.error) return { error: normalized.error };
       const graphMember = graphMemberTargetFromPacket(raw);
       if (graphMember.error) return { error: graphMember.error };
+      if (!richSharePacketIsValid(raw, normalized.sourceIndexes))
+        return { error: invalidShareState };
       return {
         tabs: normalized.tabs,
-        active: typeof raw.a === "number" && Number.isInteger(raw.a)
-          ? (normalized.sourceIndexes[raw.a] ?? 0)
-          : 0,
+        active: normalized.sourceIndexes[raw.a],
         view: typeof raw.v === "string" ? raw.v : "",
         rich: true,
         type: typeof raw.y === "string" ? raw.y : null,
@@ -364,9 +397,9 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         graphTarget: graphMember.target,
       };
     }
-    return { error: "The shared workspace state is invalid and was ignored." };
+    return { error: invalidShareState };
   } catch {
-    return { error: "The shared workspace state is invalid and was ignored." };
+    return { error: invalidShareState };
   }
 }
 

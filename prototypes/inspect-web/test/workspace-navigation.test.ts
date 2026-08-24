@@ -432,6 +432,42 @@ test("invalid and oversized workspace packets stay visible", () => {
   assert.match(oversized.workspaceNotice, /65536-character limit/);
 });
 
+test("malformed rich packet fields cannot override the visible package", () => {
+  const base = {
+    t: [["Hidden.Package", "1.0.0", "net10.0"]],
+    a: 0,
+  };
+  const invalidPackets: Record<string, unknown>[] = [
+    { ...base, a: undefined },
+    { ...base, a: "0" },
+    { ...base, a: 0.5 },
+    { ...base, a: -1 },
+    { ...base, a: 1 },
+    ...["l", "v", "y", "m", "c", "q", "k", "e", "r"]
+      .map(key => ({ ...base, [key]: 1 })),
+    ...[null, "", "not-a-platform-pack", 1]
+      .map(p => ({ ...base, p })),
+    ...[null, "0", -1, 0.5]
+      .map(o => ({ ...base, o })),
+    ...[null, "body", [], [null, null, null], ["Build", null, 0.5]]
+      .map(d => ({ ...base, d })),
+    ...[null, 0, true, "1"]
+      .map(b => ({ ...base, b })),
+  ];
+  delete invalidPackets[0].a;
+
+  for (const packet of invalidPackets) {
+    const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?package=Visible.Package&w=${encoded}`));
+    assert.equal(parsed.package, "Visible.Package");
+    assert.deepEqual(parsed.tabs, []);
+    assert.equal(
+      parsed.workspaceNotice,
+      "The shared workspace state is invalid and was ignored.");
+  }
+});
+
 test("invalid graph identities reject the rich packet without hiding the visible package", () => {
   const validGraph = [
     "Example.Second",

@@ -3696,7 +3696,7 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /async function drillPlatformNode\(\s*node: BrowserCallGraphTarget,\s*navigationIsCurrent: \(\) => boolean = \(\) => true,\s*\)[\s\S]*?isCurrent: navigationIsCurrent/);
   assert.match(
     callGraphInspectionSource,
-    /async drill\(request\)[\s\S]*?const ownsRequest = \(\) =>\s*sequence === state\.memberCallGraphSeq && request\.isCurrent\(\)[\s\S]*?if \(!ownsRequest\(\)\) return/);
+    /async drill\(request\)[\s\S]*?const ownsRequest = \(\) =>\s*sequence === state\.memberCallGraphSeq && request\.isCurrent\(\)[\s\S]*?const abandonStaleRequest = \(\) => \{[\s\S]*?if \(sequence !== state\.memberCallGraphSeq\) return;[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?dependencies\.renderPreservingMemberFocus\(\);[\s\S]*?if \(!ownsRequest\(\)\) \{\s*abandonStaleRequest\(\);\s*return;/);
   assert.match(
     appSource,
     /if \(disposition === "blocked"\) \{[\s\S]*?blockedCallGraphNodeBinding\([\s\S]*?if \(disposition === "none"\) return null/);
@@ -3767,6 +3767,36 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\n\/\/ The scope switcher/)?.[0]
     ?? "";
   assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
+});
+
+test("member filters retain an exact selected graph target", () => {
+  const availability = sourceText(functionDeclaration("memberSelectionIsAvailable"));
+  assert.match(
+    availability,
+    /visible\.some\(group => group\.key === state\.selectedMemberKey\)[\s\S]*selectedGraphMemberGroup\(type\) != null/);
+
+  for (const name of ["enterMemberScope", "normalizeMemberSelection"]) {
+    assert.match(
+      sourceText(functionDeclaration(name)),
+      /memberSelectionIsAvailable\(type, visible\)/);
+  }
+
+  const typePanelCalls = callExpressionsNamed(appSyntax, "bindTypePanel");
+  assert.equal(typePanelCalls.length, 1);
+  const actions = typePanelCalls[0].arguments[1];
+  assert.equal(actions.type, "ObjectExpression");
+  for (const name of [
+    "onMemberAccessibilityFilterSelect",
+    "onMemberFilterChange",
+    "onMemberFilterClear",
+    "onMemberFilterKeyDown",
+    "onMemberKindFilterSelect",
+    "onMemberTraitFilterSelect",
+  ]) {
+    assert.match(
+      sourceText(callbackProperty(actions, name)),
+      /normalizeMemberSelection\(\)/);
+  }
 });
 
 test("pending graph restoration replaces its current history entry", () => {
