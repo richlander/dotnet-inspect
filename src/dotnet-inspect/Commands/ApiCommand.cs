@@ -1496,10 +1496,15 @@ public class ApiCommand
         bool MemberSourceCoordinatesInvalid = false,
         string? PdbSourceUnavailableReason = null);
 
+    internal sealed record ResolvedMemberSourceTarget(
+        int PdbLookupMetadataToken,
+        bool? HasBody,
+        MethodCorrespondenceResult? Correspondence = null);
+
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int sourceMetadataToken = 0,
+        bool publicOnly = true,
         string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
     {
         try
@@ -1507,11 +1512,12 @@ public class ApiCommand
             // A member with no IL body has no PDB source to resolve, whatever the PDB and
             // SourceLink situation is. The selected MethodDef token belongs to the assembly that
             // supplied the API member, which may differ from the runtime facade opened for PDB
-            // lookup. Preserve that identity instead of applying the token to the wrong image;
-            // only when no selected MethodDef identity is available, use the same name/overload
-            // fallback as source lookup
-            // (issue #3299).
-            bool? memberHasBody = ResolveMemberBodyState(
+            // lookup. Resolve that MethodDef by stable API-member identity into the lookup image
+            // and use the one resulting runtime token for both body-state and PDB lookup. Only
+            // when no selected MethodDef identity exists may the legacy name/overload fallback run
+            // (issues #3299 and #4603).
+            ResolvedMemberSourceTarget memberTarget =
+                ResolveMemberSourceTarget(
                 dllPath,
                 typeName,
                 methodName,
@@ -1520,14 +1526,13 @@ public class ApiCommand
                 memberMetadataAssemblyPath,
                 memberMetadataToken,
                 logger.Log);
-            if (memberHasBody == false)
+            if (memberTarget.HasBody == false)
             {
                 return new ResolvedMethodSource(
                     null,
                     null,
                     MemberHasNoBody: true);
             }
-
             using var service = SourceLinkService.Open(dllPath, logger.Log);
             var context = service.Context;
 
@@ -1557,13 +1562,25 @@ public class ApiCommand
                     pdbPath,
                     PdbSourceUnavailableReason: NoPortablePdbReason);
             }
+            if (memberTarget.Correspondence
+                is { IsExact: false } correspondence)
+            {
+                logger.LogWarning(
+                    $"Could not match {typeName}.{methodName} to the PDB lookup assembly: "
+                    + $"{correspondence.Status}: {correspondence.Failure}");
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    PdbSourceUnavailableReason:
+                        MemberCorrespondenceUnavailableReason);
+            }
 
             var methodInfo = service.ResolveMethodSource(
                 typeName,
                 methodName,
                 overloadIndex,
                 publicOnly,
-                sourceMetadataToken);
+                memberTarget.PdbLookupMetadataToken);
             if (methodInfo == null)
             {
                 return new ResolvedMethodSource(
@@ -1638,7 +1655,7 @@ public class ApiCommand
         }
     }
 
-    internal static bool? ResolveMemberBodyState(
+    internal static ResolvedMemberSourceTarget ResolveMemberSourceTarget(
         string dllPath,
         string typeName,
         string methodName,
@@ -1659,22 +1676,51 @@ public class ApiCommand
                     Path.GetFullPath(dllPath),
                     Path.GetFullPath(memberMetadataAssemblyPath!));
 
-        if (hasMemberToken)
+        if (!hasMemberToken)
         {
-            using var memberContext = PdbContext.OpenMetadataOnly(
-                tokenAddressesLookupImage
-                    ? dllPath
-                    : memberMetadataAssemblyPath!,
-                tokenAddressesLookupImage ? log : null);
-            return memberContext.MethodHasBody(memberMetadataToken);
+            using var ordinalContext =
+                PdbContext.OpenMetadataOnly(dllPath, log);
+            return new ResolvedMemberSourceTarget(
+                PdbLookupMetadataToken: 0,
+                ordinalContext.MethodHasBody(
+                    typeName,
+                    methodName,
+                    overloadIndex,
+                    publicOnly));
         }
 
-        using var lookupContext = PdbContext.OpenMetadataOnly(dllPath, log);
-        return lookupContext.MethodHasBody(
-            typeName,
-            methodName,
-            overloadIndex,
-            publicOnly);
+        using var memberContext = PdbContext.OpenMetadataOnly(
+            tokenAddressesLookupImage
+                ? dllPath
+                : memberMetadataAssemblyPath!,
+            tokenAddressesLookupImage ? log : null);
+        bool? memberHasBody =
+            memberContext.MethodHasBody(memberMetadataToken);
+        if (tokenAddressesLookupImage)
+        {
+            return new ResolvedMemberSourceTarget(
+                memberMetadataToken,
+                memberHasBody);
+        }
+
+        using var lookupContext =
+            PdbContext.OpenMetadataOnly(dllPath, log);
+        MethodCorrespondenceResult correspondence =
+            lookupContext.ResolveMethodCorrespondence(
+                memberContext,
+                memberMetadataToken);
+        if (correspondence.Target is not { } target)
+        {
+            return new ResolvedMemberSourceTarget(
+                PdbLookupMetadataToken: 0,
+                memberHasBody,
+                correspondence);
+        }
+
+        return new ResolvedMemberSourceTarget(
+            target.Token,
+            lookupContext.MethodHasBody(target.Token),
+            correspondence);
     }
 
     internal static string NormalizePdbSourceLineEndings(string content)
@@ -2996,6 +3042,9 @@ public class ApiCommand
 
     internal const string NoPdbSourceMappingReason =
         "The selected member has no portable-PDB source mapping.";
+
+    internal const string MemberCorrespondenceUnavailableReason =
+        "The selected member could not be matched exactly to the PDB lookup assembly.";
 
     internal const string NoMatchingPdbSourceReason =
         "No checksum-matching PDB source could be acquired locally or through SourceLink.";

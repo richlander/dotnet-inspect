@@ -18,6 +18,10 @@
   named by the PDB can be checksum-verified. Bodyless members report that fact
   instead of a missing-PDB-mapping reason when platform API shape comes from a
   reference assembly and source lookup uses a different runtime image (#3299).
+  Cross-image member source lookup now matches the selected MethodDef by its
+  stable API-member identity, so reversed reference/runtime overload order cannot
+  select another member; absent or ambiguous correspondence fails visibly
+  instead of guessing by ordinal (#4603).
 
 ## v0.21.0
 

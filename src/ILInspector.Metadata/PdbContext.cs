@@ -814,14 +814,64 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
+    /// Resolves a MethodDef from <paramref name="sourceContext"/> to the method
+    /// with the same stable API-member anchor in this context.
+    /// </summary>
+    public MethodCorrespondenceResult ResolveMethodCorrespondence(
+        PdbContext sourceContext,
+        int sourceMethodToken)
+    {
+        ArgumentNullException.ThrowIfNull(sourceContext);
+        if (!_peReader.HasMetadata
+            || !sourceContext._peReader.HasMetadata)
+        {
+            return Failed(
+                "source and target contexts must both contain metadata");
+        }
+
+        try
+        {
+            EntityHandle sourceHandle =
+                MetadataTokens.EntityHandle(sourceMethodToken);
+            if (sourceHandle.Kind != HandleKind.MethodDefinition)
+                return Failed("source metadata token is not a MethodDef");
+
+            MetadataReader sourceReader =
+                sourceContext._peReader.GetMetadataReader();
+            return MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    (MethodDefinitionHandle)sourceHandle),
+                _peReader.GetMetadataReader());
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return Failed($"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        static MethodCorrespondenceResult Failed(string failure)
+            => new(
+                MethodCorrespondenceStatus.Failed,
+                Anchor: null,
+                Target: null,
+                Candidates: [],
+                failure);
+    }
+
+    /// <summary>
     /// Whether the selected method carries an IL body, resolving by type, name, and overload.
     /// </summary>
     /// <remarks>
     /// Cross-image callers must not treat an overload ordinal as a member identity: declaration
     /// order can differ between reference and runtime images.
-    /// <c>CommandExecutionTests.MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown</c>
-    /// gates that caller boundary. <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c>
-    /// gates same-image name resolution.
+    /// <c>CommandExecutionTests.Member_PdbSource_CrossImageOverloadOrderUsesCorrespondingRuntimeMethod</c>
+    /// gates that caller boundary.
+    /// <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c> gates same-image
+    /// name resolution.
     /// </remarks>
     public bool? MethodHasBody(
         string typeName,

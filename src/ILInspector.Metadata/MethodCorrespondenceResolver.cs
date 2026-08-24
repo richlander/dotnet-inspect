@@ -14,11 +14,10 @@ public enum MethodCorrespondenceStatus
 }
 
 /// <summary>
-/// Total cross-reader correspondence for one metadata method definition.
-/// Exact correspondence requires exactly one target method with the same strict
-/// cross-module definition key (see <see cref="MethodStructuralSignature"/>);
-/// display signatures and metadata row numbers are never used as cross-module
-/// identity.
+/// Total cross-reader correspondence for one metadata method definition. The
+/// resolver operation defines whether exactness means strict structural
+/// definition identity or stable API-member identity; metadata row numbers are
+/// never used as cross-module identity.
 /// </summary>
 public sealed record MethodCorrespondenceResult(
     MethodCorrespondenceStatus Status,
@@ -32,6 +31,161 @@ public sealed record MethodCorrespondenceResult(
 
 public static class MethodCorrespondenceResolver
 {
+    /// <summary>
+    /// Resolves by the stable API-member anchor used by selectors and API
+    /// inventories. Assembly-reference versions and TypeDef/TypeRef storage
+    /// roles therefore do not become API identity.
+    /// <c>CommandExecutionTests.Member_PdbSource_CrossImageDependencyVersionUsesStableApiIdentity</c>
+    /// gates the assembly-version distinction.
+    /// </summary>
+    public static MethodCorrespondenceResult ResolveApiMember(
+        MetadataReader sourceReader,
+        MetadataMethodAddress source,
+        MetadataReader targetReader)
+    {
+        try
+        {
+            if (!source.BelongsTo(sourceReader))
+                return Failed("source method address belongs to a different metadata module");
+            if (!IsValid(sourceReader, source.Handle))
+                return Failed("source method handle is outside its metadata module");
+            if (targetReader.MethodDefinitions.Count
+                > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+            {
+                return Failed(
+                    "target method table exceeds the correspondence safety limit");
+            }
+
+            var sourceMethod = sourceReader.GetMethodDefinition(source.Handle);
+            var sourceTypeHandle = sourceMethod.GetDeclaringType();
+            MetadataTypeDefinitionNameReadResult sourceTypeNameResult =
+                MetadataTypeDefinitionNameReader.Read(
+                    sourceReader,
+                    sourceTypeHandle);
+            if (sourceTypeNameResult
+                is not MetadataTypeDefinitionNameReadResult.Read sourceTypeNameRead)
+            {
+                var failure =
+                    ((MetadataTypeDefinitionNameReadResult.Rejected)
+                        sourceTypeNameResult).Failure;
+                return Failed(failure.Detail);
+            }
+            MetadataTypeDefinitionName sourceTypeName =
+                sourceTypeNameRead.Name;
+            var sourceType = sourceReader.GetTypeDefinition(sourceTypeHandle);
+            var anchor = ApiMemberIdentity.CreateMethodAnchor(
+                sourceReader,
+                sourceTypeHandle,
+                sourceMethod,
+                IsExtensionMethod(sourceReader, sourceType, sourceMethod));
+
+            List<MetadataMethodAddress> candidates = [];
+            TypeDefinitionHandle previousTargetTypeHandle = default;
+            MetadataTypeDefinitionNameMatch previousTypeMatch =
+                MetadataTypeDefinitionNameMatch.NoMatch;
+            foreach (var targetHandle in targetReader.MethodDefinitions)
+            {
+                var targetMethod =
+                    targetReader.GetMethodDefinition(targetHandle);
+                TypeDefinitionHandle targetTypeHandle =
+                    targetMethod.GetDeclaringType();
+                if (targetTypeHandle != previousTargetTypeHandle)
+                {
+                    previousTargetTypeHandle = targetTypeHandle;
+                    previousTypeMatch =
+                        MetadataTypeDefinitionNameReader.Matches(
+                            targetReader,
+                            targetTypeHandle,
+                            sourceTypeName,
+                            out MetadataTypeNameFailure? typeFailure);
+                    if (previousTypeMatch
+                        == MetadataTypeDefinitionNameMatch.Rejected)
+                    {
+                        return Failed(
+                            typeFailure?.Detail
+                            ?? "target declaring type name was rejected without failure detail");
+                    }
+                }
+                if (previousTypeMatch == MetadataTypeDefinitionNameMatch.NoMatch)
+                    continue;
+
+                if (!StringComparer.Ordinal.Equals(
+                        MetadataSafetyPolicy.ReadStructuralString(
+                            targetReader,
+                            targetMethod.Name),
+                        anchor.MemberName))
+                {
+                    continue;
+                }
+
+                var targetType =
+                    targetReader.GetTypeDefinition(targetTypeHandle);
+                MemberAnchor targetAnchor =
+                    ApiMemberIdentity.CreateMethodAnchor(
+                        targetReader,
+                        targetTypeHandle,
+                        targetMethod,
+                        IsExtensionMethod(
+                            targetReader,
+                            targetType,
+                            targetMethod));
+                if (targetAnchor != anchor)
+                    continue;
+                if (candidates.Count
+                    == MetadataSafetyPolicy.MaxCorrespondenceCandidates)
+                {
+                    return Failed(
+                        "matching target methods exceed the correspondence safety limit");
+                }
+                candidates.Add(
+                    MetadataMethodAddress.Create(
+                        targetReader,
+                        targetHandle));
+            }
+
+            return candidates.Count switch
+            {
+                0 => new MethodCorrespondenceResult(
+                    MethodCorrespondenceStatus.Absent,
+                    anchor,
+                    Target: null,
+                    Candidates: [],
+                    Failure: "no target method has the same API member anchor"),
+                1 => new MethodCorrespondenceResult(
+                    MethodCorrespondenceStatus.Exact,
+                    anchor,
+                    candidates[0],
+                    candidates,
+                    Failure: null),
+                _ => new MethodCorrespondenceResult(
+                    MethodCorrespondenceStatus.Ambiguous,
+                    anchor,
+                    Target: null,
+                    candidates,
+                    Failure: $"{candidates.Count} target methods have the same API member anchor"),
+            };
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return Failed($"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        static MethodCorrespondenceResult Failed(string failure)
+            => new(
+                MethodCorrespondenceStatus.Failed,
+                Anchor: null,
+                Target: null,
+                Candidates: [],
+                failure);
+    }
+
+    /// <summary>
+    /// Resolves by the strict cross-module definition key, including structured
+    /// type-reference scope and generic-constraint identity.
+    /// </summary>
     public static MethodCorrespondenceResult Resolve(
         MetadataReader sourceReader,
         MetadataMethodAddress source,

@@ -27,6 +27,7 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using Markout;
 using Microsoft.CodeAnalysis;
@@ -992,16 +993,30 @@ public partial class CommandExecutionTests
     private static string CompileBodyStateFixture(
         string fixtureDir,
         string assemblyName,
-        string source)
+        string source,
+        bool emitPortablePdb = false,
+        IReadOnlyList<string>? additionalReferencePaths = null)
     {
         Directory.CreateDirectory(fixtureDir);
         string assemblyPath = Path.Combine(fixtureDir, $"{assemblyName}.dll");
+        string sourcePath = Path.Combine(fixtureDir, $"{assemblyName}.cs");
+        var sourceEncoding =
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        if (emitPortablePdb)
+            File.WriteAllText(sourcePath, source, sourceEncoding);
         var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
             .Split(Path.PathSeparator)
-            .Select(path => MetadataReference.CreateFromFile(path));
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Concat(
+                (additionalReferencePaths ?? [])
+                    .Select(path => MetadataReference.CreateFromFile(path)));
         var compilation = CSharpCompilation.Create(
             assemblyName,
-            [CSharpSyntaxTree.ParseText(source)],
+            [
+                CSharpSyntaxTree.ParseText(
+                    SourceText.From(source, sourceEncoding),
+                    path: emitPortablePdb ? sourcePath : "")
+            ],
             references,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
@@ -1009,7 +1024,19 @@ public partial class CommandExecutionTests
                 deterministic: true));
 
         using var assembly = File.Create(assemblyPath);
-        EmitResult result = compilation.Emit(assembly);
+        using var pdb = emitPortablePdb
+            ? File.Create(Path.ChangeExtension(assemblyPath, ".pdb"))
+            : null;
+        EmitResult result = compilation.Emit(
+            assembly,
+            pdbStream: pdb,
+            options: emitPortablePdb
+                ? new EmitOptions(
+                    debugInformationFormat:
+                        DebugInformationFormat.PortablePdb,
+                    pdbFilePath: Path.GetFileName(
+                        Path.ChangeExtension(assemblyPath, ".pdb")))
+                : null);
         Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
         return assemblyPath;
     }
@@ -7311,7 +7338,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown()
+    public async Task Member_PdbSource_CrossImageOverloadOrderUsesCorrespondingRuntimeMethod()
     {
         var fixtureDir = Path.Combine(
             Path.GetTempPath(),
@@ -7347,9 +7374,13 @@ public partial class CommandExecutionTests
                 public abstract class ReorderedOverloads
                 {
                     public abstract void Load(Stream stream);
-                    public void Load() { }
+                    public void Load()
+                    {
+                        _ = 42;
+                    }
                 }
-                """);
+                """,
+                emitPortablePdb: true);
             int selectedToken = FindMethodToken(
                 referenceAssembly,
                 "BodyStateOrder.ReorderedOverloads",
@@ -7368,17 +7399,218 @@ public partial class CommandExecutionTests
                         publicOnly: true));
             }
 
-            bool? bodyState = ApiCommand.ResolveMemberBodyState(
+            using var httpClient = new HttpClient();
+            ApiCommand.ResolvedMethodSource source =
+                await ApiCommand.ResolveMethodSourceAsync(
                 runtimeAssembly,
                 "BodyStateOrder.ReorderedOverloads",
                 "Load",
                 overloadIndex: 0,
+                new MemberOptions
+                {
+                    AssemblyPath = runtimeAssembly,
+                    DllPath = runtimeAssembly,
+                },
+                httpClient,
+                new VerboseLogger(enabled: false),
+                fetchSource: true,
                 publicOnly: true,
-                referenceAssembly,
-                selectedToken,
-                log: null);
+                memberMetadataAssemblyPath: referenceAssembly,
+                memberMetadataToken: selectedToken);
 
-            Assert.Null(bodyState);
+            Assert.False(source.MemberHasNoBody);
+            Assert.Null(source.PdbSourceUnavailableReason);
+            Assert.Contains("_ = 42;", source.Source?.SourceCode);
+
+            string absentRuntimeAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateAbsentRuntime",
+                """
+                using System.IO;
+
+                namespace BodyStateOrder;
+
+                public class ReorderedOverloads
+                {
+                    public void Load(Stream stream)
+                    {
+                        _ = 99;
+                    }
+                }
+                """,
+                emitPortablePdb: true);
+            ApiCommand.ResolvedMethodSource absentSource =
+                await ApiCommand.ResolveMethodSourceAsync(
+                    absentRuntimeAssembly,
+                    "BodyStateOrder.ReorderedOverloads",
+                    "Load",
+                    overloadIndex: 0,
+                    new MemberOptions
+                    {
+                        AssemblyPath = absentRuntimeAssembly,
+                        DllPath = absentRuntimeAssembly,
+                    },
+                    httpClient,
+                    new VerboseLogger(enabled: false),
+                    fetchSource: true,
+                    publicOnly: true,
+                    memberMetadataAssemblyPath: referenceAssembly,
+                    memberMetadataToken: selectedToken);
+
+            Assert.Null(absentSource.Source);
+            Assert.Equal(
+                Path.ChangeExtension(absentRuntimeAssembly, ".pdb"),
+                absentSource.PdbPath);
+            Assert.Equal(
+                ApiCommand.MemberCorrespondenceUnavailableReason,
+                absentSource.PdbSourceUnavailableReason);
+
+            ApiCommand.ResolvedMethodSource pdbOnly =
+                await ApiCommand.ResolveMethodSourceAsync(
+                    absentRuntimeAssembly,
+                    "BodyStateOrder.ReorderedOverloads",
+                    "Load",
+                    overloadIndex: 0,
+                    new MemberOptions
+                    {
+                        AssemblyPath = absentRuntimeAssembly,
+                        DllPath = absentRuntimeAssembly,
+                    },
+                    httpClient,
+                    new VerboseLogger(enabled: false),
+                    fetchSource: false,
+                    publicOnly: true,
+                    memberMetadataAssemblyPath: referenceAssembly,
+                    memberMetadataToken: selectedToken);
+
+            Assert.Equal(
+                Path.ChangeExtension(absentRuntimeAssembly, ".pdb"),
+                pdbOnly.PdbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_CrossImageDependencyVersionUsesStableApiIdentity()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"member-identity-version-{Guid.NewGuid():N}");
+
+        try
+        {
+            string dependencyV1 = CompileBodyStateFixture(
+                Path.Combine(fixtureDir, "dependency-v1"),
+                "CrossImageDependency",
+                """
+                using System.Reflection;
+
+                [assembly: AssemblyVersion("1.0.0.0")]
+
+                namespace CrossImageDependency;
+
+                public sealed class Payload { }
+                """);
+            string dependencyV2 = CompileBodyStateFixture(
+                Path.Combine(fixtureDir, "dependency-v2"),
+                "CrossImageDependency",
+                """
+                using System.Reflection;
+
+                [assembly: AssemblyVersion("2.0.0.0")]
+
+                namespace CrossImageDependency;
+
+                public sealed class Payload { }
+                """);
+            string referenceAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "VersionedReference",
+                """
+                using System.Runtime.CompilerServices;
+                using CrossImageDependency;
+
+                [assembly: ReferenceAssembly]
+
+                namespace CrossImageIdentity;
+
+                public class VersionedMethod
+                {
+                    public void Transform(Payload value) => throw null!;
+                }
+                """,
+                additionalReferencePaths: [dependencyV1]);
+            string runtimeAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "VersionedRuntime",
+                """
+                using CrossImageDependency;
+
+                namespace CrossImageIdentity;
+
+                public class VersionedMethod
+                {
+                    public void Transform(Payload value)
+                    {
+                        _ = value;
+                    }
+                }
+                """,
+                emitPortablePdb: true,
+                additionalReferencePaths: [dependencyV2]);
+            int selectedToken = FindMethodToken(
+                referenceAssembly,
+                "CrossImageIdentity.VersionedMethod",
+                "Transform",
+                parameterCount: 1);
+
+            using (var sourceStream = File.OpenRead(referenceAssembly))
+            using (var sourcePe = new PEReader(sourceStream))
+            using (var targetStream = File.OpenRead(runtimeAssembly))
+            using (var targetPe = new PEReader(targetStream))
+            {
+                MetadataReader sourceReader = sourcePe.GetMetadataReader();
+                var sourceMethod =
+                    (MethodDefinitionHandle)
+                        MetadataTokens.EntityHandle(selectedToken);
+                MethodCorrespondenceResult strict =
+                    MethodCorrespondenceResolver.Resolve(
+                        sourceReader,
+                        MetadataMethodAddress.Create(
+                            sourceReader,
+                            sourceMethod),
+                        targetPe.GetMetadataReader());
+
+                Assert.Equal(
+                    MethodCorrespondenceStatus.Absent,
+                    strict.Status);
+            }
+
+            using var httpClient = new HttpClient();
+            ApiCommand.ResolvedMethodSource source =
+                await ApiCommand.ResolveMethodSourceAsync(
+                    runtimeAssembly,
+                    "CrossImageIdentity.VersionedMethod",
+                    "Transform",
+                    overloadIndex: 0,
+                    new MemberOptions
+                    {
+                        AssemblyPath = runtimeAssembly,
+                        DllPath = runtimeAssembly,
+                    },
+                    httpClient,
+                    new VerboseLogger(enabled: false),
+                    fetchSource: true,
+                    publicOnly: true,
+                    memberMetadataAssemblyPath: referenceAssembly,
+                    memberMetadataToken: selectedToken);
+
+            Assert.Null(source.PdbSourceUnavailableReason);
+            Assert.Contains("_ = value;", source.Source?.SourceCode);
         }
         finally
         {

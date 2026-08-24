@@ -346,27 +346,24 @@ public static class MemberCommand
                 // The selected member's metadata token indexes the assembly it
                 // was extracted from — apiType.SourceAssemblyPath (the target
                 // assembly for a forwarded type, otherwise the extraction dll).
-                // Only resolve source by token when the assembly opened for
-                // lookup (pdbLookupPath) IS that same assembly; otherwise the
-                // token's row would not align (forwarded facade, or a reference
-                // assembly for the surface vs an implementation assembly for
-                // bodies), so fall back to name/overload resolution.
+                // ApiCommand uses it directly for the same image or resolves its
+                // stable API-member correspondent in a different PDB lookup image.
+                // Name/overload lookup remains only for requests with no MethodDef
+                // identity at all.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
-                var sourceMetadataToken = LibraryMetadataService
-                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
-                    .Equals(
-                        Path.GetFullPath(pdbLookupPath),
-                        Path.GetFullPath(tokenOriginAssembly))
-                    ? (sourceMember?.MetadataToken ?? 0)
-                    : 0;
+                int sourceMethodToken =
+                    sourceMember is not null
+                    && (sourceAccessor is not null
+                        || ApiMemberSectionDescriptors.IsMethodLike(sourceMember))
+                        ? sourceMember.MetadataToken ?? 0
+                        : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken,
                     tokenOriginAssembly,
-                    sourceMember?.MetadataToken ?? 0);
+                    sourceMethodToken);
 
                 effectiveOptions = effectiveOptions with
                 {

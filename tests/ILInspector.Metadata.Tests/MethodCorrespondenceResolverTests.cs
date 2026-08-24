@@ -67,6 +67,23 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void PdbContext_NonMethodTokenFailsCorrespondence()
+    {
+        using var source = PdbContext.OpenMetadataOnly(AssemblyPath);
+        using var target = PdbContext.OpenMetadataOnly(AssemblyPath);
+
+        MethodCorrespondenceResult result =
+            target.ResolveMethodCorrespondence(
+                source,
+                MetadataTokens.GetToken(
+                    MetadataTokens.TypeDefinitionHandle(1)));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Null(result.Target);
+        Assert.Contains("not a MethodDef", result.Failure);
+    }
+
+    [Fact]
     public void Resolve_TrailingMethodSignatureBytesFailClosed()
     {
         byte[] sourceImage =
@@ -80,7 +97,7 @@ public sealed class MethodCorrespondenceResolverTests
             sourceReader.MethodDefinitions.Single();
 
         MethodCorrespondenceResult result =
-            MethodCorrespondenceResolver.Resolve(
+            MethodCorrespondenceResolver.ResolveApiMember(
                 sourceReader,
                 MetadataMethodAddress.Create(
                     sourceReader,
@@ -160,11 +177,18 @@ public sealed class MethodCorrespondenceResolverTests
                 sourceReader,
                 MetadataMethodAddress.Create(sourceReader, sourceMethod),
                 targetPe.GetMetadataReader());
+        MethodCorrespondenceResult apiResult =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
         Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
         Assert.Contains("method table", result.Failure);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, apiResult.Status);
+        Assert.Contains("method table", apiResult.Failure);
         Assert.True(
             allocated < 16 * 1024 * 1024,
             $"Duplicate-row rejection allocated {allocated:N0} bytes.");
@@ -187,10 +211,44 @@ public sealed class MethodCorrespondenceResolverTests
                 sourceReader,
                 MetadataMethodAddress.Create(sourceReader, sourceMethod),
                 targetPe.GetMetadataReader());
+        MethodCorrespondenceResult apiResult =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
 
         Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
         Assert.Empty(result.Candidates);
         Assert.Contains("matching target methods", result.Failure);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, apiResult.Status);
+        Assert.Empty(apiResult.Candidates);
+        Assert.Contains("matching target methods", apiResult.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_DuplicateCandidatesAreAmbiguous()
+    {
+        byte[] sourceImage = BuildDuplicateMethodsImage(1);
+        byte[] targetImage = BuildDuplicateMethodsImage(2);
+        using var sourcePe = new PEReader(new MemoryStream(sourceImage));
+        using var targetPe = new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Ambiguous, result.Status);
+        Assert.Null(result.Target);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Contains("2 target methods", result.Failure);
+        Assert.Contains("API member anchor", result.Failure);
     }
 
     [Fact]
