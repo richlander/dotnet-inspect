@@ -1032,6 +1032,64 @@ recommend either a final round or stopping. Stopping still needs the user's
 waiver under invariant 5 — but asking for one, with that evidence, is the
 correct move rather than opening another round by reflex.
 
+## Lead with the demo
+
+Two clean adversarial reviews and a green suite establish that the change is
+**correct**. Neither establishes that it is **worth shipping**. The demo is the
+only part of a PR that shows the product actually got better, and it is the part
+someone reading this work back in six months will actually read.
+
+### Choose it before you are done, and say what it is
+
+Post the demo you intend to present — one line is enough — while there is still
+time to change it. Do not wait to be asked for one, and do not treat it as
+write-up performed after the work is finished. Three things come of choosing
+early:
+
+- **Calibration.** The operator can tell you a demo is not compelling *before*
+  you have finished building around it. That exchange costs one line and a reply,
+  and it is dramatically cheaper than discovering the mismatch at the end.
+- **Real-scenario validation.** A scenario a person would genuinely run exercises
+  paths that fixture-shaped tests do not. Turning up bugs at that point is the
+  system working. Turning them up *after* two clean reviews — which is what
+  happens when the demo is an afterthought — means the reviews were spent on a
+  version nobody had tried to use.
+- **A legible record.** These PRs are the archive. One that opens with a demo can
+  be read by somebody who was not there; one that opens with a list of test
+  invocations cannot.
+
+### Do not build to the demo
+
+The demo is a **sample of the space the change has to cover, never the definition
+of it.** The issue and its contract decide what you build; the demo shows one
+real path through it landing. Two smells that the two have been inverted: you
+special-cased an input so the demo would render, or you picked the scenario
+because it was the one you already knew worked.
+
+The self-check is to swap it. Take a neighbouring scenario a user would just as
+plausibly run, and confirm it behaves. If the demo is the only path that holds
+up, you have fit the demo rather than the problem — and choosing it early is
+what let you find that out while it was still cheap to fix.
+
+### What makes one compelling
+
+- **A real invocation and its real output**, pasted, not paraphrased or
+  reconstructed from memory.
+- **The canonical path** a user would take. A hidden alias or compatibility
+  selector demonstrates the seam, not the product; if the change is about the
+  primary path, lead with the primary path and add the alias only as a second
+  block.
+- **The before as well as the after, whenever the change is a fix.** A demo that
+  shows only the fixed output asks the reader to imagine the bug. The pair shows
+  it. This is the single largest difference between a demo that lands and one
+  that is merely present.
+- **One sentence naming what to notice**, because what is obvious to you after a
+  week inside the change is not obvious to anyone else.
+
+Put it in the PR body under a `## Demo` heading, **above** the validation list.
+Validation is the argument that the change is correct; the demo is the argument
+that it is worth having, and it should be read first.
+
 ## PR and CI discipline
 
 - Prefer fewer coherent PRs over many small PRs that each pay fixed CI cost and
