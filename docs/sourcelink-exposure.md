@@ -222,6 +222,11 @@ into the cache by a prior render therefore makes the family discoverable on the
 next `-D`; the effective-section cache keys on this availability so warming or
 clearing the PDB busts a stale catalog. See
 `docs/design/section-model.md#symbol-dependent-discovery-sourcelink-family`.
+This is the existing library-only persistent compatibility catalog described
+under
+[`Existing library effective catalog`](design/section-model.md#existing-library-effective-catalog);
+it is not an authorization-bearing outcome cache for the planned type/member
+executor.
 
 ## Network and performance policy
 
@@ -276,8 +281,10 @@ network requests.
   the provenance grammar establishes an immutable commit-pinned GitHub or Azure
   DevOps URL. Other availability results retain a TTL; integrity results for
   unknown hosts and moving or ambiguous selectors are not cached.
-- Effective-section caches may summarize what sections are renderable, but must
-  be invalidated when section semantics change.
+- The existing bare-library effective catalog may persist successful section
+  summaries under its content, local-SourceLink-availability, and versioned
+  semantics key. Planned type/member authorization-dependent outcomes remain
+  operation-local and never consume that catalog.
 
 Cache reuse must never bypass PDB identity validation.
 

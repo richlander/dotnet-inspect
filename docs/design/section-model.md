@@ -315,29 +315,53 @@ rather than unknown or empty.
 
 ### Effective-discovery cache
 
-Completed effective-discovery outcomes are scoped to one exact
-`PreflightedInspectionPlan` instance. Cache lookup occurs only after current
-request provenance, execution mode, probe and cost policy, and host capability
-policy have produced that immutable plan. An `Applicable`,
-`Unknown(CapabilityNotRequested | CapabilityDenied | CostDenied |
-ExecutionModeDenied | ProbePolicyDenied)`, or producer-failure result must not
-cross into another plan, even when these ordinary applicability inputs match:
+Effective-discovery caching has two contracts during the type/member planning
+migration. They are not interchangeable.
 
-- target identity
-- command and options that affect applicability
-- section catalog version
-- effectiveness probe policy
+#### Planned type/member outcomes
 
-The cache may reuse one section outcome within that plan. Persistent producer
-evidence may be reused by a later plan only after that plan independently
-preflights the producer and its artifact owner revalidates access; the later
-plan then derives its own section outcome. Do not hash or reconstruct host
-authorization into an applicability key: plan-instance scoping preserves the
-complete preflight disposition without creating a second authorization
-currency.
+A top-level type/member command or query creates a fresh
+`InspectionOperationContext`. Preflight binds each
+`PreflightedInspectionPlan` to that context's opaque, non-serializable operation
+identity. The executor rejects a plan presented by another operation or after
+its context is disposed.
 
-Changing category scope or effectiveness semantics still requires a
-cache-version bump.
+Completed `Applicable`, `Unknown(CapabilityNotRequested | CapabilityDenied |
+CostDenied | ExecutionModeDenied | ProbePolicyDenied)`, and producer-failure
+outcomes are reusable only inside that operation and through the exact
+preflighted plan that produced them. Even a plan object with identical target,
+request provenance, execution mode, probe and cost policy, host capability
+policy, and catalog version cannot carry completed outcomes into another
+top-level operation.
+
+Persistent producer evidence may be reused by a later operation only after its
+fresh plan independently preflights that producer and the artifact owner
+revalidates access; the later operation derives a fresh section outcome. Do not
+hash or reconstruct host authorization into an applicability key: the
+operation-bound plan preserves the complete preflight disposition without
+creating a second authorization currency.
+
+#### Existing library effective catalog
+
+The shipped bare `library -D --effective` path predates typed type/member
+planning. It retains its library-only, cross-process `effective-v*` compatibility
+cache of successful section catalogs and schemas. The current key includes the
+resolved path, assembly content hash, and network-free local SourceLink
+availability; scoped discovery does not populate the bare catalog, failures are
+not stored, and a category-version change invalidates older semantics.
+
+That payload is neither a `PreflightedInspectionPlan` outcome nor reusable
+producer evidence for the planned type/member executor. The new executor must
+not read it. This proposal retains the existing library behavior and its
+current invalidation gates; it does not generalize the compatibility cache into
+an authorization mechanism. If library discovery later adopts variable host
+preflight, that migration must either cache authorization-independent producer
+evidence from which every operation derives a fresh outcome or remove the
+persistent completed catalog. It must not key on a reconstructed host-policy
+hash.
+
+Changing the existing library catalog's category scope or effectiveness
+semantics still requires an `effective-v*` cache-version bump.
 
 ## Selection
 

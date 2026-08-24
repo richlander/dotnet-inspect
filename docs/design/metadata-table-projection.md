@@ -148,18 +148,26 @@ table, its rows with:
 This projection supports ordinary ECMA-335 assembly metadata only. Before any
 table, row, reverse-reference, image-overview, or heap operation constructs its
 `MetadataReaderOptions.None` reader, it calls the MetadataPrimitives-owned
-`MetadataImageFormatClassifier`. That classifier examines the raw metadata
-root version with
-`rawReader.MetadataVersion.Contains("WindowsRuntime",
-StringComparison.Ordinal)`, the ordinal rule SRM uses before optional WinRT
-projection; it does not use the options-dependent
+`MetadataImageFormatClassifier`. That classifier reads only the fixed
+ECMA-335 metadata-root prefix and bounded version field and applies the ordinal
+`WindowsRuntime` byte-marker rule SRM uses before optional WinRT projection. It
+does not construct a `MetadataReader` or use the options-dependent
 `MetadataReader.MetadataKind`. Windows Metadata is outside dotnet-inspect's
-current project scope. The direct projector APIs throw
-`UnsupportedMetadataFormatException` before projecting rows or heaps;
-`AssemblyInspectionSession` and query owners map that specific exception to a
-typed unsupported-input result. It must not become `null`, an empty projection,
-partial rows, or malformed ECMA-335. `MDP017` gates every existing entry point
-as well as the CLI metadata lens.
+current project scope. A PE without metadata returns the classifier's typed
+`NoMetadata` arm before requesting a metadata block and preserves the
+projector's no-metadata boundary. The direct projector APIs throw
+`UnsupportedMetadataFormatException` before projecting rows or heaps only for
+unsupported Windows Metadata and `BadImageFormatException` for a malformed
+root; `AssemblyInspectionSession` and query owners map those specific
+mechanisms to typed unsupported-input and malformed-input results. Neither may
+become `null`, an empty projection, or partial rows. `MDP017` gates every
+existing entry point as well as the CLI metadata lens.
+
+The diagnostic lens does not bypass format admission to inspect an arbitrarily
+long nonconforming root version. A padded version field above 256 bytes receives
+the typed malformed-root mapping before `MetadataImageInspector`; its existing
+bounded version read remains defense in depth for inputs inside the supported
+root envelope, not a promise to inspect roots outside it.
 
 1. **Each column value in raw form**, plus a friendly decode where cheap (flag
    enums, a name/namespace pulled from the string heap, well-known GUIDs). The
@@ -1501,9 +1509,12 @@ section rather than two that happen to render alike. A hex alias registered in
 the catalog would print its own heading, sort independently in the section
 order, count separately under `--count`, and appear as a second entry under
 `-D`. Rewriting at the boundary means everything downstream — the orderer, the
-heading, `--count`, the document schema, the effective-section cache key — only
-ever sees the canonical name, so those failure modes are not merely untested but
-unreachable.
+heading, `--count`, the document schema, and the existing library effective
+catalog key — only ever sees the canonical name, so those failure modes are not
+merely untested but unreachable. That persistent library catalog is the
+compatibility path in
+[`section-model.md`](section-model.md#existing-library-effective-catalog), not
+the planned type/member operation-local outcome cache.
 
 `MetadataSectionNames.TryGetTable` therefore stays canonical-only. Teaching it
 hex as well would put alias resolution in two places, and would make

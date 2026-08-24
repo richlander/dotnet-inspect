@@ -112,8 +112,9 @@ permission to reinterpret raw metadata semantics.
 - Keep static schema target-free and keep schema/discovery resolution incapable
   of authorizing symbol, source, or analysis acquisition.
 - Keep effective discovery within an explicit probe budget.
-- Validate metadata declaration facts once per operation and reuse them across
-  output projections.
+- Validate each shared metadata declaration fact once per image generation and
+  semantic context within an operation, then reuse it across output
+  projections.
 - Preserve cheap filtering before expensive signature and `MethodImpl`
   projection without allowing malformed addressed declarations to appear
   valid.
@@ -535,10 +536,14 @@ L2's typed section-to-query binding applies progressive-disclosure request
 policy; L1 queries declare requirements; the host grants or denies the request.
 A selected section cannot widen authorization after this preflight.
 
-The query execution owner exposes one conceptual preflight:
+The query execution owner exposes one conceptual operation and preflight:
 
 ```text
+BeginInspectionOperation()
+  -> InspectionOperationContext(opaque-operation-identity)
+
 Preflight(
+    inspection operation context,
     parsed gesture capability-request provenance,
     resolved typed query plan,
     execution mode,
@@ -546,6 +551,7 @@ Preflight(
   -> PreflightedInspectionPlan | PlanDenied(typed-reason)
 
 PreflightedInspectionPlan
+  operation identity -> exact owning InspectionOperationContext
   section demand ->
     Executable(AuthorizedProducerClosure)
     | Unavailable(CapabilityNotRequested
@@ -559,14 +565,18 @@ PreflightedInspectionPlan
 ```
 
 Only this preflight may mint executable closures, and the executor accepts only
-the preflighted plan. A plan-level denial applies to mandatory target or common
-producer work. Independent section demands and conditional successors retain
-their own authorized or denied disposition. L3 parses the user's
-capability-bearing gesture, producers declare requirements, and the host policy
-grants or denies them. Section names, `MemberOptions`, and presentation state
-are not authorization inputs after lowering to the typed plan. L2 contributes
-request provenance through a typed section/query binding; it does not grant
-the capability.
+the preflighted plan together with its live owning operation context. A
+preflighted plan cannot be rebound to or reused by another top-level operation;
+an operation mismatch or disposed context is rejected before outcome-cache or
+producer access. Repeated section demand inside one operation may reuse that
+plan and its completed outcomes. A plan-level denial applies to mandatory
+target or common producer work. Independent section demands and conditional
+successors retain their own authorized or denied disposition. L3 parses the
+user's capability-bearing gesture, producers declare requirements, and the
+host policy grants or denies them. Section names, `MemberOptions`, and
+presentation state are not authorization inputs after lowering to the typed
+plan. L2 contributes request provenance through a typed section/query binding;
+it does not grant the capability.
 
 This gives local-symbol read, symbol acquisition, and source-content access one
 auditable rule:
@@ -590,16 +600,23 @@ hit completes under `LocalPdbRead`; a miss may follow only a pre-authorized
 `PdbAcquire` edge. An unrequested or denied acquisition edge returns its
 recorded denial without network access.
 
-Completed effective-discovery outcomes are operation-local to the exact
-`PreflightedInspectionPlan` instance that authorized or denied each section.
-Lookup happens only after current-plan preflight. No `Applicable`, typed
-`Unknown`, or producer-failure result crosses into another plan merely because
-target, options, catalog version, and probe policy match. Persistent producer
-evidence may be reused only after the later plan independently preflights that
-producer and the artifact owner revalidates access; the later plan derives a
-fresh section outcome. This avoids both replaying an authorized answer into a
-denying host and pinning an authorized host to another plan's denial without
-inventing a hash of host policy as a second authorization currency.
+Completed effective-discovery outcomes are local to the fresh
+`InspectionOperationContext` and exact `PreflightedInspectionPlan` that
+authorized or denied each section. Lookup happens only after current-operation
+preflight. No `Applicable`, typed `Unknown`, or producer-failure result crosses
+into another operation or plan merely because target, options, catalog version,
+probe policy, and host grants match. Persistent producer evidence may be reused
+only after the later operation independently preflights that producer and the
+artifact owner revalidates access; the later plan derives a fresh section
+outcome. This avoids replaying an authorized answer into a denying host,
+pinning an authorized host to another operation's denial or transient failure,
+and inventing a hash of host policy as a second authorization currency.
+
+The shipped library-only `effective-v*` catalog remains the compatibility path
+described in
+[the section model](section-model.md#existing-library-effective-catalog). It is
+not consulted by the planned type/member executor and does not weaken this
+operation boundary.
 
 ### Discovery modes
 
@@ -718,8 +735,9 @@ probe plan before the adapter is considered compliant.
 8. A typed diagnostic is not converted into an empty selected set.
 9. Conditional execution chooses only among branches whose authorization or
    denial was fixed by preflight.
-10. An effective-discovery outcome is reused only within the exact
-    preflighted-plan instance that produced it.
+10. An effective-discovery outcome is reused only within the fresh top-level
+    inspection operation and exact operation-bound preflighted plan that
+    produced it.
 
 ## Boundary two: validated metadata declaration projection
 
@@ -731,20 +749,53 @@ immutable byte generations and operation-local entries. It does not create a
 repository-wide normalized metadata graph.
 
 The declaration path supports ordinary ECMA-335 assembly metadata only.
-Session construction calls the MetadataPrimitives-owned
-`MetadataImageFormatClassifier` before row admission, before constructing a
-projection-enabled reader, and before declaration work. The classifier reads
-the raw metadata root version through `MetadataReaderOptions.None` and treats
-`rawReader.MetadataVersion.Contains("WindowsRuntime",
-StringComparison.Ordinal)` as typed
-`UnsupportedWindowsMetadata`, matching the format discriminator SRM applies
-before its optional WinRT projection. It does not use the options-dependent
-`MetadataReader.MetadataKind` property.
+The `AssemblyImage`-owned metadata-session factory calls the
+MetadataPrimitives-owned `MetadataImageFormatClassifier` before obtaining or
+exposing a `MetadataReader`, before row admission, and before declaration work.
+Direct public/reusable `PEReader` entry points perform the same classification
+before their own reader construction. Once classification returns supported,
+the factory constructs the reader and session as one owner-bound operation; a
+caller cannot pair an independently supplied classification result and reader.
+The session rechecks its owner or lender liveness and supported admission before
+using that reader.
+
+The classifier uses the registered bounded metadata-root admission guard: from
+the acquisition-owned `PEReader` it reads only the fixed ECMA-335 metadata-root
+prefix and at most the declared 256-byte padded version field, then performs an
+ordinal byte match for `WindowsRuntime` before the first null byte. ECMA-335
+permits at most 255 bytes including the terminator and rounds the stored field
+length to four-byte alignment, hence the 256-byte read ceiling. This is the same
+case-sensitive version discriminator SRM applies before optional WinRT
+projection, without constructing a reader whose table initialization may scan
+rows. It does not use the options-dependent `MetadataReader.MetadataKind`
+property.
 
 `WindowsMetadata` and `ManagedWindowsMetadata` are unsupported project inputs,
-not malformed ECMA-335. The raw classifier needs no projected reader, mscorlib
+not malformed ECMA-335. The classifier needs no projected reader, mscorlib
 lookup, handle correspondence, projected-accessor fallback, or WinMD
 compatibility adapter. A malformed raw metadata root remains a distinct
+malformed-input result. The guard does not parse stream headers, heaps, table
+headers, row counts, or rows and is not a second metadata reader. Supported
+images proceed to the ordinary SRM reader, which remains responsible for the
+rest of metadata-root and stream validation.
+
+The classifier returns `NoMetadata` without requesting a metadata block when
+`PEReader.HasMetadata` is false. Acquisition and query owners preserve their
+existing typed no-metadata boundary; they do not translate that result to
+unsupported Windows Metadata, malformed metadata, or empty metadata
+projection. Obtaining the metadata block for the other result arms may
+materialize the complete metadata directory for a lazy `PEReader`. That
+acquisition-owned byte cost is distinct from classifier work and remains
+visible; after the block exists, the guard's work and allocation are bounded by
+the fixed prefix and 256-byte field and cannot scale with stream, heap, table,
+or row content.
+
+A metadata directory that cannot be mapped into a block and a block shorter
+than the fixed root prefix produce typed malformed-root results. An I/O failure
+while a lazy owner materializes the block remains the acquisition owner's typed
+failure and is not relabeled as malformed metadata. Direct APIs without a
+failure union map the malformed-root arm to `BadImageFormatException` with
+bounded, non-artifact text; query owners preserve that mechanism in their typed
 malformed-input result.
 
 A Metadata declaration session is created from:
@@ -753,8 +804,8 @@ A Metadata declaration session is created from:
   acquisition-owned image generation, current `PEReader`, and that reader's
   `MetadataReader`;
 - the operation's shared work, item, text, and decode context;
-- session-local caches keyed by handle plus required generic or resolution
-  context;
+- access to entry-owned immutable declaration-fact caches keyed by handle, fact
+  kind, and complete generic, resolution, and participating-generation context;
 - the operation's stable validation policy;
 - typed failure construction.
 
@@ -786,35 +837,84 @@ owned or borrowed wrapper, path, MVID, or content digest is not the generation;
 two independent acquisitions receive different generations even when they
 expose the same bytes.
 
-The operation context shares the admission result and immutable semantics index
-through a context-owned `MetadataImageEntry` mapped by generation reference
-identity, not through the session object or a cache object retained by the
-snapshot. Each owned or borrowed `AssemblyImage` wrapper has its own
-`MetadataDeclarationSession`, current reader, and liveness check. Sessions over
-the same generation consult one entry in that operation only after validating
-their own owner or lender. Each distinct generation in a multi-image operation
-receives one cumulative `MaxMetadataRows` charge. Admission is unconditional:
-a compatibility caller without a configured ceiling uses an explicit
-`Unbounded` policy while still recording the row sum, but every product entry
-point must supply a finite central policy before the slice-6 cutover. The
-safety policy is operation-scoped and immutable: sessions cannot supply a
-different policy while sharing image state, and a transitional attempt to mix
-finite and `Unbounded` policies in one operation is rejected before cache
-lookup.
+The operation context shares the admission result, immutable semantics index,
+and immutable declaration facts or typed failures through a context-owned
+`MetadataImageEntry` mapped by generation reference identity, not through the
+session object or a cache object retained by the snapshot. Each owned or
+borrowed `AssemblyImage` wrapper has its own `MetadataDeclarationSession`,
+current reader, and liveness check. Sessions over the same generation consult
+one entry in that operation only after validating their own owner or lender.
+Every fact key names the fact kind, subject handle, complete generic and
+resolution context, and reference identity of every participating image
+generation. A request whose meaning depends on a consumer inclusion decision
+is not a shared fact and remains projection-local.
+
+The entry retains only owned immutable values or typed failures, never a
+`MetadataReader`, `PEReader`, borrowed block, pointer, lease, or mutable budget.
+For a fact whose typed generic or resolution context names other generations,
+the projection coordinator constructs an ephemeral
+`MetadataFactAccessContext` from one specific current
+`MetadataDeclarationSession` per participating generation and passes it to the
+subject session's fact operation. The subject session validates that every
+supplied session belongs to the same `MetadataOperationContext` and carries the
+expected generation. Missing participation returns typed
+`ResolutionContextUnavailable` before cache lookup; an operation or generation
+mismatch is rejected as an invalid request, and a dead owner or lender
+preserves the liveness failure. Multiple live wrappers for one generation are
+unambiguous because the coordinator chooses the current wrapper for that
+request.
+
+The typed generic or resolution context enumerates the complete participating
+generation set before lookup or decode. The ephemeral access context must match
+that set exactly; a missing generation is unavailable, and an extra or
+mismatched generation is invalid rather than silently changing the fact key.
+
+The subject generation's `MetadataImageEntry` retains and charges the completed
+fact or failure; other participating generations contribute key and liveness
+context but do not retain duplicate values. Each supplied session checks its
+owner or lender immediately before both a cache observation and a cold decode,
+and its live lease covers materialization. The cold path charges the operation
+before publishing the completed value or failure. Consequently separate full,
+summary, and focused sessions over one generation can reuse one charged fact
+without a cached result reviving a disposed owner or lender. Neither the
+operation context nor an entry retains the ephemeral access context or its
+sessions. Entry disposal releases all retained facts and indexes at operation
+end.
+
+Entry creation, image admission, association-index publication, and
+declaration-fact publication are atomic within one `MetadataOperationContext`.
+For each fact key, one caller owns cold decode and charges before publishing one
+immutable value or typed failure; concurrent callers join that same completion
+and perform their own liveness check before observing it. A same-chain recursive
+request for the in-progress key returns typed `FactDependencyCycle` rather than
+blocking itself or starting a second decode. The coordination mechanism exposes
+no threading requirement to consumers: multithreaded hosts exercise contention,
+while single-threaded Browser/Wasm takes the same uncontended contract.
+
+Each distinct generation in a multi-image operation receives one cumulative
+`MaxMetadataRows` charge. Admission is unconditional: a compatibility caller
+without a configured ceiling uses an explicit `Unbounded` policy while still
+recording the row sum, but every product entry point must supply a finite
+central policy before the slice-6 cutover. The safety policy is
+operation-scoped and immutable: sessions cannot supply a different policy
+while sharing image state, and a transitional attempt to mix finite and
+`Unbounded` policies in one operation is rejected before cache lookup.
 
 One top-level CLI inspection, query, or invocation of a workspace query
 coordinator creates one `MetadataOperationContext` and threads it through every
 declaration session and snapshot-backed `UseAssemblySession` callback it
 starts. Compatibility single-call APIs create an ephemeral context for that
 call. The coordinator disposes the context when the top-level operation ends,
-releasing all context-owned image entries and retained indexes. A later
-operation over the same persistent snapshot sees the same byte-generation
-token but maps it into a fresh entry, repeats admission and charging under its
-own policy, and cannot observe the earlier operation's result or rejection.
+releasing all context-owned image entries, declaration facts, and retained
+indexes. A later operation over the same persistent snapshot sees the same
+byte-generation token but maps it into a fresh entry, repeats admission and
+charging under its own policy, and cannot observe the earlier operation's
+result or rejection.
 The number and retained bytes of entries remain bounded by whole-image
-admission and the retained-association budget; a disposed session leaves no
-`PEReader` in an entry, while a later session in the same operation over the
-same immutable snapshot may reuse the neutral result through its generation.
+admission and the declared fact/index retention budgets; a disposed session
+leaves no `PEReader` in an entry, while a later session in the same operation
+over the same immutable snapshot may reuse immutable facts and the neutral
+semantics result through its generation.
 
 ### Validation stages
 
@@ -1122,8 +1222,10 @@ The owner charges before materialization. A cache may avoid repeated decode
 work only when:
 
 - its key includes every semantic decode context;
-- the retained value was already charged to this operation or belongs to a
-  separately budgeted immutable operation result;
+- the retained value or typed failure is owned by the current operation's
+  generation-scoped `MetadataImageEntry` and was already charged there;
+- every participating image owner or lender is live before lookup and cold
+  decode;
 - cache reuse cannot turn a previously rejected operation into success;
 - failure results are cached with the same context as successful results.
 
@@ -1201,6 +1303,14 @@ Section adapters
   -> Markout view models
 ```
 
+The top-level coordinator owns the planning-layer
+`InspectionOperationContext` and, when declaration work is required, one
+Metadata-layer `MetadataOperationContext` for the same invocation lifetime.
+They are sibling layer-owned state, not aliases: the former bounds
+authorization-dependent section outcomes, while the latter bounds metadata
+admission, facts, and retained indexes. Neither context, its identity, nor an
+image generation grants authority in the other layer.
+
 The plan may request a summary projection, full API projection, or one focused
 declaration. Those are result shapes, not separate validity implementations.
 
@@ -1216,6 +1326,7 @@ the design authority.
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
+| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain as the existing bare `library -D --effective` compatibility cache, governed by its resolved-path/content-hash/local-SourceLink key, category-version invalidation, and current cache tests; do not expose it to the planned type/member executor or treat it as authorization. A future library typed-preflight migration must convert it to authorization-independent producer evidence or remove it |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
 | `ApiSurfaceExtractor` and accessor-bearing `MetadataDeclarationQuery` calls to `GetAccessors()` | Replace every SRM convenience-accessor read in those files with the neutral `MethodSemanticsAssociationSession` and Metadata-owned semantic census, including non-admission compiler-generated-name heuristics; replace reader-only `GetProperty` and `GetTypeSurface` entry points with session-backed queries |
@@ -1337,6 +1448,13 @@ Depends on: slices 2 and 3.
   policy without restating requirements.
 - Preflight cost, capability, execution-mode, and probe-policy authorization
   for common work, independent section closures, and conditional successors.
+- Mint one fresh `InspectionOperationContext` in each top-level type/member
+  command, query, or workspace coordinator invocation; bind every preflighted
+  plan and completed section outcome to its opaque identity, thread the live
+  context through execution, reject cross-operation or post-disposal use, and
+  dispose it when that invocation ends. Bare library discovery remains on the
+  separately dispositioned compatibility path until its own typed-planning
+  migration.
 - Remove source/PDB/analysis authorization inferred from `IncludeSections` or
   from the union of `Discover` selections into requested render sections.
 - Move every producer reached by render-manifest discovery into the declared
@@ -1346,13 +1464,13 @@ Depends on: slices 2 and 3.
   declared probe plan rather than render-manifest-owned producer execution.
 - Keep ordinary rendered output unchanged.
 
-Exit gate: the executor accepts only the preflighted plan and the producer trace
-matches the resolved selection matrix; named/category source discovery neither
-acquires source capabilities nor becomes empty success, denied discovery
-closures remain per-section unknowns, denied render closures remain failures,
-and no executable path retains another authorization mint. `MIP002`, `MIP004`,
-`MIP005`, `MIP007` through `MIP011`, and `MIP013` must pass before this slice
-lands.
+Exit gate: the executor accepts only the preflighted plan together with its
+live owning operation context and the producer trace matches the resolved
+selection matrix; named/category source discovery neither acquires source
+capabilities nor becomes empty success, denied discovery closures remain
+per-section unknowns, denied render closures remain failures, and no executable
+path retains another authorization mint. `MIP002`, `MIP004`, `MIP005`,
+`MIP007` through `MIP011`, and `MIP013` must pass before this slice lands.
 
 ### Slice 5: introduce Metadata declaration scaffolding
 
@@ -1369,7 +1487,9 @@ be consumed by the type/member plan before slice 4 lands.
   every declaration session reuse the resulting per-generation operation
   entry.
 - Centralize the remaining operation budgets, acquisition-minted image state,
-  and session-local caches.
+  and immutable declaration-fact/failure caches in the operation's
+  generation-scoped `MetadataImageEntry`; keep only leases and liveness checks
+  session-local.
 - Carry the owned or borrowed `AssemblyImage` lease into
   `MetadataDeclarationSession`; use its acquisition-minted image generation,
   current reader, and liveness check, and do not pair independently supplied
@@ -1382,15 +1502,20 @@ be consumed by the type/member plan before slice 4 lands.
   the sole product `MethodSemanticsRowReader` invocation owner; it calls
   `AssemblyImage.EnsureAlive()` immediately before every cold pass and exposes
   only the completed immutable neutral rows or typed rejection.
-- Add the MetadataPrimitives-owned `MetadataImageFormatClassifier`, using one
-  `MetadataReaderOptions.None` reader and SRM's ordinal
-  `rawReader.MetadataVersion.Contains("WindowsRuntime")` rule. In this slice,
-  route the new declaration-session path, `MetadataImageInspector`, every public
-  `MetadataTableProjector` row/reference/heap entry point, and the defensive
-  `MethodSemanticsRowReader` leaf check through it before projection-aware
-  reader construction, admission, or metadata work. Later caller migrations
-  inherit the same gate; do not add a projected WinMD reader, fallback,
-  compatibility adapter, or correspondence gate.
+- Add the MetadataPrimitives-owned `MetadataImageFormatClassifier` as the one
+  registered bounded metadata-root admission guard. Read only the fixed root
+  prefix and at most the ECMA-335 256-byte padded version field from the
+  acquisition-owned metadata block, and apply SRM's ordinal
+  `WindowsRuntime` marker rule. Make the `AssemblyImage`-owned session factory
+  classify and bind a supported result before it constructs any
+  `MetadataReader`; no caller may supply the result and reader independently.
+  In this slice, route the new declaration-session path,
+  `MetadataImageInspector`, every public `MetadataTableProjector`
+  row/reference/heap entry point, and the defensive
+  `MethodSemanticsRowReader` leaf check through it before reader construction,
+  admission, or metadata work. Later caller migrations inherit the same gate;
+  do not parse stream/table structure or add a projected WinMD reader,
+  fallback, compatibility adapter, or correspondence gate.
 - Add typed type, member, accessor, and `MethodImpl` validation results.
 - Replace the reader-only accessor-bearing
   `MetadataDeclarationQuery.GetProperty` and `GetTypeSurface` surfaces with
@@ -1517,7 +1642,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, catalog identity, parser capabilities, per-section input requirements, and schema projection; every advertised section/field/column/coordinate/shape has a corresponding accepted parser gesture and renderer mapping, and every reachable shape is advertised; package-library projections retain defaultable sections such as `Performance: Boxing` and omit only sections or shapes whose declared input is unavailable on that route; all-libraries row schemas expose only supported sections and include package/version/library/TFM identity columns; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return their view-specific projections before resolution/extraction; commandless `--all-libraries` routes to package before lookup in static and non-static cases; explicit package/library/type/member gestures prove their deterministic command-owned schemas, including explicit `member` with no member gesture; explicit-member dotted-tail ambiguity and other syntax-only ambiguous forms retain labeled per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
 | `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, commandless structural alternatives, and explicit-member dotted-tail alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
-| `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; artifact-owner lease revalidation; and same-target effective discovery under granting and denying hosts in both execution orders, proving completed section outcomes are scoped to the exact preflighted-plan instance while reusable producer evidence is reauthorized |
+| `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; artifact-owner lease revalidation; same-target effective discovery under granting and denying hosts in both execution orders; two freshly minted same-host, same-target, same-request operations in which one receives an injected producer failure and the other succeeds after recovery, repeated in both operation orders; explicit attempts to present the first operation's plan to the second operation and to execute it after disposing the first context, both rejected before cache or producer access; and architecture closure proving the planned type/member executor never reads or writes the library-only `effective-v*` catalog. Together these prove completed outcomes are scoped to one operation-bound preflighted plan while persistent producer evidence is independently reauthorized |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
 | `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, explicit-member no-selector type view, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless and explicit-member dotted-tail static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
@@ -1535,15 +1660,15 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets; an oversized semantics table must pass whole-image row admission only when within `MaxMetadataRows`, then stop on the lower retained-association budget with bounded allocation and no double charge; dependent property/event projections receive typed rejection with no streaming fallback, while independent declaration kinds retain their normal failure policy |
 | `MDP007` | Metadata and CLI failure text contains no artifact data | Hostile control-character names across Metadata declaration and CLI failure paths |
 | `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals; the complete MethodSemantics census accepts every pinned input and does not broaden a table-level malformed-ordering rejection into an unexplained omission |
-| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, lifetime, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request, including the operation's generation-scoped `MethodSemantics` association index; cache-key set equality, cached-work rejection, same-context negative caching, and no undeclared local ceiling; after the raw image-format classifier accepts a supported image, `MetadataOperationContext.AdmitImage` runs unconditionally as the sole row-charge call site, records the row sum under explicit compatibility `Unbounded`, rejects construction of any product context lacking a finite policy after slice 6, and makes a full extraction's cumulative row charge equal the image's declared row sum exactly once; reference identity of the acquisition-minted `MetadataImageGeneration` maps to a context-owned entry and is not itself an operation-local cache object, artifact or assembly identity, `AssemblyAcquisitionRegistration`, a `MetadataReader`, `PEReader`, `AssemblyImage`, path, MVID, or digest; within one operation, repeated `GetMetadataReader()` results, owned/borrowed sessions, and snapshot-backed sessions whose callbacks recreate `PEReader` instances share admission/index state for one generation but retain separate session liveness checks, producing one row charge and one retained-association charge; an independent open receives a different generation, while a later operation over the same persistent snapshot maps its retained generation to a fresh entry, repeats charges, and cannot observe the earlier result or rejection; the operation owns one immutable safety policy, and a mixed finite/`Unbounded` session attempt fails before cache lookup; one eager semantics pass charges retained associations once, and a same-operation, same-generation cache hit reuses the immutable result or typed rejection without recharging or bypassing the current session's owner/lender liveness check; solution-wide product-call closure requires `MethodSemanticsAssociationSession` to be the only product `MethodSemanticsRowReader` invocation owner, while direct calls are confined to leaf boundary tests; the association session calls `AssemblyImage.EnsureAlive()` immediately before the cold primitive call; owned and borrowed fixtures dispose the owner or lender before the first uncached pass and assert `ObjectDisposedException` with zero primitive invocations or row reads, while separate cache-hit fixtures assert the same liveness boundary; Metadata scanner fixtures prove their neutral-row paths use the association session with finite operation policy and no bare-reader bypass; constructor/API closure rejects independently supplied generation/reader pairs; a workspace loop over one participant remains one charged image per operation, context disposal releases every entry, and entry count/bytes remain within declared image/retention budgets; equivalent near/over-limit full/summary/focused fixtures assert equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
+| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, lifetime, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request, including the operation's generation-scoped declaration facts, typed failures, and `MethodSemantics` association index; cache-key set equality covers fact kind, handle, generic context, resolution context, and every participating image generation; cached-work rejection, same-context negative caching, changed-context close negatives, missing participating-session `ResolutionContextUnavailable`, extra/cross-operation/generation-session mismatch rejection, and no undeclared local ceiling; multi-generation facts are retained and charged only in the subject generation's entry while every participating session supplies key and liveness context; after the image-format classifier accepts a supported image, `MetadataOperationContext.AdmitImage` runs unconditionally as the sole row-charge call site, records the row sum under explicit compatibility `Unbounded`, rejects construction of any product context lacking a finite policy after slice 6, and makes a full extraction's cumulative row charge equal the image's declared row sum exactly once; reference identity of the acquisition-minted `MetadataImageGeneration` maps to a context-owned entry and is not itself an operation-local cache object, artifact or assembly identity, `AssemblyAcquisitionRegistration`, a `MetadataReader`, `PEReader`, `AssemblyImage`, path, MVID, or digest; within one operation, repeated `GetMetadataReader()` results, owned/borrowed sessions, and snapshot-backed sessions whose callbacks recreate `PEReader` instances share admission, immutable fact/failure, and association-index state for one generation but retain separate session liveness checks, producing one row charge, one retained-association charge, and one charge per shared fact; full, summary, and focused projections run through separate sessions in every order under a budget permitting one decode of each shared fact, and every permutation returns the same value or typed failure and counters rather than becoming callback-order dependent; multithreaded concurrent cold requests for one image, association index, positive fact, and negative fact prove atomic entry creation, single publication, and exactly-once charging, while a same-chain reentrant fact request returns `FactDependencyCycle` without deadlock or a second decode; single-threaded Browser/Wasm exercises the same uncontended result contract; an independent open receives a different generation, while a later operation over the same persistent snapshot maps its retained generation to a fresh entry, repeats charges, and cannot observe the earlier result or rejection; the operation owns one immutable safety policy, and a mixed finite/`Unbounded` session attempt fails before cache lookup; a same-operation, same-generation cache hit reuses the entry-owned immutable value or typed rejection without recharging only after every participating session rechecks its owner/lender liveness; owned and borrowed fixtures dispose the owner or lender before uncached work and before positive and failure cache hits, asserting `ObjectDisposedException` with zero primitive invocations, row reads, or cached-value observation; entries retain no reader, block, pointer, fact-access context, session, lease, or mutable budget; solution-wide product-call closure requires `MethodSemanticsAssociationSession` to be the only product `MethodSemanticsRowReader` invocation owner, while direct calls are confined to leaf boundary tests; Metadata scanner fixtures prove their neutral-row paths use the association session with finite operation policy and no bare-reader bypass; constructor/API closure rejects independently supplied generation/reader pairs and independently supplied format-result/reader pairs; a workspace loop over one participant remains one charged image per operation, context disposal releases every fact and entry, and entry count/bytes remain within declared image/fact/index retention budgets; equivalent near/over-limit full/summary/focused fixtures assert equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
 | `MDP010` | Degraded signatures remain nonauthoritative at the CSharp boundary | Existing degraded-signature fixtures mapped to typed `Degraded` outcomes with no authoritative C# or metadata fallback |
 | `MDP011` | The Metadata slice-6 cutover has no parallel declaration owner, reader-only extraction seam, or convenience-accessor bypass | Declaration-driven architecture closure over full, summary, and focused entry points; fail on a duplicate validity implementation or admission bypass; require no bare-`PEReader` `ApiSurfaceExtractor` full, summary, or bounded entry point and prove every production caller carries a genuine owned or borrowed image lease plus finite operation context; require no SRM `PropertyDefinition.GetAccessors()` or `EventDefinition.GetAccessors()` call anywhere in `ILInspector.Metadata`, including `ExtensionMethodScanner` and `OpenTelemetryScanner`, after the cutover |
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8; no shipped product or reusable product-library SRM `PropertyDefinition.GetAccessors()` or `EventDefinition.GetAccessors()` call remains; Decompiler fixtures prove `MemberBodyProducer` and `MethodDefinitionFacts` consume the association session under the slice-6 owner-backed image lease and a finite Decompiler operation policy, call the current owner/lender liveness check before both cold and cached results, and retain their own classification policy without a bare-reader bypass; a gate-owned exact file/enclosing-member/occurrence-count allow list records every remaining solution call exactly once with category and justification as either a comparison-only independent SRM oracle or an address-only test-input selector whose assertion depends solely on product output; the mechanical gate fails stale, unlisted, or occurrence-count drift, while category correctness is an explicit reviewer obligation whenever the list changes; no allowed category may supply expected accessor structure or construct, normalize, repair, or substitute for an artifact later compiled or measured as product evidence; reflection `PropertyInfo.GetAccessors` is outside this closure |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
 | `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
-| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `src/dotnet-inspect.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf, only `MethodSemanticsRowReader` within that leaf calls the table-layout APIs (`PEReader.GetMetadata`, `PEMemoryBlock.GetReader`, `GetTableMetadataOffset`, and `GetTableRowSize`) for raw ECMA table rows, no arbitrary `TableIndex`, schema, or coded-index API escapes, and blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
-| `MDP017` | Unsupported Windows Metadata cannot enter a product metadata path or become malformed ECMA-335 | `MetadataImageFormatClassifier` uses one `MetadataReaderOptions.None` reader and the ordinal `rawReader.MetadataVersion.Contains("WindowsRuntime", StringComparison.Ordinal)` rule that SRM itself uses before optional WinRT projection; ordinary and marker-bearing `MetadataBuilder` images, including a marker-bearing image without an mscorlib `AssemblyRef`, prove options-independent `SupportedEcma335` versus `UnsupportedWindowsMetadata` results without constructing a projection-enabled reader, exposing the raw version, or reading rows/heaps; malformed raw roots remain a distinct typed result; architecture closure inventories acquisition owners and public/reusable `PEReader` boundaries and requires `AssemblyImage`, `PdbContext`, Decompiler `MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector` table/row/reference/heap entry point, and direct `MethodSemanticsRowReader` calls to invoke the classifier before admission or metadata work; direct acquisition/projector APIs that cannot return a result union throw `UnsupportedMetadataFormatException` with no artifact text, while the owning query maps that exception to one typed unsupported-input diagnostic; CLI Markdown and structured metadata-lens modes prove there is no empty or partial success; Browser/Wasm and NativeAOT gates exercise the same classifier |
+| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `src/dotnet-inspect.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
+| `MDP017` | Unsupported Windows Metadata cannot enter a product metadata path or become malformed ECMA-335 | `MetadataImageFormatClassifier` is the sole registered metadata-root admission guard. `PEReader.HasMetadata == false` returns typed `NoMetadata` without requesting a block; otherwise the classifier obtains the owner-bound metadata block from the supplied `PEReader`, reads only the ECMA-335 signature, fixed major/minor/reserved fields, signed padded-version length, and at most the declared 256-byte padded field, scans through the first null for the ordinal ASCII `WindowsRuntime` marker SRM uses before optional WinRT projection, and constructs no `MetadataReader`. Ordinary and marker-bearing `MetadataBuilder` images, including a marker-bearing image without an mscorlib `AssemblyRef`, prove `SupportedEcma335` versus `UnsupportedWindowsMetadata`; a native PE proves `NoMetadata` and preserves its established no-metadata boundary; wrong-case markers, markers after the first null, and markers outside the declared field remain supported close negatives; an unmappable metadata directory, truncated fixed prefix, invalid signature, negative/over-256 padded length, and length beyond the block remain distinct typed malformed-root results, while injected lazy-stream I/O failure remains an acquisition failure. The gate records the deliberate compatibility boundary that SRM may accept a longer field when enough bytes exist, while the guard rejects it because ECMA-335 bounds the null-terminated version to 255 bytes and the padded field to 256; no input may be admitted with an unexamined marker beyond the fixed window. A marker-bearing byte-patched image whose unsorted `MethodSemantics` table would scan or fail during SRM reader initialization must return unsupported without reader, row, table, heap, or stream-header work. Prefetched and lazy-stream fixtures record total block-materialization cost separately; a test-only pre-materialized measurement that first obtains the block from the same `PEReader` isolates the subsequent classifier delta and proves classifier-owned allocation/work is bounded only by the root prefix and 256-byte field rather than row count. Product paths still classify before reader construction or metadata work. Within MetadataPrimitives, architecture closure permits root-admission interpretation only in the classifier; `MDP016` separately owns the exact raw-layout allow list for the classifier and `MethodSemanticsRowReader`, while the existing `StructuralCloneAnalysis.ReadUserStringHeap` stream parser remains explicitly excluded migration debt rather than an admission path. Acquisition/public-`PEReader` closure requires `AssemblyImage`, `PdbContext`, Decompiler `MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector` table/row/reference/heap entry point, and direct `MethodSemanticsRowReader` calls to invoke the classifier before reader construction, admission, or metadata work; direct acquisition/projector APIs preserve `NoMetadata`, map malformed roots to `BadImageFormatException` with bounded non-artifact text when their return shape has no failure arm, and throw `UnsupportedMetadataFormatException` with the same text constraint only for unsupported Windows Metadata; owning queries preserve each mechanism in a typed no-metadata, malformed-input, or unsupported-input result; CLI Markdown and structured metadata-lens modes prove there is no empty or partial success; Browser/Wasm and NativeAOT gates exercise every classifier arm |
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
@@ -1564,9 +1689,9 @@ matrix.
 | Excluded hostile rows cannot amplify expensive projection | Metadata | `MDP003`, `MDP006` |
 | Valid metadata and complete, contained C# fallback remain distinct from degraded or invalid input | Metadata/CSharp boundary | `MDP004`, `MDP005`, `MDP010`, `MDP012`, `MDP014`, `MDP015` |
 | Lossless `MethodSemantics` access remains the sole narrow raw-table exception below Metadata semantics | MetadataPrimitives/Metadata | `MDP002`, `MDP004`, `MDP006`, `MDP009`, `MDP016` |
-| Cache reuse cannot bypass context or operation budgets | Metadata declaration session | `MDP009` |
+| Cache reuse cannot bypass context or operation budgets | Metadata operation context and generation-scoped image entry | `MDP009` |
 | No duplicate validity owner or CSharp raw-metadata/raw-flag reconstruction survives migration | Metadata/CSharp architecture | `MDP011`, `MDP012`, `MDP013` |
-| Effective-discovery outcomes cannot cross authorization dispositions | Section/query plan integration | `MIP004` |
+| Effective-discovery outcomes cannot cross top-level operations or authorization dispositions | Section/query plan integration | `MIP004` |
 | Unsupported Windows Metadata cannot enter product metadata projection | MetadataPrimitives/acquisition/Metadata | `MDP017` |
 
 ## Review exit criteria
