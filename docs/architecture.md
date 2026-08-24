@@ -938,8 +938,8 @@ Research overlay bridge, and the application layer:
   relationships, constructed generic projection, virtual-slot and MethodImpl
   correspondence, constrained-method suppression, and conservative unknown
   handling. It receives synchronized external type-definition resolution and
-  the shared per-type method-name index from the assembly builder rather than
-  owning a second reference cache or candidate index.
+  the shared `LibraryBodyAsyncSiblingMethodIndex` rather than owning a second
+  reference cache or candidate index.
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
   `OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression`,
   `MethodImplSignature_RequiresByRefDirection`, and
@@ -954,16 +954,22 @@ Research overlay bridge, and the application layer:
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`, and
   `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey` gate that
   policy.
-  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the `sync-call-in-async`
-  opportunity orchestration, synchronous-definition and sibling-candidate
-  lookup, exact-callee and per-type caches, diagnostic containment, and result
-  ordering. It consumes the stateless matcher, dispatch and accessibility
-  analyzers, and canonical direct-call rows after ordinary opportunity
-  collection and appends only this metadata-bound shape; recoverable
-  sibling-classification failures remain diagnostic without discarding
-  independent ordinary opportunities or body signals. Source-independent
-  lookup is cached by exact callee identity, while accessibility remains
-  source-dependent;
+  `LibraryBodyAsyncSiblingCandidateResolver` owns synchronous-definition and
+  sibling-candidate resolution, bounded inherited-name traversal,
+  exact-callee caching, ambiguity selection, and source-dependent
+  accessibility and dispatch filtering. It consumes builder-owned synchronized
+  external resolution and the shared local type-definition index without
+  owning metadata lifetime.
+  `LibraryBodyAsyncSiblingMethodIndex` owns the synchronized reader-relative
+  per-type method-name cache shared by candidate and dispatch analysis.
+  `LibraryBodyAnalysisBuilder.AsyncSibling` owns only `sync-call-in-async`
+  opportunity orchestration, diagnostic containment, and result ordering. It
+  consumes the candidate resolver and canonical direct-call rows after
+  ordinary opportunity collection and appends only this metadata-bound shape;
+  recoverable sibling-classification failures remain diagnostic without
+  discarding independent ordinary opportunities or body signals.
+  Source-independent lookup is cached by exact callee identity, while
+  accessibility remains source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
   per-type method index that bounds distinct-callee discovery;
   `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
