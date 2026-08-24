@@ -473,6 +473,43 @@ wrapped `throw <expr>;` would fold identically should one ever print multi-line;
 the printer does not currently produce multi-line throws, so that path is latent,
 not reachable.)
 
+### Semantic vertical spacing
+
+The printer adds at most one blank line between sibling statements in a
+structured sequence with at least five visible statements. It separates a
+leading no-`else` conditional or a terminating no-`else` conditional from the
+statement that follows, and it separates adjacent major control-flow constructs
+(`if`, `switch`, loops, `try`, `lock`, `fixed`, `using`, and `foreach`). Nested
+sequences make the decision independently. A sequence that renders source labels
+declines this policy because its explicit lowered control-flow contour is already
+the more faithful grouping signal.
+
+Setup remains compact with the following `if`, `switch`, or loop. Statement
+count alone is not a reliable semantic boundary: in the runtime oracle, even
+runs of two or more setup statements were followed by a blank before `if` only
+57% of the time and before loops only 31% of the time.
+
+The declared facet is silent on blank lines between statements:
+`dotnet/runtime`'s `.editorconfig` at
+`113dfc84608caa4b9a87a302c952bf7f35617240` specifies newline placement around
+braces and keywords but no blank-line rule. Its coding-style guide only says to
+avoid more than one empty line at a time. The revealed facet supports the two
+selected boundaries: a ten-file library sample placed a blank after block-form
+guards 79% of the time and between sibling control-flow constructs 90% of the
+time. Representative witnesses are
+`src/libraries/System.Collections/src/System/Collections/Generic/SortedSet.cs:513-528`
+for separated guards and
+`src/libraries/System.Private.CoreLib/src/System/Threading/Tasks/Task.cs:2988-2993`
+for separated sibling conditionals. Compact setup is represented by
+`src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs:397-405`.
+
+`CSharpPrinterSemanticSpacingTests.LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact`
+and
+`CSharpPrinterSemanticSpacingTests.LongMethod_SeparatesSiblingControlFlowGroups`
+enforce the grouping policy. The coordinate-preservation gates are
+`InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact`
+and `InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans`.
+
 ### Line wrapping
 
 Breaking a long line across continuation lines is pure whitespace: it emits the

@@ -715,6 +715,32 @@ public sealed partial class CSharpPrinter
             }
         }
 
+        var statementsByBlock = new List<List<IrNode>>(blocks.Count);
+        foreach (var block in blocks)
+        {
+            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset)
+                && block.Children.Count(statement => statement is not LocalFunctionStatement) == 1;
+            var emit = new List<IrNode>();
+            foreach (var statement in block.Children)
+            {
+                if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
+                    continue;
+                bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
+                bool statementOwnsLabel = statement.OwnsSourceLabel
+                    && statement.SourceOffset >= 0
+                    && _labelTargets.Contains(statement.SourceOffset);
+                if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
+                    && statement is Return { Value: null })
+                    continue;
+                emit.Add(statement);
+            }
+            statementsByBlock.Add(emit);
+        }
+        bool semanticSpacing = HasSemanticSpacingCandidates(
+                statementsByBlock.SelectMany(static statements => statements))
+            && blocks.All(block => !_labelTargets.Contains(block.StartOffset));
+        var spacingState = new SemanticSpacingState(semanticSpacing);
+
         // A label binds to the next statement, even one in a following block, so
         // an empty labeled block is fine mid-container. It only strands when the
         // container ends with no statement after the label; track that and emit a
@@ -732,31 +758,17 @@ public sealed partial class CSharpPrinter
                 if (topLevel)
                     _topLevelHasLabel = true;
             }
-            // The trailing 'return;' trims, current-style — unless it is a
-            // labeled block's only statement, where trimming would strand
-            // the label as invalid C#.
-            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset)
-                && block.Children.Count(statement => statement is not LocalFunctionStatement) == 1;
-            var emit = new List<IrNode>();
-            foreach (var statement in block.Children)
-            {
-                if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
-                    continue;   // lifted to the signature initializer / field declarations
-                bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
-                bool statementOwnsLabel = statement.OwnsSourceLabel
-                    && statement.SourceOffset >= 0
-                    && _labelTargets.Contains(statement.SourceOffset);
-                if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
-                    && statement is Return { Value: null })
-                    continue;
-                emit.Add(statement);
-            }
+            var emit = statementsByBlock[i];
 
             if (topLevel)
                 _topLevelStatements.AddRange(emit);
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
-            AppendStatements(sb, emit, indent);
+            AppendStatements(
+                sb,
+                emit,
+                indent,
+                ref spacingState);
         }
         if (labelPendingStatement)
             sb.Append(pad).AppendLf(";");
@@ -2595,6 +2607,23 @@ public sealed partial class CSharpPrinter
     /// </summary>
     void AppendStatements(StringBuilder sb, IReadOnlyList<IrNode> statements, int indent)
     {
+        bool semanticSpacing = HasSemanticSpacingCandidates(statements)
+            && (statements.FirstOrDefault()?.Parent is not Block block
+                || !_labelTargets.Contains(block.StartOffset));
+        var spacingState = new SemanticSpacingState(semanticSpacing);
+        AppendStatements(
+            sb,
+            statements,
+            indent,
+            ref spacingState);
+    }
+
+    void AppendStatements(
+        StringBuilder sb,
+        IReadOnlyList<IrNode> statements,
+        int indent,
+        ref SemanticSpacingState spacingState)
+    {
         int i = 0;
         while (i < statements.Count)
         {
@@ -2608,6 +2637,10 @@ public sealed partial class CSharpPrinter
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
+                AppendSemanticSeparator(
+                    sb,
+                    statements[i],
+                    spacingState);
                 sb.Append(pad).AppendLf("unsafe");
                 sb.Append(pad).AppendLf("{");
                 _unsafeDepth++;
@@ -2615,8 +2648,16 @@ public sealed partial class CSharpPrinter
                 {
                     if (statements[k] is StoreLocal unsafeInlineStore && _inlineReceiverTempStores.ContainsValue(unsafeInlineStore))
                         continue;
+                    if (k != i)
+                    {
+                        AppendSemanticSeparator(
+                            sb,
+                            statements[k],
+                            spacingState);
+                    }
                     AppendStatementLabel(sb, statements[k], indent + 1);
                     AppendStatement(sb, statements[k], indent + 1);
+                    UpdateSemanticSpacingState(statements[k], ref spacingState);
                 }
                 _unsafeDepth--;
                 sb.Append(pad).AppendLf("}");
@@ -2624,11 +2665,95 @@ public sealed partial class CSharpPrinter
             }
             else
             {
+                AppendSemanticSeparator(
+                    sb,
+                    statements[i],
+                    spacingState);
                 AppendStatementLabel(sb, statements[i], indent);
                 AppendStatement(sb, statements[i], indent);
+                UpdateSemanticSpacingState(statements[i], ref spacingState);
                 i++;
             }
         }
+    }
+
+    bool IsVisibleStatement(IrNode statement)
+        => statement is not StoreLocal store
+            || !_inlineReceiverTempStores.ContainsValue(store);
+
+    bool RendersSourceLabel(IrNode statement)
+        => statement.OwnsSourceLabel
+            && statement.SourceOffset >= 0
+            && _labelTargets.Contains(statement.SourceOffset);
+
+    bool HasSemanticSpacingCandidates(IEnumerable<IrNode> statements)
+    {
+        int visibleStatements = 0;
+        foreach (var statement in statements)
+        {
+            if (RendersSourceLabel(statement))
+                return false;
+            if (IsVisibleStatement(statement))
+                visibleStatements++;
+        }
+        return visibleStatements >= 5;
+    }
+
+    // Five visible siblings keeps compact bodies compact. Longer structured
+    // lists separate leading/terminating one-arm conditionals and adjacent
+    // major constructs. Labeled lowered output declines the policy because its
+    // control-flow contour is explicit.
+    void AppendSemanticSeparator(
+        StringBuilder sb,
+        IrNode current,
+        SemanticSpacingState state)
+    {
+        if (!state.Enabled || state.Previous is null)
+            return;
+
+        if (state.PreviousCompletedConditional
+            || IsMajorControlFlow(current)
+                && IsMajorControlFlow(state.Previous))
+        {
+            sb.AppendLf();
+        }
+    }
+
+    static bool IsCompletedConditionalGroup(IrNode statement, bool leading)
+        => statement is IfStatement { HasElse: false } conditional
+            && (leading
+                || conditional.Then.Children.LastOrDefault()
+                    is Return or Throw or Branch or Leave or YieldBreak);
+
+    static bool IsMajorControlFlow(IrNode statement)
+        => statement is IfStatement
+            or Switch
+            or WhileLoop
+            or DoWhileLoop
+            or ForLoop
+            or TryCatch
+            or TryFinally
+            or Lock
+            or Fixed
+            or UsingStatement
+            or ForeachStatement;
+
+    void UpdateSemanticSpacingState(
+        IrNode statement,
+        ref SemanticSpacingState state)
+    {
+        state.PreviousCompletedConditional =
+            IsCompletedConditionalGroup(statement, state.EmittedStatements == 0);
+        state.Previous = statement;
+        state.EmittedStatements++;
+    }
+
+    struct SemanticSpacingState(bool enabled)
+    {
+        public bool Enabled { get; } = enabled;
+        public IrNode? Previous { get; set; }
+        public bool PreviousCompletedConditional { get; set; }
+        public int EmittedStatements { get; set; }
     }
 
     int UnsafeRunEnd(IReadOnlyList<IrNode> statements, int start)
