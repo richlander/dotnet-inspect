@@ -1167,26 +1167,46 @@ conflict immediately so CI starts, but if its review would begin a new
 unauthorized block, request approval before dispatching reviewers. Once
 approved, start that conflict-recovery round without waiting for CI.
 
-Before requesting each block, present an analysis of why the prior rounds did
-not converge. Classify the repeated findings as one of:
+Before requesting each block, present an architectural checkpoint, not merely
+a request for permission. Answer all of these:
 
-- an architectural problem in the change;
-- missing test coverage;
-- reviewers expanding the contract beyond the intended threat model; or
-- **findings confined to the change's own test harness** while the product diff
-  goes unchallenged.
+1. **What did the last block accomplish?** Summarize the product, architecture,
+   and test changes made, the findings retired, and the confidence gained.
+   Distinguish durable progress from churn that only moved the findings.
+2. **Are the reviews converging toward dual-clean soon?** Cite the trend across
+   the block: clean responses, repeated versus new finding categories, and
+   whether findings are moving out of the product and into tests or the harness.
+   State how likely the next block is to produce two clean responses at one
+   current head, and why.
+3. **Do the remaining findings expose local defects or shaky foundations?**
+   Classify the repeated findings as architectural problems in the change,
+   missing test coverage, reviewers expanding the contract beyond the intended
+   threat model, or **findings confined to the change's own test harness** while
+   the product diff goes unchallenged.
+4. **Is a docs-only, design-focused PR now warranted?** Give an explicit
+   recommendation. That alternative pauses implementation review and uses
+   direct, full engagement from the repository owner to settle the disputed
+   contracts, ownership boundaries, or architecture before implementation
+   resumes. If it is warranted, recommend it instead of another implementation
+   block.
+5. **If that design-focused path was skipped for the prior block at the user's
+   request, why should it be skipped again?** The earlier decision is not
+   standing authorization. Identify what the last block changed, what evidence
+   now supports implementation-level convergence, and why another six rounds
+   are a better investment than settling the design first.
 
 State the proposed architectural or test remedy, or explain why the remaining
-concern should be dismissed, before spending another block.
+concern should be dismissed. End with one recommendation: approve the next
+implementation block, switch to a docs-only design PR, or stop the work.
 
-The fourth case deserves its own judgment, because it looks like convergence and
-behaves like a ratchet. When successive rounds find only new ways to strengthen
-a test generator, each finding is real and each fix is cheap, so the loop can run
-indefinitely on a product diff nobody has disputed. Say so plainly when you see
-it: report how many consecutive rounds produced no product finding, and
-recommend either a final round or stopping. Stopping still needs the user's
-waiver under invariant 5 — but asking for one, with that evidence, is the
-correct move rather than opening another round by reflex.
+The harness-only case deserves its own judgment, because it looks like
+convergence and behaves like a ratchet. When successive rounds find only new
+ways to strengthen a test generator, each finding is real and each fix is cheap,
+so the loop can run indefinitely on a product diff nobody has disputed. Say so
+plainly when you see it: report how many consecutive rounds produced no product
+finding, and recommend either a final round or stopping. Stopping still needs
+the user's waiver under invariant 5 — but asking for one, with that evidence, is
+the correct move rather than opening another round by reflex.
 
 ## Lead with the demo
 
