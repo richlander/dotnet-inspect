@@ -54,6 +54,17 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
+                if (PackageIndexCache.RequiresRidReverification(cached))
+                {
+                    await RidPackageVerifier.VerifyAsync(
+                        httpClient,
+                        cached,
+                        cached.Version,
+                        localDir: null,
+                        logger: logger,
+                        sourceOptions: sourceOptions);
+                }
+
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(

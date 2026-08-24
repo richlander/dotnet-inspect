@@ -218,6 +218,10 @@ Round <n> is complete for PR <number>.
 - Round end: <datetime>.
 - Round duration: <hours:minutes>
 
+Reviews: <clean>/<required> clean — <status by reviewer>
+Blocked: <PR or issue numbers not yours to fix; omit when empty>
+Recommendation: [Wait, Merge, Approve next rounds, Stop (reason)]
+
 Fix description: <prose description of changes made in response to the round>.
 ```
 
@@ -226,6 +230,12 @@ classification, say that no findings or fixes were produced and that the locked
 head remained unchanged. For a no-fix round with dismissed findings, use
 `converging`, `diverging`, or `neutral` and explain the dismissals in the public
 reconciliation.
+
+`Reviews` records the dual-clean count that GitHub cannot observe. Every
+`Blocked` entry must be an existing PR or issue; file one before citing a new
+shared failure. `Wait` requires a non-empty blocker list and means the agent
+will resume when it clears. `Merge`, `Approve next rounds`, and `Stop` request a
+user decision; `Stop` does not close anything until approved.
 
 The same report may also be posted on the PR; the public reconciliation may
 include more detail when the findings or fixes warrant it.

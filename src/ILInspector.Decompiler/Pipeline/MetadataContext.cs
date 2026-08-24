@@ -64,14 +64,6 @@ public sealed class MetadataContext : IDisposable
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly IAssemblyReferenceResolver? _resolver;
 
-    /// <summary>
-    /// How much this context trusts DISCOVERED assemblies to claim
-    /// core-library identity. Defaults to the safe setting; a host whose
-    /// surrounding directory is as trusted as the target may relax it.
-    /// </summary>
-    internal CoreLibraryTrustPolicy CoreLibraryTrust { get; init; }
-        = CoreLibraryTrustPolicy.DesignatedAndPlatform;
-
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         ArgumentNullException.ThrowIfNull(resolver);
@@ -108,14 +100,18 @@ public sealed class MetadataContext : IDisposable
     /// <summary>
     /// Opens a path the caller named directly. Naming an exact file is a
     /// designation, so the result keeps core-library identity; see
-    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// <see cref="CoreLibraryIdentityTrust"/>. The designation is stated as
+    /// provenance and answered by the rule rather than granted directly, so
+    /// this site is entitled for a reason the rule can be asked about.
     /// </summary>
     static OpenedAssembly? OpenDesignated(string path)
     {
         OpenedAssembly? opened = OpenedAssembly.TryOpen(path);
         if (opened is not null)
         {
-            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(opened.Reader);
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                AssemblyResolutionProvenance.Designated("MetadataContext designation"));
         }
         return opened;
     }
@@ -130,7 +126,7 @@ public sealed class MetadataContext : IDisposable
     /// <summary>
     /// Opens an assembly that reference resolution selected, and records
     /// whether its acquisition entitles it to core-library identity. Discovery
-    /// is trusted only by provenance or host policy; see
+    /// is trusted by provenance alone; see
     /// <see cref="CoreLibraryIdentityTrust"/>.
     /// </summary>
     OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
@@ -140,8 +136,7 @@ public sealed class MetadataContext : IDisposable
         {
             CoreLibraryIdentityTrust.GrantIfEntitled(
                 opened.Reader,
-                assembly.Provenance,
-                CoreLibraryTrust);
+                assembly.Provenance);
         }
         return opened;
     }

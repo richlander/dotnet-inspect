@@ -3,7 +3,6 @@ import {
   assemblyDescriptorForType,
   pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
-  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
@@ -12,7 +11,6 @@ import {
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
   graphMemberSelection,
-  lenses,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
@@ -22,17 +20,22 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
+  platformPackFromProvenance,
   removeWorkspacePackage,
   removeAppendedNotice,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  resolveOpportunitySourceType,
+  resolvePlatformGraphTargetType,
   scopedRequestState,
   sourceReloadKind,
   sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  typeLensesFor,
   type DependencyGroupData,
   type PackageIdentity,
+  type PlatformPack,
   type WorkspaceTab,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
@@ -62,6 +65,8 @@ import {
 } from "./workspace-navigation.ts";
 import {
   createPackageAcquisition,
+  runtimeAssemblyIsResident,
+  runtimePackIsResident,
   type AppPackage,
 } from "./package-acquisition.ts";
 import {
@@ -87,6 +92,14 @@ import {
   type LoadErrorShellBindingActions,
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
+import {
+  callGraphDemoRunnerSpec,
+  homeDemoRowHtml,
+  productHomeDemoLocationHref,
+  setProductHomeDemoCatalog,
+  type ProductHomeDemoId,
+  type ProductHomeDemoResolved,
+} from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
@@ -231,6 +244,8 @@ let initializeEngine: EngineModule["initializeEngine"];
 let cancelSourceInspection: EngineModule["cancelSourceQuery"];
 let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
 let inspectVocabulary: EngineModule["listVocabulary"];
+let inspectListHomeDemos: EngineModule["listHomeDemos"];
+let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -270,7 +285,9 @@ async function loadEngineModule() {
     expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
     initializeEngine,
+    listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
+    resolveHomeDemo: inspectResolveHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -800,15 +817,18 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     request.selectorKey,
     request.metadataToken,
     JSON.stringify(workspace)),
-  queryPlatform: async request =>
-    parseEngineJson<BrowserCallGraph>(
-      await inspectExpandPlatformCallGraph(
-        request.framework,
-        request.assembly,
-        request.type,
-        request.member,
-        request.selectorKey,
-        request.metadataToken)),
+  queryPlatform: request =>
+    inspectExpandPlatformCallGraph(
+      request.framework,
+      request.assembly,
+      request.pack,
+      request.assemblyVersion ?? "",
+      request.assemblyCulture,
+      request.assemblyPublicKeyToken,
+      request.type,
+      request.member,
+      request.selectorKey,
+      request.metadataToken),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -867,7 +887,7 @@ function applyView(view: WorkspaceView) {
     view,
     type,
     member,
-    member ? memberSectionIdsFor(member) : []);
+    member ? memberSectionIdsFor(member, pkg.isRuntimePack) : []);
   state.lens = view.lens;
   state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
   state.selectedMemberKey = memberHistory.selectedMemberKey;
@@ -949,7 +969,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function memberSectionsFor(member: BrowserMemberSurface | AppMemberGroup) {
-  const allowed = new Set(memberSectionIdsFor(member));
+  const allowed = new Set(
+    memberSectionIdsFor(
+      member,
+      state.package?.isRuntimePack));
   return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
@@ -1096,7 +1119,7 @@ const catalogRequests = createCatalogRequests({
 });
 const spotlight = createSpotlight({
   state,
-  lenses,
+  lenses: () => typeLensesFor(state.package),
   escapeHtml,
   highlightRanges,
   kindIcon,
@@ -1721,9 +1744,9 @@ function scope() {
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
-// package lenses that fetch one would 404 — except Integrations, which scans a single
-// platform library the engine acquires directly from the runtime pack (see
-// QueryPlatformIntegrations). Dependencies/Opportunities/Analysis stay package-only.
+// package lenses that fetch one would 404. Integrations and Opportunities scan a
+// selected library through the content-backed platform workspace; dependencies remain
+// package-only, while Analysis and Metadata report their explicit product-query gaps.
 function packageLensesFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
@@ -1746,7 +1769,7 @@ function activeLenses() {
     const member = selectedMember(selectedType());
     return member ? memberSectionsFor(member) : [];
   }
-  return lenses;
+  return typeLensesFor(state.package);
 }
 
 // The nav pane reacts to context: types at the top level, or the current type's
@@ -1927,8 +1950,10 @@ function stepHorizontal(delta: number) {
     if (index < 0) index = 0;
     applyMemberSection(order[(index + delta + order.length) % order.length]);
   } else {
-    const index = lenses.findIndex(([id]) => id === state.lens);
-    state.lens = lenses[(index + delta + lenses.length) % lenses.length][0];
+    const available = typeLensesFor(state.package);
+    const index = available.findIndex(([id]) => id === state.lens);
+    state.lens = available[
+      (index + delta + available.length) % available.length][0];
     render();
   }
 }
@@ -2053,6 +2078,11 @@ function render() {
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
   if (state.atPackageRoot && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
     state.packageLens = "overview";
+  }
+  if (!state.atPackageRoot
+    && scope() === "type"
+    && !typeLensesFor(state.package).some(([id]) => id === state.lens)) {
+    state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
 
@@ -2314,7 +2344,7 @@ function renderScopeBar() {
   }
   return renderScopeBarPure({
     scope: sc,
-    strip: lenses,
+    strip: typeLensesFor(state.package),
     activeStripId: state.lens,
     stripAttribute: "data-lens",
     showMemberScope,
@@ -2509,22 +2539,20 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformIntegrations: async (framework, assemblyFileName, pack) =>
-    parseEngineJson<BrowserPackageIntegrations>(
-      await inspectPlatformIntegrations(
-        framework,
-        assemblyFileName,
-        pack)),
+  queryPlatformIntegrations: (framework, assemblyFileName, pack) =>
+    inspectPlatformIntegrations(
+      framework,
+      assemblyFileName,
+      pack),
   queryPackageOpportunities: packageModel => inspectPackageOpportunities(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformOpportunities: async (framework, assemblyFileName, pack) =>
-    parseEngineJson<BrowserPackageOpportunities>(
-      await inspectPlatformOpportunities(
-        framework,
-        assemblyFileName,
-        pack)),
+  queryPlatformOpportunities: (framework, assemblyFileName, pack) =>
+    inspectPlatformOpportunities(
+      framework,
+      assemblyFileName,
+      pack),
   queryPackagePerformance: async packageModel =>
     parseEngineJson<PackagePerformance>(
       await inspectPackagePerformance(
@@ -3486,9 +3514,9 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
   } else if (state.memberSection === "call-graph") {
     const active = currentCallGraph();
     const drilled = state.platformStack.length > 0;
-    // A resident runtime-pack member's base graph is itself a platform (callee-only) graph:
-    // there is no workspace to scan for callers, so present it as a platform view rather than
-    // a "Workspace callers · 0 loaded packages" line that reads as an empty/failed scan.
+    // A resident runtime-pack member uses the cumulative platform workspace rather than the
+    // open-package workspace. Keep its scope label distinct while preserving callers returned
+    // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
     const callers = active?.callers?.children ?? [];
     const callees = active?.callees?.children ?? [];
@@ -3505,7 +3533,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
     const scopeLine = !graphScope
       ? ""
       : platformView
-      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(graphScope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : " workspace"}</strong><span>${graphScope.callerAssemblies} resident assemblies · ${graphScope.assemblies} participants</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span></div>`
       : `<div class="graph-scope"><strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span></div>`;
     const diagnostics = active?.diagnostics;
     const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
@@ -3866,8 +3894,10 @@ async function openPlatformLensLibrary(
     && packageIdentityEquals(state.package, originPackage);
   const key = name.replace(/\.dll$/i, "");
   const pack = selectedPack || platformPackForAssembly(key);
-  const resident = (runtimePackPackage()?.types || [])
-    .some(type => libraryKey(type) === key);
+  const resident = runtimeAssemblyIsResident(
+    runtimePackPackage(),
+    key,
+    pack);
   if (!resident) {
     const runtimeResult = await loadRuntimePackAssembly(
       platformScopeTfm(),
@@ -4185,14 +4215,16 @@ function bindPackageOpportunitiesEvents() {
       observeAsync(
         openDependencyPackage(packageId, ""),
         "Opening an opportunity package"),
-    onTypeSelect: typeId => {
-      const target = currentPackage().types.find(item => item.id === typeId);
+    onTypeSelect: opportunity => {
+      const target = resolveOpportunitySourceType(
+        currentPackage(),
+        opportunity);
       if (!target) {
-        openSpotlight(shortTypeName(typeId));
+        openSpotlight(shortTypeName(opportunity.typeId));
         return;
       }
       state.atPackageRoot = false;
-      navigateToTypeByName(typeId);
+      navigateToType(target);
     },
   });
 }
@@ -4658,12 +4690,20 @@ function platformLibraryRoster(query: string) {
   return rows;
 }
 
-// Which shared framework an assembly ships in, resolved from the static index
-// roster (defaulting to CoreCLR). Used when recording a recent library from a
-// context that does not already carry the pack token.
-function platformPackForAssembly(key: string) {
-  const hit = platformLibraryRoster("").find(lib => lib.assembly === key);
-  return hit ? hit.pack : "netcore.app";
+// Which shared framework an assembly ships in. Product-supplied provenance from
+// a surface or graph target wins, followed by the resident model, current index,
+// and recent history; CoreCLR remains the last compatibility fallback.
+function platformPackForAssembly(
+  key: string,
+  exactPack: unknown = null,
+): PlatformPack {
+  const resident = runtimePackPackage();
+  return platformPackFromProvenance(
+    key,
+    exactPack,
+    resident?.assemblies,
+    state.platformRecent,
+    platformLibraryRoster(""));
 }
 
 // Remember an opened platform library at the front of the recent list (most-recent
@@ -4743,7 +4783,7 @@ function spotlightResults(): SpotlightResult[] {
     }
     // Once a pack is resident, blend its type/member matches so drilled-in
     // platform content stays searchable alongside the library roster.
-    if (runtimePackLoaded()) {
+    if (platformSurfaceLoaded()) {
       const typeSource = query ? spotlightTypeMatches(query) : [];
       for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
         results.push({ ...match, kind: "type" });
@@ -5115,7 +5155,10 @@ async function openPlatformLibrary(
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
-  const alreadyLoaded = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
+  const alreadyLoaded = runtimeAssemblyIsResident(
+    runtimePackPackage(),
+    key,
+    pack);
   if (!alreadyLoaded) {
     state.home = false;
     state.loading = true;
@@ -5301,7 +5344,10 @@ function executeCommand(
       operation = loadSelectionData();
     }
   } else if (verb === "show") {
-    const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
+    const match = typeLensesFor(state.package)
+      .find(([id, label]) =>
+        id === argument.toLowerCase()
+        || label.toLowerCase() === argument.toLowerCase());
     if (match) {
       state.lens = match[0];
       operation = loadSelectionData();
@@ -5389,6 +5435,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     atPackageRoot: state.atPackageRoot,
     packageLens: state.packageLens,
     library,
+    libraryPack: library ? platformPackForAssembly(library) : null,
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
@@ -5525,7 +5572,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       }
       if (deep.section
         && isMemberSection(deep.section)
-        && memberSectionIdsFor(group).includes(deep.section)) {
+        && memberSectionIdsFor(
+          group,
+          state.package?.isRuntimePack).includes(deep.section)) {
         state.memberSection = deep.section;
       }
       const restoredOverload = group.overloads[
@@ -5670,10 +5719,8 @@ function renderHomeView() {
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
-            <div class="home-demo-row">
-              <button class="home-demo" data-home-demo="stj" ${enginePending ? "disabled" : ""}><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
-              <button class="home-demo" data-home-demo="callgraph" ${enginePending ? "disabled" : ""}><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
-              <button class="home-demo" data-home-demo="runtime" ${enginePending ? "disabled" : ""}><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
+            <div class="home-demo-row" aria-busy="${enginePending}">
+              ${homeDemoRowHtml(enginePending, escapeHtml)}
             </div>
           </div>
         </div>
@@ -5718,23 +5765,27 @@ function bindHomeEvents() {
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
 
-// The two package demos jump to a rich, curated deep link (open tabs + selected type +,
-// for the platform, a scoped library) so the buttons showcase the workbench, not a bare
-// package root. pushState keeps them shareable/refreshable; the workspace restore reuses
-// the same path as a shared link. The call-graph demo stays a bespoke multi-package load.
-const HOME_DEMO_LINKS = {
-  stj: "?package=System.Text.Json&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdXSwiYSI6MCwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIifQ",
-  runtime: "?package=Microsoft.NETCore.App&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdLFsiTWljcm9zb2Z0Lk5FVENvcmUuQXBwIiwiMTAuMC4xMCIsIm5ldDEwLjAiXV0sImEiOjEsImwiOiJTeXN0ZW0uUHJpdmF0ZS5Db3JlTGliIiwieSI6IlN5c3RlbS5Db2xsZWN0aW9ucy5HZW5lcmljLkxpc3RgMSJ9"
-};
-
-function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
+// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
+// (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
+// deep links built from the resolved projection; member-bound Call Graph demos
+// stay an imperative multi-package member load until WorkspaceContextLoader
+// group run is the browser substrate.
+function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
-  if (kind === "callgraph") {
-    observeAsync(runCallGraphDemo(), "Loading the call graph demo");
+  const resolveResult = inspectResolveHomeDemo(kind);
+  const resolved = resolveResult.found ? resolveResult.demo : null;
+  if (!resolved) {
+    state.error = `Unknown product home demo '${kind}'.`;
+    state.errorTitle = "Demo failed";
+    state.home = true;
+    render();
     return;
   }
-  const link = HOME_DEMO_LINKS[kind];
-  if (!link) return;
+  const link = productHomeDemoLocationHref(resolved);
+  if (!link) {
+    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    return;
+  }
   workspaceLocation.push(link);
   const loc = parseLocation();
   observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
@@ -6376,6 +6427,7 @@ async function loadSelectedMemberCallGraph() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   const workspacePackages =
     state.packages.filter(packageItem => !packageItem.isRuntimePack);
   const hasOtherLibraries =
@@ -6389,7 +6441,13 @@ async function loadSelectedMemberCallGraph() {
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
-    platformType: type.metadataId ?? type.queryId ?? type.id,
+    platformType:
+      type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
+    platformPack: platformPackForAssembly(type.assembly, type.platformPack),
+    platformAssemblyVersion: platformAssembly?.version ?? null,
+    platformAssemblyCulture: platformAssembly?.culture ?? null,
+    platformAssemblyPublicKeyToken:
+      platformAssembly?.publicKeyToken ?? null,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     memberSignature: overload.signature,
     selectorKey:
@@ -6517,7 +6575,10 @@ function callGraphNodeBinding(
   const drilled =
     state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
   if (drilled) {
-    if (target.id === "n0" || !target.assembly || !typeId) return null;
+    if (target.id === "n0"
+      || !target.assembly
+      || !target.assemblyVersion
+      || !typeId) return null;
     return {
       platform: true,
       onSelect: () =>
@@ -6625,6 +6686,10 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
   return callGraphInspection.drill({
     framework: currentPackage().activeFramework,
     assembly: node.assembly,
+    pack: platformPackForAssembly(node.assembly, node.platformPack),
+    assemblyVersion: node.assemblyVersion,
+    assemblyCulture: node.assemblyCulture,
+    assemblyPublicKeyToken: node.assemblyPublicKeyToken,
     type: callGraphTargetTypeId(node),
     member: node.memberName,
     selectorKey: node.selectorKey,
@@ -6644,9 +6709,9 @@ function popPlatformDrill() {
 // A clicked platform (BCL) call-graph node should land the user *inside* the resident
 // runtime pack at that member — a first-class, refreshable location with its own header,
 // member list, breadcrumb, and URL — rather than an in-place descent that stays pinned to
-// the workspace package. The runtime pack is loaded on demand (its System.Private.CoreLib
-// types are resident); if the clicked type lives in a not-yet-resident sibling assembly we
-// fall back to the lightweight in-place descent so the callees still appear.
+// the workspace package. A not-yet-resident sibling assembly is acquired first so its
+// surface can resolve the target; in-place descent preserves the target's full assembly
+// identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
@@ -6686,7 +6751,41 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
       return;
     }
   }
-  const selection = findRuntimeMemberSelection(pack, node);
+  let selection = findRuntimeMemberSelection(pack, node);
+  if (!ownsNavigation()) return;
+  if (!selection && node.assembly) {
+    state.platformDrillLoading = true;
+    state.platformDrillError = "";
+    const preservedFocus = renderPreservingMemberFocus();
+    const targetPack =
+      platformPackForAssembly(node.assembly, node.platformPack);
+    const runtimeResult = await loadRuntimePackAssembly(
+      framework,
+      node.assembly.endsWith(".dll")
+        ? node.assembly
+        : `${node.assembly}.dll`,
+      targetPack,
+      ownsNavigation);
+    pack = runtimeResult.packageModel;
+    if (!ownsNavigation()) {
+      if (seq === state.memberCallGraphSeq) {
+        state.platformDrillLoading = false;
+        renderPreservingMemberFocus(preservedFocus);
+      }
+      return;
+    }
+    state.platformDrillLoading = false;
+    if (!pack) {
+      state.platformDrillError = runtimeResult.failureMessage
+        || state.runtimePackError
+        || `Could not load platform assembly ${node.assembly}.`;
+      renderPreservingMemberFocus(preservedFocus);
+      await renderMermaidCallGraph();
+      return;
+    }
+    recordPlatformRecent(node.assembly, targetPack);
+    selection = findRuntimeMemberSelection(pack, node);
+  }
   if (!ownsNavigation()) return;
   if (!selection) {
     await drillPlatformNode(node);
@@ -6745,8 +6844,7 @@ function findRuntimeMemberSelection(
 ) {
   const typeId = callGraphTargetTypeId(node);
   if (!pack || !typeId) return null;
-  const type = pack.types.find(
-    item => callGraphTargetMatchesType(node, item));
+  const type = resolvePlatformGraphTargetType(pack, node);
   if (!type) return null;
   const groups = memberGroups(type);
   if (node.metadataToken != null) {
@@ -7148,7 +7246,11 @@ async function loadPackage(
 }
 
 function runtimePackLoaded() {
-  return state.packages.some(item => item.isRuntimePack);
+  return runtimePackIsResident(runtimePackPackage());
+}
+
+function platformSurfaceLoaded() {
+  return runtimePackPackage() !== null;
 }
 
 function runtimePackPackage() {
@@ -7290,55 +7392,44 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo() {
+async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
+  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
   state.loading = true;
   state.error = "";
   state.loadingMessage = "Loading cross-package call graph demo…";
   state.loadingSubtitle = "";
   render();
 
-  const targetPackage = await loadPackage(
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!targetPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const loggingPackage = await loadPackage(
-    "Microsoft.Extensions.Logging",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!loggingPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const httpPackage = await loadPackage(
-    "Microsoft.Extensions.Http",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!httpPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
+  const spec = callGraphDemoRunnerSpec(demo);
+  const packages: AppPackage[] = [];
+  for (const packageSpec of spec.packages) {
+    const loaded = await loadPackage(
+      packageSpec.id,
+      packageSpec.version,
+      packageSpec.framework,
+      { retryAction: retry });
+    if (!loaded) {
+      state.retryAction = retry;
+      render();
+      return;
+    }
+    packages.push(loaded);
   }
 
+  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
+    ?? packages[0];
   activatePackage(targetPackage);
-  const type = targetPackage.types.find(item =>
-    item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
+  const type = targetPackage.types.find(item => item.id === spec.typeId);
   const member = type && memberGroups(type).find(item =>
-    item.name === "TryAddEnumerable" && item.kind === "method");
-  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "74b6b4b321") ?? -1;
+    item.name === spec.memberName
+    && item.kind === spec.memberKind);
+  const overloadIndex = member?.overloads.findIndex(item =>
+    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
   if (!type || !member || overloadIndex < 0) {
     state.loading = false;
     state.error = "The call graph demo member was not found in the selected package.";
     state.errorTitle = "Call graph demo failed";
-    state.retryAction = runCallGraphDemo;
+    state.retryAction = retry;
     render();
     return;
   }
@@ -7352,7 +7443,7 @@ async function runCallGraphDemo() {
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = "call-graph";
+  state.memberSection = spec.memberSection;
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
@@ -7457,6 +7548,7 @@ async function restoreWorkspaceFromLocation(
     if (isRuntimePackId(targetModel.id)) {
       const scoped = await applyPlatformLibraryScope(
         loc.library,
+        loc.libraryPack,
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -7558,6 +7650,11 @@ async function bootstrap() {
       state.styleTiers = [];
       state.styleOptions = [];
       state.styleCatalogError = errorMessage(error);
+    }
+    try {
+      setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
+    } catch {
+      setProductHomeDemoCatalog([]);
     }
     state.engineReady = true;
     state.engineStatus = "";
@@ -7875,6 +7972,7 @@ async function restorePlatformScopeThenDeepLink(
 ) {
   const scoped = await applyPlatformLibraryScope(
     loc.library,
+    loc.libraryPack,
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(
       loc,
@@ -7892,6 +7990,7 @@ async function restorePlatformScopeThenDeepLink(
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
 async function applyPlatformLibraryScope(
   requestedLibraryKey: string | null,
+  libraryPack: PlatformPack | null = null,
   navigationSeq: number | null = null,
   retryAction: RetryAction = null,
 ) {
@@ -7908,7 +8007,7 @@ async function applyPlatformLibraryScope(
     return undefined;
   return Boolean(await openPlatformLibrary(
     key,
-    platformPackForAssembly(key),
+    platformPackForAssembly(key, libraryPack),
     {
       ...(navigationSeq === null ? {} : { navigationSeq }),
       retryAction,
@@ -7937,6 +8036,7 @@ async function restoreRuntimePackFromHistory(
     // previously viewing doesn't survive the restore. Mirrors restorePlatformScopeThenDeepLink.
     const scoped = await applyPlatformLibraryScope(
       loc.library,
+      loc.libraryPack,
       navigationSeq,
       () => restoreRuntimePackFromHistory(
         loc,

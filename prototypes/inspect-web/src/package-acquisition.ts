@@ -1,3 +1,4 @@
+import { mergeInspectionErrors } from "./data.ts";
 import type {
   BrowserAccessibilityDescriptor,
   BrowserAssemblySurface,
@@ -28,6 +29,27 @@ export interface AppPackage {
   documents: BrowserPackageDocument[];
   inspectionError?: string;
   isRuntimePack: boolean;
+}
+
+const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
+
+export function runtimeAssemblyIsResident(
+  packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
+  assemblyName: string,
+  platformPack: string,
+): boolean {
+  const normalized = assemblyName.replace(/\.dll$/i, "").toLowerCase();
+  return packageModel?.assemblies.some(assembly =>
+    assembly.name.toLowerCase() === normalized
+    && assembly.platformPack === platformPack) ?? false;
+}
+
+export function runtimePackIsResident(
+  packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
+): boolean {
+  return packageModel?.assemblies.some(assembly =>
+    assembly.name.toLowerCase()
+      === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) ?? false;
 }
 
 function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
@@ -85,10 +107,17 @@ export function createRuntimePackageModel(
 
 function createRuntimeAssemblyPackageModel(
   result: BrowserPackageSurface,
+  requestedAssembly: string,
 ): AppPackage {
+  const assembly = result.assemblies?.[0];
+  if (!assembly) {
+    throw new Error(
+      result.inspectionError
+      || `The platform query returned no descriptor for ${requestedAssembly}.`);
+  }
   return createRuntimePackageModelForAssembly(
     result,
-    result.assemblies[0],
+    assembly,
     result.defaultAssemblyId);
 }
 
@@ -113,6 +142,7 @@ function createRuntimePackageModelForAssembly(
     totalTypes: types.length,
     totalMembers: result.totalMembers,
     documents: result.documents ?? [],
+    inspectionError: result.inspectionError || "",
     isRuntimePack: true,
   };
 }
@@ -127,9 +157,20 @@ export function mergeRuntimePackageSurface(
     if (!seenTypes.has(type.id)) existing.types.push(type);
   }
 
-  const seenAssemblies = new Set(existing.assemblies.map(assembly => assembly.name));
+  const assemblyKey = (assembly: BrowserAssemblySurface) => [
+    assembly.name.toLowerCase(),
+    assembly.version ?? "",
+    (assembly.culture ?? "").toLowerCase() === "neutral"
+      ? ""
+      : (assembly.culture ?? "").toLowerCase(),
+    (assembly.publicKeyToken ?? "").toLowerCase(),
+    assembly.platformPack ?? "",
+  ].join("\0");
+  const seenAssemblies = new Set(existing.assemblies.map(assemblyKey));
   for (const assembly of result.assemblies ?? []) {
-    if (!seenAssemblies.has(assembly.name)) existing.assemblies.push(assembly);
+    if (!seenAssemblies.has(assemblyKey(assembly))) {
+      existing.assemblies.push(assembly);
+    }
   }
 
   const descriptors = new Map(
@@ -144,7 +185,22 @@ export function mergeRuntimePackageSurface(
     .sort((left, right) => left.order - right.order);
   existing.totalTypes = existing.types.length;
   existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
+  existing.inspectionError = mergeInspectionErrors(
+    existing.inspectionError,
+    result.inspectionError);
   return existing;
+}
+
+function promoteRuntimePackagePrimary(
+  existing: AppPackage,
+  primary: AppPackage,
+) {
+  existing.version = primary.version;
+  existing.frameworks = primary.frameworks;
+  existing.activeFramework = primary.activeFramework;
+  existing.assembly = primary.assembly;
+  existing.assemblyId = primary.assemblyId;
+  existing.assemblyAsset = primary.assemblyAsset;
 }
 
 export interface PackageAcquisitionDependencies {
@@ -199,17 +255,23 @@ export interface PackageAcquisition {
 export function createPackageAcquisition(
   dependencies: PackageAcquisitionDependencies,
 ): PackageAcquisition {
-  let runtimeOperation: Promise<AppPackage | null> | null = null;
+  let runtimeTail: Promise<void> | null = null;
 
-  const waitForRuntimeOperation = async () => {
-    for (;;) {
-      const pending = runtimeOperation;
-      if (!pending) return;
-      try {
-        await pending;
-      } catch {
-        // The operation owner reports its failure before the next request starts.
-      }
+  const enqueueRuntimeRequest = async (
+    operation: () => Promise<RuntimeAcquisitionResult>,
+  ): Promise<RuntimeAcquisitionResult> => {
+    const predecessor = runtimeTail;
+    let release!: () => void;
+    const slot = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    runtimeTail = slot;
+    if (predecessor) await predecessor;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (runtimeTail === slot) runtimeTail = null;
     }
   };
 
@@ -217,11 +279,9 @@ export function createPackageAcquisition(
     operation: () => Promise<AppPackage | null>,
   ): Promise<RuntimeAcquisitionResult> => {
     dependencies.beginRuntimeLoad();
-    const pending = operation();
-    runtimeOperation = pending;
     try {
       return {
-        packageModel: await pending,
+        packageModel: await operation(),
         error: null,
       };
     } catch (error) {
@@ -231,7 +291,6 @@ export function createPackageAcquisition(
         error,
       };
     } finally {
-      if (runtimeOperation === pending) runtimeOperation = null;
       dependencies.endRuntimeLoad();
     }
   };
@@ -254,25 +313,36 @@ export function createPackageAcquisition(
     },
 
     async loadRuntimePack(framework, isCurrent = () => true) {
-      if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return { packageModel: null, error: null };
-      const requestedFramework = framework || "";
-      const existing = dependencies.runtimePackage();
-      if (existing
-        && (!requestedFramework
-          || existing.activeFramework.toLowerCase()
-            === requestedFramework.toLowerCase())) {
-        return { packageModel: existing, error: null };
-      }
+      return enqueueRuntimeRequest(async () => {
+        if (!isCurrent()) return { packageModel: null, error: null };
+        const requestedFramework = framework || "";
+        const existing = dependencies.runtimePackage();
+        if (existing
+          && runtimePackIsResident(existing)
+          && (!requestedFramework
+            || existing.activeFramework.toLowerCase()
+              === requestedFramework.toLowerCase())) {
+          return { packageModel: existing, error: null };
+        }
 
-      return runRuntimeOperation(async () => {
-        const result = dependencies.parseRuntimeSurface(
-          await dependencies.loadRuntimePack(requestedFramework));
-        if (!isCurrent()) return null;
-        dependencies.refreshPackageStats();
-        const packageModel = createRuntimePackageModel(result);
-        dependencies.retainPackage(packageModel, existing);
-        return packageModel;
+        return runRuntimeOperation(async () => {
+          const result = dependencies.parseRuntimeSurface(
+            await dependencies.loadRuntimePack(requestedFramework));
+          if (!isCurrent()) return null;
+          dependencies.refreshPackageStats();
+          const packageModel = createRuntimePackageModel(result);
+          const current = dependencies.runtimePackage();
+          if (current
+            && (!requestedFramework
+              || current.activeFramework.toLowerCase()
+                === requestedFramework.toLowerCase())) {
+            mergeRuntimePackageSurface(current, result);
+            promoteRuntimePackagePrimary(current, packageModel);
+            return current;
+          }
+          dependencies.retainPackage(packageModel, existing);
+          return packageModel;
+        });
       });
     },
 
@@ -282,38 +352,55 @@ export function createPackageAcquisition(
       pack,
       isCurrent = () => true,
     ) {
-      if (runtimeOperation) await waitForRuntimeOperation();
-      if (!isCurrent()) return { packageModel: null, error: null };
-      const requestedFramework = framework || "";
-      const resident = dependencies.runtimePackage();
-      if (resident
-        && (!requestedFramework
-          || resident.activeFramework.toLowerCase()
-            === requestedFramework.toLowerCase())
-        && resident.assemblies.some(assembly =>
-          assembly.name.toLowerCase()
-            === assemblyFileName.toLowerCase())) {
-        return { packageModel: resident, error: null };
-      }
-
-      return runRuntimeOperation(async () => {
-        const result = dependencies.parseRuntimeSurface(
-          await dependencies.loadRuntimePackAssembly(
-            requestedFramework,
-            assemblyFileName,
-            pack || ""));
-        if (!isCurrent()) return null;
-        dependencies.refreshPackageStats();
-        const existing = dependencies.runtimePackage();
-        if (existing
+      return enqueueRuntimeRequest(async () => {
+        if (!isCurrent()) return { packageModel: null, error: null };
+        const requestedFramework = framework || "";
+        const requestedAssembly = assemblyFileName
+          .replace(/\.dll$/i, "");
+        const resident = dependencies.runtimePackage();
+        if (resident
           && (!requestedFramework
-            || existing.activeFramework.toLowerCase()
+            || resident.activeFramework.toLowerCase()
               === requestedFramework.toLowerCase())) {
-          return mergeRuntimePackageSurface(existing, result);
+          if (runtimeAssemblyIsResident(
+            resident,
+            requestedAssembly,
+            pack)) {
+            return { packageModel: resident, error: null };
+          }
         }
-        const packageModel = createRuntimeAssemblyPackageModel(result);
-        dependencies.retainPackage(packageModel, existing);
-        return packageModel;
+
+        return runRuntimeOperation(async () => {
+          const result = dependencies.parseRuntimeSurface(
+            await dependencies.loadRuntimePackAssembly(
+              requestedFramework,
+              assemblyFileName,
+              pack || ""));
+          if (!isCurrent()) return null;
+          dependencies.refreshPackageStats();
+          const existing = dependencies.runtimePackage();
+          if (existing
+            && (!requestedFramework
+              || existing.activeFramework.toLowerCase()
+                === requestedFramework.toLowerCase())) {
+            const merged = mergeRuntimePackageSurface(existing, result);
+            const primary = result.assemblies?.[0];
+            if (primary?.name.toLowerCase()
+              === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) {
+              promoteRuntimePackagePrimary(
+                merged,
+                createRuntimeAssemblyPackageModel(
+                  result,
+                  requestedAssembly));
+            }
+            return merged;
+          }
+          const packageModel = createRuntimeAssemblyPackageModel(
+            result,
+            requestedAssembly);
+          dependencies.retainPackage(packageModel, existing);
+          return packageModel;
+        });
       });
     },
   };

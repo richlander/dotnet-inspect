@@ -15,7 +15,9 @@
   `--table`, `--tsv`, `--jsonl`, and document `--json`; Markdown, plaintext,
   bare, and `--print` projections continue to render the explanatory payload.
   PDB Source no longer requires a SourceLink map when a local source document
-  named by the PDB can be checksum-verified.
+  named by the PDB can be checksum-verified. Bodyless members report that fact
+  instead of a missing-PDB-mapping reason when platform API shape comes from a
+  reference assembly and source lookup uses a different runtime image (#3299).
 
 ## v0.21.0
 
