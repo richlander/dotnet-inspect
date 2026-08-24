@@ -6,7 +6,7 @@ namespace ILInspector.Metadata.Tests;
 
 /// <summary>
 /// Tests for <see cref="PdbContext.MethodHasBody"/>, the metadata fact behind the CLI's
-/// "this member has no authored source" explanation (issue #3299). The distinction that
+/// "this member has no PDB source" explanation (issue #3299). The distinction that
 /// matters is between a definite "no body" and an unanswerable question: only the former
 /// may be reported as a member property.
 /// </summary>
@@ -66,27 +66,60 @@ public class MethodHasBodyTests
         Assert.False(context.MethodHasBody(abstractMethod.MetadataToken));
     }
 
-    [Fact]
-    public void ReferenceAssembly_IsUnknown_ForEveryMethod()
+    [Theory]
+    [InlineData("System.Collections.IEnumerator", "MoveNext", false)]
+    [InlineData("System.Object", "ToString", true)]
+    public void MethodResolvedByName_ReportsBodyState(
+        string typeName,
+        string methodName,
+        bool expected)
     {
-        // A reference assembly strips all IL, so RVA 0 describes the image's surface-only nature
-        // rather than the method. Reporting that as "no body" would be false for every member.
+        using var context = PdbContext.Open(CoreLibPath);
+
+        Assert.Equal(
+            expected,
+            context.MethodHasBody(
+                typeName,
+                methodName,
+                overloadIndex: 0,
+                publicOnly: true));
+    }
+
+    [Fact]
+    public void MethodResolvedByName_MissingOverload_IsUnknown()
+    {
+        using var context = PdbContext.Open(CoreLibPath);
+
+        Assert.Null(
+            context.MethodHasBody(
+                "System.Collections.IEnumerator",
+                "MoveNext",
+                overloadIndex: 1,
+                publicOnly: true));
+    }
+
+    [Fact]
+    public void ReferenceAssembly_ReportsOnlyDefiniteBodylessness()
+    {
+        // A reference assembly's RVA describes its synthesized body rather than the implementation
+        // member's body. Metadata flags still prove an interface method is bodyless, while an
+        // ordinary concrete method remains unknown despite its non-zero synthesized-body RVA.
         var referenceAssembly = FindReferenceAssembly();
         Assert.SkipWhen(referenceAssembly is null, "No targeting-pack reference assembly available.");
 
         using var context = PdbContext.Open(referenceAssembly!);
-        using var peReader = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(referenceAssembly!));
-        var reader = peReader.GetMetadataReader();
-
-        int checkedMethods = 0;
-        foreach (var handle in reader.MethodDefinitions)
-        {
-            Assert.Null(context.MethodHasBody(MetadataTokens.GetToken(handle)));
-            if (++checkedMethods == 200)
-                break;
-        }
-
-        Assert.True(checkedMethods > 0);
+        Assert.False(
+            context.MethodHasBody(
+                "System.Collections.IEnumerator",
+                "MoveNext",
+                overloadIndex: 0,
+                publicOnly: true));
+        Assert.Null(
+            context.MethodHasBody(
+                "System.Object",
+                "ToString",
+                overloadIndex: 0,
+                publicOnly: true));
     }
 
     static string? FindReferenceAssembly()

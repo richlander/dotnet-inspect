@@ -1791,6 +1791,19 @@ kbd {
   cursor: wait;
   transform: none;
 }
+.home-demo.home-demo-pending {
+  min-width: 11rem;
+  min-height: 3.4rem;
+  pointer-events: none;
+}
+.home-demo.home-demo-pending strong,
+.home-demo.home-demo-pending small {
+  display: block;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+}
+.home-demo.home-demo-pending strong { min-height: 0.85rem; }
+.home-demo.home-demo-pending small { min-height: 0.7rem; margin-top: 4px; }
 .home-demo strong { font: 13px var(--mono); color: var(--text); }
 .home-demo small { color: var(--muted); font-size: 11px; }
 

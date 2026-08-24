@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
@@ -953,6 +954,33 @@ public static partial class InspectionEngine
                 DotnetInspector.Vocabulary.VocabularyJson.ToWireDocument(
                     DotnetInspector.Vocabulary.VocabularyCatalog.Document)),
             BrowserJsonContext.Default.BrowserVocabularyDocument);
+
+    // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
+    // allocates one demo's definition graph. The browser builds share links / runners from the
+    // projected coordinates rather than a hand-maintained TypeScript twin.
+    [JSExport]
+    public static string ListHomeDemos() =>
+        JsonSerializer.Serialize(
+            BrowserProductHomeDemos.ToCatalog(ProductInspectionDemos.Entries),
+            BrowserJsonContext.Default.BrowserHomeDemoCatalog);
+
+    /// <summary>
+    /// Resolves one product home demo. <c>found</c> is false when the id is unknown.
+    /// </summary>
+    [JSExport]
+    public static string ResolveHomeDemo(string scenarioId)
+    {
+        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoResolveResult(false, null),
+                BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+        }
+
+        return JsonSerializer.Serialize(
+            new BrowserHomeDemoResolveResult(true, BrowserProductHomeDemos.ToResolved(resolved)),
+            BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+    }
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns

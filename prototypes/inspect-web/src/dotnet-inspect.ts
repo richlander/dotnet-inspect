@@ -93,6 +93,14 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
+  callGraphDemoRunnerSpec,
+  homeDemoRowHtml,
+  productHomeDemoLocationHref,
+  setProductHomeDemoCatalog,
+  type ProductHomeDemoId,
+  type ProductHomeDemoResolved,
+} from "./product-home-demos.ts";
+import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
@@ -241,6 +249,8 @@ let initializeEngine: EngineModule["initializeEngine"];
 let cancelSourceInspection: EngineModule["cancelSourceQuery"];
 let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
 let inspectVocabulary: EngineModule["listVocabulary"];
+let inspectListHomeDemos: EngineModule["listHomeDemos"];
+let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -280,7 +290,9 @@ async function loadEngineModule() {
     expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
     initializeEngine,
+    listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
+    resolveHomeDemo: inspectResolveHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -5946,10 +5958,8 @@ function renderHomeView() {
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
-            <div class="home-demo-row">
-              <button class="home-demo" data-home-demo="stj" ${enginePending ? "disabled" : ""}><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
-              <button class="home-demo" data-home-demo="callgraph" ${enginePending ? "disabled" : ""}><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
-              <button class="home-demo" data-home-demo="runtime" ${enginePending ? "disabled" : ""}><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
+            <div class="home-demo-row" aria-busy="${enginePending}">
+              ${homeDemoRowHtml(enginePending, escapeHtml)}
             </div>
           </div>
         </div>
@@ -5994,23 +6004,27 @@ function bindHomeEvents() {
     document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
 }
 
-// The two package demos jump to a rich, curated deep link (open tabs + selected type +,
-// for the platform, a scoped library) so the buttons showcase the workbench, not a bare
-// package root. pushState keeps them shareable/refreshable; the workspace restore reuses
-// the same path as a shared link. The call-graph demo stays a bespoke multi-package load.
-const HOME_DEMO_LINKS = {
-  stj: "?package=System.Text.Json&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdXSwiYSI6MCwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIifQ",
-  runtime: "?package=Microsoft.NETCore.App&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdLFsiTWljcm9zb2Z0Lk5FVENvcmUuQXBwIiwiMTAuMC4xMCIsIm5ldDEwLjAiXV0sImEiOjEsImwiOiJTeXN0ZW0uUHJpdmF0ZS5Db3JlTGliIiwieSI6IlN5c3RlbS5Db2xsZWN0aW9ucy5HZW5lcmljLkxpc3RgMSJ9"
-};
-
-function runHomeDemo(kind: keyof typeof HOME_DEMO_LINKS | "callgraph") {
+// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
+// (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
+// deep links built from the resolved projection; member-bound Call Graph demos
+// stay an imperative multi-package member load until WorkspaceContextLoader
+// group run is the browser substrate.
+function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
-  if (kind === "callgraph") {
-    observeAsync(runCallGraphDemo(), "Loading the call graph demo");
+  const resolveResult = inspectResolveHomeDemo(kind);
+  const resolved = resolveResult.found ? resolveResult.demo : null;
+  if (!resolved) {
+    state.error = `Unknown product home demo '${kind}'.`;
+    state.errorTitle = "Demo failed";
+    state.home = true;
+    render();
     return;
   }
-  const link = HOME_DEMO_LINKS[kind];
-  if (!link) return;
+  const link = productHomeDemoLocationHref(resolved);
+  if (!link) {
+    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    return;
+  }
   workspaceLocation.push(link);
   const loc = parseLocation();
   observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
@@ -7622,55 +7636,44 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo() {
+async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
+  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
   state.loading = true;
   state.error = "";
   state.loadingMessage = "Loading cross-package call graph demo…";
   state.loadingSubtitle = "";
   render();
 
-  const targetPackage = await loadPackage(
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!targetPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const loggingPackage = await loadPackage(
-    "Microsoft.Extensions.Logging",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!loggingPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const httpPackage = await loadPackage(
-    "Microsoft.Extensions.Http",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!httpPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
+  const spec = callGraphDemoRunnerSpec(demo);
+  const packages: AppPackage[] = [];
+  for (const packageSpec of spec.packages) {
+    const loaded = await loadPackage(
+      packageSpec.id,
+      packageSpec.version,
+      packageSpec.framework,
+      { retryAction: retry });
+    if (!loaded) {
+      state.retryAction = retry;
+      render();
+      return;
+    }
+    packages.push(loaded);
   }
 
+  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
+    ?? packages[0];
   activatePackage(targetPackage);
-  const type = targetPackage.types.find(item =>
-    item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
+  const type = targetPackage.types.find(item => item.id === spec.typeId);
   const member = type && memberGroups(type).find(item =>
-    item.name === "TryAddEnumerable" && item.kind === "method");
-  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "74b6b4b321") ?? -1;
+    item.name === spec.memberName
+    && item.kind === spec.memberKind);
+  const overloadIndex = member?.overloads.findIndex(item =>
+    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
   if (!type || !member || overloadIndex < 0) {
     state.loading = false;
     state.error = "The call graph demo member was not found in the selected package.";
     state.errorTitle = "Call graph demo failed";
-    state.retryAction = runCallGraphDemo;
+    state.retryAction = retry;
     render();
     return;
   }
@@ -7684,7 +7687,7 @@ async function runCallGraphDemo() {
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = "call-graph";
+  state.memberSection = spec.memberSection;
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
@@ -7901,6 +7904,11 @@ async function bootstrap() {
       state.styleOptions = [];
       state.bodyKinds = [];
       state.styleCatalogError = errorMessage(error);
+    }
+    try {
+      setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
+    } catch {
+      setProductHomeDemoCatalog([]);
     }
     state.engineReady = true;
     state.engineStatus = "";
