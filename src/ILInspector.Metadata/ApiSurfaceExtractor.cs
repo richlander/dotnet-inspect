@@ -5025,10 +5025,8 @@ public static class ApiSurfaceExtractor
                 ?? CreateRequest(reader, type, origin);
             TypeResolutionOutcome? outcome =
                 Plan.ResolveRequest(request, _operatorSubject);
-            if (outcome is TypeResolutionOutcome.Rejected
-                or TypeResolutionOutcome.Unavailable
-                or TypeResolutionOutcome.Ambiguous
-                or TypeResolutionOutcome.NotFound)
+            if (outcome is not null
+                && outcome is not TypeResolutionOutcome.Resolved)
             {
                 _hasUnauthenticatedTypeKindEvidence = true;
             }

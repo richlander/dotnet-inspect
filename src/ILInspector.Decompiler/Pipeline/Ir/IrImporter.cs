@@ -2312,6 +2312,7 @@ public static class IrImporter
                 string methodName = reader.GetString(method.Name);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
+                    GenericParameterCount = signature.GenericParameterCount,
                     ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
                         reader,
                         method,
@@ -2378,6 +2379,8 @@ public static class IrImporter
                     || memberName.StartsWith("remove_", StringComparison.Ordinal)
                     || memberName.StartsWith("op_", StringComparison.Ordinal)
                     || memberName is ".ctor" or ".cctor";
+                bool hasExactSpecialName =
+                    memberFacts.IsSpecialName != MetadataFactState.Unknown;
                 return new MethodRef(
                     declaring,
                     memberName,
@@ -2385,11 +2388,15 @@ public static class IrImporter
                     parameterTypes,
                     signature.Header.IsInstance)
                 {
+                    GenericParameterCount = signature.GenericParameterCount,
                     // MemberRefs carry no flags; keep name-inferred SpecialName
                     // separate from AccessorKind so property/event sugar requires
                     // positive metadata semantics rather than a get_/set_ prefix.
-                    IsSpecialName = inferredSpecialName,
-                    IsSpecialNameInferred = inferredSpecialName,
+                    IsSpecialName = hasExactSpecialName
+                        ? memberFacts.IsSpecialName == MetadataFactState.Yes
+                        : inferredSpecialName,
+                    IsSpecialNameInferred =
+                        !hasExactSpecialName && inferredSpecialName,
                     AccessorKind = accessorKind,
                     DeclaringTypeIsTrustedPlatform = trustedPlatform
                         ? MetadataFactState.Yes
@@ -2589,6 +2596,7 @@ public static class IrImporter
         ParameterRefKindResult ParameterRefKinds,
         MetadataFactState ReturnIsDynamic,
         MetadataFactState ReturnArrayElementIsDynamic,
+        MetadataFactState IsSpecialName,
         MetadataFactState IsOperator,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated) MemberReferenceDefinitionFacts(
@@ -2608,6 +2616,7 @@ public static class IrImporter
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
             return (
                 fallbackRefKinds,
+                MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
@@ -2642,6 +2651,10 @@ public static class IrImporter
                         method,
                         declaredReturnType,
                         effectiveReturnType),
+                    FactState(
+                        (method.Attributes
+                            & System.Reflection.MethodAttributes.SpecialName)
+                        != 0),
                     relationshipResolver is null
                         ? FactState(MethodDefinitionFacts.IsOperator(
                             reader,
@@ -2656,6 +2669,7 @@ public static class IrImporter
         }
         return (
             fallbackRefKinds,
+            MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,

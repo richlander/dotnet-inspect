@@ -1419,7 +1419,7 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
-    public void MissingOperatorDependencyPreservesSafeOperatorSpelling()
+    public void MissingOperatorDependencyKeepsDeclarationFailClosed()
     {
         byte[] sourceImage = BuildOperatorConsumer();
         ResolvedAssemblyReference source = Descriptor(sourceImage);
@@ -1438,7 +1438,14 @@ public class ConstraintResolutionHardeningTests
                 candidate.Name == "op_Addition");
         Assert.True(
             member.HasCSharpOperatorDeclarationClassification);
-        Assert.True(member.CSharpOperatorDeclaration);
+        Assert.Null(member.CSharpOperatorDeclaration);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure =>
+                failure.SubjectToken == 0x06000001
+                && failure.Detail.Contains(
+                    "could not be bound to an acquired assembly",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

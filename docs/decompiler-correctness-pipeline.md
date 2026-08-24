@@ -669,10 +669,16 @@ than advance the pointer; and
 `MaterializedReceiver_AvoidsMethodGenericParameterName` prevents a synthetic
 receiver local from colliding with a method type parameter.
 
-Confirmed operator methods have no C# method-group spelling.
-`KnownOperatorDelegateTarget_DegradesToPartial` requires delegate creation over
-one to report the typed `operator-method-group` fidelity cause rather than
+Confirmed metadata operators have no C# method-group spelling, including
+SpecialName methods whose full C# declaration shape is invalid.
+`KnownOperatorDelegateTarget_DegradesToPartial` and
+`SpecialNameOperatorLookalikeDelegateTarget_DegradesToPartial` require both
+forms to report the typed `operator-method-group` fidelity cause rather than
 claiming `Full`.
+`GenericSpecialNameOperatorLookalikeDelegateTarget_StaysFull` keeps generic
+ordinary methods outside that metadata-operator classification.
+`ResolvedMemberRef_PreservesExactSpecialNameOperatorEvidence` requires a
+resolved MemberRef to replace name inference with exact MethodDef provenance.
 
 Cross-assembly operator relationships compare resolved type definitions and
 assembly identities, not display-level `TypeRef` equality.
@@ -706,15 +712,16 @@ an externally resolved base chain to reject conversion to `System.Object`; the
 primitive spelling is accepted as that named type only with trusted
 core-library provenance.
 
-Unavailable external kind evidence does not by itself suppress a
-non-conversion operator declaration, but relationships that determine whether
-a conversion or increment/decrement is legal remain fail-closed.
-`MissingOperatorDependencyPreservesSafeOperatorSpelling`,
+Unavailable external kind evidence keeps every affected operator declaration
+fail-closed rather than authenticating the encoded class/value-type shape.
+`MissingOperatorDependencyKeepsDeclarationFailClosed`,
 `MissingOperatorDependencyKeepsConversionsFailClosed`, and
 `OperatorKindAuthenticationFailureRemainsUnknownAndVisible` gate the three
 outcomes. `SelectedApiInspection_LabelsOperatorClassificationFailure` keeps the
 visible diagnostic categorized as operator declaration classification rather
 than generic-constraint classification.
+`MissingOperatorSignatureDependency_KeepsOperatorUnknown` applies the same
+boundary to the decompiler's cross-assembly resolver.
 
 Every generic-parameter reference in an operator signature must be in scope for
 the declaring type or method. Since C# operator methods are nongeneric,

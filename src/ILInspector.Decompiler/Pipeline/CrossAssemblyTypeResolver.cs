@@ -175,12 +175,16 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsExtension = NeedsExtensionFacts(callee);
         bool needsDelegate = NeedsDelegateFact(callee);
         bool needsOperator = NeedsOperatorFact(callee);
+        bool needsSpecialName = callee.IsSpecialNameInferred
+            && callee.GenericParameterCount == 0
+            && CSharpText.OperatorNames.IsMetadataOperatorMethodName(
+                callee.Name);
         bool needsAccessor = NeedsAccessorFact(callee);
         bool needsReturnDynamic = NeedsReturnDynamicFact(callee);
         bool needsReturnArrayElementDynamic = NeedsReturnArrayElementDynamicFact(callee);
         if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate
             && !needsOperator && !needsAccessor && !needsReturnDynamic
-            && !needsReturnArrayElementDynamic)
+            && !needsReturnArrayElementDynamic && !needsSpecialName)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -220,6 +224,12 @@ internal sealed class CrossAssemblyTypeResolver
             DeclaringTypeIsDelegate = needsDelegate ? resolved.DeclaringTypeIsDelegate : callee.DeclaringTypeIsDelegate,
             IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
             IsOperator = needsOperator ? resolved.IsOperator : callee.IsOperator,
+            IsSpecialName = needsSpecialName
+                ? resolved.IsSpecialName == MetadataFactState.Yes
+                : callee.IsSpecialName,
+            IsSpecialNameInferred = needsSpecialName
+                ? resolved.IsSpecialName == MetadataFactState.Unknown
+                : callee.IsSpecialNameInferred,
             AccessorKind = needsAccessor ? resolved.AccessorKind : callee.AccessorKind,
         };
     }
@@ -696,6 +706,10 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    FactState(
+                        (method.Attributes
+                            & System.Reflection.MethodAttributes.SpecialName)
+                        != 0),
                     FactState(ClassifyCSharpOperatorDeclaration(
                         reader,
                         method,
@@ -1283,18 +1297,30 @@ internal sealed class CrossAssemblyTypeResolver
     OperatorMetadata.TypeRelationship ResolveOperatorInterfaceRelationship(
         MetadataReader reader,
         OperatorMetadata.OperatorSignatureType type,
-        ResolvedAssemblyReference originAssembly)
+        ResolvedAssemblyReference originAssembly,
+        out bool unauthenticatedTypeKind)
     {
+        unauthenticatedTypeKind = false;
         try
         {
             if (DecodeOperatorType(reader, type) is not { } decoded
-                || NamedDefinition(decoded) is not { } definition
-                || Locate(
+                || NamedDefinition(decoded) is not { } definition)
+            {
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            if (Locate(
                     definition,
                     originAssembly,
-                    originAssembly) is not { } resolved
-                || _context.Open(resolved, out var handle) is not { } assembly)
+                    originAssembly) is not { } resolved)
             {
+                unauthenticatedTypeKind = true;
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            if (_context.Open(
+                    resolved,
+                    out var handle) is not { } assembly)
+            {
+                unauthenticatedTypeKind = true;
                 return OperatorMetadata.TypeRelationship.Unknown;
             }
 
@@ -1308,6 +1334,7 @@ internal sealed class CrossAssemblyTypeResolver
                 or BadImageFormatException
                 or UnauthorizedAccessException)
         {
+            unauthenticatedTypeKind = true;
             return OperatorMetadata.TypeRelationship.Unknown;
         }
     }
@@ -1322,12 +1349,16 @@ internal sealed class CrossAssemblyTypeResolver
         try
         {
             if (DecodeOperatorType(reader, type) is not { } decoded
-                || NamedDefinition(decoded) is not { } definition
-                || Locate(
+                || NamedDefinition(decoded) is not { } definition)
+            {
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+            if (Locate(
                     definition,
                     originAssembly,
                     originAssembly) is not { } resolved)
             {
+                unauthenticatedTypeKind = true;
                 return OperatorMetadata.TypeRelationship.Unknown;
             }
 
@@ -1345,6 +1376,7 @@ internal sealed class CrossAssemblyTypeResolver
                 or BadImageFormatException
                 or UnauthorizedAccessException)
         {
+            unauthenticatedTypeKind = true;
             return OperatorMetadata.TypeRelationship.Unknown;
         }
     }
@@ -1565,10 +1597,15 @@ internal sealed class CrossAssemblyTypeResolver
             MetadataReader reader,
             OperatorMetadata.OperatorSignatureType type)
         {
-            return owner.ResolveOperatorInterfaceRelationship(
+            OperatorMetadata.TypeRelationship relationship =
+                owner.ResolveOperatorInterfaceRelationship(
                 reader,
                 type,
-                originAssembly);
+                originAssembly,
+                out bool unauthenticatedTypeKind);
+            _hasUnauthenticatedTypeKindEvidence |=
+                unauthenticatedTypeKind;
+            return relationship;
         }
 
         public OperatorMetadata.TypeRelationship SameOrDerivedRelationship(
@@ -1803,6 +1840,7 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataFactState DeclaringTypeCompilerGenerated,
         MetadataFactState DeclaringTypeIsDelegate,
         MetadataFactState IsExtension,
+        MetadataFactState IsSpecialName,
         MetadataFactState IsOperator,
         AccessorKind AccessorKind);
 

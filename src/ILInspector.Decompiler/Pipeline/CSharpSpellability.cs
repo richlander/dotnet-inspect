@@ -286,7 +286,8 @@ internal static class CSharpSpellability
     /// </summary>
     static NameIssue? MethodGroupTargetIssue(MethodRef method)
     {
-        if (method.IsOperator == MetadataFactState.Yes)
+        if (method.IsOperator == MetadataFactState.Yes
+            || IsExactSpecialNameOperatorLikeMethod(method))
         {
             return Issue(
                 DecompilerFidelityDiscriminators.OperatorMethodGroup,
@@ -317,6 +318,14 @@ internal static class CSharpSpellability
             return Issue(
                 DecompilerFidelityDiscriminators.OperatorMetadataUnavailable,
                 $"method '{method.Name}' has a C# operator name but defining metadata was unavailable; an explicit call has no C# spelling when the target is a genuine operator");
+        }
+
+        if (method.IsOperator != MetadataFactState.Yes
+            && IsExactSpecialNameOperatorLikeMethod(method))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.OperatorSpecialNameCall,
+                $"SpecialName operator method '{method.Name}' has no explicit C# method-call spelling");
         }
 
         // Check the metadata name as it stands, not a >g__ decode of it, ONLY when the
@@ -379,6 +388,12 @@ internal static class CSharpSpellability
             && method.IsSpecialName
             && OperatorNames.IsCSharpOperatorMethodName(method.Name)
             && !MemberIdentity.IsKnownFrameworkOperator(method);
+
+    static bool IsExactSpecialNameOperatorLikeMethod(MethodRef method)
+        => method.IsSpecialName
+            && !method.IsSpecialNameInferred
+            && method.GenericParameterCount == 0
+            && OperatorNames.IsMetadataOperatorMethodName(method.Name);
 
     // A local function name is emitted through CSharpNaming.EscapeIdentifier, so a
     // reserved keyword (e.g. return -> @return) is spellable; only a name with

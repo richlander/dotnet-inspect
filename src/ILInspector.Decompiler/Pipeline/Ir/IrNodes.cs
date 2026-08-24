@@ -84,6 +84,12 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
     /// <summary>
+    /// Generic arity from the MethodDef/MemberRef signature. Unlike
+    /// <see cref="TypeArguments"/>, this remains available on an open reference.
+    /// </summary>
+    public int GenericParameterCount { get; init; }
+
+    /// <summary>
     /// The member definition's parameter types before declaring-type or method
     /// type-argument substitution. Lets a consumer identify the source member
     /// independently of an instantiation whose <see cref="ParameterTypes"/> may
@@ -197,6 +203,8 @@ public sealed record MethodRef(
     /// for MethodDefs; unresolved MemberRefs carry no flags, so the importer may
     /// infer this from compiler-reserved names only to preserve spellability
     /// diagnostics. C# property/event/operator sugar must use narrower facts.
+    /// <c>ResolvedMemberRef_PreservesExactSpecialNameOperatorEvidence</c> gates
+    /// the resolved-MemberRef transition from inference to exact evidence.
     /// </summary>
     public bool IsSpecialName { get; init; }
 

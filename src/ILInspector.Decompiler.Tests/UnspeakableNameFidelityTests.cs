@@ -169,6 +169,104 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void SpecialNameOperatorLookalikeDelegateTarget_DegradesToPartial()
+    {
+        var binary = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`3"),
+            [Target, Target, Target]);
+        var op = new MethodRef(
+            Target,
+            "op_Addition",
+            Target,
+            [Target, Target],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.No,
+        };
+        var body = Container(
+            new ExpressionStatement(
+                new DelegateCreation(
+                    binary,
+                    op,
+                    isVirtual: false,
+                    new Constant(null, Object))),
+            new Return(null));
+
+        var function = Function([], body);
+        _ = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators.OperatorMethodGroup);
+    }
+
+    [Fact]
+    public void OrdinaryOperatorNameDelegateTarget_StaysFull()
+    {
+        var binary = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`3"),
+            [Target, Target, Target]);
+        var op = new MethodRef(
+            Target,
+            "op_Addition",
+            Target,
+            [Target, Target],
+            HasThis: false)
+        {
+            IsOperator = MetadataFactState.No,
+        };
+        var body = Container(
+            new ExpressionStatement(
+                new DelegateCreation(
+                    binary,
+                    op,
+                    isVirtual: false,
+                    new Constant(null, Object))),
+            new Return(null));
+
+        var function = Function([], body);
+        _ = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void GenericSpecialNameOperatorLookalikeDelegateTarget_StaysFull()
+    {
+        var binary = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`3"),
+            [Target, Target, Target]);
+        var op = new MethodRef(
+            Target,
+            "op_Addition",
+            Target,
+            [Target, Target],
+            HasThis: false)
+        {
+            GenericParameterCount = 1,
+            TypeArguments = [Int32],
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.No,
+        };
+        var body = Container(
+            new ExpressionStatement(
+                new DelegateCreation(
+                    binary,
+                    op,
+                    isVirtual: false,
+                    new Constant(null, Object))),
+            new Return(null));
+
+        var function = Function([], body);
+        _ = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
     public void AutoPropertyBackingField_StaysFull()
     {
         var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");

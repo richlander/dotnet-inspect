@@ -701,6 +701,7 @@ public sealed partial class CSharpPrinter
             if (call.Callee.IsOperator == MetadataFactState.Yes
                 || call.Callee.IsSpecialName
                     && !call.Callee.IsSpecialNameInferred
+                    && call.Callee.GenericParameterCount == 0
                     && CSharpText.OperatorNames
                         .IsMetadataOperatorMethodName(
                         call.Callee.Name))
