@@ -5,7 +5,14 @@ import {
   bindLoadErrorShell,
   bindWorkbenchShell,
 } from "../src/shell-controls.ts";
+import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
+
+setProductHomeDemoCatalog([
+  { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
+  { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
+  { id: "platform-list", title: ".NET Platform", summary: "Inspect platform BCL types" },
+]);
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
