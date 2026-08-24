@@ -3948,7 +3948,7 @@ test("restored views reconcile normalization before rendering", () => {
     /graphSelection\?\.group\.key !== view\.selectedMemberKey\) \{[\s\S]*?navigationHistory\.normalizeCurrent\(\);[\s\S]*?restorePendingGraphMember\(\)/);
   assert.match(
     apply,
-    /state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*?memberHistory\.memberSection[\s\S]*?navigationHistory\.normalizeCurrent\(\);/);
+    /state\.memberSection = memberHistory\.memberSection;[\s\S]*?navigationHistory\.normalizeCurrent\(\);/);
 });
 
 test("ambiguous call graph targets expose a visible refusal", () => {

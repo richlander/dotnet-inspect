@@ -3655,7 +3655,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   }
 }
 
-function renderApiLens(item: BrowserTypeSurface) {
+function renderApiLens(item: AppTypeSurface) {
   const pending = state.pendingGraphMemberDeepLink;
   if (pending
     && graphMemberPendingMatchesView(
@@ -5842,7 +5842,9 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     selectedTypeId: pending?.type ?? state.selectedTypeId,
     selectedMemberKey: pending?.member ?? state.selectedMemberKey,
     selectedOverloadIndex,
-    memberSection: pending?.section ?? state.memberSection,
+    memberSection: pending && isMemberSection(pending.section)
+      ? pending.section
+      : state.memberSection,
     selectedBodyTarget: pending ? null : state.selectedBodyTarget,
     graphTarget,
     memberBrowse: memberScopeIsActive(state, selectedType()?.id),
