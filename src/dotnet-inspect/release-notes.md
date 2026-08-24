@@ -21,18 +21,18 @@
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their
   declared arity without trusting unvalidated name suffixes. Extension members
-  now attach to the arity-correct target type rather than a same-named
-  non-generic type (#4233, #4539).
-- **Breaking:** Canonical member signatures now spell nested types with `+`
-  and omit spaces between generic arguments in declaring-type anchors. They
-  also preserve and escape exact metadata-name boundaries instead of
-  truncating at literal backticks or treating literal dots as nesting. This
-  changes `Name~digest` selectors for members declared by nested types, by
-  generic types with two or more type parameters, or by types whose encoded
-  generic arity is missing or disagrees with their metadata rows; refresh those
-  selectors from `Member Index`. Extension selectors previously discovered on
-  a same-named non-generic type must likewise be refreshed against the
-  arity-correct generic type (#4233).
+  now attach to their exact target type rather than an approximate same-named
+  or enclosing type (#4233, #4539).
+- **Breaking:** Canonical member identity now preserves exact metadata
+  structure and spelling throughout declaring types and member signatures.
+  Corrections include nested `+` separators, normalized generic-argument
+  separators, literal-name escaping, encoded-arity handling, and malformed
+  generic-instantiation spelling. Because `Name~digest` fingerprints the full
+  canonical signature, persisted selectors can change wherever that spelling
+  was repaired; refresh affected selectors from `Member Index`. Extension
+  selectors can also move between same-named types of different arity or from
+  an enclosing type to a nested target; rediscover them on the exact target
+  type (#4233).
 
 ### Source and implementation evidence
 
