@@ -47,10 +47,11 @@ const stjResolved: BrowserHomeDemoResolved = {
   },
 };
 
-const platformResolved: BrowserHomeDemoResolved = {
-  id: "platform-list",
-  title: ".NET Platform",
-  summary: "Inspect platform BCL types",
+/** Synthetic residual fixture — not a product home demo. */
+const unversionedRuntimeResolved: BrowserHomeDemoResolved = {
+  id: "synthetic-unversioned-runtime",
+  title: "Synthetic platform residual",
+  summary: "Host residual mapping only",
   workspaceMembers: [
     {
       kind: "package",
@@ -165,11 +166,10 @@ test("isProductHomeDemoId uses the installed engine catalog", () => {
   setProductHomeDemoCatalog([
     { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
     { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
-    { id: "platform-list", title: ".NET Platform", summary: "Inspect platform BCL types" },
   ]);
   assert.equal(isProductHomeDemoId("stj-serializer"), true);
-  assert.equal(isProductHomeDemoId("platform-list"), true);
   assert.equal(isProductHomeDemoId("extensions-callgraph"), true);
+  assert.equal(isProductHomeDemoId("platform-list"), false);
   assert.equal(isProductHomeDemoId("stj"), false);
   assert.equal(isProductHomeDemoId("runtime"), false);
   assert.equal(isProductHomeDemoId("callgraph"), false);
@@ -192,8 +192,8 @@ test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
   assert.equal(location.package, "System.Text.Json");
 });
 
-test("platform-list deep link focuses CoreLib List`1 on residual runtime pack", () => {
-  const href = productHomeDemoLocationHref(platformResolved);
+test("unversioned platform residual maps to the browser runtime pack", () => {
+  const href = productHomeDemoLocationHref(unversionedRuntimeResolved);
   assert.ok(href);
   const { url, location } = parseDemoHref(href);
   assert.equal(url.searchParams.get("package"), PLATFORM_RUNTIME_PACK.id);
@@ -259,9 +259,9 @@ test("call-graph runner focus follows navigation focusTabIndex", () => {
 
 test("platform residual rejects pinned runtime coordinates", () => {
   const pinned = {
-    ...platformResolved,
+    ...unversionedRuntimeResolved,
     tabs: [
-      platformResolved.tabs[0],
+      unversionedRuntimeResolved.tabs[0],
       {
         id: "runtime",
         member: {
