@@ -8082,7 +8082,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Discover_Bare_OmitsUnsafeMembersWhenMethodBodiesHaveNoUnsafeEvidence()
     {
-        var (assemblyPath, fixtureDir) =
+        var (assemblyPath, _, fixtureDir) =
             CreateNoSourceLinkDiscoveryAssembly();
         try
         {
