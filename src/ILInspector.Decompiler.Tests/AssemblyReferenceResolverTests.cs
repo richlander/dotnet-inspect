@@ -212,7 +212,7 @@ public class AssemblyReferenceResolverTests
     }
 
     [Fact]
-    public void PathlessDescriptor_DoesNotProbeIdentityDerivedSidecarPath()
+    public void PathlessDescriptor_DoesNotProbeResolverRootSidecarPath()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -233,10 +233,7 @@ public class AssemblyReferenceResolverTests
                 pdbPath,
                 Path.ChangeExtension(apparentImagePath, ".pdb"));
             AssemblyReferenceIdentity identity =
-                ReadIdentity(assemblyPath) with
-                {
-                    Name = apparentImagePath,
-                };
+                ReadIdentity(assemblyPath);
             ResolvedAssemblyReference descriptor =
                 ResolvedAssemblyReference.Create(
                     identity,
