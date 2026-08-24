@@ -8292,6 +8292,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
     state.packageLens = "overview";
     resetMemberFilters();
     resetMemberSectionState();
+    state.platformStack = [];
     state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = member.key;
     state.selectedOverloadIndex = overloadIndex;

@@ -2613,10 +2613,13 @@ public sealed class BrowserEngineBoundaryTests
                 surface.Types,
                 candidate => candidate.Id
                     == typeof(BrowserEngineBoundaryTests).FullName);
-            BrowserMemberSurface member = Assert.Single(
-                type.Api,
-                candidate => candidate.Name
-                    == nameof(HomeDemoRunFixture));
+            BrowserMemberSurface[] members =
+            [
+                .. type.Api.Where(candidate => candidate.Name
+                    == nameof(HomeDemoRunFixture)),
+            ];
+            Assert.Equal(2, members.Length);
+            BrowserMemberSurface member = members[1];
             var plan = new BrowserHomeDemoRunPlan(
                 [
                     new BrowserPackageRequest(
@@ -2661,6 +2664,9 @@ public sealed class BrowserEngineBoundaryTests
 
     public static int HomeDemoRunFixture(int value) =>
         Math.Abs(value);
+
+    public static string HomeDemoRunFixture(string value) =>
+        value.Trim();
 
     [Fact]
     public void CallGraphMermaid_ContainsArtifactLabels()
