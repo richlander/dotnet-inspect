@@ -109,6 +109,60 @@ public sealed class BrowserProductHomeDemosTests
     }
 
     [Fact]
+    public void ToCallGraphRunPlan_DerivesNonFirstFocusFromNavigation()
+    {
+        const int version = InspectionDefinitionJson.CurrentSchemaVersion;
+        var first = new DefinitionMemberCoordinate.PackageCoordinate(
+            "Demo.First",
+            "1.0.0",
+            "net11.0");
+        var second = new DefinitionMemberCoordinate.PackageCoordinate(
+            "Demo.Second",
+            "2.0.0",
+            "net11.0");
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            version,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    framework: "net11.0",
+                    members: [first, second]),
+            ]));
+        registry.Add(new ViewDefinition(
+            version,
+            "view",
+            type: "Demo.Second.Target",
+            memberAnchor: "1234567890",
+            memberKey: "method:Run",
+            section: ProductDemoSections.CallGraph));
+        registry.Add(new NavigationDefinition(
+            version,
+            "navigation",
+            [
+                new NavigationTabDefinition("first", coordinate: first),
+                new NavigationTabDefinition("second", coordinate: second),
+            ],
+            focus: "second"));
+        registry.Add(new ScenarioDefinition(
+            version,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+
+        BrowserHomeDemoRunPlan plan = BrowserProductHomeDemos.ToCallGraphRunPlan(
+            registry.ResolveScenario("scenario"));
+
+        Assert.Equal(1, plan.FocusRequestIndex);
+        Assert.Equal(
+            "Demo.Second",
+            plan.Requests[plan.FocusRequestIndex].PackageId);
+    }
+
+    [Fact]
     public async Task RunHomeDemo_UnknownId_ReturnsNotFound()
     {
         using var document = JsonDocument.Parse(

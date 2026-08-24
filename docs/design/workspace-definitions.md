@@ -958,9 +958,11 @@ Implementation must add, at minimum:
   resolve the static product-registry scenario to `WorkspaceMemberCoordinate`
   plans, member anchor `74b6b4b321`, browser workspace requests, and exact
   activation identity;
+  `BrowserProductHomeDemosTests.ToCallGraphRunPlan_DerivesNonFirstFocusFromNavigation`
+  gates non-first focus derivation from the product navigation plan;
   `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`
-  gates aggregate workspace projection, non-first focus, digest-prefix
-  selection, and graph execution;
+  gates aggregate workspace projection, non-first focus consumption,
+  digest-prefix selection, and graph execution;
 - a demo-section constraint (design rule under
   [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
   each product home demo names only existing section ids and runs through the
