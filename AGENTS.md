@@ -77,15 +77,24 @@ guessing.
 
 Work runs in many concurrent agent windows across several machines. Whoever is
 watching must be able to tell, without attaching to any of them, which PR each
-window is on and which one needs a person. Three conventions carry that. Use
-them.
+window is on and which one needs a person. These conventions carry that, along
+with one rule about what you are entitled to claim. Use them.
 
 ### Name the window for identity
 
-`tmux rename-window pr<number>` — not the session. A tmux session is shared by
-every window on that host, so renaming it identifies nothing; `rename-window`
-sets the same per-window name that `C-b ,` sets. Without a PR yet, use the
-issue: `i<number>`.
+```sh
+tmux rename-window -t "$TMUX_PANE" pr<number>
+```
+
+**The `-t "$TMUX_PANE"` is required, not decoration.** Bare `tmux rename-window`
+resolves to the session's *current* window, not the window you are running in —
+so without it you rename whichever window the operator happens to be viewing,
+and every agent overwrites every other agent's name. Verified: a rename issued
+from window 2 renamed window 0.
+
+Rename the window, never the session. A session is shared by every window on
+that host, so renaming it identifies nothing. Without a PR yet, use the issue:
+`i<number>`.
 
 Keep the name short and stable. The status bar truncates, and a truncated name
 reads as a corrupted one. Do not encode changing state in it — your terminal
@@ -120,34 +129,216 @@ Completing a round:
 > - Review feedback is: converging.
 > - Round start / end / duration.
 >
+> Reviews: 1/2 clean — GPT-5.6 Sol clean, Claude Opus 5 pending
+> Blocked: 4597, 4611
+> Recommendation: Wait
+>
 > Fix description: …
+
+Those three lines are the ones a reader cannot get anywhere else. Include them
+on every round completion, and omit `Blocked` only when it is genuinely empty.
+
+- **`Reviews: <clean>/<required>`** — the dual-clean count, and the actual bar
+  for done. **This is the one fact no tool can observe.** GitHub knows whether
+  CI passed and whether the branch merges; it has no idea that one reviewer came
+  back clean and the other has not reported. Without it nobody can tell a PR
+  that is one review from landing apart from one nobody has reviewed at all.
+- **`Blocked: <numbers>`** — PRs or issues you are waiting on that are **not
+  yours to fix**. Red CI attributable to something on this list is not a defect
+  in your PR, and no one should be dispatched at it. Naming them is what stops
+  several agents converging on one shared flake; behind a known blocker the
+  correct action for everyone is to wait, and an idle agent is the right outcome
+  there rather than a wasted one.
+
+  **Every entry must be a number someone can open, and it is your job to make
+  sure one exists.** If a flake is blocking you and no issue has been filed for
+  it, file the issue, then cite it. Being unable to point at what is blocking
+  you is the failure this field exists to prevent: an uncitable blocker cannot
+  be prioritised, cannot be deduplicated against the next agent that hits the
+  same flake, and leaves your `Wait` indistinguishable from a stall.
+- **`Recommendation:`** — exactly one of `Wait`, `Merge`, `Approve next rounds`,
+  or `Stop (reason)`: the disposition of this window, not a summary of your
+  progress. What separates them is whether the window needs a **decision**
+  before anything moves. Three of them do. `Wait` is the one that does not —
+  which is not the same as it being silent.
+
+  **`Wait` means "let me wait — what I listed in `Blocked:` is still
+  outstanding."** It is not idleness in need of explanation and not a request
+  for instructions: nobody should dispatch you, re-plan you, or send you at CI,
+  and you resume yourself when the blockers clear. What it does put in front of
+  the operator is the blocker list, because they may not know that a particular
+  PR or flake is holding work back and may decide to prioritise it. That is why
+  the entries have to be citable. `Wait` is also only coherent beside a
+  non-empty `Blocked:` — if nothing is blocking you then you are not waiting,
+  and one of the other three is the honest answer.
+
+  **`Stop (reason)` is a request, not a fait accompli.** You are asking to be
+  released from this work and naming why — superseded by another PR, approach
+  rejected, six rounds without convergence. Granting it is a decision with
+  follow-up attached: granted, you write a note on the PR recording why the work
+  stopped and then close it; declined, the work continues, possibly with
+  reframed goals, or becomes a `Wait` on whatever has to land first. Until you
+  have an answer, change nothing and close nothing.
+
+  **`Merge` and `Approve next rounds`** each need a person before anything moves
+  at all.
 
 Restate it after every resume and at the start of every round, not once at the
 beginning. A window that has scrolled past its only mention of the PR is a
 window nobody can identify.
 
-### Signal when you need a person
+### Claiming ready to merge
 
-Whenever you stop and wait on a human decision, say so out of band as well as on
-screen. This is the standing convention during normal work, not an option:
+Getting CI green and the branch mergeable is part of finishing the work. Pursue
+both; handing over a red or conflicted PR you could have fixed is not an effective handover.
+
+**This section is about what you may claim, not about when you may integrate.**
+Integration cadence is already specified and this does not modify it: the two
+integrations per round in [the round flow](#canonical-round-flow), and — for the
+narrow case where a required review is already clean at the current head and
+`origin/main` has since moved — [Clean reviews are not spent by main
+moving](#clean-reviews-are-not-spent-by-main-moving), which is stop-and-ask and
+a possible carry-forward, never an integration you launch on your own
+initiative.
+
+Ready to merge means two things: **the reviews are clean, and the branch
+merges.** Say it when both hold, and not before.
+
+Green CI is not a third condition. Chase it — it is useful evidence and part of
+finishing the work — but checks go red for reasons that have nothing to do with
+your change, so passing checks alone do not make a PR ready.
+
+Two claims have to be earned rather than assumed:
+
+- **Do not report `mergeable` from a local merge check.** GitHub computes
+  `mergeable_state` lazily — the first read after a change returns `unknown` and
+  only starts the calculation, so the answer arrives on a later read. A one-off
+  check of the open PRs found 18 of 32 answering `unknown` on the first read,
+  and two of those resolved to `dirty` — both on PRs whose agents had just
+  reported them as mergeable. Re-read until it is no longer `unknown`, and say `mergeability
+  unverified` rather than guessing.
+- **Do not report `ready to merge` while a round is still in flight.** The state
+  is the round, not the destination.
+
+A conflict found late costs a whole extra pass. Checking mergeability at the
+moment you claim it is what holds that to one.
+
+Accuracy here has a specific consequence worth knowing. When you report ready
+and CI or mergeability disagrees, that discrepancy is routed to the **operator**
+rather than back to you — nobody re-dispatches an agent that has declared itself
+done. An unearned "ready to merge" therefore does not cost you another round; it
+spends the attention of the one participant who cannot be automated.
+
+### Checking costs a budget you share
+
+Every agent draws on the same GitHub account, so there is one hourly request
+budget across all of them, on every host. Nothing divides it fairly and nothing
+warns you when it is gone — a starved agent simply gets errors back and stops
+being able to see its own PR.
+
+It is currently spent very unevenly. A one-off check found the account's GraphQL
+budget fully exhausted — 0 remaining, with more attempted than the hourly limit
+allows — while REST sat at 4,967 of 5,000, barely touched. An agent that cannot
+read its PR's state cannot move it forward, so this is a plausible reason some
+PRs advance steadily while others stall for no visible reason.
+
+Two habits recover most of it.
+
+**Prefer REST.** `gh pr view`, `gh pr checks`, and `gh pr list --json` are
+GraphQL, which is the exhausted half. These answer the same questions from the
+half that is idle:
 
 ```sh
-tmux display-message -d 10000 'PR #4405 needs a decision'
+gh api repos/{owner}/{repo}/pulls/{number}                 # state, mergeable_state, head
+gh api repos/{owner}/{repo}/commits/{sha}/check-runs       # checks on that head
 ```
 
-Send it once, when you become blocked — not on a timer, and not again while
-waiting on the same question. Keep it to one short line naming the PR and what
-is needed; the message takes over the status line for as long as it shows.
+**Check at a point, then set when you will check again.** Decide what you are
+waiting for, look once, and if it has not happened, pick a time to look again
+and stop until then. Do not sit in a query loop: re-asking about a head that has
+not moved cannot return anything new, and doing it on a timer is what drains the
+budget everyone else is also drawing on.
 
-**It is best effort and will often go unseen.** Nobody may be attached; the
-person may be in another window, on another machine, or asleep. So it is a
-nudge, never a handoff: a sent notification is not a delivered question and
-never an answered one. Stop at your prompt and wait exactly as you would have
-without it, and restate the request in full when resumed.
+### Publish your state where tooling can read it
 
-Signal only for being blocked. Progress, completion, and resuming are not
-signals — they belong in your output, where they can be read whenever someone
-looks.
+Set a window-scoped tmux option whenever your state changes. The bar renders it
+for whoever is viewing that window, and tooling reads it directly instead of
+scraping your output:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "$TMUX_PANE" -u @agent          # clear when it no longer holds
+```
+
+`-w -t "$TMUX_PANE"` scopes it to **your** window. `status-right` is a session
+option; writing it directly would overwrite every other agent, the same way bare
+`rename-window` did.
+
+Omit your window number from the value — the bar already knows where it is.
+Update on real transitions, not on a timer.
+
+**Verify the write landed on your own window.** That `-t "$TMUX_PANE"` is the
+whole safety of this mechanism, and dropping it is not a theoretical risk: a
+one-off check of a live host found three windows all carrying an identical
+`@agent` that described a *fourth* window's PR, while that PR's own window held
+a newer value. One agent's writes had landed on three neighbours, making three
+agents appear to be working on a PR they had never touched. Read it back once
+after you set it, and fix it if it names someone else's PR.
+
+Alongside `@agent`, set a second option carrying the same state as fields.
+`@agent` is the sentence a person reads off the bar; `@agent_state` is the copy
+a tool reads, and because it is never rendered it is neither truncated nor
+abbreviated:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent_state \
+  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
+tmux show -w -t "$TMUX_PANE" @agent_state      # read back: must name YOUR pr
+```
+
+`pr` and `head` are always required, the rest when they apply. `rec` takes the
+same four values as `Recommendation`, lowercased, with `Approve next rounds`
+written `approve`. Values carry no spaces. Update it on the same transitions as
+`@agent` and clear it with `-u` when the window stops owning a PR.
+
+**Why an option rather than only your output.** This UI runs on the alternate
+screen, so tmux keeps no scrollback for it — `capture-pane -S -400` returns the
+same single screen as a plain capture. Once your report scrolls past the top it
+is unrecoverable by any tool and the window goes anonymous. A window option
+persists until you change it, outlives the report scrolling away, and cannot be
+garbled by line wrapping. Your output stays where a person reads the detail;
+this is what remains legible after it is gone.
+
+### Signal when you need a person
+
+Whenever you stop and wait on a human decision, raise a flag that persists and
+send one nudge that does not:
+
+```sh
+tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
+tmux display-message -d 10000 -t "$TMUX_PANE" \
+  "HELP pr4405 in w#{window_index}: integrate main, or close it?"
+```
+
+The `HELP` prefix marks your window with `!` in the window list, so you are
+visible from any window, not only your own. `display-message` expands
+`#{window_index}` against `-t`, so the nudge names both the PR and where to find
+you — a notification that says only "something needs a decision" makes the
+operator hunt.
+
+Send the nudge once, on becoming blocked — not on a timer, and not again for the
+same question. Clear `@agent` when you are unblocked; a stale `HELP` is worse
+than none, because it spends attention on a question already answered.
+
+**The nudge is best effort and will often go unseen.** Nobody may be attached;
+the person may be in another window, on another machine, or asleep. That is what
+the flag is for: it waits. Neither is a handoff — a raised flag is not a
+delivered question and never an answered one. Stop at your prompt and wait
+exactly as you would have without it, and restate the request in full when
+resumed.
+
+Flag only for being blocked. Progress and completion belong in `@agent` as
+ordinary state and in your output; resuming is not a signal at all.
 
 ## User-directed workflow adjustments
 
@@ -244,6 +435,7 @@ review the new head, and ask again.
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
 | Artifact acquisition and workspace composition | `docs/design/artifact-acquisition-and-workspaces.md` |
+| Platform composition, overlays, and core-library entitlement | `docs/design/platform-composition-and-overlays.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes | `docs/design/output-shapes.md` |
 | Output style | `docs/design/style-guide.md` |
@@ -975,26 +1167,104 @@ conflict immediately so CI starts, but if its review would begin a new
 unauthorized block, request approval before dispatching reviewers. Once
 approved, start that conflict-recovery round without waiting for CI.
 
-Before requesting each block, present an analysis of why the prior rounds did
-not converge. Classify the repeated findings as one of:
+Before requesting each block, present an architectural checkpoint, not merely
+a request for permission. Answer all of these:
 
-- an architectural problem in the change;
-- missing test coverage;
-- reviewers expanding the contract beyond the intended threat model; or
-- **findings confined to the change's own test harness** while the product diff
-  goes unchallenged.
+1. **What did the last block accomplish?** Summarize the product, architecture,
+   and test changes made, the findings retired, and the confidence gained.
+   Distinguish durable progress from churn that only moved the findings.
+2. **Are the reviews converging toward dual-clean soon?** Cite the trend across
+   the block: clean responses, repeated versus new finding categories, and
+   whether findings are moving out of the product and into tests or the harness.
+   State how likely the next block is to produce two clean responses at one
+   current head, and why.
+3. **Do the remaining findings expose local defects or shaky foundations?**
+   Classify the repeated findings as architectural problems in the change,
+   missing test coverage, reviewers expanding the contract beyond the intended
+   threat model, or **findings confined to the change's own test harness** while
+   the product diff goes unchallenged.
+4. **Is a docs-only, design-focused PR now warranted?** Give an explicit
+   recommendation. That alternative pauses implementation review and uses
+   direct, full engagement from the repository owner to settle the disputed
+   contracts, ownership boundaries, or architecture before implementation
+   resumes. If it is warranted, recommend it instead of another implementation
+   block.
+5. **If that design-focused path was skipped for the prior block at the user's
+   request, why should it be skipped again?** The earlier decision is not
+   standing authorization. Identify what the last block changed, what evidence
+   now supports implementation-level convergence, and why another six rounds
+   are a better investment than settling the design first.
 
 State the proposed architectural or test remedy, or explain why the remaining
-concern should be dismissed, before spending another block.
+concern should be dismissed. End with one recommendation: approve the next
+implementation block, switch to a docs-only design PR, or stop the work.
 
-The fourth case deserves its own judgment, because it looks like convergence and
-behaves like a ratchet. When successive rounds find only new ways to strengthen
-a test generator, each finding is real and each fix is cheap, so the loop can run
-indefinitely on a product diff nobody has disputed. Say so plainly when you see
-it: report how many consecutive rounds produced no product finding, and
-recommend either a final round or stopping. Stopping still needs the user's
-waiver under invariant 5 — but asking for one, with that evidence, is the
-correct move rather than opening another round by reflex.
+The harness-only case deserves its own judgment, because it looks like
+convergence and behaves like a ratchet. When successive rounds find only new
+ways to strengthen a test generator, each finding is real and each fix is cheap,
+so the loop can run indefinitely on a product diff nobody has disputed. Say so
+plainly when you see it: report how many consecutive rounds produced no product
+finding, and recommend either a final round or stopping. Stopping still needs
+the user's waiver under invariant 5 — but asking for one, with that evidence, is
+the correct move rather than opening another round by reflex.
+
+## Lead with the demo
+
+Two clean adversarial reviews and a green suite establish that the change is
+**correct**. Neither establishes that it is **worth shipping**. The demo is the
+only part of a PR that shows the product actually got better, and it is the part
+someone reading this work back in six months will actually read.
+
+### Choose it before you are done, and say what it is
+
+Post the demo you intend to present — one line is enough — while there is still
+time to change it. Do not wait to be asked for one, and do not treat it as
+write-up performed after the work is finished. Three things come of choosing
+early:
+
+- **Calibration.** The operator can tell you a demo is not compelling *before*
+  you have finished building around it. That exchange costs one line and a reply,
+  and it is dramatically cheaper than discovering the mismatch at the end.
+- **Real-scenario validation.** A scenario a person would genuinely run exercises
+  paths that fixture-shaped tests do not. Turning up bugs at that point is the
+  system working. Turning them up *after* two clean reviews — which is what
+  happens when the demo is an afterthought — means the reviews were spent on a
+  version nobody had tried to use.
+- **A legible record.** These PRs are the archive. One that opens with a demo can
+  be read by somebody who was not there; one that opens with a list of test
+  invocations cannot.
+
+### Do not build to the demo
+
+The demo is a **sample of the space the change has to cover, never the definition
+of it.** The issue and its contract decide what you build; the demo shows one
+real path through it landing. Two smells that the two have been inverted: you
+special-cased an input so the demo would render, or you picked the scenario
+because it was the one you already knew worked.
+
+The self-check is to swap it. Take a neighbouring scenario a user would just as
+plausibly run, and confirm it behaves. If the demo is the only path that holds
+up, you have fit the demo rather than the problem — and choosing it early is
+what let you find that out while it was still cheap to fix.
+
+### What makes one compelling
+
+- **A real invocation and its real output**, pasted, not paraphrased or
+  reconstructed from memory.
+- **The canonical path** a user would take. A hidden alias or compatibility
+  selector demonstrates the seam, not the product; if the change is about the
+  primary path, lead with the primary path and add the alias only as a second
+  block.
+- **The before as well as the after, whenever the change is a fix.** A demo that
+  shows only the fixed output asks the reader to imagine the bug. The pair shows
+  it. This is the single largest difference between a demo that lands and one
+  that is merely present.
+- **One sentence naming what to notice**, because what is obvious to you after a
+  week inside the change is not obvious to anyone else.
+
+Put it in the PR body under a `## Demo` heading, **above** the validation list.
+Validation is the argument that the change is correct; the demo is the argument
+that it is worth having, and it should be read first.
 
 ## PR and CI discipline
 

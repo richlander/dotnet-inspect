@@ -1,12 +1,10 @@
 import type {
-  BrowserOpportunityCategory,
   BrowserOpportunityItem,
   BrowserPackageOpportunities,
 } from "./inspect-web-engine.d.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
-export type OpportunityCategory = BrowserOpportunityCategory;
-export type PackageOpportunities = Pick<
+type PackageOpportunities = Pick<
   BrowserPackageOpportunities,
   "categories" | "totalOpportunities" | "inspectionError"
 >;
@@ -21,6 +19,46 @@ export interface RenderPackageOpportunitiesOptions {
   error: string;
   data: PackageOpportunities | null;
   escapeHtml: (value: unknown) => string;
+}
+
+export interface PackageOpportunitiesBindingActions {
+  onLookForSelect: (query: string) => void;
+  onPackageSelect: (packageId: string) => void;
+  onTypeSelect: (target: PackageOpportunityTarget) => void;
+}
+
+export interface PackageOpportunityTarget {
+  typeId: string;
+  sourceDefinitionId: string | null;
+  sourceAssembly: string | null;
+  sourceAssemblyVersion: string | null;
+  sourceAssemblyCulture: string | null;
+  sourceAssemblyPublicKeyToken: string | null;
+}
+
+export function bindPackageOpportunities(
+  root: ParentNode,
+  actions: PackageOpportunitiesBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeSelect({
+        typeId: button.dataset.oppType ?? "",
+        sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
+        sourceAssembly: button.dataset.oppSourceAssembly ?? null,
+        sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,
+        sourceAssemblyCulture: button.dataset.oppSourceCulture || null,
+        sourceAssemblyPublicKeyToken: button.dataset.oppSourceToken || null,
+      })));
+  root.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onPackageSelect(button.dataset.oppPackage ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-opp-lookfor]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onLookForSelect(button.dataset.oppLookfor ?? "")));
 }
 
 // Splits a fully-qualified API name (e.g. "System.Collections.Generic.List<T>") into a short
@@ -44,15 +82,15 @@ function splitApiName(fullName: string): { short: string; qualifier: string } {
 // front of an integration-kind phrase so it can render as a load-on-demand package chip. Kinds
 // with no dotted prefix (e.g. "IServiceCollection registration") stay as plain muted text.
 function splitOpportunityKind(integrationType: string): { package: string | null; text: string } {
-  const match = String(integrationType || "").match(/^([A-Z][A-Za-z0-9]+(?:\.[A-Z][A-Za-z0-9]+)+)\b\s*(.*)$/);
-  return match ? { package: match[1], text: match[2].trim() } : { package: null, text: String(integrationType || "") };
+  const match = integrationType.match(/^([A-Z][A-Za-z0-9]+(?:\.[A-Z][A-Za-z0-9]+)+)\b\s*(.*)$/);
+  return match ? { package: match[1], text: match[2].trim() } : { package: null, text: integrationType };
 }
 
 // Turns the comma-separated "look for" hint into chips. Concrete identifiers open a spotlight
 // search (seeded on the base name, generics stripped); wildcard patterns like "Add*" render as
 // muted, non-interactive hints because they are naming shapes rather than resolvable types.
 function renderLookForChips(lookFor: string, escapeHtml: (value: unknown) => string): string {
-  const tokens = String(lookFor || "").split(",").map(token => token.trim()).filter(Boolean);
+  const tokens = lookFor.split(",").map(token => token.trim()).filter(Boolean);
   if (!tokens.length) return `<span class="opp-pattern">any registration surface</span>`;
   return tokens.map(token => {
     if (token.includes("*")) return `<span class="opp-pattern" title="Naming pattern">${escapeHtml(token)}</span>`;
@@ -68,6 +106,9 @@ function renderLookForChips(lookFor: string, escapeHtml: (value: unknown) => str
 function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown) => string): string {
   const api = splitApiName(item.api);
   const kind = splitOpportunityKind(item.integrationType);
+  const sourceIdentity = item.sourceDefinitionId
+    ? ` data-opp-source-definition="${escapeHtml(item.sourceDefinitionId)}" data-opp-source-assembly="${escapeHtml(item.sourceAssembly)}" data-opp-source-version="${escapeHtml(item.sourceAssemblyVersion)}" data-opp-source-culture="${escapeHtml(item.sourceAssemblyCulture ?? "")}" data-opp-source-token="${escapeHtml(item.sourceAssemblyPublicKeyToken ?? "")}"`
+    : "";
   const kindHtml = kind.package
     ? `<button class="opp-package-chip" data-opp-package="${escapeHtml(kind.package)}" title="Load ${escapeHtml(kind.package)} into the workspace">${escapeHtml(kind.package)}</button>${kind.text ? `<span class="opp-kind-text">${escapeHtml(kind.text)}</span>` : ""}`
     : `<span class="opp-kind-text">${escapeHtml(item.integrationType)}</span>`;
@@ -76,7 +117,7 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
       <span class="signal-badge signal-type">T</span>
       <div class="opp-body">
         <div class="opp-head">
-          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}" title="Open ${escapeHtml(item.api)} in this package">
+          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}"${sourceIdentity} title="Open ${escapeHtml(item.api)} in this package">
             <span class="opp-type-name">${escapeHtml(api.short)}</span>${api.qualifier ? `<span class="opp-type-ns">${escapeHtml(api.qualifier)}</span>` : ""}
           </button>
           <span class="opp-kind">${kindHtml}</span>

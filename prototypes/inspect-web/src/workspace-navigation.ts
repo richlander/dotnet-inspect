@@ -2,8 +2,10 @@ import {
   lenses,
   normalizeShareTabs,
   packageLenses,
+  platformPackToken,
   replaceCurrentNavigationEntry,
   shareStateLengthError,
+  type PlatformPack,
   type WorkspaceTab,
 } from "./data.ts";
 import {
@@ -78,7 +80,7 @@ export function createNavigationSequence(): NavigationSequence {
   };
 }
 
-export interface NavigationHistory<TView> {
+export interface NavigationHistory {
   record(): void;
   normalizeCurrent(): void;
   canBack(): boolean;
@@ -101,7 +103,7 @@ interface NavigationEntry<TView> {
 
 export function createNavigationHistory<TView>(
   dependencies: NavigationHistoryDependencies<TView>,
-): NavigationHistory<TView> {
+): NavigationHistory {
   const navigation = {
     stack: [] as NavigationEntry<TView>[],
     index: -1,
@@ -180,6 +182,7 @@ export interface WorkspaceUrlState {
   atPackageRoot: boolean;
   packageLens: string;
   library: string | null;
+  libraryPack: PlatformPack | null;
   selectedTypeId: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
@@ -196,6 +199,7 @@ interface SharePacket {
   t: string[][];
   a: number;
   l?: string;
+  p?: PlatformPack;
   v?: string;
   y?: string;
   m?: string;
@@ -220,6 +224,7 @@ interface DecodedShareState {
   section: string | null;
   bodyTarget: BodyTarget | null;
   library: string | null;
+  libraryPack: PlatformPack | null;
   memberBrowse: boolean;
   memberTextFilter: string;
   memberKindFilter: string;
@@ -255,6 +260,7 @@ export function encodeWorkspaceShareState(state: WorkspaceUrlState): string {
     a: Math.max(0, state.active),
   };
   if (state.library) packet.l = state.library;
+  if (state.libraryPack) packet.p = state.libraryPack;
   if (state.atPackageRoot) {
     packet.v = state.packageLens && state.packageLens !== "overview"
       ? `pkg:${state.packageLens}`
@@ -266,7 +272,10 @@ export function encodeWorkspaceShareState(state: WorkspaceUrlState): string {
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
     if (state.memberSection && state.memberSection !== "overview")
       packet.c = state.memberSection;
-    if (state.selectedBodyTarget) packet.d = encodeBodyTarget(state.selectedBodyTarget) ?? undefined;
+    if (state.selectedBodyTarget) {
+      const encodedBodyTarget = encodeBodyTarget(state.selectedBodyTarget);
+      if (encodedBodyTarget) packet.d = encodedBodyTarget;
+    }
     if (state.memberBrowse) packet.b = 1;
     if (state.memberTextFilter) packet.q = state.memberTextFilter;
     if (state.memberKindFilter !== "all") packet.k = state.memberKindFilter;
@@ -297,6 +306,7 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         section: null,
         bodyTarget: null,
         library: null,
+        libraryPack: null,
         memberBrowse: false,
         memberTextFilter: "",
         memberKindFilter: "all",
@@ -314,17 +324,20 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
           : 0,
         view: typeof raw.v === "string" ? raw.v : "",
         rich: true,
-        type: raw.y != null ? String(raw.y) : null,
-        member: raw.m != null ? String(raw.m) : null,
-        overload: raw.o != null ? String(raw.o) : null,
-        section: raw.c != null ? String(raw.c) : null,
+        type: typeof raw.y === "string" ? raw.y : null,
+        member: typeof raw.m === "string" ? raw.m : null,
+        overload: typeof raw.o === "string" || typeof raw.o === "number"
+          ? String(raw.o)
+          : null,
+        section: typeof raw.c === "string" ? raw.c : null,
         bodyTarget: decodeBodyTarget(raw.d),
-        library: raw.l != null ? String(raw.l) : null,
+        library: typeof raw.l === "string" ? raw.l : null,
+        libraryPack: platformPackToken(raw.p),
         memberBrowse: raw.b === 1,
-        memberTextFilter: raw.q != null ? String(raw.q) : "",
-        memberKindFilter: raw.k != null ? String(raw.k) : "all",
-        memberAccessibilityFilter: raw.e != null ? String(raw.e) : "all",
-        memberTraitFilter: raw.r != null ? String(raw.r) : "",
+        memberTextFilter: typeof raw.q === "string" ? raw.q : "",
+        memberKindFilter: typeof raw.k === "string" ? raw.k : "all",
+        memberAccessibilityFilter: typeof raw.e === "string" ? raw.e : "all",
+        memberTraitFilter: typeof raw.r === "string" ? raw.r : "",
       };
     }
     return { error: "The shared workspace state is invalid and was ignored." };
@@ -375,6 +388,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   let tabs: WorkspaceTab[] = [];
   let active = 0;
   let library: string | null = null;
+  let libraryPack: PlatformPack | null = null;
   let memberBrowse = false;
   let memberTextFilter = "";
   let memberKindFilter = "all";
@@ -399,6 +413,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
       section = share.section;
       bodyTarget = share.bodyTarget;
       library = share.library;
+      libraryPack = share.libraryPack;
       memberBrowse = share.memberBrowse;
       memberTextFilter = share.memberTextFilter;
       memberKindFilter = share.memberKindFilter;
@@ -433,6 +448,7 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
     tabs,
     active,
     library,
+    libraryPack,
     memberBrowse,
     memberTextFilter,
     memberKindFilter,

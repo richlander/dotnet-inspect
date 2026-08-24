@@ -839,8 +839,12 @@ public class PdbContext : IDisposable
     /// answer as "no body" and must not be reported as one (issue #3299).
     /// </summary>
     /// <remarks>
-    /// A reference assembly answers <see langword="null"/> for every token: it strips all IL, so
-    /// its RVAs report the image's surface-only nature rather than anything about the method.
+    /// A reference assembly's RVA describes a synthesized body rather than the implementation
+    /// member's body, so it is not evidence in either direction. Abstract, P/Invoke, non-IL
+    /// code-type, internal-call, and forward-reference flags still prove that a method has no IL
+    /// body; other reference methods remain unknown.
+    /// <c>MethodHasBodyTests.ReferenceAssembly_ReportsOnlyDefiniteBodylessness</c> gates this
+    /// distinction.
     /// </remarks>
     public bool? MethodHasBody(int methodToken)
     {
@@ -849,23 +853,80 @@ public class PdbContext : IDisposable
 
         try
         {
-            // Handle() rejects an invalid token by throwing, and an inspected assembly is
-            // untrusted input, so decode inside the guard rather than ahead of it.
-            var handle = MetadataTokens.Handle(methodToken);
-            if (handle.Kind != HandleKind.MethodDefinition)
-                return null;
-
             var reader = _peReader.GetMetadataReader();
-            if (IsReferenceAssembly(reader))
-                return null;
-
-            return reader.GetMethodDefinition((MethodDefinitionHandle)handle).RelativeVirtualAddress != 0;
+            MethodDefinitionHandle handle = ResolveMethodHandle(
+                reader,
+                typeName: "",
+                methodName: "",
+                overloadIndex: 0,
+                publicOnly: false,
+                metadataToken: methodToken);
+            return handle.IsNil ? null : MethodHasBody(reader, handle);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Whether the selected method carries an IL body, resolving by type, name, and overload.
+    /// </summary>
+    /// <remarks>
+    /// Cross-image callers must not treat an overload ordinal as a member identity: declaration
+    /// order can differ between reference and runtime images.
+    /// <c>CommandExecutionTests.MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown</c>
+    /// gates that caller boundary. <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c>
+    /// gates same-image name resolution.
+    /// </remarks>
+    public bool? MethodHasBody(
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly = false)
+    {
+        if (!_peReader.HasMetadata)
+            return null;
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            MethodDefinitionHandle handle = ResolveMethodHandle(
+                reader,
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                metadataToken: 0);
+            return handle.IsNil ? null : MethodHasBody(reader, handle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private bool? MethodHasBody(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle)
+    {
+        MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+        if (DefinitelyHasNoIlBody(method))
+            return false;
+        if (IsReferenceAssembly(reader))
+            return null;
+
+        return method.RelativeVirtualAddress != 0;
+    }
+
+    private static bool DefinitelyHasNoIlBody(MethodDefinition method)
+        => (method.Attributes
+                & (MethodAttributes.Abstract | MethodAttributes.PinvokeImpl)) != 0
+            || (method.ImplAttributes & MethodImplAttributes.CodeTypeMask)
+                != MethodImplAttributes.IL
+            || (method.ImplAttributes
+                & (MethodImplAttributes.InternalCall
+                    | MethodImplAttributes.ForwardRef)) != 0;
 
     /// <summary>
     /// Whether the assembly carries <c>ReferenceAssemblyAttribute</c>, cached because the answer
@@ -1101,12 +1162,34 @@ public class PdbContext : IDisposable
             return null;
 
         var reader = _peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle = ResolveMethodHandle(
+            reader,
+            typeName,
+            methodName,
+            overloadIndex,
+            publicOnly,
+            metadataToken);
+        return methodHandle.IsNil
+            ? null
+            : ResolveMethodDocumentRange(methodHandle);
+    }
+
+    private static MethodDefinitionHandle ResolveMethodHandle(
+        MetadataReader reader,
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly,
+        int metadataToken)
+    {
         if (metadataToken != 0)
         {
+            // Handle() rejects invalid tokens by throwing. Callers that accept untrusted token
+            // values must guard this decode.
             var tokenHandle = MetadataTokens.Handle(metadataToken);
             return tokenHandle.Kind == HandleKind.MethodDefinition
-                ? ResolveMethodDocumentRange((MethodDefinitionHandle)tokenHandle)
-                : null;
+                ? (MethodDefinitionHandle)tokenHandle
+                : default;
         }
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -1127,11 +1210,11 @@ public class PdbContext : IDisposable
                     continue;
                 }
                 if (matchCount++ == overloadIndex)
-                    return ResolveMethodDocumentRange(methodHandle);
+                    return methodHandle;
             }
         }
 
-        return null;
+        return default;
     }
 
     PdbMethodDocumentInfo? ResolveMethodDocumentRange(MethodDefinitionHandle methodHandle)

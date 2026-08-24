@@ -84,6 +84,10 @@ function memberRequest(
     version: "1.2.3",
     framework: "net10.0",
     assembly: "Example.Package.dll",
+    platformPack: "netcore.app",
+    platformAssemblyVersion: "1.0.0.0",
+    platformAssemblyCulture: null,
+    platformAssemblyPublicKeyToken: null,
     typeIdentity: "T:Example.Widget",
     type: "Example.Widget",
     platformType: "Example.Widget",
@@ -104,6 +108,10 @@ function drillRequest(
   return {
     framework: "net10.0",
     assembly: "System.Text.Json.dll",
+    pack: "netcore.app",
+    assemblyVersion: "10.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
     type: "T:System.Text.Json.JsonSerializer",
     member: "Serialize",
     selectorKey: "Serialize|System.Object",
@@ -463,6 +471,10 @@ test("runtime members route directly through platform graph expansion", async ()
           [
             request.framework,
             request.assembly,
+            request.pack,
+            request.assemblyVersion,
+            request.assemblyCulture,
+            request.assemblyPublicKeyToken,
             request.type,
             request.member,
             request.selectorKey,
@@ -471,6 +483,10 @@ test("runtime members route directly through platform graph expansion", async ()
           [
             "net10.0",
             "Example.Package.dll",
+            "netcore.app",
+            "1.0.0.0",
+            null,
+            null,
             "T:Example.Widget",
             "Run",
             "Run|",
@@ -544,6 +560,10 @@ test("platform drill publishes current graphs and pop restores the parent", asyn
           [
             request.framework,
             request.assembly,
+            request.pack,
+            request.assemblyVersion,
+            request.assemblyCulture,
+            request.assemblyPublicKeyToken,
             request.type,
             request.member,
             request.selectorKey,
@@ -552,6 +572,10 @@ test("platform drill publishes current graphs and pop restores the parent", asyn
           [
             "net10.0",
             "System.Text.Json.dll",
+            "netcore.app",
+            "10.0.0.0",
+            null,
+            "cc7b13ffcd2ddd51",
             "T:System.Text.Json.JsonSerializer",
             "Serialize",
             "Serialize|System.Object",
@@ -579,7 +603,7 @@ test("platform drill publishes current graphs and pop restores the parent", asyn
   }]);
   assert.deepEqual(events, ["focus:capture", "focus:restore", "graph"]);
 
-  coordinator.popDrill();
+  await coordinator.popDrill();
   assert.deepEqual(state.platformStack, []);
   assert.deepEqual(events, [
     "focus:capture",

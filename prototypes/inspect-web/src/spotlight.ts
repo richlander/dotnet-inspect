@@ -103,7 +103,7 @@ export interface SpotlightState {
 
 interface SpotlightOptions {
   state: SpotlightState;
-  lenses: readonly LensDefinition[];
+  lenses: () => readonly LensDefinition[];
   escapeHtml: (value: unknown) => string;
   highlightRanges: (
     value: string,
@@ -115,7 +115,8 @@ interface SpotlightOptions {
   executeCommand: (
     command: string,
     result: CommandPaletteResult,
-  ) => unknown;
+  ) => Promise<unknown> | undefined;
+  reportCommandError: (error: unknown) => void;
   commandContext: () => CommandContext | null;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
@@ -229,6 +230,17 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
   }
 }
 
+function isTextInputTarget(value: EventTarget | null): value is HTMLInputElement {
+  return value !== null
+    && "selectionStart" in value
+    && "selectionEnd" in value
+    && "value" in value;
+}
+
+function hasElementId(value: EventTarget | null): value is EventTarget & { id: string } {
+  return value !== null && "id" in value && typeof value.id === "string";
+}
+
 export function createSpotlight(options: SpotlightOptions) {
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
@@ -245,7 +257,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (state.spotlightScope === "commands") {
       const context = options.commandContext();
       return context
-        ? commandPaletteResults(context, options.lenses)
+        ? commandPaletteResults(context, options.lenses())
         : [];
     }
     return options.searchResults();
@@ -447,11 +459,15 @@ export function createSpotlight(options: SpotlightOptions) {
       </div>`;
   }
 
-  function inlineHtml(disabled: boolean): string {
+  function inlineHtml(disabled: boolean, showReadyGlint = false): string {
     const items = resultsForRender();
     return `
       <div class="home-search-content" ${disabled ? "inert" : ""}>
         <div class="home-search-box">
+          ${showReadyGlint ? `<svg class="home-search-glint" aria-hidden="true">
+            <rect class="home-search-glint-glow" pathLength="1"></rect>
+            <rect class="home-search-glint-line" pathLength="1"></rect>
+          </svg>` : ""}
           <span class="spotlight-glyph">⌕</span>
           <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} ${disabled ? "disabled" : ""} />
         </div>
@@ -581,11 +597,15 @@ export function createSpotlight(options: SpotlightOptions) {
     reset();
     const execution = options.executeCommand(result.command, result);
     options.render();
-    void Promise.resolve(execution).then(() => {
-      if (generation === interactionGeneration) {
-        options.focusAfterDismiss?.();
-      }
-    });
+    const focusAfterExecution = () => {
+      if (generation === interactionGeneration) options.focusAfterDismiss?.();
+    };
+    Promise.resolve(execution).then(
+      focusAfterExecution,
+      (error: unknown) => {
+        options.reportCommandError(error);
+        focusAfterExecution();
+      });
   }
 
   function highlightSelection(): number {
@@ -679,7 +699,8 @@ export function createSpotlight(options: SpotlightOptions) {
     }
 
     if (event.key === "ArrowRight") {
-      const input = event.currentTarget as HTMLInputElement;
+      const input = event.currentTarget;
+      if (!isTextInputTarget(input)) return;
       const atEnd = input.selectionStart === input.selectionEnd
         && input.selectionStart === input.value.length;
       if (atEnd) {
@@ -755,8 +776,8 @@ export function createSpotlight(options: SpotlightOptions) {
       root.querySelector("#spotlight-backdrop")?.addEventListener(
         "mousedown",
         event => {
-          const target = event.target as HTMLElement;
-          if (target.id === "spotlight-backdrop") close();
+          const target = event.target;
+          if (hasElementId(target) && target.id === "spotlight-backdrop") close();
         },
       );
       focus();

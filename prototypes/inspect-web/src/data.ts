@@ -33,14 +33,18 @@ export interface PackageIdentity {
 export function packageIdentityKey(pkg: PackageIdentity | null | undefined): string {
   if (!pkg) return "";
   return [pkg.id, pkg.version, pkg.activeFramework]
-    .map(value => encodeURIComponent(String(value || "").toLowerCase()))
+    .map(value => encodeURIComponent(value.toLowerCase()))
     .join("|");
 }
 
 export interface AssemblyDescriptor {
   id?: string;
   name?: string;
+  version?: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
   publicMembers?: number;
+  platformPack?: string | null;
 }
 
 export interface AssemblyDescribedType {
@@ -62,6 +66,78 @@ export function assemblyDescriptorForType(
     assembly.name === name
     || assembly.name === bare
     || assembly.name === `${bare}.dll`) ?? null;
+}
+
+export function mergeInspectionErrors(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): string {
+  const messages = [current, next]
+    .map(value => (value ?? "").trim())
+    .filter(Boolean);
+  return [...new Set(messages)].join("; ");
+}
+
+export type PlatformPack = "netcore.app" | "aspnetcore.app";
+
+export function platformPackToken(value: unknown): PlatformPack | null {
+  return value === "netcore.app" || value === "aspnetcore.app"
+    ? value
+    : null;
+}
+
+export interface PlatformPackAssembly {
+  name?: string;
+  platformPack?: string | null;
+}
+
+export interface PlatformPackHint {
+  assembly?: string;
+  pack?: string | null;
+}
+
+export function platformPackFromProvenance(
+  assembly: string,
+  exactPack: unknown,
+  loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
+  recent: readonly PlatformPackHint[] | null | undefined,
+  roster: readonly PlatformPackHint[] | null | undefined,
+): PlatformPack {
+  const exact = platformPackToken(exactPack);
+  if (exact) return exact;
+  const normalized = assembly.replace(/\.dll$/i, "");
+  const normalizedLower = normalized.toLowerCase();
+
+  const selectPack = (
+    candidates: readonly {
+      assembly?: string | undefined;
+      pack?: string | null | undefined;
+    }[],
+  ): PlatformPack | null => {
+    const packs = new Set<PlatformPack>();
+    for (const candidate of candidates) {
+      if ((candidate.assembly ?? "").replace(/\.dll$/i, "").toLowerCase() === normalizedLower) {
+        const pack = platformPackToken(candidate.pack);
+        if (pack) packs.add(pack);
+      }
+    }
+    if (packs.size > 1) {
+      throw new Error(
+        `Platform assembly '${normalized}' is available from multiple platform packs; select an exact pack.`);
+    }
+    return packs.values().next().value ?? null;
+  };
+
+  const loaded = selectPack((loadedAssemblies || []).map(candidate => ({
+    assembly: candidate.name,
+    pack: candidate.platformPack,
+  })));
+  if (loaded) return loaded;
+  const indexed = selectPack(roster || []);
+  if (indexed) return indexed;
+  const remembered = selectPack(recent || []);
+  if (remembered) return remembered;
+  return "netcore.app";
 }
 
 export interface DependencyCoordinateCandidate extends PackageIdentity {
@@ -140,7 +216,7 @@ export function dependencyGraphRenderSignature(graph: DependencyGraphResult | nu
   ]);
   return JSON.stringify([
     graph.definition,
-    Boolean(graph.truncated),
+    graph.truncated,
     graph.nodeLimit,
     navigation
   ]);
@@ -236,13 +312,22 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
   const tabs: WorkspaceTab[] = [];
   const sourceIndexes: number[] = [];
   const identityIndexes = new Map<string, number>();
-  for (let sourceIndex = 0; sourceIndex < list.length; sourceIndex++) {
-    const tuple: unknown = list[sourceIndex];
-    if (!Array.isArray(tuple)
-      || tuple.length < 1
-      || tuple.length > 3
-      || tuple.some(value => typeof value !== "string")
-      || !tuple[0].trim()) {
+  const entries: unknown[] = list;
+  for (let sourceIndex = 0; sourceIndex < entries.length; sourceIndex++) {
+    const tuple: unknown = entries[sourceIndex];
+    if (!Array.isArray(tuple) || tuple.length < 1 || tuple.length > 3) {
+      return {
+        tabs: [],
+        sourceIndexes: [],
+        error: "The shared workspace state is invalid and was ignored."
+      };
+    }
+    const values: unknown[] = tuple;
+    const [idValue, versionValue, frameworkValue] = values;
+    if (typeof idValue !== "string"
+      || !idValue.trim()
+      || (versionValue !== undefined && typeof versionValue !== "string")
+      || (frameworkValue !== undefined && typeof frameworkValue !== "string")) {
       return {
         tabs: [],
         sourceIndexes: [],
@@ -250,9 +335,9 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
       };
     }
     const tab: WorkspaceTab = {
-      id: tuple[0],
-      version: tuple[1] || "latest",
-      framework: tuple[2] || ""
+      id: idValue,
+      version: versionValue || "latest",
+      framework: frameworkValue || ""
     };
     const identity = packageIdentityKey({
       id: tab.id,
@@ -268,8 +353,8 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
   return { tabs, sourceIndexes, error: "" };
 }
 
-export function shareStateLengthError(value: unknown): string {
-  return String(value || "").length > MAX_SHARE_STATE_CHARACTERS
+export function shareStateLengthError(value: string): string {
+  return value.length > MAX_SHARE_STATE_CHARACTERS
     ? `The shared workspace state exceeds the ${MAX_SHARE_STATE_CHARACTERS}-character limit and was ignored.`
     : "";
 }
@@ -343,7 +428,7 @@ export interface DependencyGroup {
   dependencies?: readonly DependencyGroupDependency[];
 }
 
-export interface DependencyGroupDependency {
+interface DependencyGroupDependency {
   id: string;
   versionRange?: string;
 }
@@ -424,16 +509,16 @@ export function packageCoordinateMatchesLocation(
   location: PackageCoordinateLocation | null | undefined,
 ): boolean {
   if (!pkg || !location?.package || !location.version || !location.framework) return false;
-  return String(pkg.id).toLowerCase() === String(location.package).toLowerCase()
-    && String(pkg.version).toLowerCase() === String(location.version).toLowerCase()
-    && String(pkg.activeFramework).toLowerCase() === String(location.framework).toLowerCase();
+  return pkg.id.toLowerCase() === location.package.toLowerCase()
+    && pkg.version.toLowerCase() === location.version.toLowerCase()
+    && pkg.activeFramework.toLowerCase() === location.framework.toLowerCase();
 }
 
 export function workspaceCoordinatesMatch(
   packages: readonly PackageIdentity[] | null | undefined,
   tabs: readonly WorkspaceTab[] | null | undefined,
 ): boolean {
-  if (!Array.isArray(packages) || !Array.isArray(tabs) || packages.length !== tabs.length)
+  if (!packages || !tabs || packages.length !== tabs.length)
     return false;
   return tabs.every((tab, index) =>
     packageIdentityKey(packages[index]) === packageIdentityKey({
@@ -450,7 +535,7 @@ export function removeAppendedNotice(current: string, previous: string, appended
   return [previous, laterNotice].filter(Boolean).join(" ");
 }
 
-export interface NavigationEntry {
+interface NavigationEntry {
   sig: string;
   view: unknown;
 }
@@ -515,8 +600,8 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
 export interface CallGraphAssembly {
   name?: string;
   version?: string;
-  culture?: string;
-  publicKeyToken?: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
 }
 
 export function callGraphAssemblyIdentityMatches(
@@ -529,16 +614,16 @@ export function callGraphAssemblyIdentityMatches(
   if (!hasVersion) return true;
   if (!target?.assemblyVersion) return false;
   if (!assembly) return false;
-  const normalizeCulture = (value: unknown) => {
-    const normalized = String(value ?? "").toLowerCase();
+  const normalizeCulture = (value: string | null | undefined) => {
+    const normalized = value?.toLowerCase() ?? "";
     return normalized === "neutral" ? "" : normalized;
   };
-  return String(assembly.name ?? "").toLowerCase()
-      === String(target.assembly ?? "").toLowerCase()
-    && String(assembly.version ?? "") === String(target.assemblyVersion)
+  return (assembly.name ?? "").toLowerCase()
+      === (target.assembly ?? "").toLowerCase()
+    && (assembly.version ?? "") === target.assemblyVersion
     && normalizeCulture(assembly.culture) === normalizeCulture(target.assemblyCulture)
-    && String(assembly.publicKeyToken ?? "").toLowerCase()
-      === String(target.assemblyPublicKeyToken ?? "").toLowerCase();
+    && (assembly.publicKeyToken ?? "").toLowerCase()
+      === (target.assemblyPublicKeyToken ?? "").toLowerCase();
 }
 
 export interface ResolvableGraphType extends CallGraphMatchableType {
@@ -547,11 +632,64 @@ export interface ResolvableGraphType extends CallGraphMatchableType {
   assemblyId?: string;
 }
 
-export interface ResolvableGraphPackage {
+export interface ResolvableGraphPackage<TType extends ResolvableGraphType = ResolvableGraphType> {
   isRuntimePack?: boolean;
   assembly?: string;
-  types?: readonly ResolvableGraphType[];
+  types?: readonly TType[];
   assemblies?: readonly AssemblyDescriptor[];
+}
+
+export interface OpportunitySourceIdentity {
+  sourceDefinitionId?: string | null;
+  sourceAssembly?: string | null;
+  sourceAssemblyVersion?: string | null;
+  sourceAssemblyCulture?: string | null;
+  sourceAssemblyPublicKeyToken?: string | null;
+}
+
+export function resolvePlatformGraphTargetType<
+  TType extends ResolvableGraphType,
+>(
+  pack: {
+    types?: readonly TType[];
+    assemblies?: readonly AssemblyDescriptor[];
+  } | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): TType | null {
+  const typeId = callGraphTargetTypeId(target);
+  if (!pack || !typeId || !target?.assembly) return null;
+  const targetAssembly = target.assembly
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  const matches = (pack.types ?? []).filter(type => {
+    const descriptor = assemblyDescriptorForType(pack.assemblies, type);
+    const assembly = (type.assemblyName ?? descriptor?.name ?? type.assembly ?? "")
+      .replace(/\.dll$/i, "")
+      .toLowerCase();
+    return assembly === targetAssembly
+      && callGraphAssemblyIdentityMatches(target, descriptor)
+      && callGraphTargetMatchesType(target, type);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function resolveOpportunitySourceType<
+  TType extends ResolvableGraphType,
+>(
+  pack: {
+    types?: readonly TType[];
+    assemblies?: readonly AssemblyDescriptor[];
+  } | null | undefined,
+  opportunity: OpportunitySourceIdentity | null | undefined,
+): TType | null {
+  if (!opportunity?.sourceDefinitionId) return null;
+  return resolvePlatformGraphTargetType(pack, {
+    assembly: opportunity.sourceAssembly ?? null,
+    assemblyVersion: opportunity.sourceAssemblyVersion ?? null,
+    assemblyCulture: opportunity.sourceAssemblyCulture ?? null,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken ?? null,
+    typeDefinitionId: opportunity.sourceDefinitionId
+  });
 }
 
 export type GraphTargetCandidate<TPackage, TType> =
@@ -560,7 +698,7 @@ export type GraphTargetCandidate<TPackage, TType> =
   | { status: "unique"; pkg: TPackage; type: TType };
 
 export function resolveLoadedGraphTargetCandidate<
-  TPackage extends ResolvableGraphPackage,
+  TPackage extends ResolvableGraphPackage<TType>,
   TType extends ResolvableGraphType,
 >(
   packages: readonly TPackage[],
@@ -571,15 +709,14 @@ export function resolveLoadedGraphTargetCandidate<
   const matches: { pkg: TPackage; type: TType }[] = [];
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
-    for (const type of (pkg.types ?? []) as readonly TType[]) {
-      const assembly = String(
-        type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
+    for (const type of pkg.types ?? []) {
+      const assembly = (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
         .replace(/\.dll$/i, "");
       const descriptors = pkg.assemblies ?? [];
       const descriptor = type.assemblyId
         ? descriptors.find(candidate => candidate.id === type.assemblyId)
         : descriptors.find(candidate =>
-            String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+            (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
               === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
@@ -613,6 +750,23 @@ export function graphTargetNavigationDisposition(
       && Boolean(callGraphTargetTypeId(target))
     ? "platform"
     : "none";
+}
+
+export interface PdbSourceLimitationSource {
+  pdbSourceLimitation?: string | null;
+}
+
+export function pdbSourceLimitationHtml(
+  source: PdbSourceLimitationSource | null | undefined,
+): string {
+  if (!source?.pdbSourceLimitation) return "";
+  const escaped = source.pdbSourceLimitation
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+  return `<span class="graph-source-status">PDB source unavailable: ${escaped}</span>`;
 }
 
 export interface CallGraphDiagnostics {
@@ -666,13 +820,13 @@ export const MARKDOWN_SANITIZE_OPTIONS = Object.freeze({
   ALLOW_DATA_ATTR: false
 });
 
-export interface GraphMemberBodySelector {
+interface GraphMemberBodySelector {
   memberName: string;
   selectorKey: string;
   token?: number;
 }
 
-export interface GraphMemberOverload {
+interface GraphMemberOverload {
   bodySelectors?: readonly GraphMemberBodySelector[];
   graphSelectorKey?: string;
 }
@@ -866,17 +1020,30 @@ export interface SectionableMember {
   kind?: string;
 }
 
-export function memberSectionIdsFor(member: SectionableMember | null | undefined): string[] {
-  return ["property", "field", "event", "constant"].includes(member?.kind ?? "")
-    ? ["overview"]
+export function memberSectionIdsFor(
+  member: SectionableMember | null | undefined,
+  isRuntimePack = false,
+): string[] {
+  if (["property", "field", "event", "constant"].includes(member?.kind ?? ""))
+    return ["overview"];
+  return isRuntimePack
+    ? ["overview", "call-graph", "facts"]
     : ["overview", "call-graph", "facts", "source", "annotated"];
+}
+
+export function typeLensesFor(
+  pkg: { isRuntimePack?: boolean } | null | undefined,
+): readonly (readonly [string, string])[] {
+  return pkg?.isRuntimePack
+    ? lenses.filter(([id]) => id === "api")
+    : lenses;
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;
 
-export function mermaidLabel(value: unknown): string {
+export function mermaidLabel(value: string): string {
   let encoded = "";
-  for (const character of String(value ?? "")) {
+  for (const character of value) {
     const scalar = character.codePointAt(0)!;
     if (character === "&") encoded += "&amp;";
     else if (character === "<") encoded += "&lt;";

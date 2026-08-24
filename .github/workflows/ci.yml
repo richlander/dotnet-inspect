@@ -182,6 +182,7 @@ jobs:
         working-directory: prototypes/inspect-web
         run: |
           npm ci
+          npm run analyze
           npm run build
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
@@ -315,6 +316,9 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -400,6 +404,28 @@ jobs:
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
 
+      - name: Run GitHub Packages fixture test
+        id: package_fixture
+        continue-on-error: true
+        shell: bash
+        env:
+          DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}
+          DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
+            -method '*Package_Manifest_RendersToolManifestRows*' \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Package fixture test filter selected no tests." >&2
+            exit 1
+          fi
+          if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
+            echo "::error::Package fixture test skipped authenticated execution." >&2
+            exit 1
+          fi
+
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
@@ -461,14 +487,21 @@ jobs:
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
 
-      # Deliberately last: the suites above still report their results when
-      # acquisition fails, but the lane must not go green having silently traded
-      # its oracle comparisons for skips.
+      # Terminal checks: the suites above still report their results when
+      # acquisition fails, but the lane must not go green having silently
+      # traded external evidence for skips.
       - name: Check ilasm/ildasm/mdv result
         if: steps.iltools.outcome == 'failure'
         run: |
           echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
           echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          exit 1
+
+      - name: Check GitHub Packages fixture result
+        if: steps.package_fixture.outcome == 'failure'
+        run: |
+          echo "::error::The authenticated GitHub Packages fixture test failed." >&2
+          echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
 
   # Reduced Windows leg (#3542).

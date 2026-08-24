@@ -1,5 +1,24 @@
 # Release Notes
 
+## Unreleased
+
+### Source and implementation evidence
+
+- Renames `Original Source` to `PDB Source` and the Implementation Diff
+  `--authored-source` flag to `--pdb-source`, reflecting that checksum and
+  SourceLink origin evidence do not independently prove build provenance.
+  Both old spellings remain accepted as hidden compatibility aliases. The
+  Implementation Diff `Mechanism` row value likewise changes from `Source` to
+  `PDB Source` in Markdown, `--table`, `--tsv`, `--jsonl`, and `--json` output
+  (#4381). **Breaking:** when `PDB Source` or `Source Diff` is selected exactly,
+  acquisition failures now return a non-zero exit status under `--count`,
+  `--table`, `--tsv`, `--jsonl`, and document `--json`; Markdown, plaintext,
+  bare, and `--print` projections continue to render the explanatory payload.
+  PDB Source no longer requires a SourceLink map when a local source document
+  named by the PDB can be checksum-verified. Bodyless members report that fact
+  instead of a missing-PDB-mapping reason when platform API shape comes from a
+  reference assembly and source lookup uses a different runtime image (#3299).
+
 ## v0.21.0
 
 ### Query and package workflows
@@ -213,13 +232,13 @@
 - Fixes fully qualified ASP.NET Core type and member routing when runtime
   catalogs span multiple shared frameworks or a namespace prefix names a
   non-owning assembly, while retaining real ambiguity errors (#4135).
-- Uses a bounded declaration index for authored `Original Source` and `Source
+- Uses a bounded declaration index for `PDB Source` and `Source
   Diff` slicing. Accessors now select their enclosing property or event,
   constructors retain their exact identity, and ambiguous or overly complex
   source boundaries fail visibly instead of returning fragments or empty
   output (#3927).
 - Uses document-scoped PDB sequence points to select live conditional branches
-  in authored source, and refuses invalid coordinates or unsafe declaration
+  in PDB-mapped source, and refuses invalid coordinates or unsafe declaration
   boundaries instead of leaking inactive sibling declarations (#4158).
 - Resolves assembly references by metadata identity rather than derived paths,
   preserving sibling/platform precedence, culture and token constraints, and
@@ -450,7 +469,7 @@
   raw URLs in the default agent-friendly URL mode.
 - Removes the standalone `source` command. Use `package`, `library`, and `type`
   `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
-  "Source Locations"` / `member -S "Original Source"` for member-level source
+  "Source Locations"` / `member -S "PDB Source"` for member-level source
   evidence.
 - Adds `library --il-offset` for MethodDef token + IL offset source
   symbolication through coordinate-scoped sections such as `Source Location`.

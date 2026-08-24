@@ -208,9 +208,10 @@ export function createSourceInspectionCoordinator(
           state.graphSourceError = dependencies.describeError(error);
         }
       } finally {
-        if (!isCurrent()) return;
-        state.graphSourceLoading = false;
-        dependencies.render();
+        if (isCurrent()) {
+          state.graphSourceLoading = false;
+          dependencies.render();
+        }
       }
     },
 

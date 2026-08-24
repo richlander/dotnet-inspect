@@ -16,7 +16,7 @@ shared contracts, not dynamically loaded plugins.
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
-SourceLink, authored-or-decompiled type/member source, and API-comparison
+SourceLink, PDB-mapped-or-decompiled type/member source, and API-comparison
 inspection plus implementation-relationship and type/member search inspection
 are the first typed-query canaries: commands and
 section catalogs plan typed demand while queries remain independent of
@@ -68,6 +68,19 @@ membership; `Execute_ReportsMemberPreflightDecodeFailureBeforeProducers` gates
 visible artifact failure, and
 `Execute_ReportsTypeDeclarationRejectionBeforeProducers` gates typed metadata
 rejection at the preflight boundary.
+
+The desktop CLI now consumes that architecture through
+`graph integrations`. Repeated package coordinates and one shared target
+framework lower through `WorkspaceContextLoader` to exactly one group; the
+realized package identities become the explicit induced subjects, and the
+command passes the selected Integration relationship descriptors directly to
+the query. The command does not invent a CLI graph IR, infer identity from
+labels, or add direction/depth to induction. Markdown, tree, Mermaid, tabular,
+and JSON output are presentation projections over the resulting
+`InspectionGraphDocument`. Typed loader and graph failures remain visible, and
+the sequential registry executor remains the command's execution policy.
+`InspectionGraphCommandTests.ExecuteAsync_UsesExactPackageSetAndStructuredRequest`
+gates this composition.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -386,9 +399,9 @@ requests add a `MemberAnchor` and MethodDef token, so target identity is never
 recovered from display text. The query resolves that target against the
 participant's retained immutable image, then takes a content-backed reference
 for asynchronous source work without consuming the participant snapshot.
-Checksum-verified authored source wins when available. Otherwise the
+Checksum-verified PDB source wins when available. Otherwise the
 Decompiler runs over the same content reference and the participant's frozen
-`IAssemblyBindingPolicy`; an authored integrity failure remains attached to a
+`IAssemblyBindingPolicy`; a PDB-source integrity failure remains attached to a
 successful decompiled result rather than being rewritten as absence. When both
 producers are unavailable, the result carries both typed attempts instead of
 empty text.
@@ -398,9 +411,9 @@ The query's moderated network work requires explicit symbol HTTP, `IPdbStore`,
 capabilities. `InMemoryPdbStore` and `InMemorySourceContentStore` provide the
 filesystem-free host shape. Absolute source paths recorded in a PDB are
 disabled by default at this boundary and require an explicit opt-in.
-`AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`,
-`MissingAuthoredSource_FallsBackToDecompiler`,
-`AuthoredIntegrityFailure_IsPreservedBesideDecompiler`, and
+`AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedPdbSource`,
+`MissingPdbSource_FallsBackToDecompiler`,
+`PdbSourceIntegrityFailure_IsPreservedBesideDecompiler`, and
 `NeitherSourceAvailable_ReturnsTypedFailure` gate these claims.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
@@ -655,22 +668,22 @@ Product-resident home demos ship as a static id→factory registry
 (`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
 `RendererRegistry` style); hosts resolve one demo via
 `ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records (coordinates and view focus today). The **target** run model is a
-closed preset over the open query/section product: the registry fixes inputs
-and names **existing product section(s)**; the host runs the normal section
-pipeline and returns those sections in ordinary formats. That full section
-binding and run path are not implemented yet—current plans are a partial
-binding (see the workspace-definitions residual). Demos must not call past
-sections into ad hoc inspection APIs; a capability that is not a product
-section is not a home demo until the section exists. Once section binding and
-run exist, CLI argv, definition plans, and browser engine operations (including
-a generated TypeScript binding of that engine surface) must be encodings of the
-same preset—not parallel demo systems. Group-subscription grammar and
-share-packet transposition remain design-ahead of that loader. When run exists,
-selecting a scenario must lower into the same acquisition and typed query paths
-used by an interactive request—it must not create a second demo-only execution
-path. Today resolve stops at the plan (`ResolvedScenario`); acquisition and
-section execution are still host/future work on top of that plan. Detail:
+peer records and requires a `ProductDemoSections` binding. Home demos are closed
+presets over the open query/section product: the registry fixes inputs and names
+**existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
+Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
+table/tsv/jsonl keep Callers alone so caller-scope re-add stays one section;
+mermaid keeps Call Graph; document JSON fails closed until graph projection
+lands); the CLI host runs them through the normal type/member section pipelines
+(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
+sections in ordinary formats. Demos must not call past sections into ad hoc
+inspection APIs; a capability that is not a product section is not a home demo
+until the section exists. CLI argv, definition plans, and browser engine
+operations (including a generated TypeScript binding of that engine surface)
+must be encodings of the same preset—not parallel demo systems. Residual:
+minted view-facet ids, `WorkspaceContextLoader` group run, inspect-web button
+convergence, and Call Graph structured-JSON projection (see
+workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

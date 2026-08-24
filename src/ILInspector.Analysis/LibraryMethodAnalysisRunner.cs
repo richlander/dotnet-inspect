@@ -99,7 +99,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlySet<int>? requestedMethodScope,
         bool directlySelectedBody);
 
-    bool TryResolveUltimateDeclaredMethod(
+    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodIdentity method,
@@ -109,6 +109,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);
+}
+
+internal enum DeclaredOwnerResolution
+{
+    None,
+    Resolved,
+    Unresolved,
 }
 
 // Method-local output is merged by LibraryBodyAnalysisAccumulator in metadata
@@ -612,8 +619,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
-            bool opportunityDeclaredMethodResolved =
-                bodyTypeScope is null;
+            bool opportunityOwnershipResolved = true;
             try
             {
                 bool directlySelectedBody =
@@ -634,45 +640,46 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.DeclaredMethod = declaredMethod;
                 MethodIdentity? ultimateOwner =
                     declaredMethod;
-                bool ultimateOwnerResolved =
-                    declaredMethod is not null
-                    || !CompilerGeneratedNames
-                        .RequiresDeclaredOwner(caller);
+                DeclaredOwnerResolution ownerResolution =
+                    declaredMethod is null
+                        ? DeclaredOwnerResolution.None
+                        : DeclaredOwnerResolution.Resolved;
                 bool needsUltimateResolution =
                     declaredMethod is not null
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
                                 declaredMethod.Name)
                     || includeOpportunities
-                        && bodyTypeScope is not null
-                        && CompilerGeneratedNames
-                            .RequiresDeclaredOwner(caller);
+                        && bodyTypeScope is not null;
                 if (needsUltimateResolution)
                 {
-                    ultimateOwnerResolved =
+                    ownerResolution =
                         _infrastructure
-                            .TryResolveUltimateDeclaredMethod(
+                            .ResolveUltimateDeclaredMethod(
                                 methodHandle,
                                 methodDefinition,
                                 caller,
                                 typeSourceGenerated,
                                 out ultimateOwner);
                 }
-                if (ultimateOwnerResolved)
+                if (ownerResolution
+                    == DeclaredOwnerResolution.Resolved)
                     result.DeclaredSource = ultimateOwner;
+                opportunityOwnershipResolved =
+                    ownerResolution
+                        != DeclaredOwnerResolution.Unresolved;
                 if (bodyTypeScope is not null)
                 {
                     // Evidence admission follows the selected type, but a
                     // recommendation belongs to the ultimate declared owner.
                     opportunityDeclaredMethod =
                         ultimateOwner;
-                    opportunityDeclaredMethodResolved =
-                        ultimateOwnerResolved;
                 }
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
+                opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),
                     MethodLabel(
@@ -783,7 +790,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             bool collectScopedOpportunities =
                 includeOpportunities
                 && (bodyTypeScope is null
-                    || opportunityDeclaredMethodResolved
+                    || opportunityOwnershipResolved
                         && (opportunityDeclaredMethod is null
                             || bodyTypeScope(
                                 opportunityDeclaredMethod
@@ -792,6 +799,32 @@ internal sealed class LibraryMethodAnalysisRunner(
                 includeOpportunities
                 && bodyTypeScope is not null
                 && !collectScopedOpportunities;
+            try
+            {
+                MethodCallAnalysis.Collect(
+                    context,
+                    _infrastructure.CreateCallResolver(
+                        scope,
+                        caller),
+                    offset => allocationFacts.MultiplicityAt(offset),
+                    calls,
+                    evidence,
+                    includeIndirectOpcodes:
+                        hasUnsafeApiMember
+                        || hasUnsafeSignature
+                        || hasUnsafeLocals);
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                result.Diagnostic ??= new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(
+                        typeHandle,
+                        methodHandle),
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: caller.DeclaringType);
+            }
             if (includeOpportunities)
             {
                 var methodAttributes =
@@ -862,19 +895,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 }
             }
 
-            MethodCallAnalysis.Collect(
-                context,
-                _infrastructure.CreateCallResolver(
-                    scope,
-                    caller),
-                offset => allocationFacts.MultiplicityAt(offset),
-                calls,
-                evidence,
-                includeIndirectOpcodes:
-                    hasUnsafeApiMember
-                    || hasUnsafeSignature
-                    || hasUnsafeLocals);
-            if (collectScopedOpportunities)
+            if (collectScopedOpportunities
+                && opportunityOwnershipResolved)
             {
                 MethodIdentity? asyncSource = null;
                 try
