@@ -221,7 +221,7 @@ Round <n> is complete for PR <number>.
 
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
-Recommendation: [Wait, Merge, Approve next rounds, Stop (reason)]
+Recommendation: [continue, wait, merge, approve next rounds, stop (reason)]
 
 Fix description: <prose description of changes made in response to the round>.
 ```
@@ -237,9 +237,18 @@ Classification must match the reviewer outcomes:
 
 `Reviews` records the dual-clean count that GitHub cannot observe. Every
 `Blocked` entry must be an existing PR or issue; file one before citing a new
-shared failure. `Wait` requires a non-empty blocker list and means the agent
-will resume when it clears. `Merge`, `Approve next rounds`, and `Stop` request a
-user decision; `Stop` does not close anything until approved.
+shared failure.
+
+- `continue` means the next round is inside the current authorized six-round
+  block. Emit the report, then immediately begin the next candidate cycle. Do
+  not ask, set `HELP`, or wait for user input.
+- `wait` requires a non-empty blocker list and means the agent will resume when
+  it clears.
+- `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
+  the required architectural checkpoint. Never use it for an earlier round in
+  the current block.
+- `merge`, `approve next rounds`, and `stop` request a user decision; `stop`
+  does not close anything until approved.
 
 When the recommendation needs approval, render the complete report first as
 normal session output. Then open a separate prompt containing only the concise
