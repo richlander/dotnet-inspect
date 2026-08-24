@@ -73,7 +73,7 @@ sealed class FourVisibleConstructorFixture
     public FourVisibleConstructorFixture(int value)
     {
         if (value < 0)
-            GC.KeepAlive(value);
+            throw new ArgumentOutOfRangeException(nameof(value));
         A = value;
         B = value + 1;
         C = value + 2;
@@ -169,7 +169,7 @@ public class CSharpPrinterSemanticSpacingTests
         var (output, _) = Print(typeof(FourVisibleConstructorFixture), ".ctor");
 
         Assert.Contains(
-            "GC.KeepAlive(value);\n" +
+            "throw new ArgumentOutOfRangeException(\"value\");\n" +
             "}\n" +
             "A = value;",
             output);
