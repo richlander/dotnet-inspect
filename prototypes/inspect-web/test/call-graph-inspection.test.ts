@@ -420,6 +420,55 @@ test("platform descent preserves a completed in-flight workspace expansion", asy
   assert.equal(state.memberCallGraph, full);
 });
 
+test("platform descent preserves an in-flight workspace expansion failure", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  let workspaceQueries = 0;
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        workspaceQueries++;
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+  const request = memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  });
+
+  const load = coordinator.load(request);
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  await coordinator.drill(drillRequest());
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+
+  assert.equal(graphRenders, 2);
+  assert.equal(
+    state.memberCallGraphError,
+    "Workspace expansion was incomplete: workspace unavailable");
+  await coordinator.popDrill();
+  await coordinator.load(request);
+  assert.equal(workspaceQueries, 2);
+  assert.equal(state.memberCallGraph, local);
+  assert.equal(
+    state.memberCallGraphError,
+    "Workspace expansion was incomplete: workspace unavailable");
+});
+
 test("blocked platform activation publishes its in-flight workspace expansion", async () => {
   const expansion = deferred<BrowserCallGraph>();
   const expansionStarted = deferred<void>();
@@ -458,6 +507,44 @@ test("blocked platform activation publishes its in-flight workspace expansion", 
   assert.equal(patches, 1);
 });
 
+test("blocked platform activation publishes its workspace expansion failure", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+
+  assert.equal(
+    state.memberCallGraphError,
+    "Workspace expansion was incomplete: workspace unavailable");
+  assert.equal(graphRenders, 2);
+});
+
 test("canceled expansion cannot replace a newer same-key local graph", async () => {
   const expansion = deferred<BrowserCallGraph>();
   const expansionStarted = deferred<void>();
@@ -492,6 +579,45 @@ test("canceled expansion cannot replace a newer same-key local graph", async () 
 
   assert.equal(state.memberCallGraph, newer);
   assert.equal(patches, 0);
+});
+
+test("canceled expansion failure cannot contaminate a newer same-key local graph", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const newer = graph("newer");
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraph = newer;
+  expansion.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(state.memberCallGraph, newer);
+  assert.equal(state.memberCallGraphError, "");
+  assert.equal(graphRenders, 1);
 });
 
 test("initial workspace failure remains visible without rendering a graph", async () => {

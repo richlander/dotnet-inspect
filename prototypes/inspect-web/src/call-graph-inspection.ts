@@ -176,8 +176,15 @@ export function createCallGraphInspectionCoordinator(
         sequence === state.memberCallGraphSeq
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature;
+      let local: BrowserCallGraph | null = null;
+      const canceledExpansionStillMatchesView = () =>
+        local != null
+        && request.isCurrent()
+        && state.memberCallGraphKey === request.signature
+        && state.memberCallGraph === local
+        && !state.memberCallGraphExpanding;
       try {
-        const local = await dependencies.queryWorkspace(request, []);
+        local = await dependencies.queryWorkspace(request, []);
         if (!ownsRequest()) return;
         state.memberCallGraph = local;
         state.memberCallGraphLoading = false;
@@ -195,12 +202,7 @@ export function createCallGraphInspectionCoordinator(
             request.workspacePackages);
           const previousMermaid = state.memberCallGraph?.mermaid;
           if (!ownsRequest()) {
-            const canceledExpansionStillMatchesView =
-              request.isCurrent()
-              && state.memberCallGraphKey === request.signature
-              && state.memberCallGraph === local
-              && !state.memberCallGraphExpanding;
-            if (!canceledExpansionStillMatchesView) return;
+            if (!canceledExpansionStillMatchesView()) return;
             state.memberCallGraph = full;
             dependencies.refreshPackageStats();
             if (!state.platformDrillLoading && state.platformStack.length === 0)
@@ -213,7 +215,16 @@ export function createCallGraphInspectionCoordinator(
           dependencies.patchCallGraphSection(previousMermaid);
         }
       } catch (error) {
-        if (!ownsRequest()) return;
+        if (!ownsRequest()) {
+          if (!canceledExpansionStillMatchesView()) return;
+          state.memberCallGraphError =
+            `Workspace expansion was incomplete: ${dependencies.describeError(error)}`;
+          if (state.platformDrillLoading || state.platformStack.length > 0)
+            return;
+          dependencies.renderPreservingMemberFocus(preservedFocus);
+          await dependencies.renderCallGraph();
+          return;
+        }
         state.memberCallGraphLoading = false;
         state.memberCallGraphExpanding = false;
         if (state.memberCallGraph) {
