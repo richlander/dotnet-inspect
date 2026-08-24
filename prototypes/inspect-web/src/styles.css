@@ -2056,7 +2056,7 @@ kbd {
 .annotated-node-caret,
 .annotated-caret-detail { display: flex; gap: 12px; min-height: 1.2em; padding: 0 14px; color: var(--blue); font: inherit; line-height: 1.2; white-space: pre; }
 .annotated-caret-run { text-shadow: 0 0 6px color-mix(in srgb, var(--blue) 75%, transparent); }
-.annotated-caret-label { display: inline-block; max-width: 64ch; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--blue) 5%, transparent); color: color-mix(in srgb, var(--blue) 72%, var(--text)); font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
+.annotated-caret-label { display: inline-block; max-width: 64ch; margin-left: -6px; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--blue) 5%, transparent); color: color-mix(in srgb, var(--blue) 72%, var(--text)); font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
 .annotated-node-caret.finding { color: var(--accent); }
 .annotated-caret-detail.finding .annotated-caret-label { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); color: color-mix(in srgb, var(--accent) 76%, var(--text)); }
 .annotated-node-caret.finding .annotated-caret-run { text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 75%, transparent), 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }

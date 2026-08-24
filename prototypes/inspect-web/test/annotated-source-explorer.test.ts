@@ -699,7 +699,7 @@ test("source carets inherit exact source glyph metrics", () => {
   );
   assert.match(
     styles,
-    /\.annotated-caret-label\s*\{[^}]*max-width:\s*64ch;[^}]*font-size:\s*11px;[^}]*white-space:\s*normal;/,
+    /\.annotated-caret-label\s*\{[^}]*max-width:\s*64ch;[^}]*margin-left:\s*-6px;[^}]*font-size:\s*11px;[^}]*white-space:\s*normal;/,
   );
 });
 
