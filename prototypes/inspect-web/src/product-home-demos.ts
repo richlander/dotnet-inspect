@@ -63,6 +63,7 @@ function workspaceUrlState(partial: Partial<WorkspaceUrlState> & Pick<
     atPackageRoot: false,
     packageLens: "overview",
     library: null,
+    libraryPack: null,
     selectedTypeId: "",
     selectedMemberKey: "",
     selectedOverloadIndex: null,
@@ -201,7 +202,7 @@ export function callGraphDemoRunnerSpec(demo: ProductHomeDemoResolved): {
  * Pending home-row paint while the Wasm engine catalog is not yet installed.
  * Layout-only placeholders — titles come from `ListHomeDemos` after bootstrap.
  */
-export const HOME_DEMO_PENDING_SLOT_COUNT = 3;
+export const HOME_DEMO_PENDING_SLOT_COUNT = 2;
 
 export function homeDemoRowHtml(
   enginePending: boolean,
