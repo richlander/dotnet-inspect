@@ -652,9 +652,12 @@ public static class MemberCommand
 
         if (unresolvedOptions.CallerScopeProjects.Length > 0)
         {
-            CommandError.Write(unresolvedOptions.ProjectPath is not null
+            var projectValueCount =
+                unresolvedOptions.CallerScopeProjects.Length
+                + (unresolvedOptions.ProjectPath is null ? 0 : 1);
+            CommandError.Write(projectValueCount > 1
                 ? $"Option '--project' expects a single argument but "
-                    + $"{unresolvedOptions.CallerScopeProjects.Length + 1} were provided."
+                    + $"{projectValueCount} were provided."
                 : "--project cannot be combined with --package, --library, or --platform.");
             return 1;
         }

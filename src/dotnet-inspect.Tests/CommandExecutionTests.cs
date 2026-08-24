@@ -4372,10 +4372,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(2)]
-    [InlineData(3)]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
     public async Task Router_DeferredProjectSourcePreservesRepeatedOptionArity(
-        int projectCount)
+        int projectCount,
+        bool explicitPlatform)
     {
         var repositoryRoot =
             CommandErrorOwnershipTests.RepositoryRoot();
@@ -4397,7 +4400,9 @@ public partial class CommandExecutionTests
                 "dotnet-inspect.Tests",
                 "dotnet-inspect.Tests.csproj")
         ];
-        List<string> tail = [];
+        List<string> tail = explicitPlatform
+            ? ["--platform", "System.Text.Json"]
+            : [];
         for (var i = 0; i < projectCount; i++)
         {
             tail.Add("--project");
@@ -4405,10 +4410,13 @@ public partial class CommandExecutionTests
         }
         tail.AddRange(["--tips", "q"]);
 
+        var target = explicitPlatform
+            ? "System.Text.Json.JsonSerializer"
+            : "Markout.MarkoutSerializer";
         var direct = await RunAppAsync(
-            ["type", "Markout.MarkoutSerializer", .. tail]);
+            ["type", target, .. tail]);
         var routed = await RunAppAsync(
-            ["Markout.MarkoutSerializer", .. tail]);
+            [target, .. tail]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
