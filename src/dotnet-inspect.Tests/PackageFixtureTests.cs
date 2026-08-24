@@ -210,18 +210,29 @@ public sealed class PackageFixtureTests
                             specimen.GetProperty("id").GetString())
                         .Distinct(StringComparer.Ordinal)
                         .Count());
-                Assert.Equal(
-                    "https://api.\u202Etentod\u202C.com/v3/index.json",
-                    FindSpecimen(
-                        specimens,
-                        "repository-url-bidi")
-                        .GetProperty("raw")
-                        .GetString());
-                Assert.Contains(
-                    "\u001B]52;c;",
-                    FindSpecimen(specimens, "user-string-osc52")
-                        .GetProperty("raw")
-                        .GetString());
+                string repositoryRawJson = FindSpecimen(
+                    specimens,
+                    "repository-url-bidi")
+                    .GetProperty("raw")
+                    .GetRawText();
+                Assert.True(
+                    string.Equals(
+                        repositoryRawJson,
+                        @"""https://api.\u202Etentod\u202C.com/v3/index.json""",
+                        StringComparison.Ordinal),
+                    "repository-url-bidi did not preserve the expected "
+                        + @"\u202E and \u202C JSON escapes.");
+                string userStringRawJson = FindSpecimen(
+                    specimens,
+                    "user-string-osc52")
+                    .GetProperty("raw")
+                    .GetRawText();
+                Assert.True(
+                    userStringRawJson.Contains(
+                        @"\u001B]52;c;",
+                        StringComparison.Ordinal),
+                    "user-string-osc52 did not preserve the expected "
+                        + @"\u001B JSON escape.");
             }
 
             using Stream assemblyStream = assembly.Open();
@@ -230,9 +241,15 @@ public sealed class PackageFixtureTests
             image.Position = 0;
             using var pe = new PEReader(image);
             MetadataReader reader = pe.GetMetadataReader();
-            Assert.Equal(
-                "DotnetInspect.Metadata\u202Eeman\u202C",
-                reader.GetString(reader.GetAssemblyDefinition().Name));
+            string assemblyName =
+                reader.GetString(reader.GetAssemblyDefinition().Name);
+            Assert.True(
+                string.Equals(
+                    assemblyName,
+                    "DotnetInspect.Metadata\u202Eeman\u202C",
+                    StringComparison.Ordinal),
+                "The assembly name did not preserve the expected "
+                    + "U+202E and U+202C sequence.");
             Assert.Contains(
                 reader.TypeDefinitions,
                 handle =>

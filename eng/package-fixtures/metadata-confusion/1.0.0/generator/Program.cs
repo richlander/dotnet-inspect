@@ -924,8 +924,22 @@ static class FixtureVerifier
             expected,
             StringComparison.Ordinal))
         {
+            int index = 0;
+            while (index < actual.Length
+                && index < expected.Length
+                && actual[index] == expected[index])
+            {
+                index++;
+            }
+            string actualCodeUnit = index < actual.Length
+                ? $"U+{(int)actual[index]:X4}"
+                : "<end>";
+            string expectedCodeUnit = index < expected.Length
+                ? $"U+{(int)expected[index]:X4}"
+                : "<end>";
             throw new InvalidDataException(
-                $"Unexpected {description}: '{actual}' != '{expected}'.");
+                $"Unexpected {description} at UTF-16 index {index}: "
+                    + $"actual {actualCodeUnit}, expected {expectedCodeUnit}.");
         }
     }
 
