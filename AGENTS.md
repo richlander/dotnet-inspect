@@ -201,19 +201,21 @@ moving](#clean-reviews-are-not-spent-by-main-moving), which is stop-and-ask and
 a possible carry-forward, never an integration you launch on your own
 initiative.
 
-What you assert **readiness** on is dual-clean reviews and mergeability. A green
-run is evidence toward that, not the definition of it: checks go red for reasons
-that have nothing to do with your change, and a change is not ready merely
-because they passed.
+Ready to merge means two things: **the reviews are clean, and the branch
+merges.** Say it when both hold, and not before.
+
+Green CI is not a third condition. Chase it — it is useful evidence and part of
+finishing the work — but checks go red for reasons that have nothing to do with
+your change, so passing checks alone do not make a PR ready.
 
 Two claims have to be earned rather than assumed:
 
 - **Do not report `mergeable` from a local merge check.** GitHub computes
   `mergeable_state` lazily — the first read after a change returns `unknown` and
-  only starts the calculation, so the answer arrives on a later read. Observed
-  2026-08-23: 18 of 32 open PRs answered `unknown` on first read, and two
-  resolved to `dirty` — both belonging to agents that had just reported their PR
-  as mergeable. Re-read until it is no longer `unknown`, and say `mergeability
+  only starts the calculation, so the answer arrives on a later read. A one-off
+  check of the open PRs found 18 of 32 answering `unknown` on the first read,
+  and two of those resolved to `dirty` — both on PRs whose agents had just
+  reported them as mergeable. Re-read until it is no longer `unknown`, and say `mergeability
   unverified` rather than guessing.
 - **Do not report `ready to merge` while a round is still in flight.** The state
   is the round, not the destination.
@@ -226,6 +228,36 @@ and CI or mergeability disagrees, that discrepancy is routed to the **operator**
 rather than back to you — nobody re-dispatches an agent that has declared itself
 done. An unearned "ready to merge" therefore does not cost you another round; it
 spends the attention of the one participant who cannot be automated.
+
+### Checking costs a budget you share
+
+Every agent draws on the same GitHub account, so there is one hourly request
+budget across all of them, on every host. Nothing divides it fairly and nothing
+warns you when it is gone — a starved agent simply gets errors back and stops
+being able to see its own PR.
+
+It is currently spent very unevenly. A one-off check found the account's GraphQL
+budget fully exhausted — 0 remaining, with more attempted than the hourly limit
+allows — while REST sat at 4,967 of 5,000, barely touched. An agent that cannot
+read its PR's state cannot move it forward, so this is a plausible reason some
+PRs advance steadily while others stall for no visible reason.
+
+Two habits recover most of it.
+
+**Prefer REST.** `gh pr view`, `gh pr checks`, and `gh pr list --json` are
+GraphQL, which is the exhausted half. These answer the same questions from the
+half that is idle:
+
+```sh
+gh api repos/{owner}/{repo}/pulls/{number}                 # state, mergeable_state, head
+gh api repos/{owner}/{repo}/commits/{sha}/check-runs       # checks on that head
+```
+
+**Check at a point, then set when you will check again.** Decide what you are
+waiting for, look once, and if it has not happened, pick a time to look again
+and stop until then. Do not sit in a query loop: re-asking about a head that has
+not moved cannot return anything new, and doing it on a timer is what drains the
+budget everyone else is also drawing on.
 
 ### Publish your state where tooling can read it
 
@@ -246,10 +278,10 @@ Omit your window number from the value — the bar already knows where it is.
 Update on real transitions, not on a timer.
 
 **Verify the write landed on your own window.** That `-t "$TMUX_PANE"` is the
-whole safety of this mechanism, and dropping it is not a theoretical risk:
-observed 2026-08-23 on a live host, three windows all carried an identical
-`@agent` describing a *fourth* window's PR, while that PR's own window held a
-newer value. One agent's writes had landed on three neighbours, making three
+whole safety of this mechanism, and dropping it is not a theoretical risk: a
+one-off check of a live host found three windows all carrying an identical
+`@agent` that described a *fourth* window's PR, while that PR's own window held
+a newer value. One agent's writes had landed on three neighbours, making three
 agents appear to be working on a PR they had never touched. Read it back once
 after you set it, and fix it if it names someone else's PR.
 
