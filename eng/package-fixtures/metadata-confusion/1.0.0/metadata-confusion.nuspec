@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>DotnetInspect.TestAssets.MetadataConfusion</id>
+    <version>$version$</version>
+    <authors>dotnet-inspect</authors>
+    <description>Test-only adversarial metadata fixture for dotnet-inspect.</description>
+    <readme>README.md</readme>
+    <dependencies>
+      <group targetFramework="net11.0" />
+    </dependencies>
+    <repository type="git" url="https://github.com/richlander/dotnet-inspect" commit="$repositoryCommit$" />
+  </metadata>
+  <files>
+    <file src="README.md" target="README.md" />
+    <file src="$generatedRoot$/DotnetInspect.TestAssets.MetadataConfusion.dll" target="lib/net11.0/DotnetInspect.TestAssets.MetadataConfusion.dll" />
+    <file src="$generatedRoot$/metadata-fixture.json" target="content/metadata-fixture.json" />
+  </files>
+</package>
