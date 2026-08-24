@@ -366,11 +366,12 @@ Every domain retains its originating endpoint-slot id, and every slot expands
 to at least one domain.
 
 Exact set equality connects the endpoint plan, slot-outcome set, each
-participant outcome set's manifest-entry partition, and participant domains.
-It rejects an omitted, duplicated, rekeyed, reparented, empty, overlapping, or
-success-shaped terminal outcome. A failed endpoint or ambiguous participant
-outcome therefore needs no invented participant binding to remain in the
-question population.
+participant outcome set's input partition (the exact manifest union on planned
+paths and the two designated inputs on the direct path), and participant
+domains. It rejects an omitted, duplicated, rekeyed, reparented, empty,
+overlapping, or success-shaped terminal outcome. A failed endpoint or ambiguous
+participant outcome therefore needs no invented participant binding to remain
+in the question population.
 
 Before side-local selection, the coordinator seals one
 `BodyEvidenceSelectionCorrelationManifest` from the complete declared
