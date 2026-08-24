@@ -56,12 +56,21 @@ export interface CallGraphInspectionState {
   memberCallGraph: BrowserCallGraph | null;
   memberCallGraphLoading: boolean;
   memberCallGraphError: string;
+  graphMemberNavigationError: string;
   memberCallGraphKey: string;
   memberCallGraphExpanding: boolean;
   memberCallGraphSeq: number;
   platformStack: PlatformStackEntry[];
   platformDrillLoading: boolean;
   platformDrillError: string;
+}
+
+export function callGraphErrorForView(state: CallGraphInspectionState) {
+  return state.platformStack.length > 0
+    ? mergeInspectionErrors(state.graphMemberNavigationError, "")
+    : mergeInspectionErrors(
+        state.graphMemberNavigationError,
+        state.memberCallGraphError);
 }
 
 export interface CallGraphInspectionDependencies {

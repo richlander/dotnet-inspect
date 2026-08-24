@@ -130,6 +130,7 @@ import {
   type MemberFacts,
 } from "./member-detail-inspection.ts";
 import {
+  callGraphErrorForView,
   createCallGraphInspectionCoordinator,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
@@ -590,6 +591,7 @@ const initialState = {
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
+  graphMemberNavigationError: "",
   memberCallGraphKey: "",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
@@ -943,6 +945,7 @@ function ownsViewOperation(
 function invalidateGraphMemberNavigation() {
   state.graphMemberNavigationSeq++;
   state.graphMemberNavigationTitle = "";
+  state.graphMemberNavigationError = "";
   state.pendingGraphMemberDeepLink = null;
 }
 
@@ -3775,6 +3778,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
     `;
   } else if (state.memberSection === "call-graph") {
     const active = currentCallGraph();
+    const callGraphError = callGraphErrorForView(state);
     const drilled = state.platformStack.length > 0;
     // A resident runtime-pack member uses the cumulative platform workspace rather than the
     // open-package workspace. Keep its scope label distinct while preserving callers returned
@@ -3822,8 +3826,8 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
             ${state.graphMemberNavigationTitle
               ? `<div class="graph-expanding"><span class="loader"></span> Opening ${escapeHtml(state.graphMemberNavigationTitle)}…</div>`
               : ""}
-            ${state.memberCallGraphError
-              ? `<div class="graph-drill-error">${escapeHtml(state.memberCallGraphError)}</div>`
+            ${callGraphError
+              ? `<div class="graph-drill-error">${escapeHtml(callGraphError)}</div>`
               : ""}
             ${incompleteGraph}
             ${scopeLine}
@@ -3838,7 +3842,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
             </div>
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
-        : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(state.memberCallGraphError || "No call graph result was returned.")}</p></section>`;
+        : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
   } else if (state.memberSection === "annotated") {
@@ -5590,6 +5594,7 @@ async function pickSpotlight(
   state.memberCallGraph = null;
   state.memberCallGraphKey = "";
   state.memberCallGraphError = "";
+  state.graphMemberNavigationError = "";
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -7265,7 +7270,7 @@ async function navigateToGraphMember(
     ownsViewOperation(owner, state.graphMemberNavigationSeq)
     && state.packages.some(pkg => packageIdentityKey(pkg) === packageKey);
   state.graphMemberNavigationTitle = loaded.title;
-  state.memberCallGraphError = "";
+  state.graphMemberNavigationError = "";
   render();
   try {
     const surface = await loadGraphMemberSurface(
@@ -7305,7 +7310,7 @@ async function navigateToGraphMember(
       return;
     }
     state.graphMemberNavigationTitle = "";
-    state.memberCallGraphError =
+    state.graphMemberNavigationError =
       `Could not open ${loaded.title}: ${errorMessage(error)}`;
     render();
   }
@@ -7435,6 +7440,7 @@ async function startPlatformDrill(node: BrowserCallGraphTarget) {
 }
 
 function popPlatformDrill() {
+  invalidateGraphMemberNavigation();
   observeAsync(
     callGraphInspection.popDrill(),
     "Returning to the previous platform call graph");

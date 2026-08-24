@@ -3315,6 +3315,15 @@ test("stale graph-only navigation clears progress without surfacing its error", 
   assert.match(
     navigation,
     /if \(seq === state\.graphMemberNavigationSeq\) \{\s*state\.graphMemberNavigationTitle = "";\s*render\(\);/);
+  assert.match(
+    navigation,
+    /state\.graphMemberNavigationError\s*=\s*`Could not open/);
+  assert.match(
+    appSource,
+    /const callGraphError = callGraphErrorForView\(state\);/);
+  assert.match(
+    appSource,
+    /function popPlatformDrill\(\) \{\s*invalidateGraphMemberNavigation\(\);/);
 });
 
 test("shared package graph navigation retains existing accessor identity", () => {

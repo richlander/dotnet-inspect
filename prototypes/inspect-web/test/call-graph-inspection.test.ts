@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  callGraphErrorForView,
   createCallGraphInspectionCoordinator,
   type CallGraphInspectionDependencies,
   type CallGraphInspectionState,
@@ -52,6 +53,7 @@ function inspectionState(
     memberCallGraph: null,
     memberCallGraphLoading: false,
     memberCallGraphError: "",
+    graphMemberNavigationError: "",
     memberCallGraphKey: "",
     memberCallGraphExpanding: false,
     memberCallGraphSeq: 0,
@@ -460,7 +462,17 @@ test("platform descent preserves an in-flight workspace expansion failure", asyn
   assert.equal(
     state.memberCallGraphError,
     "Workspace expansion was incomplete: workspace unavailable");
+  assert.equal(callGraphErrorForView(state), "");
+  state.graphMemberNavigationError =
+    "Could not open System.Text.Json.JsonSerializer.Serialize: exact projection failed";
+  assert.equal(
+    callGraphErrorForView(state),
+    "Could not open System.Text.Json.JsonSerializer.Serialize: exact projection failed");
+  state.graphMemberNavigationError = "";
   await coordinator.popDrill();
+  assert.equal(
+    callGraphErrorForView(state),
+    "Workspace expansion was incomplete: workspace unavailable");
   await coordinator.load(request);
   assert.equal(workspaceQueries, 2);
   assert.equal(state.memberCallGraph, local);
@@ -645,13 +657,49 @@ test("canceled expansion failure retains a newer same-view activation error", as
   await expansionStarted.promise;
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
-  state.memberCallGraphError =
+  state.graphMemberNavigationError =
     "Could not open Example.Widget.Hidden: exact projection failed";
   expansion.reject(new Error("workspace unavailable"));
   await load;
 
   assert.equal(
-    state.memberCallGraphError,
+    callGraphErrorForView(state),
+    "Could not open Example.Widget.Hidden: exact projection failed; "
+      + "Workspace expansion was incomplete: workspace unavailable");
+});
+
+test("newer same-view activation error retains an earlier expansion failure", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+  state.graphMemberNavigationError =
+    "Could not open Example.Widget.Hidden: exact projection failed";
+
+  assert.equal(
+    callGraphErrorForView(state),
     "Could not open Example.Widget.Hidden: exact projection failed; "
       + "Workspace expansion was incomplete: workspace unavailable");
 });
