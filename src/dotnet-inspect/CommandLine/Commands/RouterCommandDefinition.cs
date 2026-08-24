@@ -214,6 +214,8 @@ public static class RouterCommandDefinition
                     target[trailingSegmentStart..]);
             var containingTypeHasMetadataGenericNotation =
                 target.AsSpan(0, trailingSegmentStart).Contains('`');
+            var containingTypeHasCSharpGenericNotation =
+                target.AsSpan(0, trailingSegmentStart).Contains('<');
             var hasTypeOption = ContainsOption(tokens, "--type")
                 || ContainsOption(tokens, "-t");
             var hasMemberOption = ContainsOption(tokens, "--member")
@@ -260,7 +262,8 @@ public static class RouterCommandDefinition
                 && (!hasExplicitGenericNotation
                     || containingTypeHasMetadataGenericNotation
                     || (hasExplicitApiSource
-                        && trailingSegmentHasGenericNotation)))
+                        && trailingSegmentHasGenericNotation
+                        && !containingTypeHasCSharpGenericNotation)))
                 return ["member", target, .. tail];
 
             if (hasExplicitApiSource
@@ -374,6 +377,7 @@ public static class RouterCommandDefinition
             {
                 return hasMemberOption
                     && trailingSegmentHasGenericNotation
+                    && exactType.Candidate.Type.Segments.Length == 1
                     ? RouteExactGenericPlatformMemberTarget(
                         exactType,
                         target,
@@ -1040,7 +1044,13 @@ public static class RouterCommandDefinition
 
             if (hasMemberOption)
             {
-                rewritten = ["member", targetToken, .. sourceTail];
+                rewritten = MemberOptionOwnsTarget(targetToken)
+                    ? ["member", targetToken, .. sourceTail]
+                    : targetToken.Contains('.')
+                        ? RouteDeferredTypeOrMember(
+                            targetToken,
+                            sourceTail)
+                        : ["type", targetToken, .. sourceTail];
                 return true;
             }
 
@@ -1062,7 +1072,7 @@ public static class RouterCommandDefinition
                 if (option is null)
                 {
                     if (tokens[i].StartsWith('-'))
-                        return false;
+                        continue;
 
                     index = i;
                     return true;
@@ -1071,8 +1081,13 @@ public static class RouterCommandDefinition
                 if (tokens[i].AsSpan().IndexOfAny('=', ':') >= 0)
                     continue;
 
-                var remainingValues =
-                    option.Arity.MaximumNumberOfValues;
+                var remainingValues = option.ValueType == typeof(bool)
+                    ? 0
+                    : option.AllowMultipleArgumentsPerToken
+                        ? option.Arity.MaximumNumberOfValues
+                        : Math.Min(
+                            1,
+                            option.Arity.MaximumNumberOfValues);
                 while (remainingValues > 0
                     && i + 1 < tokens.Length
                     && FindKnownOption(rootCommand, tokens[i + 1])
@@ -1084,6 +1099,20 @@ public static class RouterCommandDefinition
             }
 
             return true;
+        }
+
+        private static bool MemberOptionOwnsTarget(string target)
+        {
+            if (!TypeMatcher.HasExplicitGenericNotation(target))
+                return true;
+
+            var trailingSegmentStart =
+                FqnParser.LastTopLevelDot(target) + 1;
+            var containingType = target.AsSpan(
+                0,
+                trailingSegmentStart);
+            return containingType.Contains('`')
+                || !containingType.Contains('<');
         }
 
         private static string GetOptionName(string token)

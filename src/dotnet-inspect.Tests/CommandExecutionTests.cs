@@ -3270,6 +3270,26 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("No members matched", error);
     }
 
+    [Theory]
+    [InlineData("Dictionary*.KeyCollection")]
+    [InlineData("Dictionary*+KeyCollection")]
+    public async Task Type_UnqualifiedOwnerGlob_FindsDotSpelledNestedPlatformType(
+        string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeName,
+            "--platform",
+            "System.Private.CoreLib",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("GetEnumerator", output);
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
     {
@@ -3372,6 +3392,37 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Router_ExactCSharpInnerGenericTypePreservesSharedMemberFilter(
+        bool explicitPlatform)
+    {
+        const string target =
+            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>";
+        string[] tail =
+        [
+            "-m",
+            "TryAdd",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        string[] scopedTail = explicitPlatform
+            ? ["--platform", "System.Private.CoreLib", .. tail]
+            : tail;
+
+        var direct = await RunAppAsync(
+            ["type", target, .. scopedTail]);
+        var routed = await RunAppAsync(
+            [target, .. scopedTail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("## Type Info", routed.Output);
     }
 
     [Fact]
@@ -6557,6 +6608,105 @@ public partial class CommandExecutionTests
         Assert.Contains("| Source | Platform |", routed.Output);
         Assert.DoesNotContain("| Package |", routed.Output);
         Assert.Empty(routed.Error);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("-k", "class")]
+    public async Task Router_ExplicitPlatformIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
+        params string[] leadingOptions)
+    {
+        string[] tail =
+        [
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "type",
+                "JsonSerializer",
+                "--platform",
+                "System.Text.Json",
+                .. leadingOptions,
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Text.Json",
+                "--platform",
+                "System.Text.Json",
+                .. leadingOptions,
+                "JsonSerializer",
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_UnknownOptionBeforeTypePositional_PreservesTypeDiagnostic()
+    {
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "--bogus",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(
+            "System.Text.Json",
+            "--platform",
+            "System.Text.Json",
+            "--bogus",
+            "JsonSerializer",
+            "--tips",
+            "q");
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            "Unrecognized option '--bogus'",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_CSharpInnerGenericTypePreservesSharedMemberFilter()
+    {
+        const string target =
+            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>";
+        string[] tail =
+        [
+            "-m",
+            "TryAdd",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "type",
+                target,
+                "--platform",
+                "System.Private.CoreLib",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Private.CoreLib",
+                "--platform",
+                "System.Private.CoreLib",
+                target,
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("## Type Info", routed.Output);
     }
 
     [Fact]
@@ -23329,6 +23479,43 @@ public partial class CommandExecutionTests
         Assert.Equal(0, routed.Exit);
         Assert.Contains("# Newtonsoft.Json", routed.Output);
         Assert.Contains("## Package Info", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("-k", "class")]
+    public async Task Router_ExplicitPackageIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
+        params string[] leadingOptions)
+    {
+        string[] tail =
+        [
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "type",
+                "JsonSerializer",
+                "--package",
+                "System.Text.Json",
+                .. leadingOptions,
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Text.Json",
+                "--package",
+                "System.Text.Json",
+                .. leadingOptions,
+                "JsonSerializer",
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("JsonSerializer", routed.Output);
     }
 
     [Fact]

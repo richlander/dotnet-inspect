@@ -291,7 +291,7 @@ public static class TypeMatcher
         {
             var normalizedFullName = NormalizeForLookup(fullName);
             var normalizedSimpleName =
-                NormalizeForLookup(GetSimpleName(fullName));
+                GetOwnerQualifiedSimpleName(fullName);
             var normalizedPattern = matchPattern.Replace('+', '.');
             return MatchesGlob(normalizedFullName, normalizedPattern)
                 || MatchesGlob(
@@ -310,6 +310,27 @@ public static class TypeMatcher
                        normalizedPattern);
         }
         return Matches(fullName, pattern);
+    }
+
+    private static string GetOwnerQualifiedSimpleName(string fullName)
+    {
+        var normalizedSimpleName =
+            NormalizeForLookup(GetSimpleName(fullName));
+        if (fullName.Contains('+', StringComparison.Ordinal))
+            return normalizedSimpleName;
+
+        var normalizedFullName = NormalizeForLookup(fullName);
+        foreach (MetadataNameComponent component in
+            MetadataNameArity.EnumerateComponents(
+                normalizedFullName,
+                dotIsBoundary: true,
+                plusIsBoundary: false))
+        {
+            if (component.Arity > 0)
+                return normalizedFullName[component.Start..];
+        }
+
+        return normalizedSimpleName;
     }
 
     /// <summary>
