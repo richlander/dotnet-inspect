@@ -726,7 +726,7 @@ public static class ApiSurfaceExtractor
                     AttributeReader.HasJsonStringEnumConverterAttribute(
                         reader,
                         jsonTypeAttributes,
-                        apiType.FullName,
+                        definitionName,
                         currentAssemblyIdentity,
                         observeDecodeWork);
             }

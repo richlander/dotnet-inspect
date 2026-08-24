@@ -513,9 +513,33 @@ public static class JsonWireContractResolver
             && type.Name == "String"
             && (type.Resolution?.Origin
                 is TypeReferenceOrigin.IntrinsicCoreLibrary
-                || PlatformKeys.IsPlatform(
-                    assembly?.PublicKeyToken));
+                || assembly is
+                {
+                    Name: "System.Private.CoreLib"
+                        or "System.Runtime"
+                        or "mscorlib"
+                        or "netstandard",
+                }
+                && PlatformKeys.IsPlatform(
+                    assembly.PublicKeyToken)
+                && HasTopLevelDefinitionName(
+                    type,
+                    "System",
+                    "String"));
     }
+
+    static bool HasTopLevelDefinitionName(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName) =>
+        type.Resolution?.Type is
+        {
+            Namespace: var actualNamespace,
+            Segments: var segments,
+        }
+        && actualNamespace == expectedNamespace
+        && segments.Length == 1
+        && segments[0] == expectedName;
 
     static ApiAssemblyIdentity? GetAssemblyIdentity(TypeRef type)
     {

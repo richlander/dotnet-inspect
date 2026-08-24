@@ -148,6 +148,26 @@ public sealed class JsonWireContractResolverTests
         [
             deserialize with
             {
+                ParameterTypes =
+                [
+                    ExternalType(
+                        "System.Text.Json",
+                        "System",
+                        "String",
+                        "cc7b13ffcd2ddd51"),
+                    JsonTypeInfo(dto),
+                ],
+            },
+            deserialize with
+            {
+                ParameterTypes =
+                [
+                    NestedSystemStringFromCore(),
+                    JsonTypeInfo(dto),
+                ],
+            },
+            deserialize with
+            {
                 ParameterTypes = [JsonTypeInfo(dto), SystemString()],
             },
             deserialize with
@@ -219,6 +239,29 @@ public sealed class JsonWireContractResolverTests
             "System",
             "String",
             "7cec85d7bea7798e");
+
+    static TypeRef NestedSystemStringFromCore()
+    {
+        var name = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "",
+                ImmutableArray.Create("System", "String")))
+            .Name;
+        var assembly = new AssemblyReferenceIdentity(
+            "System.Private.CoreLib",
+            new Version(1, 0, 0, 0),
+            null,
+            "7cec85d7bea7798e");
+        return TypeRef.Definition(
+            "System.Private.CoreLib",
+            "System",
+            "String",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    assembly),
+                name));
+    }
 
     static TypeRef JsonSerializer()
         => ExternalType(

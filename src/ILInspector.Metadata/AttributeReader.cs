@@ -937,7 +937,7 @@ public static partial class AttributeReader
     public static bool HasJsonStringEnumConverterAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        string enumFullName,
+        MetadataTypeDefinitionName enumDefinitionName,
         ApiAssemblyIdentity? enumAssemblyIdentity,
         Action<int>? beforeMaterialize = null)
     {
@@ -974,7 +974,7 @@ public static partial class AttributeReader
                 continue;
             if (IsSupportedJsonStringEnumConverter(
                     converterTypeName,
-                    enumFullName,
+                    enumDefinitionName,
                     enumAssemblyIdentity))
                 return true;
         }
@@ -1582,14 +1582,13 @@ public static partial class AttributeReader
                 FrameworkConstructorKind.SystemType =>
                     signature.ParameterTypes is
                     [
-                        NamedTypeNode
-                        {
-                            Name: "System.Type",
-                            AssemblyIdentity: { } identity,
-                        },
+                        NamedTypeNode type,
                     ]
-                    && PlatformKeys.IsPlatform(
-                        identity.PublicKeyToken),
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
                 FrameworkConstructorKind.String =>
                     signature.ParameterTypes is
                     [
@@ -1604,26 +1603,23 @@ public static partial class AttributeReader
                 FrameworkConstructorKind.JsonSerializerDefaults =>
                     signature.ParameterTypes is
                     [
-                        NamedTypeNode
-                        {
-                            Name:
-                                "System.Text.Json.JsonSerializerDefaults",
-                            AssemblyIdentity: { } identity,
-                        },
+                        NamedTypeNode type,
                     ]
-                    && PlatformKeys.IsPlatform(
-                        identity.PublicKeyToken),
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System.Text.Json",
+                        "JsonSerializerDefaults",
+                        IsSystemTextJsonAssembly),
                 FrameworkConstructorKind.JsonNumberHandling =>
                     signature.ParameterTypes is
                     [
-                        NamedTypeNode
-                        {
-                            Name: JsonNumberHandlingTypeName,
-                            AssemblyIdentity: { } identity,
-                        },
+                        NamedTypeNode type,
                     ]
-                    && PlatformKeys.IsPlatform(
-                        identity.PublicKeyToken),
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System.Text.Json.Serialization",
+                        "JsonNumberHandling",
+                        IsSystemTextJsonAssembly),
                 _ => false,
             };
         }
@@ -1989,7 +1985,7 @@ public static partial class AttributeReader
 
     static bool IsSupportedJsonStringEnumConverter(
         string serializedName,
-        string enumFullName,
+        MetadataTypeDefinitionName enumDefinitionName,
         ApiAssemblyIdentity? enumAssemblyIdentity)
     {
         const string genericPrefix =
@@ -2023,8 +2019,10 @@ public static partial class AttributeReader
                 argumentAssembly = enumAssemblyIdentity;
             }
 
-            if (argumentType!.Replace('+', '.')
-                    != enumFullName
+            if (MetadataTypeDefinitionName.ParseSerialized(
+                    argumentType!)
+                    is not MetadataTypeDefinitionNameResult.Valid argumentName
+                || !argumentName.Name.Equals(enumDefinitionName)
                 || enumAssemblyIdentity is null
                 || !enumAssemblyIdentity.Equals(argumentAssembly))
             {
@@ -2045,6 +2043,33 @@ public static partial class AttributeReader
             && IsTrustedSerializedAssembly(
                 serializedName[(assemblySeparator + 1)..]);
     }
+
+    static bool IsExpectedTopLevelSignatureType(
+        NamedTypeNode type,
+        string expectedNamespace,
+        string expectedName,
+        Func<ApiAssemblyIdentity, bool> isExpectedAssembly)
+        => type.MetadataName is
+        {
+            Namespace: var actualNamespace,
+            Segments: var segments,
+        }
+        && actualNamespace == expectedNamespace
+        && segments.Count == 1
+        && segments[0] == expectedName
+        && type.AssemblyIdentity is { } identity
+        && isExpectedAssembly(identity);
+
+    static bool IsCoreContractAssembly(ApiAssemblyIdentity identity) =>
+        identity.Name is "System.Private.CoreLib"
+            or "System.Runtime"
+            or "mscorlib"
+            or "netstandard"
+        && PlatformKeys.IsPlatform(identity.PublicKeyToken);
+
+    static bool IsSystemTextJsonAssembly(ApiAssemblyIdentity identity) =>
+        identity.Name == SystemTextJsonAssemblyName
+        && PlatformKeys.IsPlatform(identity.PublicKeyToken);
 
     static int FindMatchingBracket(
         string serializedName,

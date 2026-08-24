@@ -1562,11 +1562,16 @@ public sealed class JsExportSurfaceBuilderTests
         using FileStream stream = File.OpenRead(
             typeof(NamedEnumFixture).Assembly.Location);
         using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
         ApiAssemblyIdentity assemblyIdentity =
-            ApiSurfaceExtractor.Extract(
-                peReader,
-                includeAll: true)
-                .AssemblyIdentity!;
+            apiSurface.AssemblyIdentity!;
+        MetadataTypeDefinitionName enumDefinitionName =
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == nameof(NamedEnumFixture))
+                .DefinitionName!;
         MetadataReader reader = peReader.GetMetadataReader();
         TypeDefinition enumType = reader.GetTypeDefinition(
             Assert.Single(
@@ -1597,7 +1602,7 @@ public sealed class JsExportSurfaceBuilderTests
             AttributeReader.HasJsonStringEnumConverterAttribute(
                 reader,
                 enumType.GetCustomAttributes(),
-                typeof(NamedEnumFixture).FullName!,
+                enumDefinitionName,
                 assemblyIdentity,
                 amount => charged = checked(charged + amount));
 

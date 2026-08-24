@@ -99,13 +99,16 @@ contexts before getter reachability is known.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
+Framework attribute constructor parameters must likewise resolve to their
+actual core-contract or System.Text.Json defining assembly, and a generic enum
+converter's target must match the enum's structured namespace and nesting.
 `JsExportSurfaceBuilderTests.Build_DoesNotDiscoverHandwrittenContextProperties`
 gates registration correspondence, while
 `Build_DoesNotTrustNestedSerializerContextIdentity` and
 `Extract_CapturesStructuredSerializerContextBaseIdentity` gate the structured
 authentication and extraction path.
 `JsonWireContractResolverTests.Build_AuthenticatesOnlyGeneratedCustomNamedContextProperty`
-and `JsExportSurfaceBuilderTests.Build_RejectsAmbiguousOrMalformedGeneratedPropertyIdentities`
+and `JsExportSurfaceBuilderTests.Build_DefersUnreachedAmbiguousAndRejectsMalformedGeneratedPropertyIdentities`
 gate the custom-property-name boundary.
 `JsonWireContractResolverTests.Build_ResolvesRegisteredString` and
 `Build_ResolvesRegisteredStringArrayAfterAwait` gate the compiler-produced

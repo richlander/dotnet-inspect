@@ -566,7 +566,7 @@ public static class JsExportSurfaceBuilder
     /// </summary>
     /// <remarks>
     /// <c>JsonWireContractResolverTests.Build_AuthenticatesOnlyGeneratedCustomNamedContextProperty</c>
-    /// and <c>JsExportSurfaceBuilderTests.Build_RejectsAmbiguousOrMalformedGeneratedPropertyIdentities</c>
+    /// and <c>JsExportSurfaceBuilderTests.Build_DefersUnreachedAmbiguousAndRejectsMalformedGeneratedPropertyIdentities</c>
     /// gate this boundary.
     /// </remarks>
     static RegisteredRootProperties

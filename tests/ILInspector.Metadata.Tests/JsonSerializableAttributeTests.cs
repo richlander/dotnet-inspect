@@ -121,6 +121,43 @@ public sealed class JsonSerializableAttributeTests
             root.UnsupportedReason);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ReadJsonSerializableRoots_RequiresExactSystemTypeIdentity(
+        bool fromSystemTextJson,
+        bool nestedSystemType)
+    {
+        using var stream = new MemoryStream(
+            BuildImage(
+                Qualified("Samples.Value"),
+                systemTypeFromSystemTextJson: fromSystemTextJson,
+                nestedSystemType: nestedSystemType),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition context = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        List<ApiJsonSerializableRoot> roots =
+            AttributeReader.ReadJsonSerializableRoots(
+                reader,
+                context.GetCustomAttributes(),
+                new ApiAssemblyIdentity(
+                    "Probe",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                out int attributeCount);
+
+        Assert.Equal(1, attributeCount);
+        ApiJsonSerializableRoot root = Assert.Single(roots);
+        Assert.Null(root.Type);
+        Assert.Equal(
+            "JsonSerializable metadata is malformed or unsupported",
+            root.UnsupportedReason);
+    }
+
     static string Qualified(string typeName) =>
         $"{typeName}, {ProbeAssemblyIdentity}";
 
@@ -154,7 +191,10 @@ public sealed class JsonSerializableAttributeTests
         return Assert.Single(roots);
     }
 
-    static byte[] BuildImage(string? serializedTypeName)
+    static byte[] BuildImage(
+        string? serializedTypeName,
+        bool systemTypeFromSystemTextJson = false,
+        bool nestedSystemType = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -200,10 +240,29 @@ public sealed class JsonSerializableAttributeTests
             systemTextJson,
             metadata.GetOrAddString("System.Text.Json.Serialization"),
             metadata.GetOrAddString("JsonSerializableAttribute"));
-        TypeReferenceHandle systemType = metadata.AddTypeReference(
-            systemRuntime,
-            metadata.GetOrAddString("System"),
-            metadata.GetOrAddString("Type"));
+        EntityHandle systemTypeScope = systemTypeFromSystemTextJson
+            ? systemTextJson
+            : systemRuntime;
+        TypeReferenceHandle systemType;
+        if (nestedSystemType)
+        {
+            TypeReferenceHandle systemContainer =
+                metadata.AddTypeReference(
+                    systemTypeScope,
+                    default,
+                    metadata.GetOrAddString("System"));
+            systemType = metadata.AddTypeReference(
+                systemContainer,
+                default,
+                metadata.GetOrAddString("Type"));
+        }
+        else
+        {
+            systemType = metadata.AddTypeReference(
+                systemTypeScope,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        }
         var constructorSignature = new BlobBuilder();
         new BlobEncoder(constructorSignature).MethodSignature(
             SignatureCallingConvention.Default,
