@@ -89,6 +89,17 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void AllocationMeasurement_RejectsPersistentPerCallAllocation()
+    {
+        long allocated = MeasureOnIsolatedThread(
+            () => MeasureStableAllocationBatches(
+                static () => Consume(new object()),
+                static () => { }));
+
+        Assert.True(allocated > 0);
+    }
+
+    [Fact]
     public void TypeRefExactAndLegacySimpleNames_AgreeWithoutDelimiterInference()
     {
         static TypeRef Exact(params string[] segments)
@@ -589,34 +600,84 @@ public class MemberIdentityValueEqualityTests
     static long MeasureEqualityAllocations(
         TypeRef left,
         TypeRef right)
+        => MeasureOnIsolatedThread(
+            () => MeasureEqualityAllocationsCore(left, right));
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureEqualityAllocationsCore(
+        TypeRef left,
+        TypeRef right)
     {
         bool result = false;
-        for (int i = 0; i < 1_000; i++)
-            result ^= left.Equals(right);
-
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 1_000; i++)
-            result ^= left.Equals(right);
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        Consume(result);
-        return allocated;
+        return MeasureStableAllocationBatches(
+            () => result ^= left.Equals(right),
+            () => Consume(result));
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     static long MeasureHashAllocations(TypeRef type)
+        => MeasureOnIsolatedThread(
+            () => MeasureHashAllocationsCore(type));
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureHashAllocationsCore(TypeRef type)
     {
         int result = 0;
-        for (int i = 0; i < 1_000; i++)
-            result ^= type.GetHashCode();
+        return MeasureStableAllocationBatches(
+            () => result ^= type.GetHashCode(),
+            () => Consume(result));
+    }
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 1_000; i++)
-            result ^= type.GetHashCode();
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        Consume(result);
+    static long MeasureOnIsolatedThread(Func<long> measurement)
+    {
+        long allocated = -1;
+        var thread = new Thread(
+            () => allocated = measurement());
+        // Keep xUnit's execution context and worker activity off the measured
+        // thread so its allocation counter belongs only to this probe.
+        using (ExecutionContext.SuppressFlow())
+            thread.Start();
+        thread.Join();
         return allocated;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureStableAllocationBatches(
+        Action operation,
+        Action consume)
+    {
+        const int BatchSize = 1_000;
+        const int StableBatchCount = 3;
+        const int MaximumBatchCount = 64;
+
+        // Tiered compilation may promote a hot helper during an early batch.
+        // The third consecutive zero batch is the steady-state sample.
+        int stableBatches = 0;
+        long allocated = -1;
+        for (int batch = 0;
+            batch < MaximumBatchCount;
+            batch++)
+        {
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < BatchSize; i++)
+                operation();
+            allocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                - before;
+
+            stableBatches = allocated == 0
+                ? stableBatches + 1
+                : 0;
+            if (stableBatches == StableBatchCount)
+            {
+                consume();
+                return 0;
+            }
+        }
+
+        consume();
+        return allocated == 0 ? -1 : allocated;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
