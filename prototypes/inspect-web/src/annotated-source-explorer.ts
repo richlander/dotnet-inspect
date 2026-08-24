@@ -96,6 +96,7 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
 }
 
 const MAX_SELECTION_DETAILS = 50;
+const MAX_FINDING_PEEK_LINES = 8;
 const preparedDocuments = new WeakMap<AnnotatedSourceDocument, PreparedAnnotatedView>();
 const preparedSyntax = new WeakMap<
   AnnotatedSourceDocument,
@@ -165,6 +166,31 @@ export function bindAnnotatedSourceExplorer(
         target.classList.toggle("codelens-preview", true);
       }
       button.classList.toggle("previewing", targets.length > 0);
+    });
+  });
+  root.querySelectorAll<HTMLElement>("[data-ase-finding-peek]").forEach(button => {
+    const peekId = button.dataset.aseFindingPeek;
+    const peek = peekId ? button.ownerDocument.getElementById(peekId) : null;
+    const view = button.ownerDocument.defaultView;
+    if (!peek || !view) return;
+    button.addEventListener("click", () => {
+      view.requestAnimationFrame(() => {
+        if (!peek.matches(":popover-open")) return;
+        const anchor = button.getBoundingClientRect();
+        const bounds = peek.getBoundingClientRect();
+        const edge = 12;
+        const gap = 8;
+        const left = Math.min(
+          Math.max(edge, anchor.left),
+          Math.max(edge, view.innerWidth - bounds.width - edge));
+        const below = anchor.bottom + gap;
+        const top = below + bounds.height <= view.innerHeight - edge
+          ? below
+          : Math.max(edge, anchor.top - bounds.height - gap);
+        peek.style.left = `${left}px`;
+        peek.style.top = `${top}px`;
+        peek.classList.add("positioned");
+      });
     });
   });
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
@@ -473,6 +499,9 @@ export function renderAnnotatedSourceExplorer(
         view.lines,
         result.document.text)];
     }));
+  const findingPeeks = [...findingCaretAnnotations.values()]
+    .flat()
+    .flatMap(annotation => annotation.peek ? [annotation.peek] : []);
 
   const mediumButtons = MEDIA.map(medium =>
     `<button type="button" class="annotated-medium${view.media[medium] ? " on" : ""}" data-ase-medium="${medium}" aria-pressed="${view.media[medium]}">${escapeHtml(MEDIUM_LABELS[medium])}</button>`,
@@ -584,7 +613,7 @@ export function renderAnnotatedSourceExplorer(
           <span class="annotated-line-number"></span>
           ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
           <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<span class="annotated-caret-label-stack">${annotation.labels
-            .map(label => `<span class="annotated-caret-label plane-${label.plane}">${escapeHtml(label.text)}</span>`)
+            .map(label => caretLabelHtml(label, escapeHtml))
             .join("")}</span></span>
         </div>`;
       return caret + detail;
@@ -618,6 +647,11 @@ export function renderAnnotatedSourceExplorer(
           <div class="ase-code-scroll" tabindex="0" aria-label="Annotated source text. Use arrow keys to move between structural spans.">
             <pre class="annotated-text"><code>${lines}</code></pre>
           </div>
+          ${findingPeeks.map(peek => findingPeekHtml(
+            peek,
+            result.document,
+            tokenizeCSharp,
+            escapeHtml)).join("")}
         </section>
         <aside class="ase-inspector">
           <section class="ase-inspector-section">
@@ -664,16 +698,39 @@ interface SourceNodeCaretAnnotation {
   label: string;
   length: number;
   nodeId: number;
+  peek?: SourceFindingPeek;
   plane: "source" | "finding";
   prefix: string;
 }
 
 interface SourceCaretGroup {
   accessibleLabel: string;
-  labels: readonly { plane: "source" | "finding"; text: string }[];
+  labels: readonly SourceCaretLabel[];
   length: number;
   planes: ReadonlySet<"source" | "finding">;
   prefix: string;
+}
+
+interface SourceCaretLabel {
+  peek?: SourceFindingPeek;
+  plane: "source" | "finding";
+  text: string;
+}
+
+interface SourceFindingPeekLine {
+  evidenceSpans: readonly { start: number; length: number }[];
+  end: number;
+  medium: SourceMedium | "Mixed";
+  number: number;
+  start: number;
+}
+
+interface SourceFindingPeek {
+  finding: string;
+  hiddenLineCount: number;
+  id: string;
+  lines: readonly SourceFindingPeekLine[];
+  location: string;
 }
 
 interface SourceCodeLensAnnotation {
@@ -752,11 +809,41 @@ function sourceNodeCaretAnnotations(
 function sourceFindingCaretAnnotations(
   fact: AnnotatedViewFact,
   nodes: readonly AnnotatedSourceNode[],
-  lines: readonly { start: number; end: number }[],
+  lines: readonly {
+    end: number;
+    medium: SourceMedium | "Mixed";
+    number: number;
+    start: number;
+  }[],
   text: string,
 ): ReadonlyMap<number, readonly SourceNodeCaretAnnotation[]> {
   const annotations = new Map<number, SourceNodeCaretAnnotation[]>();
   for (const node of nodes) {
+    const relevantLines = lines.filter(line => node.spans.some(span =>
+      span.start < line.end && line.start < span.start + span.length));
+    const visibleLines = relevantLines.slice(0, MAX_FINDING_PEEK_LINES);
+    const lineSummary = relevantLines.length <= 1
+      ? `line ${relevantLines[0]?.number ?? "unknown"}`
+      : `lines ${relevantLines[0].number}–${relevantLines.at(-1)?.number}`;
+    const peek: SourceFindingPeek = {
+      finding: factDescription(fact),
+      hiddenLineCount: relevantLines.length - visibleLines.length,
+      id: `ase-finding-peek-${fact.id}-${node.id}`,
+      lines: visibleLines.map(line => ({
+        evidenceSpans: node.spans.flatMap(span => {
+          const start = Math.max(line.start, span.start);
+          const end = Math.min(line.end, span.start + span.length);
+          return start < end ? [{ start, length: end - start }] : [];
+        }),
+        end: line.end,
+        medium: line.medium,
+        number: line.number,
+        start: line.start,
+      })),
+      location: `${MEDIUM_LABELS[node.medium]} · ${lineSummary} · ${node.spans
+        .map(span => `[${span.start}..${span.start + span.length})`)
+        .join(" · ")}`,
+    };
     let added = false;
     for (const line of lines) {
       for (const span of node.spans) {
@@ -770,6 +857,7 @@ function sourceFindingCaretAnnotations(
           label: `${factDescription(fact)} · ${coordinates}`,
           length: end - start,
           nodeId: node.id,
+          peek,
           plane: "finding" as const,
           prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
         };
@@ -804,7 +892,7 @@ function groupCaretAnnotations(
 ): SourceCaretGroup[] {
   const groups = new Map<string, {
     accessibleLabels: string[];
-    labels: { plane: "source" | "finding"; text: string }[];
+    labels: SourceCaretLabel[];
     length: number;
     planes: Set<"source" | "finding">;
     prefix: string;
@@ -826,8 +914,19 @@ function groupCaretAnnotations(
     group.planes.add(annotation.plane);
     if (annotation.label
       && !group.labels.some(label =>
-        label.plane === annotation.plane && label.text === annotation.label)) {
-      group.labels.push({ plane: annotation.plane, text: annotation.label });
+        label.plane === annotation.plane
+          && label.text === annotation.label
+          && label.peek?.id === annotation.peek?.id)) {
+      group.labels.push(annotation.peek
+        ? {
+            peek: annotation.peek,
+            plane: annotation.plane,
+            text: annotation.label,
+          }
+        : {
+            plane: annotation.plane,
+            text: annotation.label,
+          });
     }
   }
   return [...groups.values()].map(group => ({
@@ -841,6 +940,47 @@ function groupCaretAnnotations(
 
 function factDescription(fact: AnnotatedViewFact): string {
   return fact.detail ? `${fact.descriptor}: ${fact.detail}` : fact.descriptor;
+}
+
+function caretLabelHtml(
+  label: SourceCaretLabel,
+  escapeHtml: EscapeHtml,
+): string {
+  const cssClass = `annotated-caret-label plane-${label.plane}`;
+  if (!label.peek) {
+    return `<span class="${cssClass}">${escapeHtml(label.text)}</span>`;
+  }
+  return `<button type="button" class="${cssClass}" data-ase-finding-peek="${label.peek.id}" popovertarget="${label.peek.id}" aria-label="Show evidence for Finding ${escapeHtml(label.peek.finding)}">${escapeHtml(label.text)}</button>`;
+}
+
+function findingPeekHtml(
+  peek: SourceFindingPeek,
+  document: AnnotatedSourceDocument,
+  tokenizeCSharp: CSharpTokenizer | undefined,
+  escapeHtml: EscapeHtml,
+): string {
+  const code = peek.lines.map(line => {
+    const lineText = document.text.slice(line.start, line.end);
+    const syntaxRanges = line.medium === "CSharp" && tokenizeCSharp
+      ? syntaxRangesForDocumentLine(document, tokenizeCSharp, lineText, line.start)
+      : [];
+    return `<span class="finding-peek-code-line"><span class="finding-peek-line-number">${line.number}</span><span class="finding-peek-line-text">${renderSegmentText(
+      line.start,
+      line.end,
+      document.text,
+      syntaxRanges,
+      line.evidenceSpans,
+      escapeHtml,
+      ["finding-peek-evidence"])}</span></span>`;
+  }).join("");
+  return `<aside id="${peek.id}" class="finding-peek" popover="auto" aria-label="Finding evidence">
+      <header><strong>Finding evidence</strong><button type="button" popovertarget="${peek.id}" popovertargetaction="hide" aria-label="Close Finding evidence">×</button></header>
+      <dl>
+        <div><dt>Finding</dt><dd>${escapeHtml(peek.finding)}</dd></div>
+        <div><dt>Location</dt><dd>${escapeHtml(peek.location)}</dd></div>
+        <div class="finding-peek-code"><dt>Code</dt><dd><pre><code>${code}</code></pre>${peek.hiddenLineCount > 0 ? `<small>${peek.hiddenLineCount} additional relevant line${peek.hiddenLineCount === 1 ? "" : "s"} omitted</small>` : ""}</dd></div>
+      </dl>
+    </aside>`;
 }
 
 function preparedDocument(document: AnnotatedSourceDocument): PreparedAnnotatedView {
@@ -1047,6 +1187,7 @@ function renderSegmentText(
   syntaxRanges: readonly SyntaxRange[],
   selectedRegionSpans: readonly { start: number; length: number }[],
   escapeHtml: EscapeHtml,
+  selectedClasses: readonly string[] = ["annotated-region", "selected"],
 ): string {
   const boundaries = new Set([segmentStart, segmentEnd]);
   for (const range of syntaxRanges) {
@@ -1070,7 +1211,7 @@ function renderSegmentText(
       span => span.start <= start && end <= span.start + span.length);
     const classes = [
       ...(syntax?.classes.length ? ["token", ...syntax.classes] : []),
-      ...(inRegion ? ["annotated-region", "selected"] : []),
+      ...(inRegion ? selectedClasses : []),
     ];
     const content = escapeHtml(text.slice(start, end));
     return classes.length > 0

@@ -560,8 +560,13 @@ after the caret run. When source and Finding attribution share one exact node,
 the renderer emits one caret and stacks the distinct source and Finding chips
 beneath it. Inline source chips use the product kind and range without exposing
 the portable document's internal node number; the inspector retains that typed
-identity for detailed selection. The `fact, source node, node-kind, and clear
-actions preserve distinct selection semantics` test gates that separation.
+identity for detailed selection. Finding chips are roomier interactive
+affordances: activating one opens a dismissible evidence peek without changing
+selection. The peek names the Finding and its exact product-issued location,
+then renders only the source lines intersecting that target, with the evidence
+range emphasized. It does not claim to show callee source that the document did
+not provide. The `fact, source node, node-kind, and clear actions preserve
+distinct selection semantics` test gates that separation.
 
 Product-owned body-kind vocabulary supplies inline CodeLens labels for
 multi-line source constructs. CodeLens is globally on or off; its unnumbered

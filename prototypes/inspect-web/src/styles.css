@@ -2067,8 +2067,30 @@ kbd {
 .annotated-caret-label-stack { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-left: -5px; vertical-align: top; }
 .annotated-caret-label { display: block; max-width: 76ch; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent); border-radius: 7px; background: color-mix(in srgb, var(--blue) 5%, transparent); color: color-mix(in srgb, var(--blue) 72%, var(--text)); font: 10px/1.25 var(--mono); overflow-wrap: anywhere; white-space: normal; }
 .annotated-node-caret.plane-finding { color: var(--accent); }
-.annotated-caret-label.plane-finding { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); color: color-mix(in srgb, var(--accent) 76%, var(--text)); }
+.annotated-caret-label.plane-finding { margin: 1px 0 2px; padding: 2px 6px; border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); color: color-mix(in srgb, var(--accent) 76%, var(--text)); cursor: pointer; text-align: left; }
+.annotated-caret-label.plane-finding:hover,
+.annotated-caret-label.plane-finding:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--text); outline: 0; }
 .annotated-node-caret.plane-finding .annotated-caret-run { text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 75%, transparent), 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+.finding-peek { position: fixed; inset: auto; top: 50%; left: 50%; width: min(620px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 24px)); margin: 0; padding: 0; overflow: auto; border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--line)); border-radius: 9px; background: var(--panel); color: var(--text); box-shadow: 0 18px 48px rgba(0, 0, 0, .38), 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent); transform: translate(-50%, -50%); }
+.finding-peek.positioned { transform: none; }
+.finding-peek::backdrop { background: transparent; }
+.finding-peek > header { display: flex; position: sticky; top: 0; z-index: 1; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.finding-peek > header strong { color: var(--accent); font: 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.finding-peek > header button { width: 24px; height: 24px; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--muted); font: 14px var(--mono); cursor: pointer; }
+.finding-peek > header button:hover { border-color: var(--text); color: var(--text); }
+.finding-peek dl { display: grid; margin: 0; }
+.finding-peek dl > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.finding-peek dl > div:last-child { border-bottom: 0; }
+.finding-peek dt { padding: 9px 10px; color: var(--dim); font: 9px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.finding-peek dd { min-width: 0; margin: 0; padding: 9px 10px; border-left: 1px solid var(--line); color: var(--text); font: 11px/1.5 var(--mono); }
+.finding-peek-code dd { padding: 0; }
+.finding-peek-code pre { max-width: 100%; margin: 0; padding: 8px 0; overflow: auto; background: var(--code-bg); }
+.finding-peek-code code { display: block; min-width: max-content; font: 11px/1.55 var(--mono); }
+.finding-peek-code-line { display: flex; min-height: 1.55em; padding: 0 10px; white-space: pre; }
+.finding-peek-line-number { flex: none; width: 4ch; margin-right: 12px; color: var(--code-line); text-align: right; user-select: none; }
+.finding-peek-line-text { flex: 1; }
+.finding-peek-evidence { background: color-mix(in srgb, var(--accent) 15%, transparent); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 80%, transparent); color: var(--text); }
+.finding-peek-code small { display: block; padding: 6px 10px; border-top: 1px solid var(--line); color: var(--dim); font: 9px/1.4 var(--mono); }
 .annotated-text .token.comment { color: #6f7669; font-style: italic; }
 .annotated-text .token.keyword { color: #d98a70; }
 .annotated-text .token.class-name,

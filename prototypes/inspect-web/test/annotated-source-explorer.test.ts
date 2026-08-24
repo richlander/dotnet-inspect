@@ -248,7 +248,12 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
   assert.deepEqual(state.activeFactIds, [0, 1]);
   assert.equal([...html.matchAll(/class="annotated-node-caret plane-finding"/g)].length, 2);
   assert.match(html, /class="annotated-caret-detail plane-finding"/);
-  assert.match(html, /annotated-caret-label plane-finding">alloc\.new: object/);
+  assert.match(html, /annotated-caret-label plane-finding"[^>]*>alloc\.new: object/);
+  assert.match(html, /data-ase-finding-peek="ase-finding-peek-0-1"/);
+  assert.match(html, /<dt>Finding<\/dt><dd>alloc\.new: object/);
+  assert.match(html, /<dt>Location<\/dt><dd>C# · line 4 · \[\d+\.\.\d+\)/);
+  assert.match(html, /<div class="finding-peek-code"><dt>Code<\/dt>/);
+  assert.match(html, /class="finding-peek-evidence"/);
   assert.match(html, /data-ase-fact="2" aria-pressed="false"/);
 });
 
@@ -297,7 +302,7 @@ test("fact, source node, node-kind, and clear actions preserve distinct selectio
     1,
   );
   assert.match(sourceHtml, /annotated-caret-label plane-source">ObjectCreationExpression · \[\d+\.\.\d+\)/);
-  assert.match(sourceHtml, /annotated-caret-label plane-finding">alloc\.new: object/);
+  assert.match(sourceHtml, /annotated-caret-label plane-finding"[^>]*>alloc\.new: object/);
   assert.doesNotMatch(sourceHtml, /annotated-caret-label plane-source">#1/);
   assert.doesNotMatch(sourceHtml, /1 finding: alloc\.new/);
   assert.match(sourceHtml, /Findings at this node/);
@@ -711,6 +716,14 @@ test("source carets inherit exact source glyph metrics", () => {
   assert.match(
     styles,
     /\.annotated-caret-label\s*\{[^}]*max-width:\s*76ch;[^}]*font:\s*10px\/1\.25 var\(--mono\);[^}]*white-space:\s*normal;/,
+  );
+  assert.match(
+    styles,
+    /\.annotated-caret-label\.plane-finding\s*\{[^}]*margin:\s*1px 0 2px;[^}]*padding:\s*2px 6px;/,
+  );
+  assert.match(
+    styles,
+    /\.finding-peek\s*\{[^}]*position:\s*fixed;[^}]*width:\s*min\(620px,[^}]*transform:\s*translate\(-50%, -50%\);/,
   );
 });
 
