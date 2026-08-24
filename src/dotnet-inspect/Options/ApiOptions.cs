@@ -1,6 +1,7 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -11,6 +12,8 @@ namespace DotnetInspector.Options;
 /// </summary>
 public partial record ApiOptions : IProjectionOptions
 {
+    internal ResolvedAssemblyReference? AssemblyReference { get; init; }
+
     /// <summary>
     /// Type name to inspect (positional argument). Null for full API listing.
     /// </summary>

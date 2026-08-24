@@ -263,9 +263,13 @@ public sealed class ResolvedAssemblyReference
 
         using (peReader)
         {
+            MetadataReader metadata = peReader.GetMetadataReader();
+            if (!metadata.IsAssembly)
+                return null;
+
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    peReader.GetMetadataReader());
+                    metadata);
             if (string.IsNullOrWhiteSpace(identity.Name))
                 return null;
 
@@ -450,6 +454,53 @@ public sealed class ResolvedAssemblyReference
                 OpenRead,
                 Provenance,
                 LastWriteTimeUtc);
+
+    /// <summary>
+    /// Returns an immutable-content view of this acquisition after verifying
+    /// that the supplied image has the selected assembly identity.
+    /// </summary>
+    /// <remarks>
+    /// `InspectionAcquisitionPlanTests.WithContentSnapshot_PreservesRegistrationAndAcquisition`
+    /// and
+    /// `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentAssemblyIdentity`
+    /// gate the two properties.
+    /// </remarks>
+    public ResolvedAssemblyReference WithContentSnapshot(
+        System.Collections.Immutable.ImmutableArray<byte> image)
+    {
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "The prefetched PE image must not be empty.",
+                nameof(image));
+        }
+
+        using var peReader =
+            new System.Reflection.PortableExecutable.PEReader(image);
+        if (!peReader.HasMetadata)
+        {
+            throw new BadImageFormatException(
+                $"No managed metadata: {Path ?? Identity.Name}");
+        }
+
+        AssemblyReferenceIdentity actual =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                peReader.GetMetadataReader());
+        if (!Identity.IsEquivalentTo(actual))
+        {
+            throw new BadImageFormatException(
+                $"The prefetched image identity '{actual}' does not match "
+                + $"the acquired assembly identity '{Identity}'.");
+        }
+
+        return new ResolvedAssemblyReference(
+            Registration,
+            Identity,
+            Path,
+            () => new MemoryStream(image.ToArray(), writable: false),
+            Provenance,
+            LastWriteTimeUtc);
+    }
 
     internal ResolvedAssemblyReference WithOpenRead(
         Func<Stream> openRead,

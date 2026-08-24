@@ -836,7 +836,11 @@ public class RenderStyleConfigTests
             .Where(m => m.Name == nameof(SamplePInvokeClass.GetCurrentProcessId)).ToList();
 
         var results = MemberCodeProvider.Collect(
-            type, methods, assemblyPath, overloadIndex: 0, decompiledSourceRequested,
+            type, methods, assemblyPath, overloadIndex: 0,
+            decompiledSourceRequested with
+            {
+                AssemblyReference = TestAssemblyReferences.Designated(assemblyPath)
+            },
             renderOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
 
         var (_, code) = Assert.Single(results);
@@ -867,7 +871,11 @@ public class RenderStyleConfigTests
             .Where(m => m.Name == nameof(SamplePInvokeClass.GetCurrentProcessId)).ToList();
 
         var results = MemberCodeProvider.Collect(
-            type, methods, assemblyPath, overloadIndex: 0, appliedTasteOnly,
+            type, methods, assemblyPath, overloadIndex: 0,
+            appliedTasteOnly with
+            {
+                AssemblyReference = TestAssemblyReferences.Designated(assemblyPath)
+            },
             renderOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
 
         var (_, code) = Assert.Single(results);
@@ -885,7 +893,12 @@ public class RenderStyleConfigTests
             .Where(m => m.Name == nameof(ThisQualificationConfigSpecimen.Compute)).ToList();
 
         var results = MemberCodeProvider.Collect(
-            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+            type, methods, assemblyPath, overloadIndex: 0,
+            request with
+            {
+                AssemblyReference = TestAssemblyReferences.Designated(assemblyPath)
+            },
+            renderOptions: renderOptions);
         var (_, code) = Assert.Single(results);
         return code;
     }
@@ -912,7 +925,12 @@ public class RenderStyleConfigTests
             UnsafeOperations: false);
 
         var results = MemberCodeProvider.Collect(
-            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+            type, methods, assemblyPath, overloadIndex: 0,
+            request with
+            {
+                AssemblyReference = TestAssemblyReferences.Designated(assemblyPath)
+            },
+            renderOptions: renderOptions);
 
         var (_, code) = Assert.Single(results);
         var decompiled = code.DecompiledResult;
@@ -942,7 +960,12 @@ public class RenderStyleConfigTests
             UnsafeOperations: false);
 
         var results = MemberCodeProvider.Collect(
-            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+            type, methods, assemblyPath, overloadIndex: 0,
+            request with
+            {
+                AssemblyReference = TestAssemblyReferences.Designated(assemblyPath)
+            },
+            renderOptions: renderOptions);
 
         var (_, code) = Assert.Single(results);
         var decompiled = code.DecompiledResult;
@@ -972,7 +995,12 @@ public class RenderStyleConfigTests
             UnsafeOperations: false);
 
         var results = MemberCodeProvider.Collect(
-            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+            type, methods, assemblyPath, overloadIndex: 0,
+            request with
+            {
+                AssemblyReference = TestAssemblyReferences.Designated(assemblyPath)
+            },
+            renderOptions: renderOptions);
 
         var (_, code) = Assert.Single(results);
         Assert.NotNull(code.DecompiledResult?.Output);

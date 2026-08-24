@@ -207,6 +207,11 @@ public class SourceForwarderResolutionTests
             ApiType type = Assert.Single(api.Types);
             Assert.True(type.IsForwarded);
             Assert.Equal(Path.GetFullPath(targetPath), type.SourceAssemblyPath);
+            Assert.Equal(
+                Path.GetFullPath(targetPath),
+                type.SourceAssemblyReference?.Path);
+            Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+                type.SourceAssemblyReference?.Provenance);
             Assert.NotNull(type.DefinitionName);
         }
         finally

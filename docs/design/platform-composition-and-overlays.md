@@ -11,11 +11,11 @@ This document owns three questions that are easy to conflate and must not be:
 | **Precedence** — two entitled candidates define the same type; which wins? | a pair | at resolution | this document |
 | **Coherence** — do these two actually fit together? | a pair | at traversal | this document |
 
-The entitlement **rule** is settled and enforced, though its carrier has a known
-gap ([#4606](#known-gap-a-path-is-not-a-designation)). Precedence and coherence
-are specified here but **not yet implemented**; each names its tracking issue.
-Where this document describes intent rather than current behaviour, it says so
-at that point.
+The entitlement **rule** and its current product carrier are settled and
+enforced ([#4606](#current-carrier-a-path-is-not-an-acquisition)). Precedence
+and coherence are specified here but **not yet implemented**; each names its
+tracking issue. Where this document describes intent rather than current
+behaviour, it says so at that point.
 
 ## What a platform is
 
@@ -94,24 +94,32 @@ See
 [`untrusted-data-threat-model.md`](untrusted-data-threat-model.md#core-library-identity-is-granted-by-acquisition-not-by-self-declaration)
 for the gate inventory.
 
-### Known gap: a path is not a designation
+### Current carrier: a path is not an acquisition
 
-The rule above is correctly implemented and well gated. The **carrier** is not.
+The rule above is implemented and carried through product inspection paths.
+API-source resolution creates one `ResolvedAssemblyReference` with the actual
+`PackageAsset`, `ProjectAsset`, `PlatformAsset`, or `DesignatedAsset`
+acquisition. Type-forwarder resolution retains the descriptor of the assembly
+that supplied each type. Member code, Body Shapes, Match implementation diffs,
+and prefetched scanner images consume those descriptors rather than reopening
+their retained paths as designations.
 
 `MetadataSource.Open(path)` and `MetadataSource.OpenFromPrefetchedImage(path,
-image)` infer designation from the presence of a path. Package extraction
-produces a path on disk that is indistinguishable from a file the user named, so
-a package carrying a forged `System.Runtime.dll` reaches these entry points and
-mints core-library identity.
+image)` remain compatibility entry points whose contract is explicit caller
+designation. A retained package-extraction path must not reach them:
+`LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
+derives every CLI call to those factories from compiled IL and requires the
+descriptor overload, while
+`PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`
+drives package provenance through the snapshot reader. Snapshotting preserves
+the original acquisition registration and rejects bytes with a different
+assembly identity; `InspectionAcquisitionPlanTests.WithContentSnapshot_*` gate
+those two properties.
 
-**Platform-in-package is therefore rejected in policy but not yet in
-mechanism.** This is pre-existing rather than a regression, and it is tracked as
-**#4606**; the fix is to require callers to supply the acquisition they actually
-obtained the bytes under, so package bytes arrive as `PackageAsset` and are
-denied.
-
-Do not read the strict acquisition rule as evidence that this case is already
-closed.
+This closes #4606's platform-in-package carrier bug without pretending that a
+path proves acquisition. The future workspace-admission design goes further:
+it retires blanket raw-path designation and requires an owner-authorized
+admission role even for direct callers.
 
 ## Overlays
 

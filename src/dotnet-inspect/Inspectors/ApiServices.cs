@@ -19,10 +19,14 @@ internal static class ApiServices
         ApiSurface Api,
         string ApiDllPath,
         string PdbLookupPath,
+        ResolvedAssemblyReference? AssemblyReference,
+        ResolvedAssemblyReference? RuntimeAssemblyReference,
         bool IsSummary = false);
 
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
+        ResolvedAssemblyReference? assemblyReference,
+        ResolvedAssemblyReference? runtimeAssemblyReference,
         string? runtimeAssemblyPath,
         string? packagePath,
         string? packageName,
@@ -32,14 +36,14 @@ internal static class ApiServices
         VerboseLogger logger,
         ApiOptions options)
     {
-        string? apiDllPath = FindApiDll(searchPath, logger);
-        if (apiDllPath is null)
-            return null;
+        string apiDllPath = assemblyReference?.Path ?? searchPath;
+        logger.Log($"Extracting API from: {Path.GetFileName(apiDllPath)}");
 
         using TypeDefinitionResolutionSession? resolution =
-            TryCreateResolutionSession(
-                apiDllPath,
-                isPlatformAssembly: runtimeAssemblyPath is not null,
+            assemblyReference is null
+                ? null
+                : TryCreateResolutionSession(
+                assemblyReference,
                 options.ProjectAssetsPath,
                 options.Tfm ?? selectedTfm,
                 options.PlatformFramework);
@@ -80,12 +84,16 @@ internal static class ApiServices
         api.Version = apiVersion;
         api.Library = Path.GetFileName(apiDllPath);
 
-        return new LoadedApiSurface(api, apiDllPath, runtimeAssemblyPath ?? apiDllPath);
+        return new LoadedApiSurface(
+            api,
+            apiDllPath,
+            runtimeAssemblyPath ?? apiDllPath,
+            assemblyReference,
+            runtimeAssemblyReference);
     }
 
     static TypeDefinitionResolutionSession? TryCreateResolutionSession(
-        string assemblyPath,
-        bool isPlatformAssembly,
+        ResolvedAssemblyReference assemblyReference,
         string? projectAssetsPath,
         string? targetFramework,
         string? platformFramework)
@@ -93,8 +101,7 @@ internal static class ApiServices
         try
         {
             return new TypeDefinitionResolutionSession(
-                assemblyPath,
-                isPlatformAssembly,
+                assemblyReference,
                 projectAssetsPath,
                 targetFramework,
                 platformFramework);
@@ -136,7 +143,40 @@ internal static class ApiServices
         api.Source = apiSource;
         api.Version = apiVersion;
         api.Library = Path.GetFileName(searchPath);
-        return new LoadedApiSurface(api, searchPath, runtimeAssemblyPath, IsSummary: true);
+        return new LoadedApiSurface(
+            api,
+            searchPath,
+            runtimeAssemblyPath,
+            AssemblyReference: null,
+            RuntimeAssemblyReference: null,
+            IsSummary: true);
+    }
+
+    internal static ResolvedAssemblyReference? AssemblyReferenceForPath(
+        LoadedApiSurface loaded,
+        ApiType type,
+        string? path)
+    {
+        if (path is null)
+            return null;
+
+        static bool SamePath(
+            ResolvedAssemblyReference? assembly,
+            string candidate) =>
+            assembly?.Path is { } assemblyPath
+            && (OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal).Equals(
+                Path.GetFullPath(assemblyPath),
+                Path.GetFullPath(candidate));
+
+        if (SamePath(type.SourceAssemblyReference, path))
+            return type.SourceAssemblyReference;
+        if (SamePath(loaded.AssemblyReference, path))
+            return loaded.AssemblyReference;
+        if (SamePath(loaded.RuntimeAssemblyReference, path))
+            return loaded.RuntimeAssemblyReference;
+        return null;
     }
 
     // ===== Type Lookup =====

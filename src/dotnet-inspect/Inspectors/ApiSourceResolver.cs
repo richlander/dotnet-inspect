@@ -4,6 +4,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 
@@ -20,7 +21,9 @@ internal sealed record ApiSourceResult(
     string? ProjectAssetsPath,
     string? TempDir,
     string? TypeName,
-    CommandContext Context);
+    CommandContext Context,
+    ResolvedAssemblyReference? AssemblyReference,
+    ResolvedAssemblyReference? RuntimeAssemblyReference);
 
 internal static class ApiSourceResolver
 {
@@ -363,7 +366,83 @@ internal static class ApiSourceResolver
             }
         }
 
+        AssemblyResolutionProvenance provenance = CreateProvenance(
+            apiSource,
+            packageName,
+            packageVersion,
+            selectedTfm,
+            platformFramework,
+            apiVersion,
+            projectAssetsPath);
+        ResolvedAssemblyReference? assemblyReference;
+        ResolvedAssemblyReference? runtimeAssemblyReference = null;
+        try
+        {
+            assemblyReference = ResolvedAssemblyReference.CreateFromPathIfManaged(
+                searchPath,
+                provenance);
+            if (assemblyReference is null)
+            {
+                using var inspection = AssemblyInspectionSession.Open(searchPath);
+                if (!inspection.HasMetadata)
+                    throw new BadImageFormatException(
+                        "The selected image has no managed metadata.");
+            }
+            if (runtimeAssemblyPath is not null)
+            {
+                runtimeAssemblyReference =
+                    ResolvedAssemblyReference.CreateFromPath(
+                        runtimeAssemblyPath,
+                        apiSource == SourceKind.Platform
+                            ? AssemblyResolutionProvenance.Platform(
+                                platformFramework
+                                    ?? "InstalledPlatform",
+                                apiVersion,
+                                "ApiSourceResolver runtime")
+                            : provenance);
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            CommandError.Write($"Could not acquire library '{searchPath}': {ex.Message}");
+            return (null!, 1);
+        }
+
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
-            apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
+            apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath, tempDir, typeName, context,
+            assemblyReference, runtimeAssemblyReference), null);
     }
+
+    internal static AssemblyResolutionProvenance CreateProvenance(
+        string? apiSource,
+        string? packageName,
+        string? packageVersion,
+        string? selectedTfm,
+        string? platformFramework,
+        string? apiVersion,
+        string? projectAssetsPath) =>
+        apiSource switch
+        {
+            SourceKind.NuGet => AssemblyResolutionProvenance.Package(
+                packageName!,
+                packageVersion!,
+                selectedTfm,
+                rid: null),
+            SourceKind.Platform => AssemblyResolutionProvenance.Platform(
+                platformFramework ?? "InstalledPlatform",
+                apiVersion,
+                "ApiSourceResolver"),
+            SourceKind.Project => AssemblyResolutionProvenance.Project(
+                projectAssetsPath!,
+                selectedTfm,
+                rid: null),
+            SourceKind.Library => AssemblyResolutionProvenance.Designated(
+                "ApiSourceResolver"),
+            _ => throw new InvalidOperationException(
+                $"Unknown API source kind '{apiSource ?? "<null>"}'."),
+        };
 }

@@ -57,7 +57,9 @@ public static class MatchCommand
         try
         {
             var loaded = ApiServices.LoadFullApi(
-                source.SearchPath, source.RuntimeAssemblyPath, options.PackagePath, source.PackageName,
+                source.SearchPath,
+                source.AssemblyReference, source.RuntimeAssemblyReference,
+                source.RuntimeAssemblyPath, options.PackagePath, source.PackageName,
                 source.ApiSource, source.ApiVersion, source.SelectedTfm, logger, options);
             if (loaded == null)
             {
@@ -65,14 +67,14 @@ public static class MatchCommand
                 return 1;
             }
 
-            var left = ResolveSelector(loaded.Api, loaded.ApiDllPath, options.LeftSelector);
+            var left = ResolveSelector(loaded, options.LeftSelector);
             if (left.Error is not null)
             {
                 CommandError.Write(left.Error);
                 return 1;
             }
 
-            var right = ResolveSelector(loaded.Api, loaded.ApiDllPath, options.RightSelector);
+            var right = ResolveSelector(loaded, options.RightSelector);
             if (right.Error is not null)
             {
                 CommandError.Write(right.Error);
@@ -156,19 +158,28 @@ public static class MatchCommand
         }
     }
 
-    internal readonly record struct ResolvedSelector(int? Token, string? Display, string? OriginAssemblyPath, string? Error);
+    internal readonly record struct ResolvedSelector(
+        int? Token,
+        string? Display,
+        string? OriginAssemblyPath,
+        ResolvedAssemblyReference? OriginAssembly,
+        string? Error);
 
     /// <summary>
     /// Resolves a <c>Type.Member</c> selector to the unique <see cref="ApiMember.MetadataToken"/>
     /// it names. Reuses <see cref="ApiTypeLookupService"/>'s type-vs-member boundary detection
     /// rather than re-splitting the string, since that boundary is not knowable syntactically.
     /// </summary>
-    internal static ResolvedSelector ResolveSelector(ApiSurface api, string apiDllPath, string selector)
+    internal static ResolvedSelector ResolveSelector(
+        ApiServices.LoadedApiSurface loaded,
+        string selector)
     {
+        ApiSurface api = loaded.Api;
         var lookup = ApiTypeLookupService.LookupType(api, selector);
         if (!lookup.Found || lookup.ImpliedMember is null)
         {
             return new ResolvedSelector(
+                null,
                 null,
                 null,
                 null,
@@ -213,12 +224,14 @@ public static class MatchCommand
                 null,
                 null,
                 null,
+                null,
                 $"'{selector}' {reason}.");
         }
 
         if (candidates.Count > 1)
         {
             return new ResolvedSelector(
+                null,
                 null,
                 null,
                 null,
@@ -229,8 +242,18 @@ public static class MatchCommand
         // apiType.SourceAssemblyPath for a type resolved through a type forwarder, otherwise the
         // extraction dll (apiDllPath). Comparing a forwarded type's token against apiDllPath would
         // silently reinterpret an unrelated MethodDef row in the wrong image.
-        var originAssemblyPath = apiType.SourceAssemblyPath ?? apiDllPath;
-        return new ResolvedSelector(MethodToken(candidates[0]), $"{apiType.FullName}.{memberName}", originAssemblyPath, null);
+        var originAssemblyPath =
+            apiType.SourceAssemblyPath ?? loaded.ApiDllPath;
+        var originAssembly = ApiServices.AssemblyReferenceForPath(
+            loaded,
+            apiType,
+            originAssemblyPath);
+        return new ResolvedSelector(
+            MethodToken(candidates[0]),
+            $"{apiType.FullName}.{memberName}",
+            originAssemblyPath,
+            originAssembly,
+            null);
     }
 
     /// <summary>
@@ -243,7 +266,14 @@ public static class MatchCommand
     /// </summary>
     static ImplementationDiffView BuildImplementationDiffView(ResolvedSelector left, ResolvedSelector right)
     {
-        using var source = MetadataSource.Open(left.OriginAssemblyPath!);
+        var assembly = left.OriginAssembly
+            ?? throw new InvalidOperationException(
+                "Implementation Diff requires the acquired assembly descriptor.");
+        using var source = MetadataSource.Open(
+            assembly,
+            externalPdbPath: null,
+            MetadataSource.DefaultAssemblyReferenceResolver(
+                left.OriginAssemblyPath!));
         var memberDiff = ImplementationDiff.CompareMembers(
             source,
             MetadataTokens.MethodDefinitionHandle(left.Token!.Value),

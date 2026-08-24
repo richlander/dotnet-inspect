@@ -6581,6 +6581,8 @@ public partial class CommandExecutionTests
         var options = new MemberOptions
         {
             AssemblyPath = TestAssemblyPath,
+            AssemblyReference =
+                TestAssemblyReferences.Designated(TestAssemblyPath),
             DllPath = TestAssemblyPath,
             TypeName = type.FullName,
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -6623,6 +6625,8 @@ public partial class CommandExecutionTests
         var options = new MemberOptions
         {
             AssemblyPath = TestAssemblyPath,
+            AssemblyReference =
+                TestAssemblyReferences.Designated(TestAssemblyPath),
             DllPath = TestAssemblyPath,
             TypeName = type.FullName,
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -10731,6 +10735,8 @@ public partial class CommandExecutionTests
         var options = new MemberOptions
         {
             AssemblyPath = TestAssemblyPath,
+            AssemblyReference =
+                TestAssemblyReferences.Designated(TestAssemblyPath),
             DllPath = TestAssemblyPath,
             TypeName = type.FullName,
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { nameof(CommandExecutionSourceDiffFixture.AddOne) },

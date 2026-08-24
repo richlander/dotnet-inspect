@@ -93,7 +93,12 @@ public static class TypeCommand
                         selectedTfm,
                         logger)
                     : ApiServices.LoadFullApi(
-                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                        searchPath,
+                        source.AssemblyReference,
+                        source.RuntimeAssemblyReference,
+                        runtimeAssemblyPath,
+                        options.PackagePath,
+                        packageName,
                         apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
@@ -164,7 +169,9 @@ public static class TypeCommand
             else
             {
                 var loaded = ApiServices.LoadFullApi(
-                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                    searchPath,
+                    source.AssemblyReference, source.RuntimeAssemblyReference,
+                    runtimeAssemblyPath, options.PackagePath, packageName,
                     apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
@@ -207,6 +214,14 @@ public static class TypeCommand
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).
                     effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
+                    effectiveOptions = effectiveOptions with
+                    {
+                        AssemblyReference =
+                            ApiServices.AssemblyReferenceForPath(
+                                loaded,
+                                apiType,
+                                effectiveOptions.DllPath),
+                    };
 
                     // Real local names for the listing: acquire the portable
                     // PDB the same way the member command does — only when the

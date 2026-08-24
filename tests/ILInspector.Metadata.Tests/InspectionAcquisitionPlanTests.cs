@@ -344,6 +344,55 @@ public class InspectionAcquisitionPlanTests
         Assert.True(stream.CanRead);
     }
 
+    [Fact]
+    public void WithContentSnapshot_PreservesRegistrationAndAcquisition()
+    {
+        byte[] image = SelfBytes();
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromPath(
+                SelfPath,
+                AssemblyResolutionProvenance.Package(
+                    "Example",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null));
+
+        ResolvedAssemblyReference snapshot =
+            descriptor.WithContentSnapshot(image.ToImmutableArray());
+
+        Assert.Same(descriptor.Registration, snapshot.Registration);
+        Assert.Equal(descriptor.Identity, snapshot.Identity);
+        Assert.Equal(descriptor.Path, snapshot.Path);
+        Assert.Same(descriptor.Provenance, snapshot.Provenance);
+        Assert.Equal(descriptor.LastWriteTimeUtc, snapshot.LastWriteTimeUtc);
+        Assert.NotSame(descriptor.OpenRead, snapshot.OpenRead);
+        using Stream stream = snapshot.OpenRead();
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        Assert.Equal(image, copy.ToArray());
+    }
+
+    [Fact]
+    public void WithContentSnapshot_RejectsDifferentAssemblyIdentity()
+    {
+        byte[] image = SelfBytes();
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image) with { Name = "Different" },
+                SelfPath,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "Example",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null));
+
+        BadImageFormatException exception = Assert.Throws<BadImageFormatException>(
+            () => descriptor.WithContentSnapshot(image.ToImmutableArray()));
+
+        Assert.Contains("does not match", exception.Message);
+    }
+
     [Theory]
     [InlineData(StreamCancellationPoint.Open)]
     [InlineData(StreamCancellationPoint.CanRead)]

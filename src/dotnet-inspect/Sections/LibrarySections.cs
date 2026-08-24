@@ -257,11 +257,16 @@ public static class LibrarySections
         var metadata = context.MetadataContext
             ?? throw new InvalidOperationException(
                 "The Body Shapes scanner requires the command's prefetched PE image.");
+        var assembly = context.AssemblyReference
+            ?? throw new InvalidOperationException(
+                "The Body Shapes scanner requires the command's acquired assembly.");
         using var source = MetadataSource.OpenFromPrefetchedImage(
-            context.AssemblyPath,
+            assembly,
             metadata.GetPrefetchedImage(),
             metadata.PortablePdbPath,
-            context.BodyReferenceResolver);
+            context.BodyReferenceResolver
+                ?? MetadataSource.DefaultAssemblyReferenceResolver(
+                    context.AssemblyPath));
         var result = methodTokens is null
             ? BodyShapeSearch.Search(source, kind)
             : BodyShapeSearch.Search(source, kind, methodTokens);

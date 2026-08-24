@@ -820,7 +820,8 @@ public class ApiOutputFormatterTests
                 Calls: false,
                 Callers: false,
                 CallGraph: false,
-                UnsafeOperations: false)));
+                UnsafeOperations: false,
+                AssemblyReference: TestAssemblyReferences.Designated(path))));
         var sections = new MemberCodeView();
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
@@ -864,7 +865,8 @@ public class ApiOutputFormatterTests
                 Calls: false,
                 Callers: false,
                 CallGraph: false,
-                UnsafeOperations: false)));
+                UnsafeOperations: false,
+                AssemblyReference: TestAssemblyReferences.Designated(path))));
         var sections = new MemberCodeView();
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
@@ -936,7 +938,8 @@ public class ApiOutputFormatterTests
                 Calls: false,
                 Callers: false,
                 CallGraph: false,
-                UnsafeOperations: false)));
+                UnsafeOperations: false,
+                AssemblyReference: TestAssemblyReferences.Designated(path))));
         var sections = new MemberCodeView();
 
         // A second type parameter exists only on the rows that need one to constrain T.
@@ -2080,7 +2083,8 @@ public class ApiOutputFormatterTests
                 Calls: false,
                 Callers: false,
                 CallGraph: false,
-                UnsafeOperations: false)));
+                UnsafeOperations: false,
+                AssemblyReference: TestAssemblyReferences.Designated(path))));
         var sections = new MemberCodeView();
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
@@ -2153,7 +2157,8 @@ public class ApiOutputFormatterTests
                     Calls: false,
                     Callers: false,
                     CallGraph: false,
-                    UnsafeOperations: false)));
+                    UnsafeOperations: false,
+                    AssemblyReference: TestAssemblyReferences.Designated(path))));
             var sections = new MemberCodeView();
             Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
 
@@ -2211,7 +2216,8 @@ public class ApiOutputFormatterTests
                 Calls: false,
                 Callers: false,
                 CallGraph: false,
-                UnsafeOperations: false)));
+                UnsafeOperations: false,
+                AssemblyReference: TestAssemblyReferences.Designated(path))));
         var sections = new MemberCodeView();
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(

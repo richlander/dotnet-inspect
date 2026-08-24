@@ -825,11 +825,11 @@ The first nine are structural edge/closure gates derived from the actual project
 graph, not a hand-maintained allow list. The remainder are behavior and lifetime
 gates. The local-only query gate covers metadata and authored-source query
 families so a metadata-only success cannot hide package-owned source
-capabilities. `LeaseScopedPath_IsNotADesignationGrant` derives the set of
-unconditional path and prefetched-image grants from the reader-construction
-site inventory and asserts coverage equality, so adding or reshaping an entry
-point cannot escape the migration. The browser gate runs the same composition
-sequentially without threads, blocking waits, or a filesystem.
+capabilities. The planned `LeaseScopedPath_IsNotADesignationGrant` gate derives
+the set of unconditional path and prefetched-image grants from the
+reader-construction site inventory and asserts coverage equality, so adding or
+reshaping an entry point cannot escape the migration. The browser gate runs the
+same composition sequentially without threads, blocking waits, or a filesystem.
 
 ## Non-goals
 

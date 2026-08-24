@@ -38,16 +38,34 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         string? projectAssetsPath,
         string? targetFramework,
         string? platformFramework = null)
+        : this(
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                isPlatformAssembly
+                    ? AssemblyResolutionProvenance.Platform(
+                        platformFramework ?? "InstalledPlatform",
+                        frameworkVersion: null,
+                        "TypeDefinitionResolutionSession")
+                    : AssemblyResolutionProvenance.Local(
+                        "TypeDefinitionResolutionSession")),
+            projectAssetsPath,
+            targetFramework,
+            platformFramework)
     {
-        _root = ResolvedAssemblyReference.CreateFromPath(
-            assemblyPath,
-            isPlatformAssembly
-                ? AssemblyResolutionProvenance.Platform(
-                    platformFramework ?? "InstalledPlatform",
-                    frameworkVersion: null,
-                    "TypeDefinitionResolutionSession")
-                : AssemblyResolutionProvenance.Local(
-                    "TypeDefinitionResolutionSession"));
+    }
+
+    public TypeDefinitionResolutionSession(
+        ResolvedAssemblyReference root,
+        string? projectAssetsPath,
+        string? targetFramework,
+        string? platformFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        string assemblyPath = root.Path
+            ?? throw new ArgumentException(
+                "Type-definition resolution requires a rooted assembly path.",
+                nameof(root));
+        _root = root;
 
         var resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(assemblyPath)
@@ -123,8 +141,8 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             var read =
                 (ResolutionAwareApiSurfaceOutcome.Read)outcome;
             ApiSurface surface = read.Surface;
-            if (source.Path is { } path)
-                surface.SetInspectionSourceAssemblyPath(path);
+            if (source.Path is not null)
+                surface.SetInspectionSourceAssembly(source);
 
             return surface;
         }

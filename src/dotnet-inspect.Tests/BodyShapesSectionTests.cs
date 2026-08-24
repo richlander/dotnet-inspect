@@ -14,6 +14,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using Markout;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text.Json;
 
@@ -47,6 +48,57 @@ public sealed class BodyShapesSectionTests
             nameof(BodyShapeFixture.PublicCreation),
             result.Output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageLibraryKindPredicate_RetainsPackageAcquisition()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shapes-package-{Guid.NewGuid():N}");
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string libraryDir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(libraryDir);
+            const string libraryName = "BodyShapes.Package.dll";
+            File.Copy(FixturePath, Path.Combine(libraryDir, libraryName));
+            string packagePath = Path.Combine(
+                tempDir,
+                "BodyShapes.Package.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var root = CommandLineBuilder.CreateRootCommand();
+            var result = await ConsoleCapture.RunAsync(() =>
+                root.Parse(
+                    [
+                        "library",
+                        libraryName,
+                        "--package",
+                        packagePath,
+                        "--where",
+                        "Kind=ObjectCreationExpression",
+                    ])
+                    .InvokeAsync());
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.DoesNotContain(
+                "Error:",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "## Body Shapes",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                nameof(BodyShapeFixture.PublicCreation),
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

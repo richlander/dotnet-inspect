@@ -938,6 +938,42 @@ public class PlantedCoreLibraryIdentityTests
             TypeRefDecoder.CanonicalSelf(source.Reader));
     }
 
+    [Fact]
+    public void PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-prefetched-corelib-").FullName;
+        try
+        {
+            string path = Path.Combine(directory, "System.Runtime.dll");
+            byte[] image = BuildPlantedCoreLibrary();
+            File.WriteAllBytes(path, image);
+            var assembly = ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Package(
+                    "Contoso.Package",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null));
+
+            using var source = MetadataSource.OpenFromPrefetchedImage(
+                assembly,
+                image.ToImmutableArray(),
+                externalPdbPath: null,
+                TestAssemblyReferenceResolvers.SingleAssembly(path));
+            TypeRef decoded = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                source.Reader,
+                MetadataTokens.TypeDefinitionHandle(2),
+                rawTypeKind: 0);
+
+            Assert.NotEqual(TypeRef.CoreLibrary, decoded.Assembly);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>
     /// An explicitly enumerated corpus path is designated, so it must satisfy
     /// the platform-scope request a corelib TypeRef forces. Round-2 review

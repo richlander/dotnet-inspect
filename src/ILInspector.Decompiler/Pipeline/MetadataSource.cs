@@ -280,6 +280,54 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
+    /// Opens an immutable PE snapshot while preserving the acquisition,
+    /// provenance, and selected identity of <paramref name="assembly"/>.
+    /// </summary>
+    public static MetadataSource OpenFromPrefetchedImage(
+        ResolvedAssemblyReference assembly,
+        ImmutableArray<byte> image,
+        string? externalPdbPath,
+        IAssemblyReferenceResolver resolver,
+        MetadataContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(resolver);
+        ResolvedAssemblyReference snapshot =
+            assembly.WithContentSnapshot(image);
+
+        PEReader? peReader = null;
+        try
+        {
+            peReader = new PEReader(image);
+            var reader = peReader.GetMetadataReader();
+            string assemblyName = reader.IsAssembly
+                ? reader.GetString(reader.GetAssemblyDefinition().Name)
+                : snapshot.Identity.Name;
+            string path = snapshot.Path ?? snapshot.Identity.Name;
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                snapshot.Provenance);
+            return new MetadataSource(
+                path,
+                snapshot.Path,
+                stream: null,
+                peReader,
+                reader,
+                assemblyName,
+                snapshot,
+                externalPdbPath,
+                readSymbols: true,
+                new AssemblyReferenceBindingPolicy(resolver),
+                context);
+        }
+        catch
+        {
+            peReader?.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Default referenced-assembly probing policy for callers that need to share
     /// a <see cref="MetadataContext"/> across several <see cref="MetadataSource"/>
     /// instances. It resolves only non-platform assemblies copied beside

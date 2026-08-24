@@ -389,17 +389,25 @@ through designation, while `ResolvedFrom` stops claiming a platform origin it
 cannot support. Local PDB probing is unaffected, since only symbol-*server*
 acquisition is gated on platform status.
 
-**The raw-path shortcut is a known live gap, not merely a shortcut the target
-improves on.** `MetadataSource.Open(path)` and
-`MetadataSource.OpenFromPrefetchedImage(path, image)` infer designation from the
-presence of a path. Package extraction produces a path on disk that is
-indistinguishable from a file the user named, so a package carrying a forged
-`System.Runtime.dll` reaches these entry points and mints core-library identity.
-Platform-in-package is consequently rejected in policy but **not** in mechanism.
-This is pre-existing — both sites granted unconditionally before the rule was
-funnelled — and it is tracked as **#4606**, whose fix is to require callers to
-supply the acquisition they actually obtained the bytes under. Until then, treat
-this section's rule as describing the decision, not the whole carrier.
+**A path is not acquisition evidence.** The raw compatibility entry points
+`MetadataSource.Open(path)` and
+`MetadataSource.OpenFromPrefetchedImage(path, image)` treat their path as an
+explicit caller designation. Product inspection paths do not use that shortcut:
+API-source resolution creates one `ResolvedAssemblyReference` carrying the
+actual package, project, platform, or designated acquisition, forwarded types
+retain their supplying descriptor, and decompiler-backed sections consume the
+descriptor overloads. `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
+derives that boundary from compiled CLI call sites. The snapshot overload
+preserves the descriptor's acquisition registration and rejects a different
+assembly identity; `InspectionAcquisitionPlanTests.WithContentSnapshot_*` gate
+those properties.
+
+That closes #4606's package-path laundering mechanism.
+`PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`
+drives a forged core library through the package snapshot path and proves that
+the retained `PackageAsset` cannot mint core-library identity. The raw overloads
+remain designation compatibility surfaces until the target workspace-admission
+architecture replaces blanket path designation with an owner-issued role.
 
 That describes the current carrier. The target
 [artifact acquisition design](artifact-acquisition-and-workspaces.md)
@@ -414,10 +422,10 @@ raw-path-implies-designation shortcut; opening that path cannot grant
 core-library trust without a separate authorized admission role. The same rule
 applies when caller-supplied bytes are paired with a path, as in the current
 `MetadataSource.OpenFromPrefetchedImage` compatibility entry point.
-`LeaseScopedPath_IsNotADesignationGrant` derives every unconditional path and
-prefetched-image grant from the `ReaderConstructionSiteTests` inventory and
-asserts coverage equality, rather than relying on a hand-maintained method
-list.
+The planned `LeaseScopedPath_IsNotADesignationGrant` gate will derive every
+unconditional path and prefetched-image grant from the
+`ReaderConstructionSiteTests` inventory and assert coverage equality, rather
+than relying on a hand-maintained method list.
 
 In the target architecture the platform adapter mints only validated platform
 realization and correspondence evidence, and workspace admission grants the

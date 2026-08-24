@@ -64,7 +64,9 @@ public static class MemberCommand
         try
         {
             var loaded = ApiServices.LoadFullApi(
-                searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                searchPath,
+                source.AssemblyReference, source.RuntimeAssemblyReference,
+                runtimeAssemblyPath, options.PackagePath, packageName,
                 apiSource, source.ApiVersion, selectedTfm, logger, options);
             if (loaded == null)
             {
@@ -377,6 +379,15 @@ public static class MemberCommand
                     PdbPath = resolved.PdbPath
                 };
             }
+
+            effectiveOptions = effectiveOptions with
+            {
+                AssemblyReference =
+                    ApiServices.AssemblyReferenceForPath(
+                        loaded,
+                        apiType,
+                        effectiveOptions.DllPath),
+            };
 
             if (effectiveOptions.EffectiveDiscovery)
             {

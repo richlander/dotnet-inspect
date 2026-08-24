@@ -19,7 +19,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, ResolvedAssemblyReference? AssemblyReference = null, string? CaretFocus = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -386,6 +386,9 @@ internal static class MemberCodeProvider
     {
         if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses && !request.AppliedTaste && !request.SourceDocument)
             return null;
+        var assembly = request.AssemblyReference
+            ?? throw new InvalidOperationException(
+                "Decompiler-backed member sections require the acquired assembly descriptor.");
         try
         {
             var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(dllPath)
@@ -397,7 +400,10 @@ internal static class MemberCodeProvider
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
             });
-            return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver);
+            return Decompiler.Pipeline.MetadataSource.Open(
+                assembly,
+                pdbPath,
+                (IAssemblyReferenceResolver)resolver);
         }
         catch
         {

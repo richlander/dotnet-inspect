@@ -1563,6 +1563,7 @@ public static class ApiOutputFormatter
             AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm,
+            AssemblyReference: options?.AssemblyReference,
             CaretFocus: options?.Focus);
 
         // An index-backed section that is explicitly selected (via -S or a category like
@@ -2524,12 +2525,16 @@ public static class ApiOutputFormatter
             ?? throw new InvalidOperationException(
                 "The Body Shapes section requires a validated body-kind predicate.");
         options.RenderConfigWarnings?.EmitOnce();
-        using var source = Decompiler.Pipeline.MetadataSource.Open(
+        var resolver = ApiAnalysisInspection.CreateReferenceResolver(
             assemblyPath,
+            options);
+        var assembly = options.AssemblyReference
+            ?? throw new InvalidOperationException(
+                "Body Shapes requires the acquired assembly descriptor.");
+        using var source = Decompiler.Pipeline.MetadataSource.Open(
+            assembly,
             pdbPath,
-            ApiAnalysisInspection.CreateReferenceResolver(
-                assemblyPath,
-                options));
+            (IAssemblyReferenceResolver)resolver);
         Decompiler.BodyShapeSearchResult result =
             Decompiler.BodyShapeSearch.Search(
                 source,

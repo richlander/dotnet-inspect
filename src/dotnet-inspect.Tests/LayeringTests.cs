@@ -135,6 +135,50 @@ public sealed class LayeringTests
             referencedTypes);
     }
 
+    [Fact]
+    public void Cli_MetadataSourceFactories_RetainAcquisitionDescriptors()
+    {
+        using var stream = File.OpenRead(typeof(LibraryInspection).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var calls = new List<string>();
+
+        foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
+        {
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            if (method.RelativeVirtualAddress == 0)
+                continue;
+
+            List<ILInstructionText>? instructions =
+                MetadataInstructionProducer.DisassembleMethod(
+                    peReader,
+                    reader,
+                    methodHandle);
+            if (instructions is null)
+                continue;
+
+            calls.AddRange(
+                instructions
+                    .Where(instruction =>
+                        instruction.OpCodeName == "call"
+                        && instruction.Operand is { } operand
+                        && (operand.Contains(
+                                "MetadataSource::Open(",
+                                StringComparison.Ordinal)
+                            || operand.Contains(
+                                "MetadataSource::OpenFromPrefetchedImage(",
+                                StringComparison.Ordinal)))
+                    .Select(instruction => instruction.Operand!));
+        }
+
+        Assert.NotEmpty(calls);
+        Assert.All(
+            calls,
+            call => Assert.Contains(
+                "ILInspector.Metadata.ResolvedAssemblyReference",
+                call));
+    }
+
     [Theory]
     [InlineData("DiffCommand.cs")]
     [InlineData("TimelineCommand.cs")]

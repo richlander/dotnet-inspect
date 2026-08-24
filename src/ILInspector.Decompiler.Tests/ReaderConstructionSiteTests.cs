@@ -220,9 +220,13 @@ public sealed class ReaderConstructionSiteTests
                  + "reached by resolution gets nothing."),
             ["Pipeline.MetadataSource.OpenFromPrefetchedImage(String, ImmutableArray`1<Byte>, String, IAssemblyReferenceResolver, MetadataContext)"] =
                 (TrustRole.ObtainsReader | TrustRole.GrantsIdentity,
-                 "Designation by path plus caller-supplied bytes; its one product "
-                 + "caller, LibrarySections.ScanBodyShapes, passes the designated "
-                 + "target's own path and image."),
+                 "Legacy raw-image designation. Product callers must retain an "
+                 + "acquisition descriptor instead."),
+            ["Pipeline.MetadataSource.OpenFromPrefetchedImage(ResolvedAssemblyReference, ImmutableArray`1<Byte>, String, IAssemblyReferenceResolver, MetadataContext)"] =
+                (TrustRole.ObtainsReader | TrustRole.GrantsIdentity,
+                 "The immutable-image path used by product callers. It preserves "
+                 + "the acquisition descriptor and grants only when that "
+                 + "descriptor's provenance is entitled."),
             ["Pipeline.MetadataSource.PdbReader()"] =
                 (TrustRole.ObtainsReader,
                  "A portable PDB reader, embedded or sidecar. Deliberately "

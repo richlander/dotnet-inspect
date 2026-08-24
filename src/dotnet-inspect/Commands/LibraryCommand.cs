@@ -601,6 +601,11 @@ public class LibraryCommand
                     }
                 }
 
+                AssemblyResolutionProvenance inspectionProvenance =
+                    AssemblyResolutionProvenance.Platform(
+                        framework!,
+                        version,
+                        "library --platform");
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
@@ -608,17 +613,18 @@ public class LibraryCommand
                         [
                             new AssemblyContextIntegrationsInput(
                                 resolvedPath!,
-                                AssemblyResolutionProvenance.Platform(
-                                    framework!,
-                                    version,
-                                    "library --platform")),
+                                inspectionProvenance),
                         ],
                         trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries,                     queryRegistry: queryRegistry,
-                    assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
+                    assemblyReference:
+                        integrations?.AssemblyForInspection(resolvedPath!)
+                        ?? ResolvedAssemblyReference.CreateFromPathIfManaged(
+                            resolvedPath!,
+                            inspectionProvenance),
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
@@ -886,6 +892,8 @@ public class LibraryCommand
                     }
                 }
 
+                AssemblyResolutionProvenance inspectionProvenance =
+                    AssemblyResolutionProvenance.Designated("library path");
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
@@ -893,15 +901,18 @@ public class LibraryCommand
                         [
                             new AssemblyContextIntegrationsInput(
                                 assemblyPath!,
-                                AssemblyResolutionProvenance.Local(
-                                    "library path")),
+                                inspectionProvenance),
                         ],
                         trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries,                     queryRegistry: queryRegistry,
-                    assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
+                    assemblyReference:
+                        integrations?.AssemblyForInspection(assemblyPath!)
+                        ?? ResolvedAssemblyReference.CreateFromPathIfManaged(
+                            assemblyPath!,
+                            inspectionProvenance),
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
@@ -2772,6 +2783,12 @@ public class LibraryCommand
         foreach (var targetPath in assemblyPaths)
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
+            AssemblyResolutionProvenance inspectionProvenance =
+                PackageIntegrationProvenance(
+                    targetPath,
+                    extractPath,
+                    packageName,
+                    version);
             string relativePath = Path.GetRelativePath(
                     extractPath,
                     targetPath)
@@ -2792,7 +2809,10 @@ public class LibraryCommand
                     queries: queries,
                     queryRegistry: queryRegistry,
                     assemblyReference:
-                        integrations?.AssemblyForInspection(targetPath),
+                        integrations?.AssemblyForInspection(targetPath)
+                        ?? ResolvedAssemblyReference.CreateFromPathIfManaged(
+                            targetPath,
+                            inspectionProvenance),
                     integrationsEntry:
                         integrations?.EntryFor(targetPath),
                     integrationOpportunitiesEntry:

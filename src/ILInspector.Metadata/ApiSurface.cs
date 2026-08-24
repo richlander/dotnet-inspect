@@ -310,6 +310,22 @@ public class ApiSurface
         }
     }
 
+    public void SetInspectionSourceAssembly(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (assembly.Path is not { } path)
+        {
+            throw new ArgumentException(
+                "An inspection source assembly must retain its path.",
+                nameof(assembly));
+        }
+
+        SetInspectionSourceAssemblyPath(path);
+        foreach (ApiType type in Types)
+            type.SourceAssemblyReference = assembly;
+    }
+
     public int PublicTypeCount { get; set; }
     public int PublicMethodCount { get; set; }
     public int PublicPropertyCount { get; set; }
@@ -785,6 +801,12 @@ public class ApiType
     /// </summary>
     [JsonIgnore]
     public string? SourceAssemblyPath { get; set; }
+
+    /// <summary>
+    /// Acquired assembly that supplied this type's metadata.
+    /// </summary>
+    [JsonIgnore]
+    public ResolvedAssemblyReference? SourceAssemblyReference { get; set; }
 
     /// <summary>
     /// Full name of the type (Namespace.Name, or just Name if no namespace).

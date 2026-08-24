@@ -39,7 +39,8 @@ public class MemberCodeProviderOverloadAddressingTests
             Calls: false,
             Callers: false,
             CallGraph: false,
-            UnsafeOperations: false);
+            UnsafeOperations: false,
+            AssemblyReference: TestAssemblyReferences.Designated(assemblyPath));
 
         var results = MemberCodeProvider.Collect(
             type, describeOverloads, assemblyPath, overloadIndex: 0, request);
