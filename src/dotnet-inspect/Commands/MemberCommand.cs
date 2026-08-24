@@ -364,7 +364,9 @@ public static class MemberCommand
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken);
+                    sourceMetadataToken,
+                    tokenOriginAssembly,
+                    sourceMember?.MetadataToken ?? 0);
 
                 effectiveOptions = effectiveOptions with
                 {
