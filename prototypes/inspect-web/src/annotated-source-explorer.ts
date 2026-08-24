@@ -666,10 +666,11 @@ function sourceCodeLensAnnotations(
       span.start < line.end && line.start < span.start + span.length));
     if (intersectingLines.length < 2) continue;
     const lineStart = intersectingLines[0].start;
+    const lineText = text.slice(lineStart, intersectingLines[0].end);
     const annotation = {
       label: labels.get(node.kind) ?? node.kind,
       nodeId: node.id,
-      prefix: text.slice(lineStart, node.spans[0].start).replace(/[^\t]/g, " "),
+      prefix: lineText.match(/^[\t ]*/)?.[0] ?? "",
     };
     const existing = annotations.get(lineStart);
     if (existing) existing.push(annotation);

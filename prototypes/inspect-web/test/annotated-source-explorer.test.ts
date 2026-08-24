@@ -430,7 +430,7 @@ test("product labels render as toggleable structural CodeLens annotations", () =
       id: 0,
       kind: "IfStatement",
       medium: "CSharp",
-      spans: [{ start: 4, length: 21 }],
+      spans: [{ start: 0, length: 25 }],
     }],
     regions: [],
     facts: [],
