@@ -2258,6 +2258,36 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void SurfaceProjection_OneHugeExactMemberStopsBeforeDerivedIdentities()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Amplifier",
+            MetadataName = "Amplifier",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = new string('S', 4_000_000),
+        };
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(32_000_000);
+        budget.BeginParticipant();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Member(type, member, budget));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 4L * MiB,
+            $"Browser exact-member projection preflight allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void SurfaceProjection_PreflightUsesTheRemainingSharedBudget()
     {
         var budget =

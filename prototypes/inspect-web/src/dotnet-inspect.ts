@@ -32,6 +32,7 @@ import {
   platformPackFromProvenance,
   removeWorkspacePackage,
   removeAppendedNotice,
+  retainGraphMemberProjection,
   retainGraphOnlyBodyTarget,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
@@ -7223,6 +7224,7 @@ function commitGraphMemberSelection(
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
+  retainGraphMemberProjection(pkg.types, staged.member);
   if (staged.isNew) {
     type.api ??= [];
     type.api.push(staged.member);

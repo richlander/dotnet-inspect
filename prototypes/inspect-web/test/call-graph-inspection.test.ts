@@ -375,6 +375,125 @@ test("workspace expansion failure keeps the local graph and remains visible", as
   assert.equal(graphRenders, 2);
 });
 
+test("platform descent preserves a completed in-flight workspace expansion", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const full = graph("full");
+  let workspaceQueries = 0;
+  let patches = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        workspaceQueries++;
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      patchCallGraphSection: () => patches++,
+    }));
+  const request = memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  });
+
+  const load = coordinator.load(request);
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  await coordinator.drill(drillRequest());
+  expansion.resolve(full);
+  await load;
+
+  assert.equal(workspaceQueries, 2);
+  assert.equal(state.memberCallGraph, full);
+  assert.equal(state.memberCallGraphExpanding, false);
+  assert.equal(patches, 0);
+  await coordinator.popDrill();
+  await coordinator.load(request);
+  assert.equal(workspaceQueries, 2);
+  assert.equal(state.memberCallGraph, full);
+});
+
+test("blocked platform activation publishes its in-flight workspace expansion", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const full = graph("full");
+  let patches = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      patchCallGraphSection: previous => {
+        assert.equal(previous, "local");
+        patches++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  expansion.resolve(full);
+  await load;
+
+  assert.equal(state.memberCallGraph, full);
+  assert.equal(patches, 1);
+});
+
+test("canceled expansion cannot replace a newer same-key local graph", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const newer = graph("newer");
+  let patches = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      patchCallGraphSection: () => patches++,
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraph = newer;
+  expansion.resolve(graph("stale-full"));
+  await load;
+
+  assert.equal(state.memberCallGraph, newer);
+  assert.equal(patches, 0);
+});
+
 test("initial workspace failure remains visible without rendering a graph", async () => {
   let focusRenders = 0;
   let graphRenders = 0;

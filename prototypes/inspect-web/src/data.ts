@@ -1328,6 +1328,20 @@ export function partitionGraphMembers<T extends { graphOnly?: boolean }>(
   return { publicMembers, graphMembers };
 }
 
+export function retainGraphMemberProjection<
+  TMember extends { graphOnly?: boolean },
+>(
+  types: readonly { api: TMember[] }[],
+  selected: TMember,
+): void {
+  for (const type of types) {
+    if (!type.api.some(member => member.graphOnly && member !== selected))
+      continue;
+    type.api = type.api.filter(
+      member => !member.graphOnly || member === selected);
+  }
+}
+
 export interface ScopedRequestState {
   loading: boolean;
   error: string;

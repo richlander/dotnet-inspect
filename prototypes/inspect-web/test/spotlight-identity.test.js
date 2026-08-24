@@ -59,6 +59,7 @@ import {
   removeWorkspacePackage,
   removeAppendedNotice,
   replaceCurrentNavigationEntry,
+  retainGraphMemberProjection,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
@@ -3767,6 +3768,31 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\n\/\/ The scope switcher/)?.[0]
     ?? "";
   assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
+});
+
+test("graph member projections stay transport- and package-bounded", () => {
+  assert.match(
+    browserEngineSource,
+    /QueryGraphMemberSurface[\s\S]*?BrowserSurfaceTextBudget\([\s\S]*?MaxRetainedTextCharacters[\s\S]*?BrowserSurfaceProjection\.Member\([\s\S]*?textBudget\)[\s\S]*?textBudget\.CommitParticipant\(\)/);
+
+  const publicMember = { name: "Public" };
+  const selected = { name: "Selected", graphOnly: true };
+  const removed = { name: "Removed", graphOnly: true };
+  const types = [
+    { api: [publicMember, removed] },
+    { api: [selected] },
+  ];
+  retainGraphMemberProjection(types, selected);
+  assert.deepEqual(types, [
+    { api: [publicMember] },
+    { api: [selected] },
+  ]);
+
+  const commit = sourceText(functionDeclaration("commitGraphMemberSelection"));
+  assert.match(commit, /retainGraphMemberProjection\(pkg\.types, staged\.member\)/);
+  assert.ok(
+    commit.indexOf("retainGraphMemberProjection(pkg.types, staged.member)")
+      < commit.indexOf("type.api.push(staged.member)"));
 });
 
 test("member filters retain an exact selected graph target", () => {

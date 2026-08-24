@@ -772,8 +772,17 @@ public static partial class InspectionEngine
                 memberName,
                 selectorKey,
                 metadataToken);
+        var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+            BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        textBudget.BeginParticipant();
+        BrowserMemberSurface member =
+            BrowserSurfaceProjection.Member(
+                resolution.Type,
+                resolution.Member,
+                textBudget);
+        textBudget.CommitParticipant();
         return JsonSerializer.Serialize(
-            BrowserSurfaceProjection.Member(resolution.Type, resolution.Member),
+            member,
             BrowserJsonContext.Default.BrowserMemberSurface);
     }
 

@@ -193,8 +193,20 @@ export function createCallGraphInspectionCoordinator(
           const full = await dependencies.queryWorkspace(
             request,
             request.workspacePackages);
-          if (!ownsRequest()) return;
           const previousMermaid = state.memberCallGraph?.mermaid;
+          if (!ownsRequest()) {
+            const canceledExpansionStillMatchesView =
+              request.isCurrent()
+              && state.memberCallGraphKey === request.signature
+              && state.memberCallGraph === local
+              && !state.memberCallGraphExpanding;
+            if (!canceledExpansionStillMatchesView) return;
+            state.memberCallGraph = full;
+            dependencies.refreshPackageStats();
+            if (!state.platformDrillLoading && state.platformStack.length === 0)
+              dependencies.patchCallGraphSection(previousMermaid);
+            return;
+          }
           state.memberCallGraph = full;
           state.memberCallGraphExpanding = false;
           dependencies.refreshPackageStats();
