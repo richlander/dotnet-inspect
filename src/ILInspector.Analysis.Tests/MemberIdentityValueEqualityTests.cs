@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 using ILInspector.Metadata;
 
@@ -89,11 +90,16 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
-    public void AllocationMeasurement_RejectsPersistentPerCallAllocation()
+    public void AllocationMeasurement_RejectsAmortizedOperationAllocation()
     {
+        int calls = 0;
         long allocated = MeasureOnIsolatedThread(
-            () => MeasureStableAllocationBatches(
-                static () => Consume(new object()),
+            () => MeasureSteadyStateAllocations(
+                () =>
+                {
+                    if (++calls % 2_000 == 0)
+                        Consume(new object());
+                },
                 static () => { }));
 
         Assert.True(allocated > 0);
@@ -609,7 +615,7 @@ public class MemberIdentityValueEqualityTests
         TypeRef right)
     {
         bool result = false;
-        return MeasureStableAllocationBatches(
+        return MeasureSteadyStateAllocations(
             () => result ^= left.Equals(right),
             () => Consume(result));
     }
@@ -623,7 +629,7 @@ public class MemberIdentityValueEqualityTests
     static long MeasureHashAllocationsCore(TypeRef type)
     {
         int result = 0;
-        return MeasureStableAllocationBatches(
+        return MeasureSteadyStateAllocations(
             () => result ^= type.GetHashCode(),
             () => Consume(result));
     }
@@ -631,53 +637,64 @@ public class MemberIdentityValueEqualityTests
     static long MeasureOnIsolatedThread(Func<long> measurement)
     {
         long allocated = -1;
+        ExceptionDispatchInfo? exception = null;
         var thread = new Thread(
-            () => allocated = measurement());
-        // Keep xUnit's execution context and worker activity off the measured
-        // thread so its allocation counter belongs only to this probe.
-        using (ExecutionContext.SuppressFlow())
+            () =>
+            {
+                try
+                {
+                    allocated = measurement();
+                }
+                catch (Exception ex)
+                {
+                    exception =
+                        ExceptionDispatchInfo.Capture(ex);
+                }
+            })
+        {
+            IsBackground = true,
+        };
+
+        // The dedicated thread excludes xUnit worker activity; suppressing the
+        // flow also excludes inherited AsyncLocal callbacks.
+        if (ExecutionContext.IsFlowSuppressed())
+        {
             thread.Start();
-        thread.Join();
+        }
+        else
+        {
+            using (ExecutionContext.SuppressFlow())
+                thread.Start();
+        }
+
+        if (!thread.Join(TimeSpan.FromSeconds(30)))
+        {
+            throw new TimeoutException(
+                "The allocation measurement did not complete.");
+        }
+        exception?.Throw();
         return allocated;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static long MeasureStableAllocationBatches(
+    static long MeasureSteadyStateAllocations(
         Action operation,
         Action consume)
     {
-        const int BatchSize = 1_000;
-        const int StableBatchCount = 3;
-        const int MaximumBatchCount = 64;
+        const int WarmupIterations = 10_000;
+        const int MeasurementIterations = 10_000;
 
-        // Tiered compilation may promote a hot helper during an early batch.
-        // The third consecutive zero batch is the steady-state sample.
-        int stableBatches = 0;
-        long allocated = -1;
-        for (int batch = 0;
-            batch < MaximumBatchCount;
-            batch++)
-        {
-            long before =
-                GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < BatchSize; i++)
-                operation();
-            allocated =
-                GC.GetAllocatedBytesForCurrentThread()
-                - before;
+        for (int i = 0; i < WarmupIterations; i++)
+            operation();
 
-            stableBatches = allocated == 0
-                ? stableBatches + 1
-                : 0;
-            if (stableBatches == StableBatchCount)
-            {
-                consume();
-                return 0;
-            }
-        }
-
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < MeasurementIterations; i++)
+            operation();
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
         consume();
-        return allocated == 0 ? -1 : allocated;
+        return allocated;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
