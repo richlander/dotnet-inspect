@@ -642,7 +642,7 @@ current PR.
 
 Rounds 1-6 are the initial authorized block. Within an authorized block, a
 fix-producing round that requires replacement review continues automatically
-to the next round. Report `Recommendation: Continue` and begin the next
+to the next round. Report `Recommendation: continue` and begin the next
 candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
 
 Approval is required only before rounds 7, 13, 19, and so on. Each approval

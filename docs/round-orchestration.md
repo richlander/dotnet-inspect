@@ -221,7 +221,7 @@ Round <n> is complete for PR <number>.
 
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
-Recommendation: [Continue, Wait, Merge, Approve next rounds, Stop (reason)]
+Recommendation: [continue, wait, merge, approve next rounds, stop (reason)]
 
 Fix description: <prose description of changes made in response to the round>.
 ```
@@ -239,15 +239,15 @@ Classification must match the reviewer outcomes:
 `Blocked` entry must be an existing PR or issue; file one before citing a new
 shared failure.
 
-- `Continue` means the next round is inside the current authorized six-round
+- `continue` means the next round is inside the current authorized six-round
   block. Emit the report, then immediately begin the next candidate cycle. Do
   not ask, set `HELP`, or wait for user input.
-- `Wait` requires a non-empty blocker list and means the agent will resume when
+- `wait` requires a non-empty blocker list and means the agent will resume when
   it clears.
-- `Approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
+- `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
   the required architectural checkpoint. Never use it for an earlier round in
   the current block.
-- `Merge`, `Approve next rounds`, and `Stop` request a user decision; `Stop`
+- `merge`, `approve next rounds`, and `stop` request a user decision; `stop`
   does not close anything until approved.
 
 When the recommendation needs approval, render the complete report first as
