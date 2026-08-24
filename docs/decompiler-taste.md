@@ -514,8 +514,11 @@ terminating discriminator. `LabeledSequence_DeclinesSemanticSpacing` and
 `StatementOwnedLabel_DeclinesSemanticSpacingIndependently` are the named
 non-vacuity gates for block- and statement-owned label declines, while
 `NestedFiveStatementSequence_AppliesSpacingIndependently` and
-`GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` cover nested
-and generated-block state. The coordinate-preservation gates are
+`FiveStatementBlockLambda_PreservesSemanticSpacing` cover ordinary and
+block-lambda nesting.
+`GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` and
+`GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock` cover generated-block
+state and separator placement. The coordinate-preservation gates are
 `InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact`
 and `InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans`.
 

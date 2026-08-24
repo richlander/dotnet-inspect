@@ -393,6 +393,56 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var entry = new Block(0);
+        entry.Add(ReturningIf("flag", 0, 7));
+        entry.Add(UnsafeReturningIf(pointer, 2, parameterIndex: 1));
+        entry.Add(new ExpressionStatement(new Constant(3, Int32)));
+        entry.Add(new ExpressionStatement(new Constant(4, Int32)));
+        entry.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "UnsafeRunLeadingSeparator",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("flag", Boolean),
+                    new Parameter("pointer", pointer),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains("return 7;\n}\n\nunsafe\n{", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FiveStatementBlockLambda_PreservesSemanticSpacing(bool hasLocal)
+    {
+        string output = PrintFiveStatementBlockLambda(hasLocal);
+
+        Assert.Contains(
+            "return -1;\n" +
+            "    }\n\n" +
+            "    _ = 1;",
+            output);
+        Assert.DoesNotContain("/* IfStatement */", output);
+        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact()
     {
         var (output, ranges) = Print(nameof(SemanticSpacingFixture.Grouped));
@@ -460,7 +510,10 @@ public class CSharpPrinterSemanticSpacingTests
             elseArm: null);
     }
 
-    static IfStatement UnsafeReturningIf(TypeRef pointer, int value)
+    static IfStatement UnsafeReturningIf(
+        TypeRef pointer,
+        int value,
+        int parameterIndex = 0)
     {
         var then = new Block();
         then.Add(new Return(new Constant(value, Int32)));
@@ -470,10 +523,50 @@ public class CSharpPrinterSemanticSpacingTests
                 isUnsigned: false,
                 new LoadIndirect(
                     Int32,
-                    new LoadArgument(0, "pointer", pointer)),
+                    new LoadArgument(parameterIndex, "pointer", pointer)),
                 new Constant(0, Int32)),
             then,
             elseArm: null);
+    }
+
+    static string PrintFiveStatementBlockLambda(bool hasLocal)
+    {
+        var delegateType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`2"),
+            [Int32, Int32]);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(ReturningIf("value", 0, -1));
+        lambdaBlock.Add(new ExpressionStatement(new Constant(1, Int32)));
+        lambdaBlock.Add(new ExpressionStatement(new Constant(2, Int32)));
+        lambdaBlock.Add(new ExpressionStatement(new Constant(3, Int32)));
+        lambdaBlock.Add(new Return(new LoadArgument(0, "value", Int32)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            delegateType,
+            [new Parameter("value", Int32)],
+            hasLocal ? [Int32] : [],
+            hasLocal ? [null] : [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+
+        var outerBlock = new Block(0);
+        outerBlock.Add(new Return(lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "Lambda",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                delegateType,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        return Assert.IsType<string>(CSharpPrinter.Print(function).Output);
     }
 
     static string PrintLoopConditional(IrNode thenStatement)

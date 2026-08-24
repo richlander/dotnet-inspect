@@ -130,7 +130,10 @@ public sealed partial class CSharpPrinter
             return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");
         }
 
-        int statementCount = lambda.Body.Blocks.SelectMany(b => b.Children).Count();
+        var statementNodes = lambda.Body.Blocks
+            .SelectMany(block => block.Children)
+            .ToList();
+        int statementCount = statementNodes.Count;
         if (LambdaReturnType(lambda) is { } fallbackReturnType
             && NeedsUnsupportedFallbackReturn(fallbackReturnType, requiresAsyncBodyModifier: false, lambda.Body))
         {
@@ -146,38 +149,23 @@ public sealed partial class CSharpPrinter
             return LambdaConversionText(lambda, text);
         }
 
-        // Building the child statement texts one indent level deeper keeps any
-        // nested lambda block expansion (a lambda-in-lambda) aligned to where
-        // that statement will actually land once LambdaBlockText re-applies
-        // _statementIndent for the outer braces below.
         int enclosingIndent = _statementIndent;
-        _statementIndent = enclosingIndent + 1;
-        List<string> statements;
-        try
+        string sharedBodyText = LambdaBodyTextWithSharedScope(
+            statementNodes);
+        if (LambdaReturnType(lambda) is { } returnType
+            && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
         {
-            statements = lambda.Body.Blocks
-                .SelectMany(b => b.Children)
-                .Select(LambdaStatement)
-                .Where(s => s is not null)
-                .Select(s => s!)
-                .ToList();
-            if (LambdaReturnType(lambda) is { } returnType
-                && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
-            {
-                statements.Add("return default;");
-            }
-        }
-        finally
-        {
-            _statementIndent = enclosingIndent;
+            sharedBodyText += sharedBodyText.Length == 0
+                ? "return default;"
+                : "\nreturn default;";
         }
 
-        if (statements.Count == 0)
+        if (sharedBodyText.Length == 0)
             return LambdaConversionText(lambda, $"{parameters} => {{ }}");
 
-        string blockText = statements.Count > 1
-            ? LambdaBlockText(parameters, string.Join("\n", statements))
-            : $"{parameters} => {{ {string.Join(" ", statements)} }}";
+        string blockText = statementCount > 1
+            ? LambdaBlockText(parameters, sharedBodyText, enclosingIndent)
+            : $"{parameters} => {{ {FlattenLambdaBodyText(sharedBodyText)} }}";
         return LambdaConversionText(lambda, blockText);
     }
 
@@ -224,15 +212,24 @@ public sealed partial class CSharpPrinter
     /// rather than wherever the lambda happens to start inside that statement's
     /// expression tree, matching how a developer would have written the block.
     /// </summary>
-    string LambdaBlockText(string parameters, string bodyText)
+    string LambdaBlockText(
+        string parameters,
+        string bodyText,
+        int? statementIndent = null)
     {
-        string pad = new(' ', _statementIndent * 4);
-        string innerPad = new(' ', (_statementIndent + 1) * 4);
+        int indent = statementIndent ?? _statementIndent;
+        string pad = new(' ', indent * 4);
+        string innerPad = new(' ', (indent + 1) * 4);
         var sb = new StringBuilder();
         sb.Append(parameters).Append(" =>").Append("\n");
         sb.Append(pad).Append('{').Append("\n");
-        foreach (var line in bodyText.Split("\n", StringSplitOptions.RemoveEmptyEntries))
-            sb.Append(innerPad).Append(line).Append("\n");
+        foreach (var line in bodyText.Split('\n'))
+        {
+            if (line.Length == 0)
+                sb.Append('\n');
+            else
+                sb.Append(innerPad).Append(line).Append('\n');
+        }
         sb.Append(pad).Append('}');
         return sb.ToString();
     }
@@ -309,6 +306,24 @@ public sealed partial class CSharpPrinter
         {
             body.Detach();
             lambda.ResetBody(body);
+        }
+    }
+
+    /// <summary>Renders an empty-locals lambda body with the enclosing function's shared local scope.</summary>
+    string LambdaBodyTextWithSharedScope(
+        IReadOnlyList<IrNode> statements)
+    {
+        var sb = new StringBuilder();
+        bool enclosingSuppression = _suppressStatementRanges;
+        _suppressStatementRanges = true;
+        try
+        {
+            AppendStatements(sb, statements, indent: 0);
+            return sb.ToString().Trim();
+        }
+        finally
+        {
+            _suppressStatementRanges = enclosingSuppression;
         }
     }
 

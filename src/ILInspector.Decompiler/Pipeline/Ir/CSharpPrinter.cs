@@ -537,6 +537,11 @@ public sealed partial class CSharpPrinter
     /// <summary>Optional sink recording which characters of the output each printed statement node emitted; null on the shipped print path. Drives line-anchored and range-anchored overlays (annotated views) without the printer knowing what they are.</summary>
     PrintedRangeMap? _printedRanges;
 
+    // Shared-scope lambda bodies compose into a temporary builder. Their
+    // statement ranges cannot be recorded until that text is placed in the
+    // enclosing statement, but expression text still needs to be captured.
+    bool _suppressStatementRanges;
+
     /// <summary>
     /// Text captured per expression node while <see cref="_printedRanges"/> is
     /// collecting, so <see cref="RecordExpressionRanges"/> can bind expressions to
@@ -1846,7 +1851,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
-        if (_printedRanges is null)
+        if (_printedRanges is null || _suppressStatementRanges)
         {
             AppendStatementCore(sb, node, indent, out _);
             return;
