@@ -1,5 +1,6 @@
 import type { BrowserCallGraph } from "./inspect-web-engine.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
+import { mergeInspectionErrors } from "./data.ts";
 
 export interface PlatformStackEntry {
   graph: BrowserCallGraph;
@@ -217,8 +218,9 @@ export function createCallGraphInspectionCoordinator(
       } catch (error) {
         if (!ownsRequest()) {
           if (!canceledExpansionStillMatchesView()) return;
-          state.memberCallGraphError =
-            `Workspace expansion was incomplete: ${dependencies.describeError(error)}`;
+          state.memberCallGraphError = mergeInspectionErrors(
+            state.memberCallGraphError,
+            `Workspace expansion was incomplete: ${dependencies.describeError(error)}`);
           if (state.platformDrillLoading || state.platformStack.length > 0)
             return;
           dependencies.renderPreservingMemberFocus(preservedFocus);

@@ -620,6 +620,42 @@ test("canceled expansion failure cannot contaminate a newer same-key local graph
   assert.equal(graphRenders, 1);
 });
 
+test("canceled expansion failure retains a newer same-view activation error", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraphError =
+    "Could not open Example.Widget.Hidden: exact projection failed";
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+
+  assert.equal(
+    state.memberCallGraphError,
+    "Could not open Example.Widget.Hidden: exact projection failed; "
+      + "Workspace expansion was incomplete: workspace unavailable");
+});
+
 test("initial workspace failure remains visible without rendering a graph", async () => {
   let focusRenders = 0;
   let graphRenders = 0;
