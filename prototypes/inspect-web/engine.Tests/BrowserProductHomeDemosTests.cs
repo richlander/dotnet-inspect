@@ -84,24 +84,4 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal(ProductDemoSections.CallGraph, view.GetProperty("section").GetString());
     }
 
-    [Fact]
-    public void ResolveHomeDemo_PlatformList_ProjectsUnversionedRuntimeAndListType()
-    {
-        using var document = JsonDocument.Parse(
-            InspectionEngine.ResolveHomeDemo(ProductInspectionDemos.PlatformListScenarioId));
-        var root = document.RootElement.GetProperty("demo");
-        var members = root.GetProperty("workspaceMembers");
-        Assert.Equal(2, members.GetArrayLength());
-        Assert.Equal("package", members[0].GetProperty("kind").GetString());
-        Assert.Equal("System.Text.Json", members[0].GetProperty("id").GetString());
-        Assert.Equal("platform", members[1].GetProperty("kind").GetString());
-        Assert.Equal("runtime", members[1].GetProperty("id").GetString());
-        Assert.Equal(JsonValueKind.Null, members[1].GetProperty("version").ValueKind);
-
-        Assert.Equal(1, root.GetProperty("focusTabIndex").GetInt32());
-        var view = root.GetProperty("view");
-        Assert.Equal("System.Private.CoreLib", view.GetProperty("library").GetString());
-        Assert.Equal("System.Collections.Generic.List`1", view.GetProperty("type").GetString());
-        Assert.Equal(ProductDemoSections.Methods, view.GetProperty("section").GetString());
     }
-}

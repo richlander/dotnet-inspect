@@ -584,10 +584,25 @@ The v3 compatibility adapter also owns an isolated credential-free
 `HttpClient`; it does not accept a shared client or opaque caller handler that
 could inject ambient credentials into feed-advertised resources. Its default
 desktop handler disables cookies, default credentials, and preauthentication.
+The configured source host and port may resolve to private addresses because
+that endpoint is an explicit user choice. Every feed-advertised cross-origin
+resource and every redirect hop instead uses the shared network-destination
+policy: DNS resolution and connection stay together, and any non-public
+address rejects the request. This preserves private-feed use without granting
+the feed response authority to probe another private service. The shared
+policy canonicalizes bracketed and unbracketed IPv6 host spellings before
+applying the configured-origin exception.
+Configured service indexes and feed-advertised search resources share one URL
+normalization path: it supplies the implicit root slash, normalizes IDN hosts,
+escapes literal Unicode, and preserves existing ASCII path/query escapes that
+may be signed.
 Browser/Wasm avoids unsupported handler credential properties and instead marks
-each request with `BrowserRequestCredentials.Omit`; explicit source
-authorization remains a request header. Source credentials are passed
-separately and are adopted only for same-origin resources.
+each request with `BrowserRequestCredentials.Omit` and Fetch
+`redirect: error`; explicit source authorization remains a request header.
+Because Browser/Wasm cannot enforce the desktop DNS boundary, v3 resources
+must remain on the configured source origin. The built-in Gallery continues to
+use its separate fixed-host transport. Source credentials are passed separately
+and are adopted only for same-origin resources.
 Desktop automatic redirects are disabled. A bounded source-owned redirect
 handler reapplies explicit authorization only when the target remains on the
 credential's original origin and strips it from cross-origin hops. Exceeding
@@ -601,8 +616,23 @@ construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
 gates the Gallery-specific Browser handler, and
 `GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that the Gallery
 factory uses the bounded desktop redirect policy.
-`BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential option,
-and
+`DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint` gates the configured
+private-origin exception and feed-directed destination rejection.
+`DefaultV3TransportAllowsConfiguredPrivateIpv6Source` gates IPv6-literal
+configured origins.
+`DefaultV3TransportNormalizesPathlessServiceIndexRoot` gates the implicit root
+path on the desktop wire, while
+`V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
+an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
+resource normalization.
+`DefaultV3VersionAndPackagePreserveSignedServiceIndexBytes` gates the same
+configured-index byte preservation for version and package operations on the
+desktop wire.
+`HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
+gates the same shared address policy across redirect hops.
+`BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential and
+redirect options, `BrowserV3ResourcesRequireSameOrigin` gates resource
+authorization, and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
 `DesktopRedirectLimitAllowsFiveAndRejectsSix` and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
@@ -620,7 +650,13 @@ transport profile, capability, and exact coordinate when applicable, and
 distinguish unsupported capability, exact payload absence, authentication,
 timeout, malformed metadata, bounded-response rejection, and transport
 failure. Their retained messages are source-safe summaries rather than
-transport URLs or response text. A returned payload stream remains deadline
+transport URLs or response text. Caller cancellation remains cancellation,
+deadline aborts are typed timeouts, and transport-originated cancellation with
+neither condition active is a typed transport failure.
+`V3SearchCallerCancellationRemainsCancellation`,
+`V3SearchUsesLibraryDeadline`, and
+`V3ServiceIndexTransportCancellationIsTypedTransport` gate that precedence.
+A returned payload stream remains deadline
 bound, but timeout or transport failure during its later consumption is an
 exception because the operation result has already been returned. Invalid
 caller coordinates and caller cancellation likewise remain exceptions rather
@@ -680,15 +716,31 @@ reservation, archive limits, producer authorization, and publication are not
 reimplemented in the host. Desktop package-resolution consumers remain on the
 compatibility path.
 
-The v3 compatibility adapter initially exposes version and package-payload
-operations only, and validates package coordinates before any service-index or
-payload request. Search remains on the existing package-layer service-index
-discovery path until that resource discovery moves into the typed client; the
-adapter does not restore the retired NuGet.org-only search shortcut.
+The v3 compatibility adapter exposes search, version, and package-payload
+operations. It validates package coordinates before any service-index or
+payload request. Search discovers the highest supported
+`SearchQueryService` capability from the source's service index, preserves
+equivalent endpoint order for failover, scopes credentials to the service-index
+origin, stops endpoint failover on authentication rejection, and retains signed
+endpoint query bytes. `Capabilities` describes operations implemented by the
+runtime client; a particular v3 feed that does not advertise a search resource
+returns typed `Unsupported` from that operation. The adapter does not restore
+the retired NuGet.org-only search shortcut.
 The local-folder descriptor remains modeled without a runtime client.
 `PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
+`V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
+`CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
+`V3SearchPreservesDeclaredQueryBytes`,
+`V3SearchPreservesSignedBytesWhileNormalizingIdn`,
+`V3SearchNormalizesIdnServiceIndex`,
+`V3SearchInvalidRawServiceIndexIsTypedInvalidResponse`,
+`V3MalformedAdvertisedSearchIsTypedInvalidResponse`,
+`V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
+`V3SearchUsesLibraryDeadline`,
+`V3SearchTransportTimeoutIsTypedTimeout`,
+`V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEnumerationJoinsAuthoritativeListingState`,
 `GalleryExternalRegistrationPageIsValidatedAndRebased`,
@@ -729,7 +781,6 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryClassifiesBoundedMetadataRejection`,
 `GalleryClassifiesHttpFailures`,
 `GalleryCallerCancellationRemainsCancellation`,
-`CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
 gates the Browser's listing-aware dependency range selection, and
@@ -747,7 +798,8 @@ The remaining structural problem is that existing package-resolution consumers
 still largely equate a source with a v3 service-index URL. The implementation
 should:
 
-1. Move v3 resource discovery and URL construction fully into its source client.
+1. Move remaining v3 version and payload resource discovery and URL
+   construction out of legacy `NuGetClient` and into the source client.
 2. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
    the source-client boundary.
 3. Add environment-scoped availability observations without mutating durable
