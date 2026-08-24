@@ -516,13 +516,6 @@ public static class ApiSurfaceExtractor
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             var attributes = typeDef.Attributes;
 
-            // Only include public types by default. --all (includeAll) also surfaces
-            // non-public types, including nested private/internal types, so ranking/triage rows
-            // that already surface non-public IL can be copied into type/member drill commands.
-            // Compiler-generated types are still skipped below regardless.
-            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
-                continue;
-
             budget?.BeginTypeCandidate();
             observeDecodeWork?.Invoke(
                 reader.GetBlobReader(typeDef.Name).Length
@@ -533,6 +526,21 @@ public static class ApiSurfaceExtractor
             // surfaces closure/display/state-machine types and their real fields so
             // tooling (and compile-back reconstruction) can enumerate captured state.
             if (TypeFilters.IsCompilerGenerated(leafMetadataName) && !includeCompilerGenerated)
+            {
+                RetainFilteredRuntimeJsExportFacts(
+                    reader,
+                    typeDef,
+                    surface,
+                    budget,
+                    observeDecodeWork);
+                continue;
+            }
+
+            // Only include public types by default. The filtered-export scan
+            // above intentionally precedes this visibility check: an authentic
+            // row on a private compiler-generated lambda type remains relevant
+            // failure evidence even though the type is not an API declaration.
+            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision
@@ -694,6 +702,15 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
             apiType.JsonSerializableAttributeCount =
                 jsonSerializableAttributeCount;
+            if (jsonSerializableAttributeCount > 0)
+            {
+                apiType.HasSystemTextJsonSourceGenerationMarker =
+                    AttributeReader
+                        .HasSystemTextJsonSourceGenerationMarker(
+                            reader,
+                            jsonTypeAttributes,
+                            observeDecodeWork);
+            }
             if (apiType.Kind == "enum")
             {
                 FlagsAttributeEvidence flagsEvidence =
@@ -959,6 +976,8 @@ public static class ApiSurfaceExtractor
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     GenericArity =
                         method.GetGenericParameters().Count,
+                    HasMethodBody =
+                        method.RelativeVirtualAddress != 0,
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1346,10 +1365,6 @@ public static class ApiSurfaceExtractor
                                 reader,
                                 field.GetCustomAttributes(),
                                 observeDecodeWork),
-                    JsonStringEnumMemberName =
-                        jsonStringEnumMemberNames.Count == 1
-                            ? jsonStringEnumMemberNames[0]
-                            : null,
                     JsonStringEnumMemberNameAttributeValues =
                         jsonStringEnumMemberNames,
                     Attributes = RenderMemberAttributes(
@@ -4723,6 +4738,39 @@ public static class ApiSurfaceExtractor
             evidence.HasMalformedRow));
     }
 
+    static void RetainFilteredRuntimeJsExportFacts(
+        MetadataReader reader,
+        TypeDefinition type,
+        ApiSurface surface,
+        ExtractionBudget? budget,
+        Action<int>? observeDecodeWork)
+    {
+        foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+        {
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            RuntimeJsExportAttributeEvidence evidence =
+                AttributeReader.ReadRuntimeJsExportAttributes(
+                    reader,
+                    method.GetCustomAttributes(),
+                    observeDecodeWork);
+            if (evidence.Count == 0 && !evidence.HasMalformedRow)
+                continue;
+
+            string methodName = DecodeString(
+                reader,
+                method.Name,
+                observeDecodeWork);
+            var fact = new FilteredRuntimeJsExportFact(
+                methodName,
+                MetadataTokens.GetToken(methodHandle),
+                evidence.Count,
+                evidence.HasValidRow,
+                evidence.HasMalformedRow);
+            budget?.RetainSurfaceFilteredRuntimeJsExportFact(fact);
+            surface.FilteredRuntimeJsExportFacts.Add(fact);
+        }
+    }
+
     /// <summary>
     /// Checks if a method signature contains unsafe constructs (pointers). This
     /// catches members whose signature renders a pointer; members declared
@@ -4762,6 +4810,7 @@ public static class ApiSurfaceExtractor
             AddText(ref count, root.ElementType?.DefinitionName);
             AddText(ref count, root.Type);
             AddText(ref count, root.UnsupportedReason);
+            AddText(ref count, root.TypeInfoPropertyName);
         }
         AddText(ref count, type.Interfaces);
         foreach (FilteredJsonPropertyNameFact fact
@@ -4804,7 +4853,6 @@ public static class ApiSurfaceExtractor
         {
             AddText(ref count, propertyName);
         }
-        AddText(ref count, member.JsonStringEnumMemberName);
         foreach (string? enumMemberName
             in member.JsonStringEnumMemberNameAttributeValues)
         {
@@ -5256,6 +5304,10 @@ public static class ApiSurfaceExtractor
             RetainCommittedText(CountRetainedText(member));
             _members++;
         }
+
+        public void RetainSurfaceFilteredRuntimeJsExportFact(
+            FilteredRuntimeJsExportFact fact) =>
+            RetainCommittedText(fact.MethodName);
 
         /// <summary>Counts one retained metadata-row rejection.</summary>
         public void RetainInspectionFailure(ApiSurfaceInspectionFailure failure)

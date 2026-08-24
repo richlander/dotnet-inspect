@@ -155,6 +155,20 @@ public class ApiSurface
 
     public List<ApiType> Types { get; set; } = [];
 
+    [JsonIgnore]
+    public List<FilteredRuntimeJsExportFact> FilteredRuntimeJsExportFacts
+        { get; set; } = [];
+
+    [JsonPropertyName("filtered_runtime_js_export_facts")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FilteredRuntimeJsExportFact>? FilteredRuntimeJsExportEvidence
+    {
+        get => FilteredRuntimeJsExportFacts.Count == 0
+            ? null
+            : FilteredRuntimeJsExportFacts;
+        set => FilteredRuntimeJsExportFacts = value ?? [];
+    }
+
     public List<ApiSurfaceInspectionFailure> InspectionFailures { get; set; } = [];
 
     [JsonIgnore]
@@ -818,6 +832,16 @@ public class ApiType
     [JsonIgnore]
     public JsonSourceGenerationMode JsonSourceGenerationMode { get; set; }
 
+    /// <summary>
+    /// Whether an extracted serializer registration type carries the authentic
+    /// marker emitted by the System.Text.Json source generator. Registration
+    /// attributes and matching getter names do not establish generated
+    /// implementation provenance by themselves. Null is retained for ordinary
+    /// types and older or hand-composed surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasSystemTextJsonSourceGenerationMarker { get; set; }
+
     [JsonIgnore]
     public List<FilteredJsonPropertyNameFact> FilteredJsonPropertyNameFacts
         { get; set; } = [];
@@ -1063,6 +1087,13 @@ public class ApiMember
     public bool IsAsync { get; set; }
 
     /// <summary>
+    /// Whether this MethodDef has a managed body RVA. Null is retained for
+    /// older or hand-composed surfaces that predate the exact metadata fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasMethodBody { get; set; }
+
+    /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").
     /// Null for public members.
     /// </summary>
@@ -1187,10 +1218,32 @@ public class ApiMember
     public bool HasMalformedRuntimeJsExportAttribute { get; set; }
 
     [JsonIgnore]
-    public string? JsonStringEnumMemberName { get; set; }
+    public List<string?> JsonStringEnumMemberNameAttributeValues { get; set; } = [];
 
     [JsonIgnore]
-    public List<string?> JsonStringEnumMemberNameAttributeValues { get; set; } = [];
+    public string? JsonStringEnumMemberName =>
+        JsonStringEnumMemberNameAttributeValues is [string name]
+            ? name
+            : null;
+
+    /// <summary>
+    /// Ordered persisted evidence for authentic
+    /// <c>[JsonStringEnumMemberName]</c> rows. Null entries retain malformed
+    /// rows, and the resolved wire name is derived only from one valid row.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsEnumWireNameEvidence</c>
+    /// gates the production JSON contract.
+    /// </remarks>
+    [JsonPropertyName("json_string_enum_member_names")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string?>? JsonStringEnumMemberNameEvidence
+    {
+        get => JsonStringEnumMemberNameAttributeValues.Count == 0
+            ? null
+            : JsonStringEnumMemberNameAttributeValues;
+        set => JsonStringEnumMemberNameAttributeValues = value ?? [];
+    }
 
     /// <summary>
     /// True if the member carries an [Obsolete] attribute.
@@ -1583,15 +1636,15 @@ public sealed record ApiJsonSerializableRoot(
     string? TypeInfoPropertyName = null)
 {
     /// <summary>
-    /// Exact registered root shape. Null means the authentic row was
-    /// well-formed but names a shape the metadata model cannot represent.
+    /// Exact registered root shape. Null means the authentic row was unreadable
+    /// or names a shape the metadata model cannot represent.
     /// </summary>
     [JsonIgnore]
     public ApiTypeShape? Type { get; init; }
 
     /// <summary>
-    /// Visible failure evidence for an authentic root whose type shape is not
-    /// supported. This is distinct from malformed attribute metadata.
+    /// Visible failure evidence for an authentic root whose metadata or type
+    /// shape is not supported.
     /// </summary>
     [JsonIgnore]
     public string? UnsupportedReason { get; init; }

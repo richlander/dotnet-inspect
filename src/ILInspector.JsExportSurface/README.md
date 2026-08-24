@@ -10,8 +10,11 @@
   method, with its declaring type, parameters, and return type reported
   unmodified (a `Task<string>` is reported as `Task<string>`, never unwrapped
   to a target-language concept such as `Promise<T>`). Attributed operators,
-  constructors, and other non-method member kinds are rejected: they do not
-  receive runtime JSExport glue.
+  constructors, generic methods, bodyless `abstract`/`extern` methods, and
+  other non-method member kinds are rejected: they do not receive runtime
+  JSExport glue. Authentic rows on filtered MethodDefs, including lambdas in
+  compiler-generated types, remain surface-scoped failure evidence rather than
+  disappearing with the filtered API declaration.
 - **Records** — the transitive closure of record shapes reachable from the
   assembly's `JsonSerializerContext`-derived type's `[JsonSerializable(typeof(T))]`
   roots, since `[JSExport]` method signatures alone don't reveal the DTO shapes
@@ -24,6 +27,19 @@
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
 consumer such as [`tsbindgen`](../tsbindgen).
+
+Serializer-context getters authenticate registered roots only when their
+context carries the authentic
+`[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
+the System.Text.Json source generator. A handwritten context with matching
+`[JsonSerializable]`, property name, and `JsonTypeInfo<T>` signature remains
+unsupported when reached.
+
+`JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
+`Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
+`Build_RejectsReachedHandwrittenSerializerContextGetter`, and
+`TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
+gate these publishability and provenance boundaries against compiled fixtures.
 
 Generated serializer-root properties use System.Text.Json's default name
 grammar: a vector appends `Array`, while a rank-*N* multidimensional array

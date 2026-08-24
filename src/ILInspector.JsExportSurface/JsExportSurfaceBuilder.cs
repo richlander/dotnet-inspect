@@ -66,6 +66,11 @@ public static class JsExportSurfaceBuilder
 
         var functions = new List<JsExportFunction>();
         var functionTokens = new Dictionary<JsExportFunction, int>();
+        foreach (FilteredRuntimeJsExportFact fact
+            in surface.FilteredRuntimeJsExportFacts)
+        {
+            ValidateFilteredJsExportEvidence(fact);
+        }
         foreach (ApiType type in surface.Types)
         {
             foreach (FilteredRuntimeJsExportFact fact
@@ -95,6 +100,12 @@ public static class JsExportSurfaceBuilder
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
                         "generic JS exports have no runtime wrapper");
+                }
+                if (member.HasMethodBody == false)
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "bodyless JS exports have no runtime wrapper");
                 }
 
                 if (member.IsUnsafe)
@@ -209,7 +220,15 @@ public static class JsExportSurfaceBuilder
                         case RegisteredRootPropertyMatch.Supported:
                             if (member.GetterToken is { } getterToken)
                             {
-                                if (hasUnsupportedContextOptions)
+                                if (type
+                                    .HasSystemTextJsonSourceGenerationMarker
+                                    == false)
+                                {
+                                    unsupportedJsonTypeInfoGetterReasons[
+                                        getterToken] =
+                                            "serializer context has no authentic System.Text.Json source-generation marker";
+                                }
+                                else if (hasUnsupportedContextOptions)
                                 {
                                     unsupportedJsonTypeInfoGetterReasons[
                                         getterToken] =

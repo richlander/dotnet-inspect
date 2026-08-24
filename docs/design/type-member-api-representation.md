@@ -107,6 +107,31 @@ remains a named shape rather than aliasing an intrinsic primitive.
 and `ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly` gate that
 contract.
 
+`ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
+the API member: live extraction distinguishes a concrete managed body from an
+`abstract` or `extern` declaration, while null remains the compatibility shape
+for older or hand-composed surfaces. Authentic `[JSExport]` rows on MethodDefs
+that have no declarable `ApiMember` remain `FilteredRuntimeJsExportFact`
+evidence on their retained type, or on `ApiSurface` when the MethodDef belongs
+to a wholly filtered compiler-generated type. These are publishability facts,
+not invented API members.
+`JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
+`Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`, and
+`ApiOutputFormatterTests.ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence`
+gate extraction, consumption, and persistence.
+
+Serializer-root evidence also retains the exact custom
+`TypeInfoPropertyName`, an authentic STJ source-generator marker on the owning
+context, and one unsupported placeholder per undecodable authentic
+`[JsonSerializable]` row. Custom property names participate in the extraction
+retained-text budget; malformed rows therefore remain local reached evidence
+without creating an unbounded or success-shaped side channel.
+`ApiSurfaceExtractorBoundsTests.JsonSerializablePropertyNameContributesItsRetainedText`,
+`JsonSerializableAttributeTests.ReadJsonSerializableRoots_RetainsFullyMalformedAuthenticRow`,
+and
+`JsExportSurfaceBuilderTests.Build_RejectsReachedHandwrittenSerializerContextGetter`
+are the gates.
+
 #### `ILInspector.Analysis`
 
 | Currency | Scope | Answers | Does not answer |

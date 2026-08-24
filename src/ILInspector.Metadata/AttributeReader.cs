@@ -36,6 +36,11 @@ public static partial class AttributeReader
         "System.Runtime.InteropServices.JavaScript.JSExportAttribute";
     private const string RuntimeJavaScriptAssemblyName =
         "System.Runtime.InteropServices.JavaScript";
+    private const string GeneratedCodeAttributeName =
+        "System.CodeDom.Compiler.GeneratedCodeAttribute";
+    private const string SystemRuntimeAssemblyName = "System.Runtime";
+    private const string SystemTextJsonSourceGeneratorName =
+        "System.Text.Json.SourceGeneration";
     private const string JsonStringEnumMemberNameAttributeName =
         "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
     private const string JsonSerializableAttributeName =
@@ -613,6 +618,51 @@ public static partial class AttributeReader
         return new(count, validRowCount, hasMalformedRow);
     }
 
+    /// <summary>
+    /// Recognizes the authentic type marker emitted by the System.Text.Json
+    /// source generator. The framework attribute identity, constructor shape,
+    /// and generator name are all required.
+    /// </summary>
+    public static bool HasSystemTextJsonSourceGenerationMarker(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(attrHandle);
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    GeneratedCodeAttributeName,
+                    SystemRuntimeAssemblyName,
+                    beforeMaterialize)
+                || !HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.StringString,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 2,
+                        NamedArguments.Length: 0,
+                    } decoded
+                || decoded.FixedArguments[0].Value is not string generatorName
+                || decoded.FixedArguments[1].Value is not string)
+            {
+                continue;
+            }
+
+            if (generatorName == SystemTextJsonSourceGeneratorName)
+                return true;
+        }
+
+        return false;
+    }
+
 
     /// <summary>
     /// Reads one entry per authentic <c>[JsonIgnore]</c> row on a member, in
@@ -975,6 +1025,13 @@ public static partial class AttributeReader
                     out string? typeInfoPropertyName,
                     out JsonSourceGenerationMode generationMode))
             {
+                roots.Add(new(
+                    ElementType: null,
+                    IsArray: false)
+                {
+                    UnsupportedReason =
+                        "JsonSerializable metadata is malformed or unsupported",
+                });
                 continue;
             }
 
@@ -1437,6 +1494,7 @@ public static partial class AttributeReader
         Marker,
         SystemType,
         String,
+        StringString,
         JsonSerializerDefaults,
         JsonNumberHandling,
     }
@@ -1535,6 +1593,12 @@ public static partial class AttributeReader
                 FrameworkConstructorKind.String =>
                     signature.ParameterTypes is
                     [
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.StringString =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                     ],
                 FrameworkConstructorKind.JsonSerializerDefaults =>

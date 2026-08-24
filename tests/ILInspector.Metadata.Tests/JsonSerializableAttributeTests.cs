@@ -90,6 +90,37 @@ public sealed class JsonSerializableAttributeTests
             root.Definition?.DefinitionName?.Segments);
     }
 
+    [Fact]
+    public void ReadJsonSerializableRoots_RetainsFullyMalformedAuthenticRow()
+    {
+        using var stream = new MemoryStream(
+            BuildImage(serializedTypeName: null),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition context = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        List<ApiJsonSerializableRoot> roots =
+            AttributeReader.ReadJsonSerializableRoots(
+                reader,
+                context.GetCustomAttributes(),
+                new ApiAssemblyIdentity(
+                    "Probe",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                out int attributeCount);
+
+        Assert.Equal(1, attributeCount);
+        ApiJsonSerializableRoot root = Assert.Single(roots);
+        Assert.Null(root.Type);
+        Assert.Null(root.TypeInfoPropertyName);
+        Assert.Equal(
+            "JsonSerializable metadata is malformed or unsupported",
+            root.UnsupportedReason);
+    }
+
     static string Qualified(string typeName) =>
         $"{typeName}, {ProbeAssemblyIdentity}";
 
@@ -123,7 +154,7 @@ public sealed class JsonSerializableAttributeTests
         return Assert.Single(roots);
     }
 
-    static byte[] BuildImage(string serializedTypeName)
+    static byte[] BuildImage(string? serializedTypeName)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -205,8 +236,11 @@ public sealed class JsonSerializableAttributeTests
             MetadataTokens.MethodDefinitionHandle(1));
         var value = new BlobBuilder();
         value.WriteUInt16(1);
-        value.WriteSerializedString(serializedTypeName);
-        value.WriteUInt16(0);
+        if (serializedTypeName is not null)
+        {
+            value.WriteSerializedString(serializedTypeName);
+            value.WriteUInt16(0);
+        }
         metadata.AddCustomAttribute(
             context,
             constructor,

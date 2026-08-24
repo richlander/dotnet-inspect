@@ -2404,11 +2404,62 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void ApiTypeJson_RoundTripsEnumWireNameEvidence()
+    {
+        var type = new ApiType
+        {
+            Name = "State",
+            Kind = "enum",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Ready",
+                    Kind = "field",
+                    JsonStringEnumMemberNameAttributeValues =
+                    [
+                        "wire-ready",
+                    ],
+                },
+                new ApiMember
+                {
+                    Name = "Malformed",
+                    Kind = "field",
+                    JsonStringEnumMemberNameAttributeValues = [null],
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        ApiMember ready = Assert.Single(
+            restored.Members,
+            member => member.Name == "Ready");
+        ApiMember malformed = Assert.Single(
+            restored.Members,
+            member => member.Name == "Malformed");
+
+        Assert.Contains(
+            "\"json_string_enum_member_names\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Equal(["wire-ready"], ready.JsonStringEnumMemberNameAttributeValues);
+        Assert.Equal("wire-ready", ready.JsonStringEnumMemberName);
+        Assert.Equal([null], malformed.JsonStringEnumMemberNameAttributeValues);
+        Assert.Null(malformed.JsonStringEnumMemberName);
+    }
+
+    [Fact]
     public void ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence()
     {
         var type = new ApiType
         {
             Name = "Exports",
+            HasSystemTextJsonSourceGenerationMarker = true,
             FilteredRuntimeJsExportFacts =
             [
                 new(
@@ -2425,6 +2476,7 @@ public class ApiOutputFormatterTests
                     Name = "Run",
                     Kind = "method",
                     GenericArity = 1,
+                    HasMethodBody = false,
                     HasRuntimeJsExport = true,
                     RuntimeJsExportAttributeCount = 2,
                     HasMalformedRuntimeJsExportAttribute = true,
@@ -2463,6 +2515,11 @@ public class ApiOutputFormatterTests
             json,
             StringComparison.Ordinal);
         Assert.Contains("\"generic_arity\": 1", json, StringComparison.Ordinal);
+        Assert.Contains("\"has_method_body\": false", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_system_text_json_source_generation_marker\": true",
+            json,
+            StringComparison.Ordinal);
         Assert.Contains(
             "\"index_parameter_count\": 0",
             json,
@@ -2475,11 +2532,48 @@ public class ApiOutputFormatterTests
         Assert.Equal(2, evidence.RuntimeJsExportAttributeCount);
         Assert.True(evidence.HasMalformedRuntimeJsExportAttribute);
         Assert.Equal(1, evidence.GenericArity);
+        Assert.False(evidence.HasMethodBody);
+        Assert.True(restored.HasSystemTextJsonSourceGenerationMarker);
         Assert.Equal(0, property.IndexParameterCount);
         Assert.Equal("<Run>g__Local|0_0", filtered.MethodName);
         Assert.Equal(1, filtered.AttributeCount);
         Assert.True(filtered.HasValidRow);
         Assert.False(filtered.HasMalformedRow);
+    }
+
+    [Fact]
+    public void ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence()
+    {
+        var surface = new ApiSurface
+        {
+            Name = "Fixtures",
+            FilteredRuntimeJsExportFacts =
+            [
+                new(
+                    "<Create>b__0_0",
+                    0x06000002,
+                    AttributeCount: 1,
+                    HasValidRow: true,
+                    HasMalformedRow: false),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            surface,
+            ApiJsonContext.Default.ApiSurface);
+        ApiSurface restored = JsonSerializer.Deserialize(
+            json,
+            ApiJsonContext.Default.ApiSurface)!;
+        FilteredRuntimeJsExportFact fact = Assert.Single(
+            restored.FilteredRuntimeJsExportFacts);
+
+        Assert.Contains(
+            "\"filtered_runtime_js_export_facts\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Equal("<Create>b__0_0", fact.MethodName);
+        Assert.Equal(0x06000002, fact.MetadataToken);
+        Assert.True(fact.HasValidRow);
     }
 
     [Fact]

@@ -361,6 +361,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void JsonSerializablePropertyNameContributesItsRetainedText()
+    {
+        const string propertyName = "RegisteredCustomPayload";
+        var withoutName = new ApiType
+        {
+                JsonSerializableRoots =
+                [
+                    new(ElementType: null, IsArray: false),
+                ],
+        };
+        var withName = new ApiType
+        {
+                JsonSerializableRoots =
+                [
+                    new(
+                        ElementType: null,
+                        IsArray: false,
+                        TypeInfoPropertyName: propertyName),
+                ],
+        };
+
+        Assert.Equal(
+                propertyName.Length,
+                ApiSurfaceExtractor.CountRetainedText(withName)
+                    - ApiSurfaceExtractor.CountRetainedText(withoutName));
+    }
+
+    [Fact]
     public void GetterAccessibilityContributesItsRetainedText()
     {
         const string accessibility = "private";

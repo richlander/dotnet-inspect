@@ -8,6 +8,7 @@ using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.NamingFixtures;
 using ILInspector.JsExportSurface.OperatorFixtures;
+using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.ScalarFixtures;
 using ILInspector.Metadata;
 
@@ -354,6 +355,111 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsBodylessJsExportsWithoutRuntimeWrappers()
+    {
+        string path =
+            typeof(BodylessInterfaceExportFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+
+        foreach (string typeName in new[]
+        {
+            nameof(BodylessInterfaceExportFixture),
+            nameof(BodylessExternExportFixture),
+        })
+        {
+            ApiType fixture = Assert.Single(
+                extracted.Types,
+                type => type.Name == typeName);
+            ApiMember method = Assert.Single(
+                fixture.Members,
+                member => member.Name == "Compute");
+            var isolated = new ApiSurface
+            {
+                AssemblyIdentity = extracted.AssemblyIdentity,
+                Types = [fixture],
+            };
+
+            Assert.True(method.HasRuntimeJsExport);
+            Assert.False(method.HasMethodBody);
+            UnsupportedJsExportSurfaceException exception =
+                Assert.Throws<UnsupportedJsExportSurfaceException>(
+                    () => JsExportSurfaceBuilder.Build(isolated));
+            Assert.Contains(
+                "bodyless JS exports have no runtime wrapper",
+                exception.Message,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes()
+    {
+        string path = typeof(LambdaExportFixture).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+
+        FilteredRuntimeJsExportFact fact = Assert.Single(
+            apiSurface.FilteredRuntimeJsExportFacts);
+        Assert.StartsWith(
+            "<Create>b__",
+            fact.MethodName,
+            StringComparison.Ordinal);
+        Assert.Equal(1, fact.AttributeCount);
+        Assert.True(fact.HasValidRow);
+        Assert.False(fact.HasMalformedRow);
+        Assert.DoesNotContain(
+            apiSurface.Types,
+            type => type.Name.StartsWith("<", StringComparison.Ordinal));
+
+        apiSurface.Types = [];
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+        Assert.Contains(
+            "filtered MethodDefs",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsReachedHandwrittenSerializerContextGetter()
+    {
+        string path =
+            typeof(HandwrittenContextExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(HandwrittenJsonContext));
+        ApiType generatedContext = Assert.Single(
+            ExtractFixtureApiSurface().Types,
+            type => type.Name == nameof(FixtureJsonContext));
+
+        Assert.False(context.HasSystemTextJsonSourceGenerationMarker);
+        Assert.True(
+            generatedContext.HasSystemTextJsonSourceGenerationMarker);
+
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        apiSurface.Types =
+        [
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == nameof(HandwrittenPayload)),
+            context,
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name == nameof(HandwrittenContextExports)),
+        ];
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+        Assert.Contains(
+            "no authentic System.Text.Json source-generation marker",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence()
     {
         string path = typeof(FilteredJsExportFixture).Assembly.Location;
@@ -395,6 +501,8 @@ public sealed class JsExportSurfaceBuilderTests
             typeof(ScalarContextOptionsFixtureExports).Assembly.Location);
         string[] operatorMethodNames = ReadMethodNames(
             typeof(JsExportOperatorFixture).Assembly.Location);
+        string[] publishabilityMethodNames = ReadMethodNames(
+            typeof(BodylessInterfaceExportFixture).Assembly.Location);
 
         Assert.Contains(
             ordinaryMethodNames,
@@ -421,6 +529,24 @@ public sealed class JsExportSurfaceBuilderTests
             name => name.Contains(
                 "InvokeLocal",
                 StringComparison.Ordinal)
+                && name.StartsWith(
+                    "__Wrapper_",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            publishabilityMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_GetPayload_",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            publishabilityMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_Compute_",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            publishabilityMethodNames,
+            name => name.Contains(
+                    "Create",
+                    StringComparison.Ordinal)
                 && name.StartsWith(
                     "__Wrapper_",
                     StringComparison.Ordinal));

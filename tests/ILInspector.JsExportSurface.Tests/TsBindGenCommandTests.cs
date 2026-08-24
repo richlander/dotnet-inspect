@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.OperatorFixtures;
+using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.ScalarFixtures;
 using tsbindgen;
 
@@ -468,6 +469,42 @@ public sealed class TsBindGenCommandTests
             Assert.Empty(output.ToString());
             Assert.Contains(
                 "JS exports must be ordinary methods",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existingJavaScript, File.ReadAllText(emitJsPath));
+        }
+        finally
+        {
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_FilteredGeneratedTypeExportFailsBeforePublication()
+    {
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-filtered-generated-type-export.js");
+        const string existingJavaScript = "// existing JavaScript wrapper";
+        try
+        {
+            File.WriteAllText(emitJsPath, existingJavaScript);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [
+                    typeof(LambdaExportFixture).Assembly.Location,
+                    "--emit-js",
+                    emitJsPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "filtered MethodDefs",
                 error.ToString(),
                 StringComparison.Ordinal);
             Assert.Equal(existingJavaScript, File.ReadAllText(emitJsPath));

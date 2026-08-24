@@ -58,6 +58,10 @@ Record shapes are therefore discovered from the assembly's authentic,
 framework-signed `JsonSerializerContext`-derived type: each
 `[JsonSerializable(typeof(T))]` on that type compiles to a property whose
 `JsonTypeInfo<T>` definition is likewise authenticated to System.Text.Json.
+The context must also carry the authentic
+`[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
+the STJ generator; a handwritten context cannot inherit generated-contract
+trust from a matching attribute, getter name, and signature alone.
 The property is accepted only when its metadata property identity is the
 row's `TypeInfoPropertyName`, or STJ's structured default generated name when
 that argument is absent, and its `T` identity matches the authenticated row.
@@ -89,7 +93,9 @@ An authentic malformed root whose default property name cannot be recovered is
 retained against otherwise-unmatched, trusted `JsonTypeInfo<T>` getters in that
 same context. It therefore fails only when body evidence reaches such a getter
 instead of disappearing as an absent registration or poisoning unrelated
-contexts.
+contexts. Even a fully undecodable authentic row retains one unsupported
+placeholder root, so malformed row counts cannot globally poison unrelated
+contexts before getter reachability is known.
 These checks use assembly-scoped, structured metadata identity rather than
 matching flattened names as text; a nested type cannot alias an expected
 top-level System.Text.Json definition.
@@ -120,8 +126,12 @@ gate the generated-name and exact-shape boundaries.
 array-name, reached-failure, and runtime-boundary contracts.
 `JsonSerializableAttributeTests.ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly`
 and
+`ReadJsonSerializableRoots_RetainsFullyMalformedAuthenticRow` plus
 `JsExportSurfaceBuilderTests.Build_BindsUnnamedMalformedRootToReachedTrustedGetter`
-gate primitive provenance and unnamed malformed-root reachability.
+gate primitive provenance, malformed-row retention, and unnamed malformed-root
+reachability. `Build_RejectsReachedHandwrittenSerializerContextGetter` gates
+the source-generator marker boundary against a compiled handwritten context
+carrying a different authentic `GeneratedCode` marker.
 
 Serialized generic root arguments use a strict structural grammar. Leading,
 doubled, and trailing delimiters are unsupported, and the sum of canonical
@@ -359,8 +369,13 @@ default System.Text.Json numeric fallback: regular enums are a string-literal
 union plus `number`, while flags enums are `string | number`. Arbitrary values
 are safely escaped, equal wire values are deduplicated in the TypeScript union,
 and duplicate or malformed attribute rows stop generation before output.
+The ordered nullable row evidence is persisted in production API JSON, and the
+single resolved wire name is derived from that evidence after a round trip
+rather than falling back to the CLR field name.
 `JsonPropertyNameAttributeTests.JsonStringEnumMemberName*` gates ordered
 metadata evidence, while
+`ApiOutputFormatterTests.ApiTypeJson_RoundTripsEnumWireNameEvidence` gates the
+production JSON contract and
 `DtsEmitterTests.Emit_ProjectsStringConvertedEnumAsStringLiteralAndNumberUnion`,
 `Emit_ProjectsStringConvertedFlagsEnumAsStringAndNumber`,
 `SourceGeneratedJson_StringEnumConverterAllowsUndefinedNumericValues`,
@@ -449,9 +464,12 @@ valid-plus-malformed, and duplicate-valid evidence stop before declaration or
 wrapper emission, while untrusted lookalikes remain absent.
 MethodDefs deliberately filtered from the declarable API inventory retain the
 same evidence separately on their containing type, so an attributed accessor
-or compiler-generated local function cannot disappear as absence. Method
-generic arity is likewise persisted: the runtime generator emits no generic
-method wrapper, so a generic `[JSExport]` is rejected before publication.
+or compiler-generated local function cannot disappear as absence. Rows inside
+a wholly filtered compiler-generated type are retained at surface scope for
+the same reason. Method generic arity and exact MethodDef body presence are
+likewise persisted: the runtime generator emits no generic, `abstract`, or
+`extern` method wrapper, so those `[JSExport]` shapes are rejected before
+publication.
 `JsExportSurfaceBuilderTests.Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`,
 `Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
 `ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`
@@ -461,10 +479,15 @@ other `ApiMember.Kind` values. An authentic non-method `[JSExport]` therefore
 fails before declarations or wrappers are emitted.
 `JsExportSurfaceBuilderTests.Build_RejectsAuthenticJsExportOperatorBeforePublication`,
 `Build_RejectsGenericJsExportWithoutRuntimeWrapper`,
+`Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence`,
+`Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
 `SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers`, and
-`TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` are the
-gates.
+`TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication`
+plus `Invoke_FilteredGeneratedTypeExportFailsBeforePublication` are the gates.
+`ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`
+and `ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence` gate the
+persistent MethodDef and surface-level evidence.
 `Extract_ChargesSerializedConverterTypeNameBeforeDecode` gates bounded
 materialization accounting for converter-controlled serialized type names.
 Property and field metadata tokens identify the precise offending row in fatal
