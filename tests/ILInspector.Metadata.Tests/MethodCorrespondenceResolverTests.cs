@@ -393,13 +393,14 @@ public sealed class MethodCorrespondenceResolverTests
     public void ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget()
     {
         byte[] sourceImage =
-            BuildNearLimitApiCandidateImage(
-                methodCount: 1,
-                typeNameLength: 0);
+            BuildWideGenericModoptImage(
+                parameterCount: 0,
+                genericArity: 1);
         byte[] targetImage =
-            BuildNearLimitApiCandidateImage(
-                methodCount: 8,
-                typeNameLength: 900_000);
+            BuildWideGenericModoptImage(
+                parameterCount: 30,
+                genericArity: 2_030,
+                methodCount: 8);
         using var sourcePe =
             new PEReader(new MemoryStream(sourceImage));
         using var targetPe =
@@ -423,7 +424,7 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
         Assert.Contains("correspondence anchor work budget", result.Failure);
         Assert.True(
-            allocated < 64 * 1024 * 1024,
+            allocated < 24 * 1024 * 1024,
             $"Correspondence rejection allocated {allocated:N0} bytes.");
     }
 
@@ -1161,55 +1162,6 @@ public sealed class MethodCorrespondenceResolverTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildNearLimitApiCandidateImage(
-        int methodCount,
-        int typeNameLength)
-    {
-        var metadata = CreateSingleTypeMetadata("NearLimitCandidates");
-        BlobHandle signature;
-        if (typeNameLength == 0)
-        {
-            signature = metadata.GetOrAddBlob(
-                new byte[] { 0x00, 0x00, 0x01 });
-        }
-        else
-        {
-            AssemblyReferenceHandle assembly =
-                metadata.AddAssemblyReference(
-                    metadata.GetOrAddString("Dependency"),
-                    new Version(1, 0, 0, 0),
-                    default,
-                    default,
-                    default,
-                    default);
-            metadata.AddTypeReference(
-                assembly,
-                metadata.GetOrAddString("Dependency"),
-                metadata.GetOrAddString(
-                    new string('T', typeNameLength)));
-            var signatureBuilder = new BlobBuilder();
-            signatureBuilder.WriteByte(0x00);
-            signatureBuilder.WriteCompressedInteger(1);
-            signatureBuilder.WriteByte(0x01);
-            signatureBuilder.WriteByte(0x12);
-            signatureBuilder.WriteCompressedInteger((1 << 2) | 1);
-            signature = metadata.GetOrAddBlob(signatureBuilder);
-        }
-
-        StringHandle name = metadata.GetOrAddString("M");
-        for (int i = 0; i < methodCount; i++)
-        {
-            metadata.AddMethodDefinition(
-                MethodAttributes.Public | MethodAttributes.Static,
-                MethodImplAttributes.IL,
-                name,
-                signature,
-                bodyOffset: 0,
-                MetadataTokens.ParameterHandle(1));
-        }
-        return Serialize(metadata);
-    }
-
     static byte[] BuildManyMethodGenericParametersImage(
         int genericParameterCount,
         int genericParameterNameLength)
@@ -1433,7 +1385,8 @@ public sealed class MethodCorrespondenceResolverTests
 
     static byte[] BuildWideGenericModoptImage(
         int parameterCount,
-        int genericArity)
+        int genericArity,
+        int methodCount = 1)
     {
         var metadata = CreateSingleTypeMetadata("WideGenericModopt");
         AssemblyReferenceHandle assembly =
@@ -1475,13 +1428,18 @@ public sealed class MethodCorrespondenceResolverTests
             signature.WriteCompressedInteger(typeSpecCodedIndex);
             signature.WriteByte(0x08);
         }
-        metadata.AddMethodDefinition(
-            MethodAttributes.Public | MethodAttributes.Static,
-            MethodImplAttributes.IL,
-            metadata.GetOrAddString("M"),
-            metadata.GetOrAddBlob(signature),
-            bodyOffset: 0,
-            MetadataTokens.ParameterHandle(1));
+        BlobHandle signatureBlob = metadata.GetOrAddBlob(signature);
+        StringHandle methodName = metadata.GetOrAddString("M");
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signatureBlob,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata);
     }
 
