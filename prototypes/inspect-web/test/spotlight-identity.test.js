@@ -33,17 +33,22 @@ import {
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   memberSectionIdsFor,
+  mergeInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
   parameterTitleHtml,
+  platformPackFromProvenance,
+  platformPackToken,
   removeWorkspacePackage,
   removeAppendedNotice,
   replaceCurrentNavigationEntry,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  resolveOpportunitySourceType,
+  resolvePlatformGraphTargetType,
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
@@ -52,6 +57,7 @@ import {
   sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  typeLensesFor,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.ts";
@@ -372,6 +378,130 @@ const commandBarSource = readFileSync(
   new URL("../src/command-bar.ts", import.meta.url),
   "utf8");
 
+test("platform type and member navigation hides package-only operations", () => {
+  assert.deepEqual(
+    typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
+    ["api"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }, true),
+    ["overview", "call-graph", "facts"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }, false),
+    ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+test("platform call graphs carry the target pack into lazy acquisition", () => {
+  assert.equal(
+    platformPackFromProvenance(
+      "Microsoft.AspNetCore.Http",
+      "aspnetcore.app",
+      [],
+      [],
+      []),
+    "aspnetcore.app");
+  assert.equal(
+    platformPackFromProvenance(
+      "Microsoft.AspNetCore.Http",
+      null,
+      [{
+        name: "Microsoft.AspNetCore.Http",
+        platformPack: "aspnetcore.app"
+      }],
+      [],
+      []),
+    "aspnetcore.app");
+  assert.match(
+    appSource,
+    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
+  assert.match(
+    appSource,
+    /platformType:\s*type\.definitionId\s*\?\?\s*type\.metadataId[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
+  assert.match(
+    callGraphInspectionSource,
+    /pack:\s*request\.platformPack/);
+  assert.match(
+    appSource,
+    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.assembly,\s*request\.pack/);
+});
+
+test("platform pack inference rejects cross-family ambiguity", () => {
+  assert.throws(
+    () => platformPackFromProvenance(
+      "Shared",
+      null,
+      [
+        { name: "Shared", platformPack: "netcore.app" },
+        { name: "Shared", platformPack: "aspnetcore.app" }
+      ],
+      [],
+      []),
+    /available from multiple platform packs/);
+  assert.equal(
+    platformPackFromProvenance(
+      "Shared",
+      null,
+      [{ name: "Shared", platformPack: "netcore.app" }],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }]),
+    "netcore.app");
+  assert.equal(
+    platformPackFromProvenance(
+      "Shared",
+      null,
+      [],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }],
+      [{ assembly: "Shared", pack: "netcore.app" }]),
+    "netcore.app");
+  assert.equal(
+    platformPackFromProvenance(
+      "Shared",
+      "aspnetcore.app",
+      [{ name: "Shared", platformPack: "netcore.app" }],
+      [],
+      [{ assembly: "Shared", pack: "aspnetcore.app" }]),
+    "aspnetcore.app");
+  assert.match(
+    appSource,
+    /const resident = runtimeAssemblyIsResident\(\s*runtimePackPackage\(\),\s*key,\s*pack\)/);
+});
+
+test("shared platform state preserves an exact pack token", () => {
+  assert.equal(platformPackToken("aspnetcore.app"), "aspnetcore.app");
+  assert.equal(platformPackToken("netcore.app"), "netcore.app");
+  assert.equal(platformPackToken("unknown.app"), null);
+  assert.match(
+    workspaceNavigationSource,
+    /if \(state\.libraryPack\) packet\.p = state\.libraryPack/);
+  assert.match(
+    workspaceNavigationSource,
+    /libraryPack:\s*platformPackToken\(raw\.p\)/);
+  assert.match(
+    appSource,
+    /platformPackForAssembly\(key,\s*libraryPack\)/);
+});
+
+test("platform inspection notices survive cumulative surface loads", () => {
+  assert.equal(
+    mergeInspectionErrors("", "System.Synthetic: omitted 1 metadata row."),
+    "System.Synthetic: omitted 1 metadata row.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: omitted 1 metadata row.",
+      "Second: omitted 2 metadata rows."),
+    "First: omitted 1 metadata row.; Second: omitted 2 metadata rows.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: omitted 1 metadata row.",
+      "First: omitted 1 metadata row."),
+    "First: omitted 1 metadata row.");
+  assert.match(
+    packageAcquisitionSource,
+    /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);
+  assert.match(
+    packageAcquisitionSource,
+    /inspectionError:\s*result\.inspectionError\s*\|\|\s*""/);
+});
+
 test("typed Spotlight owns search presentation and hosts commands", () => {
   assert.match(
     appSource,
@@ -659,7 +789,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const homeBinding =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ The two package demos)/)?.[0]
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Home buttons use product demo ids)/)?.[0]
     ?? "";
   const loadingBinding =
     appSource.match(/function renderLoading\(\) \{[\s\S]*?\n}(?=\n\nasync function loadSelectedMemberDocumentation)/)?.[0]
@@ -772,7 +902,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(active, nodeId\)/);
   assert.match(
     callGraphBinding,
-    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0" \|\| !target\.assembly \|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);\s*if \(drilled\) \{\s*if \(target\.id === "n0"[\s\S]*\|\| !target\.assemblyVersion[\s\S]*\|\| !typeId\) return null;[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*resolveLoadedGraphTargetCandidate[\s\S]*graphTargetNavigationDisposition[\s\S]*if \(disposition === "blocked" \|\| disposition === "none"\) return null;[\s\S]*navigateToMember\([\s\S]*openGraphSource\([\s\S]*navigateOrDrillPlatform\(target\)/);
   assert.match(
     callGraphBinding,
     /if \(drilled\) \{[\s\S]*return \{\s*platform: true,\s*onSelect: \(\) =>\s*observeAsync\(\s*navigateOrDrillPlatform\(target\),\s*"Opening a platform call-graph target"\)/);
@@ -1413,7 +1543,7 @@ test("package opportunities owns its rendered control bindings", () => {
     ?? "";
   assert.match(
     binding,
-    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId =>\s*observeAsync\(\s*openDependencyPackage\(packageId, ""\),\s*"Opening an opportunity package"\),\s*onTypeSelect: typeId => \{[\s\S]*currentPackage\(\)\.types\.find\(item => item\.id === typeId\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToTypeByName\(typeId\)/);
+    /bindPackageOpportunities\(document, \{\s*onLookForSelect: openSpotlight,\s*onPackageSelect: packageId =>\s*observeAsync\(\s*openDependencyPackage\(packageId, ""\),\s*"Opening an opportunity package"\),\s*onTypeSelect: opportunity => \{[\s\S]*resolveOpportunitySourceType\(\s*currentPackage\(\),\s*opportunity\);\s*if \(!target\) \{[\s\S]*openSpotlight\(shortTypeName\(opportunity\.typeId\)\);\s*return;\s*\}[\s\S]*state\.atPackageRoot = false;[\s\S]*navigateToType\(target\)/);
   assert.match(
     bindEvents,
     /^\s*bindPackageOpportunitiesEvents\(\);\s*$/m);
@@ -1433,7 +1563,7 @@ test("package opportunities owns its rendered control bindings", () => {
   assert.equal(binding.match(/\bdocument\b/g)?.length, 1);
   assert.match(
     packageOpportunitiesSource,
-    /export function bindPackageOpportunities\([\s\S]*\[data-opp-type\][\s\S]*\[data-opp-package\][\s\S]*\[data-opp-lookfor\]/);
+    /export function bindPackageOpportunities\([\s\S]*\[data-opp-type\][\s\S]*sourceDefinitionId: button\.dataset\.oppSourceDefinition[\s\S]*sourceAssembly: button\.dataset\.oppSourceAssembly[\s\S]*sourceAssemblyVersion: button\.dataset\.oppSourceVersion[\s\S]*sourceAssemblyCulture: button\.dataset\.oppSourceCulture[\s\S]*sourceAssemblyPublicKeyToken: button\.dataset\.oppSourceToken[\s\S]*\[data-opp-package\][\s\S]*\[data-opp-lookfor\]/);
   for (const selector of [
     "[data-opp-type]",
     "[data-opp-package]",
@@ -1906,11 +2036,11 @@ test("home demos restore the complete parsed location", () => {
     appSource,
     /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
   const callGraphDemo =
-    appSource.match(/async function runCallGraphDemo\(\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
+    appSource.match(/async function runCallGraphDemo\(demo: ProductHomeDemoResolved\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
   assert.match(
     callGraphDemo,
-    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph"/);
+    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = spec\.memberSection/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";
@@ -1945,6 +2075,18 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
   assert.match(
     appSource,
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
+});
+
+test("Platform Spotlight distinguishes resident content from core readiness", () => {
+  const results =
+    appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
+    ?? "";
+  assert.match(
+    results,
+    /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
+  assert.match(
+    results,
+    /if \(!roster\.length && !runtimePackLoaded\(\)\)/);
 });
 
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {
@@ -2026,7 +2168,7 @@ test("call graph request coordination stays outside the composition root", () =>
     ?? "";
   assert.match(
     loader,
-    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType: type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack: platformPackForAssembly\(type\.assembly, type\.platformPack\),[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
   assert.doesNotMatch(
     loader,
     /memberCallGraphSeq|inspectMemberCallGraph|inspectExpandPlatformCallGraph/);
@@ -2896,6 +3038,99 @@ test("call graph navigation joins duplicate metadata names by asset identity", (
   });
 });
 
+test("platform call graph navigation requires the target assembly identity", () => {
+  const consoleType = {
+    assembly: "System.Console.dll",
+    assemblyId: "console",
+    assemblyName: "System.Console",
+    definitionId: "Interop+ErrorInfo"
+  };
+  const processType = {
+    assembly: "System.Diagnostics.Process.dll",
+    assemblyId: "process",
+    assemblyName: "System.Diagnostics.Process",
+    definitionId: "Interop+ErrorInfo"
+  };
+  const pack = {
+    isRuntimePack: true,
+    types: [consoleType, processType],
+    assemblies: [
+      {
+        id: "console",
+        name: "System.Console",
+        version: "11.0.0.0",
+        culture: null,
+        publicKeyToken: "b03f5f7f11d50a3a"
+      },
+      {
+        id: "process",
+        name: "System.Diagnostics.Process",
+        version: "11.0.0.0",
+        culture: null,
+        publicKeyToken: "b03f5f7f11d50a3a"
+      }
+    ]
+  };
+  const target = {
+    assembly: "System.Diagnostics.Process",
+    assemblyVersion: "11.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "b03f5f7f11d50a3a",
+    typeDefinitionId: "Interop+ErrorInfo"
+  };
+
+  assert.equal(resolvePlatformGraphTargetType(pack, target), processType);
+  assert.equal(
+    resolvePlatformGraphTargetType({
+      ...pack,
+      types: [...pack.types, { ...processType }]
+    }, target),
+    null);
+  assert.equal(
+    resolvePlatformGraphTargetType(pack, {
+      ...target,
+      assemblyVersion: "12.0.0.0"
+    }),
+    null);
+});
+
+test("opportunity navigation uses exact source assembly and definition identity", () => {
+  const first = {
+    assembly: "A.dll",
+    assemblyId: "a",
+    assemblyName: "Shared",
+    definitionId: "Example.Widget"
+  };
+  const second = {
+    assembly: "B.dll",
+    assemblyId: "b",
+    assemblyName: "Shared",
+    definitionId: "Example.Widget"
+  };
+  const pack = {
+    types: [first, second],
+    assemblies: [
+      { id: "a", name: "Shared", version: "1.0.0.0" },
+      { id: "b", name: "Shared", version: "2.0.0.0" }
+    ]
+  };
+
+  assert.equal(resolveOpportunitySourceType(pack, {
+    sourceDefinitionId: "Example.Widget",
+    sourceAssembly: "Shared",
+    sourceAssemblyVersion: "2.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null
+  }), second);
+  assert.equal(resolveOpportunitySourceType(pack, {
+    sourceDefinitionId: "Example.Widget",
+    sourceAssembly: "Shared",
+    sourceAssemblyVersion: "3.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null
+  }), null);
+});
+
 test("relationship navigation rejects ambiguous dotted identities", () => {
   const first = { id: "A:N.T", queryId: "N.T" };
   const second = { id: "B:N.T", queryId: "N.T" };
@@ -3083,7 +3318,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /state\.retryAction = options\.retryAction/);
   assert.match(
     appSource,
-    /state\.retryAction = runCallGraphDemo/);
+    /state\.retryAction = retry/);
   assert.match(
     appSource,
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);

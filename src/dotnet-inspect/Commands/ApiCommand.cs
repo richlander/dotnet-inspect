@@ -1562,10 +1562,35 @@ public class ApiCommand
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int metadataToken = 0)
+        bool publicOnly = true, int sourceMetadataToken = 0,
+        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
     {
         try
         {
+            // A member with no IL body has no PDB source to resolve, whatever the PDB and
+            // SourceLink situation is. The selected MethodDef token belongs to the assembly that
+            // supplied the API member, which may differ from the runtime facade opened for PDB
+            // lookup. Preserve that identity instead of applying the token to the wrong image;
+            // only when no selected MethodDef identity is available, use the same name/overload
+            // fallback as source lookup
+            // (issue #3299).
+            bool? memberHasBody = ResolveMemberBodyState(
+                dllPath,
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                memberMetadataAssemblyPath,
+                memberMetadataToken,
+                logger.Log);
+            if (memberHasBody == false)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    null,
+                    MemberHasNoBody: true);
+            }
+
             using var service = SourceLinkService.Open(dllPath, logger.Log);
             var context = service.Context;
 
@@ -1586,30 +1611,27 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
-            // A member with no IL body has no PDB source to resolve, whatever the PDB and
-            // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
-            // so an empty result can say why instead of looking like a silent failure
-            // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
-            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
-
             if (!fetchSource)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+                return new ResolvedMethodSource(null, pdbPath);
             if (!service.HasPdb)
             {
                 return new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    memberHasNoBody,
                     PdbSourceUnavailableReason: NoPortablePdbReason);
             }
 
-            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
+            var methodInfo = service.ResolveMethodSource(
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                sourceMetadataToken);
             if (methodInfo == null)
             {
                 return new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    memberHasNoBody,
                     PdbSourceUnavailableReason: NoPdbSourceMappingReason);
             }
 
@@ -1657,7 +1679,6 @@ public class ApiCommand
                 return new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    memberHasNoBody,
                     PdbSourceUnavailableReason: NoMatchingPdbSourceReason);
             }
 
@@ -1678,6 +1699,45 @@ public class ApiCommand
                 null,
                 PdbSourceUnavailableReason: PdbSourceInspectionFailedReason);
         }
+    }
+
+    internal static bool? ResolveMemberBodyState(
+        string dllPath,
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly,
+        string? memberMetadataAssemblyPath,
+        int memberMetadataToken,
+        Action<string>? log)
+    {
+        bool hasMemberToken =
+            memberMetadataToken != 0
+            && memberMetadataAssemblyPath is { Length: > 0 };
+        bool tokenAddressesLookupImage =
+            hasMemberToken
+            && LibraryMetadataService
+                .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                .Equals(
+                    Path.GetFullPath(dllPath),
+                    Path.GetFullPath(memberMetadataAssemblyPath!));
+
+        if (hasMemberToken)
+        {
+            using var memberContext = PdbContext.OpenMetadataOnly(
+                tokenAddressesLookupImage
+                    ? dllPath
+                    : memberMetadataAssemblyPath!,
+                tokenAddressesLookupImage ? log : null);
+            return memberContext.MethodHasBody(memberMetadataToken);
+        }
+
+        using var lookupContext = PdbContext.OpenMetadataOnly(dllPath, log);
+        return lookupContext.MethodHasBody(
+            typeName,
+            methodName,
+            overloadIndex,
+            publicOnly);
     }
 
     internal static string NormalizePdbSourceLineEndings(string content)

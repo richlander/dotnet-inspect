@@ -764,14 +764,20 @@ public class HttpRetryHelperTests
             Timeout = TimeSpan.FromMilliseconds(50),
         };
         var messages = new List<string>();
-        using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var overall = new CancellationTokenSource();
 
-        string? text = await HttpRetryHelper.GetStringWithRetryAsync(
+        Task<string?> fetch = HttpRetryHelper.GetStringWithRetryAsync(
             client,
             "https://example.test/index.json",
             retryCount: 0,
             log: messages.Add,
             cancellationToken: overall.Token);
+        await handler.BodyReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(30),
+            TestContext.Current.CancellationToken);
+        overall.CancelAfter(TimeSpan.FromSeconds(30));
+
+        string? text = await fetch;
 
         Assert.Null(text);
         Assert.False(overall.IsCancellationRequested);
@@ -1186,8 +1192,11 @@ public class HttpRetryHelperTests
     sealed class StallingBodyHandler : HttpMessageHandler
     {
         int _requestCount;
+        readonly TaskCompletionSource _bodyReadStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int RequestCount => Volatile.Read(ref _requestCount);
+        public Task BodyReadStarted => _bodyReadStarted.Task;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -1196,7 +1205,7 @@ public class HttpRetryHelperTests
             Interlocked.Increment(ref _requestCount);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StreamContent(new StallingStream()),
+                Content = new StreamContent(new StallingStream(_bodyReadStarted)),
                 RequestMessage = request,
             });
         }
@@ -1236,7 +1245,7 @@ public class HttpRetryHelperTests
         }
     }
 
-    sealed class StallingStream : Stream
+    sealed class StallingStream(TaskCompletionSource bodyReadStarted) : Stream
     {
         bool _sentByte;
 
@@ -1261,6 +1270,7 @@ public class HttpRetryHelperTests
                 return 1;
             }
 
+            bodyReadStarted.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return 0;
         }

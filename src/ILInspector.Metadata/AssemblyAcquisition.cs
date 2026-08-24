@@ -35,10 +35,18 @@ public abstract record AssemblyResolutionProvenance
         new LocalAsset(resolverSource);
 
     /// <summary>
-    /// An assembly the caller enumerated explicitly, rather than one the
-    /// resolver discovered on its own. Designation is a statement of trust by
-    /// the caller: it distinguishes a build layout or corpus the user pointed
-    /// at from a file that merely happened to sit beside an inspected artifact.
+    /// An assembly the caller enumerated or named explicitly, rather than one
+    /// the resolver discovered on its own. Designation is a statement of trust
+    /// by the caller: it distinguishes a set the caller listed, or a file the
+    /// caller named outright, from a file that merely happened to sit beside an
+    /// inspected artifact. Corpus enumeration designates, and so does opening a
+    /// path or image the caller named directly — see <c>MetadataContext</c> and
+    /// <c>MetadataSource</c>, which state the designation as provenance so that
+    /// <c>CoreLibraryIdentityTrust</c> decides their entitlement rather than
+    /// being bypassed by it. Naming a <em>directory</em> on the command line
+    /// still does not designate, because platform-scope resolution already
+    /// covers build-layout inspection and a loose directory is not a coherent
+    /// closure.
     /// </summary>
     public static AssemblyResolutionProvenance Designated(string resolverSource) =>
         new DesignatedAsset(resolverSource);
