@@ -934,6 +934,13 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void BoxedEnumArrayEmptyName_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
+    }
+
+    [Fact]
     public void FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -3216,6 +3223,56 @@ public sealed class ApiSurfaceExtractorBoundsTests
         value.WriteInt32(0);
         value.WriteInt32(elementCount);
         value.WriteUInt16(0);
+        metadata.AddCustomAttribute(host, constructor, metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBoxedEnumArrayEmptyNameImage(int elementCount)
+    {
+        var metadata = Metadata("BoxedEnumAmp");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Object());
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle host = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x55);
+        value.WriteByte(0x00);
+        value.WriteInt32(elementCount);
         metadata.AddCustomAttribute(host, constructor, metadata.GetOrAddBlob(value));
         return Serialize(metadata);
     }

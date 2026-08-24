@@ -417,6 +417,74 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void LegalBoxedEnumArray_IsSafe()
+    {
+        using var image = Open(BuildLegalBoxedEnumArrayImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        var values = Assert.IsAssignableFrom<ImmutableArray<CustomAttributeTypedArgument<string>>>(
+            decoded.Value.FixedArguments[0].Value);
+        Assert.Equal(2, values.Length);
+        Assert.Equal(7, values[0].Value);
+        Assert.Equal(9, values[1].Value);
+    }
+
+    [Fact]
+    public void LegalBoxedInt32Array_IsSafe()
+    {
+        using var image = Open(BuildLegalBoxedInt32ArrayImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        var values = Assert.IsAssignableFrom<ImmutableArray<CustomAttributeTypedArgument<string>>>(
+            decoded.Value.FixedArguments[0].Value);
+        Assert.Equal(3, values.Length);
+        Assert.Equal(1, values[0].Value);
+        Assert.Equal(3, values[2].Value);
+    }
+
+    [Fact]
+    public void BoxedEnumArrayEmptyName_SeesFollowingArrayCount()
+    {
+        using var image = Open(
+            BuildBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(
+            100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+    }
+
+    [Fact]
+    public void NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount()
+    {
+        using var image = Open(
+            BuildNamedBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(
+            (1 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+    }
+
+    [Fact]
     public void GenericAttributeTypeParameterInt32_IsSafe()
     {
         using var image = Open(BuildGenericAttributeInt32Image());
@@ -1160,6 +1228,84 @@ public sealed class CustomAttributeValueGuardTests
         var value = new BlobBuilder();
         value.WriteUInt16(1);
         value.WriteUInt16(0xFFFF);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildLegalBoxedEnumArrayImage()
+    {
+        var metadata = CreateMetadata("BoxedEnum");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters => parameters.AddParameter().Type().Object(),
+            parameterCount: 1);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("N");
+        value.WriteInt32(2);
+        value.WriteInt32(7);
+        value.WriteInt32(9);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildLegalBoxedInt32ArrayImage()
+    {
+        var metadata = CreateMetadata("BoxedI4");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters => parameters.AddParameter().Type().Object(),
+            parameterCount: 1);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x08);
+        value.WriteInt32(3);
+        value.WriteInt32(1);
+        value.WriteInt32(2);
+        value.WriteInt32(3);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBoxedEnumArrayEmptyNameImage(int elementCount)
+    {
+        var metadata = CreateMetadata("BoxedEnumAmp");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters => parameters.AddParameter().Type().Object(),
+            parameterCount: 1);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x55);
+        value.WriteByte(0x00);
+        value.WriteInt32(elementCount);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNamedBoxedEnumArrayEmptyNameImage(int elementCount)
+    {
+        var metadata = CreateMetadata("NamedBoxedEnum");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            _ => { },
+            parameterCount: 0);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(1);
+        value.WriteByte(0x53);
+        value.WriteByte(0x51);
+        value.WriteSerializedString("F");
+        value.WriteByte(0x1d);
+        value.WriteByte(0x55);
+        value.WriteByte(0x00);
+        value.WriteInt32(elementCount);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
     }

@@ -477,28 +477,26 @@ public static class CustomAttributeValueGuard
                 }
                 case ElementTypeSzArray:
                 {
-                    if (!TryReadElementType(ref _value, out byte element))
-                        return Result.Truncated;
-                    if (_value.RemainingBytes < 4)
-                        return Result.Truncated;
-                    int count = _value.ReadInt32();
-                    if (count == -1)
-                        return Result.Safe;
-                    if (count < 0)
-                        return Result.Unsafe;
-                    Charge(_beforeMaterialize, count);
-                    if ((uint)count > (uint)_value.RemainingBytes)
-                        return Result.Unsafe;
-                    if (count > 0)
-                    {
-                        _work.Push(
-                            WorkItem.SerializedElements(
-                                element,
-                                count,
-                                depth + 1));
-                    }
-
-                    return Result.Safe;
+                    // SRM's DecodeNamedArgumentType(isElementType: true)
+                    // consumes the element type — including an ENUM
+                    // SerString and further SZARRAY wrappers — before
+                    // DecodeArrayArgument reads the Int32 count. Reuse
+                    // the named-argument type walk so the count is read
+                    // from the same offset and per-element skips do not
+                    // re-read the enum name.
+                    Result type = ReadFieldOrPropType(
+                        ref _value,
+                        depth + 1,
+                        out byte leaf,
+                        out int arrayDepth,
+                        out string? enumName);
+                    return type != Result.Safe
+                        ? type
+                        : ProcessTypedValue(
+                            leaf,
+                            arrayDepth + 1,
+                            enumName,
+                            depth + 1);
                 }
                 default:
                     return Result.Unsafe;

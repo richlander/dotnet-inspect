@@ -709,7 +709,11 @@ and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
 consumes a SerString rather than four enum bytes.
 A truncated value walk returns `Truncated` and stops remaining work,
 so leftover named-count bytes after a short SZArray cannot be charged
-as 65,535 named arguments.
+as 65,535 named arguments. A boxed SZArray of `ENUM` consumes the
+enum-name SerString before the `Int32` count, matching SRM's
+`DecodeNamedArgumentType(isElementType: true)`, so an empty name
+cannot hide a gigabyte-scale builder behind a 9-byte blob and a
+legal boxed enum array is not dropped.
 Declared SZArray leftovers stop once the value blob is exhausted, so a
 jagged constructor signature cannot re-walk the element type once per
 unreadable slot.
@@ -801,6 +805,10 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.LegalSystemTypeArgument_IsSafe`,
 `CustomAttributeValueGuardTests.StringTypedEnumValue_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsSafe`,
+`CustomAttributeValueGuardTests.LegalBoxedEnumArray_IsSafe`,
+`CustomAttributeValueGuardTests.LegalBoxedInt32Array_IsSafe`,
+`CustomAttributeValueGuardTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
 `CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
@@ -817,6 +825,7 @@ pre-decoding rejection.
 `ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification`,
 `DottedSystemTypeTypeRef_StopsBeforeLargeAllocationAmplification`,
 `StringTypedEnumValue_StopsBeforeLargeAllocationAmplification`,
+`BoxedEnumArrayEmptyName_StopsBeforeLargeAllocationAmplification`,
 `LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity`,
 `LegalGenericCtorAttribute_HasBoundedUnboundedParity`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
