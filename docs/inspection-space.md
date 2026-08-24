@@ -681,8 +681,8 @@ inspection APIs; a capability that is not a product section is not a home demo
 until the section exists. CLI argv, definition plans, and browser engine
 operations (including a generated TypeScript binding of that engine surface)
 must be encodings of the same preset—not parallel demo systems. Residual:
-minted view-facet ids, `WorkspaceContextLoader` group run, inspect-web button
-convergence, and Call Graph structured-JSON projection (see
+minted view-facet ids, `WorkspaceContextLoader` as the shared group-run owner,
+and Call Graph structured-JSON projection (see
 workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).

@@ -2169,11 +2169,13 @@ test("home demos restore the complete parsed location", () => {
     appSource,
     /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
   const callGraphDemo =
-    appSource.match(/async function runCallGraphDemo\(demo: ProductHomeDemoResolved\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
+    appSource.match(/async function runCallGraphDemo\(demoId: ProductHomeDemoId\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
+  assert.match(callGraphDemo, /result = await inspectRunHomeDemo\(demoId\)/);
+  assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
   assert.match(
     callGraphDemo,
-    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = spec\.memberSection/);
+    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";
@@ -4646,7 +4648,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /assemblyDescriptorForType\(pkg\.assemblies, stat\)/);
   assert.match(
     appSource,
-    /activatePackage\(targetPackage\)/);
+    /activatePackage\(targetPackage, \{ resetAccessibility: true \}\)/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

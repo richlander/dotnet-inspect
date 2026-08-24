@@ -84,4 +84,44 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal(ProductDemoSections.CallGraph, view.GetProperty("section").GetString());
     }
 
+    [Fact]
+    public void ExtensionsCallGraph_RunPlanOwnsWorkspaceFocusAndMemberSelection()
+    {
+        BrowserHomeDemoRunPlan plan =
+            BrowserProductHomeDemos.ToCallGraphRunPlan(
+                ProductInspectionDemos.ResolveHomeScenario(
+                    ProductInspectionDemos.ExtensionsCallGraphScenarioId));
+
+        Assert.Equal(3, plan.Requests.Length);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            plan.Requests[0].PackageId);
+        Assert.Equal("10.0.0", plan.Requests[0].Version);
+        Assert.Equal("net10.0", plan.Requests[0].TargetFramework);
+        Assert.Equal(0, plan.FocusRequestIndex);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
+            plan.TypeId);
+        Assert.Equal("TryAddEnumerable", plan.MemberName);
+        Assert.Equal("method", plan.MemberKind);
+        Assert.Equal("74b6b4b321", plan.MemberAnchorDigest);
+        Assert.Equal("call-graph", plan.MemberSection);
     }
+
+    [Fact]
+    public async Task RunHomeDemo_UnknownId_ReturnsNotFound()
+    {
+        using var document = JsonDocument.Parse(
+            await InspectionEngine.RunHomeDemo("not-a-demo"));
+
+        Assert.False(document.RootElement.GetProperty("found").GetBoolean());
+        Assert.Empty(document.RootElement.GetProperty("packages").EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Null,
+            document.RootElement.GetProperty("activation").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            document.RootElement.GetProperty("callGraph").ValueKind);
+    }
+
+}
