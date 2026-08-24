@@ -113,8 +113,11 @@ descriptor overload, while
 `PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`
 drives package provenance through the snapshot reader. Snapshotting preserves
 the original acquisition registration and rejects bytes with a different
-assembly identity; `InspectionAcquisitionPlanTests.WithContentSnapshot_*` gate
-those two properties.
+assembly identity. Inspection-root netmodules use the same carrier without
+becoming assembly-binding candidates: their module name is diagnostic and their
+MVID binds snapshots to the selected content.
+`InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
+`InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 
 This closes #4606's platform-in-package carrier bug without pretending that a
 path proves acquisition. The future workspace-admission design goes further:

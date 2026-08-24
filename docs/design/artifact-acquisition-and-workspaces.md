@@ -700,6 +700,11 @@ Several current types are migration inputs, not target precedent:
   project, platform, local, embedded, and caller-designated concepts. The
   `DesignatedAsset` arm also combines acquisition provenance with a trust-policy
   role.
+- `ResolvedAssemblyReference` also carries managed netmodule inspection roots so
+  current decompiler consumers retain typed acquisition. Those descriptors use
+  module name only as a diagnostic label, bind snapshots by MVID, and are
+  excluded from assembly candidate resolution. A future neutral artifact handle
+  should represent this case without giving a module an assembly-shaped type.
 - `MetadataContext.Open(string)`, `MetadataSource.OpenCore(string, ...)`, and
   `MetadataSource.OpenFromPrefetchedImage` treat a raw path, or a path paired
   with caller-supplied bytes, as caller designation and grant core-library

@@ -2082,8 +2082,16 @@ public class ApiCommand
             // A whole-type decompiled-source render consumes the resolved config.
             var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
+            var assembly = options.AssemblyReference
+                ?? throw new InvalidOperationException(
+                    "Whole-type Decompiled Source requires the acquired assembly descriptor.");
             var listing = Decompiler.MemberBodyProducer.Project(
-                type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions).Output;
+                type,
+                assembly,
+                resolver,
+                metadata,
+                options.RenderOptions,
+                options.PdbPath).Output;
             if (listing is not null)
             {
                 // Surface pending config warnings only once the styled listing is

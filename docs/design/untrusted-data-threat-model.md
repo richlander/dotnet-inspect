@@ -399,8 +399,11 @@ retain their supplying descriptor, and decompiler-backed sections consume the
 descriptor overloads. `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
 derives that boundary from compiled CLI call sites. The snapshot overload
 preserves the descriptor's acquisition registration and rejects a different
-assembly identity; `InspectionAcquisitionPlanTests.WithContentSnapshot_*` gate
-those properties.
+assembly identity. Managed netmodule inspection roots retain the same typed
+acquisition, but snapshot integrity uses the module MVID and they never enter
+assembly candidate resolution.
+`InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
+`InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 
 That closes #4606's package-path laundering mechanism.
 `PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`

@@ -622,7 +622,7 @@ public class LibraryCommand
                     queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference:
                         integrations?.AssemblyForInspection(resolvedPath!)
-                        ?? ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        ?? ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(
                             resolvedPath!,
                             inspectionProvenance),
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
@@ -910,7 +910,7 @@ public class LibraryCommand
                     queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference:
                         integrations?.AssemblyForInspection(assemblyPath!)
-                        ?? ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        ?? ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(
                             assemblyPath!,
                             inspectionProvenance),
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
@@ -2810,7 +2810,7 @@ public class LibraryCommand
                     queryRegistry: queryRegistry,
                     assemblyReference:
                         integrations?.AssemblyForInspection(targetPath)
-                        ?? ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        ?? ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(
                             targetPath,
                             inspectionProvenance),
                     integrationsEntry:

@@ -268,7 +268,8 @@ public static class MemberBodyProducer
         ResolvedAssemblyReference assembly,
         IAssemblyBindingPolicy bindingPolicy,
         Pipeline.MetadataContext? context = null,
-        Pipeline.PrinterOptions? printerOptions = null)
+        Pipeline.PrinterOptions? printerOptions = null,
+        string? externalPdbPath = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -283,7 +284,7 @@ public static class MemberBodyProducer
                 context),
             (definition, ctx) => Pipeline.MetadataSource.Open(
                 definition.Assembly.Assembly,
-                externalPdbPath: null,
+                externalPdbPath,
                 bindingPolicy,
                 ctx),
             context,

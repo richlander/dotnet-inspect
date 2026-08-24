@@ -40,7 +40,7 @@ internal static class ApiServices
         logger.Log($"Extracting API from: {Path.GetFileName(apiDllPath)}");
 
         using TypeDefinitionResolutionSession? resolution =
-            assemblyReference is null
+            assemblyReference is null || !assemblyReference.IsAssembly
                 ? null
                 : TryCreateResolutionSession(
                 assemblyReference,

@@ -167,6 +167,9 @@ public sealed class LayeringTests
                                 StringComparison.Ordinal)
                             || operand.Contains(
                                 "MetadataSource::OpenFromPrefetchedImage(",
+                                StringComparison.Ordinal)
+                            || operand.Contains(
+                                "MemberBodyProducer::Project(",
                                 StringComparison.Ordinal)))
                     .Select(instruction => instruction.Operand!));
         }

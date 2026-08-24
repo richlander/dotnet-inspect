@@ -1,9 +1,12 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Options;
 using ILInspector.Metadata;
+using System.IO.Compression;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class ApiSourceProvenanceTests
 {
     [Fact]
@@ -79,5 +82,67 @@ public sealed class ApiSourceProvenanceTests
                 platformFramework: null,
                 apiVersion: null,
                 projectAssetsPath: null));
+    }
+
+    [Fact]
+    public async Task PackageAcquisitionFailure_CleansExtractionDirectory()
+    {
+        string packagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"Broken.Package.{Guid.NewGuid():N}.1.0.0.nupkg");
+        string[] before = InspectApiDirectories();
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                packagePath,
+                ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry nuspec =
+                    archive.CreateEntry("Broken.Package.nuspec");
+                await using (StreamWriter writer = new(nuspec.Open()))
+                {
+                    await writer.WriteAsync(
+                        """
+                        <?xml version="1.0"?>
+                        <package>
+                          <metadata>
+                            <id>Broken.Package</id>
+                            <version>1.0.0</version>
+                            <authors>test</authors>
+                            <description>test</description>
+                          </metadata>
+                        </package>
+                        """);
+                }
+
+                ZipArchiveEntry library =
+                    archive.CreateEntry("lib/net11.0/Broken.Package.dll");
+                await using Stream stream = library.Open();
+                await stream.WriteAsync(
+                    "not a managed image"u8.ToArray(),
+                    TestContext.Current.CancellationToken);
+            }
+
+            var (_, error) = await ApiSourceResolver.ResolveAsync(
+                new ApiOptions
+                {
+                    PackagePath = packagePath,
+                    Tfm = "net11.0",
+                });
+
+            Assert.Equal(1, error);
+            Assert.Empty(InspectApiDirectories().Except(before));
+        }
+        finally
+        {
+            File.Delete(packagePath);
+            foreach (string directory in InspectApiDirectories().Except(before))
+                Directory.Delete(directory, recursive: true);
+        }
+
+        static string[] InspectApiDirectories() =>
+            Directory.GetDirectories(
+                Path.GetTempPath(),
+                "inspect-api*");
     }
 }

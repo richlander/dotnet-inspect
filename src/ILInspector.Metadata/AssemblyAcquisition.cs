@@ -189,6 +189,7 @@ public sealed class ResolvedAssemblyReference
     ResolvedAssemblyReference(
         AssemblyAcquisitionRegistration registration,
         AssemblyReferenceIdentity identity,
+        Guid? moduleVersionId,
         string? path,
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
@@ -196,6 +197,7 @@ public sealed class ResolvedAssemblyReference
     {
         Registration = registration;
         Identity = identity;
+        ModuleVersionId = moduleVersionId;
         Path = path;
         OpenRead = openRead;
         Provenance = provenance;
@@ -217,6 +219,7 @@ public sealed class ResolvedAssemblyReference
         return new ResolvedAssemblyReference(
             new AssemblyAcquisitionRegistration(),
             selectedIdentity,
+            moduleVersionId: null,
             path,
             openRead,
             provenance,
@@ -281,6 +284,67 @@ public sealed class ResolvedAssemblyReference
                 File.GetLastWriteTimeUtc(stream.SafeFileHandle));
         }
     }
+
+    /// <summary>
+    /// Creates a descriptor for a managed netmodule path, or returns
+    /// <see langword="null"/> when the image is an assembly or has no managed
+    /// metadata. The module name is a diagnostic label, not an assembly
+    /// binding identity; <see cref="ModuleVersionId"/> binds immutable
+    /// snapshots to the selected module.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateFromModulePathIfManaged(
+        string path,
+        AssemblyResolutionProvenance provenance)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(provenance);
+
+        string fullPath = System.IO.Path.GetFullPath(path);
+        using FileStream stream = File.OpenRead(fullPath);
+        try
+        {
+            using var peReader =
+                new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata)
+                return null;
+
+            MetadataReader metadata = peReader.GetMetadataReader();
+            if (metadata.IsAssembly)
+                return null;
+
+            ModuleDefinition module = metadata.GetModuleDefinition();
+            string moduleName = metadata.GetString(module.Name);
+            if (string.IsNullOrWhiteSpace(moduleName))
+                return null;
+
+            return new ResolvedAssemblyReference(
+                new AssemblyAcquisitionRegistration(),
+                new AssemblyReferenceIdentity(
+                    moduleName,
+                    Version: null,
+                    Culture: null,
+                    PublicKeyToken: null),
+                metadata.GetGuid(module.Mvid),
+                fullPath,
+                () => File.OpenRead(fullPath),
+                provenance,
+                File.GetLastWriteTimeUtc(stream.SafeFileHandle));
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Creates the typed acquisition carrier used by inspection roots for
+    /// either an assembly or a managed netmodule.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateInspectionReferenceFromPathIfManaged(
+        string path,
+        AssemblyResolutionProvenance provenance) =>
+        CreateFromPathIfManaged(path, provenance)
+        ?? CreateFromModulePathIfManaged(path, provenance);
 
     /// <summary>
     /// Creates a descriptor for a managed assembly served by a repeatable
@@ -389,6 +453,12 @@ public sealed class ResolvedAssemblyReference
 
     public AssemblyAcquisitionRegistration Registration { get; }
     public AssemblyReferenceIdentity Identity { get; }
+    /// <summary>
+    /// The selected netmodule's MVID, or <see langword="null"/> for an
+    /// assembly descriptor.
+    /// </summary>
+    public Guid? ModuleVersionId { get; }
+    public bool IsAssembly => ModuleVersionId is null;
     public string? Path { get; }
     /// <summary>
     /// Opens a fresh readable stream for this descriptor.
@@ -450,6 +520,7 @@ public sealed class ResolvedAssemblyReference
             : new ResolvedAssemblyReference(
                 Registration,
                 Identity,
+                ModuleVersionId,
                 path: null,
                 OpenRead,
                 Provenance,
@@ -483,19 +554,41 @@ public sealed class ResolvedAssemblyReference
                 $"No managed metadata: {Path ?? Identity.Name}");
         }
 
-        AssemblyReferenceIdentity actual =
-            AssemblyReferenceIdentity.FromAssemblyDefinition(
-                peReader.GetMetadataReader());
-        if (!Identity.IsEquivalentTo(actual))
+        MetadataReader metadata = peReader.GetMetadataReader();
+        if (ModuleVersionId is { } expectedModuleVersionId)
         {
-            throw new BadImageFormatException(
-                $"The prefetched image identity '{actual}' does not match "
-                + $"the acquired assembly identity '{Identity}'.");
+            if (metadata.IsAssembly
+                || metadata.GetGuid(metadata.GetModuleDefinition().Mvid)
+                    != expectedModuleVersionId)
+            {
+                throw new BadImageFormatException(
+                    "The prefetched image does not match the acquired "
+                    + $"netmodule MVID '{expectedModuleVersionId}'.");
+            }
+        }
+        else
+        {
+            if (!metadata.IsAssembly)
+            {
+                throw new BadImageFormatException(
+                    "The prefetched image is a netmodule, not the acquired "
+                    + $"assembly '{Identity}'.");
+            }
+
+            AssemblyReferenceIdentity actual =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
+            if (!Identity.IsEquivalentTo(actual))
+            {
+                throw new BadImageFormatException(
+                    $"The prefetched image identity '{actual}' does not match "
+                    + $"the acquired assembly identity '{Identity}'.");
+            }
         }
 
         return new ResolvedAssemblyReference(
             Registration,
             Identity,
+            ModuleVersionId,
             Path,
             () => new MemoryStream(image.ToArray(), writable: false),
             Provenance,
@@ -510,6 +603,7 @@ public sealed class ResolvedAssemblyReference
         return new ResolvedAssemblyReference(
             Registration,
             Identity,
+            ModuleVersionId,
             Path,
             openRead,
             Provenance,

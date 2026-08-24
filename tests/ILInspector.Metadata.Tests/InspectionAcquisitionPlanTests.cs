@@ -393,6 +393,109 @@ public class InspectionAcquisitionPlanTests
         Assert.Contains("does not match", exception.Message);
     }
 
+    [Fact]
+    public void ModuleContentSnapshot_PreservesRegistrationAndAcquisition()
+    {
+        byte[] image = BuildModuleImage();
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"inspection-{Guid.NewGuid():N}.netmodule");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            var provenance = AssemblyResolutionProvenance.Package(
+                "Example",
+                "1.0.0",
+                "net11.0",
+                rid: null);
+            ResolvedAssemblyReference descriptor =
+                Assert.IsType<ResolvedAssemblyReference>(
+                    ResolvedAssemblyReference.CreateFromModulePathIfManaged(
+                        path,
+                        provenance));
+
+            ResolvedAssemblyReference snapshot =
+                descriptor.WithContentSnapshot(image.ToImmutableArray());
+
+            Assert.Same(descriptor.Registration, snapshot.Registration);
+            Assert.Equal(descriptor.Identity, snapshot.Identity);
+            Assert.Equal(
+                ReadModuleVersionId(image),
+                snapshot.ModuleVersionId);
+            Assert.Equal(descriptor.Path, snapshot.Path);
+            Assert.Same(provenance, snapshot.Provenance);
+            Assert.NotSame(descriptor.OpenRead, snapshot.OpenRead);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ModuleContentSnapshot_RejectsDifferentModuleVersionId()
+    {
+        byte[] acquired = BuildModuleImage();
+        byte[] changed = BuildModuleImage();
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"inspection-{Guid.NewGuid():N}.netmodule");
+        File.WriteAllBytes(path, acquired);
+        try
+        {
+            ResolvedAssemblyReference descriptor =
+                Assert.IsType<ResolvedAssemblyReference>(
+                    ResolvedAssemblyReference.CreateFromModulePathIfManaged(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+
+            BadImageFormatException exception =
+                Assert.Throws<BadImageFormatException>(
+                    () => descriptor.WithContentSnapshot(
+                        changed.ToImmutableArray()));
+
+            Assert.Contains("MVID", exception.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ContentSnapshot_RejectsAssemblyAndModuleSubstitution()
+    {
+        byte[] assembly = SelfBytes();
+        byte[] module = BuildModuleImage();
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"inspection-{Guid.NewGuid():N}.netmodule");
+        File.WriteAllBytes(path, module);
+        try
+        {
+            ResolvedAssemblyReference moduleDescriptor =
+                Assert.IsType<ResolvedAssemblyReference>(
+                    ResolvedAssemblyReference.CreateFromModulePathIfManaged(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            ResolvedAssemblyReference assemblyDescriptor =
+                ResolvedAssemblyReference.CreateFromPath(
+                    SelfPath,
+                    AssemblyResolutionProvenance.Local("test"));
+
+            Assert.Throws<BadImageFormatException>(
+                () => moduleDescriptor.WithContentSnapshot(
+                    assembly.ToImmutableArray()));
+            Assert.Throws<BadImageFormatException>(
+                () => assemblyDescriptor.WithContentSnapshot(
+                    module.ToImmutableArray()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData(StreamCancellationPoint.Open)]
     [InlineData(StreamCancellationPoint.CanRead)]

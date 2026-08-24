@@ -229,10 +229,27 @@ public partial class CommandExecutionTests
             metadata.GetOrAddBlob(
                 new byte[] { 0x06, 0x08 }));
 
+        var il = new BlobBuilder();
+        var instructions =
+            new InstructionEncoder(il, new ControlFlowBuilder());
+        instructions.LoadConstantI4(42);
+        instructions.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset =
+            new MethodBodyStreamEncoder(methodBodies)
+                .AddMethodBody(instructions);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Answer"),
+            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x08 }),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata),
-            new BlobBuilder(),
+            methodBodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
@@ -2586,18 +2603,48 @@ public partial class CommandExecutionTests
                 "q");
             var memberResult = await RunAppAsync(
                 "member",
-                "N.Widget",
+                "N.Widget.Answer",
                 "--library",
                 path,
+                "-S",
+                "Decompiled Source",
                 "--tips",
                 "q");
+            var bodyShapesResult = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                "Body Shapes",
+                "--where",
+                "Kind=ReturnStatement",
+                "--tips",
+                "q");
+            var (matchExit, matchOutput, matchError) =
+                await ConsoleCapture.RunAsync(
+                    () => MatchCommand.ExecuteAsync(
+                        new MatchOptions
+                        {
+                            LeftSelector = "N.Widget.Answer",
+                            RightSelector = "N.Widget.Answer",
+                            AssemblyPath = path,
+                            IncludeAll = true,
+                            IncludeImplementation = true,
+                        }));
 
             Assert.Empty(typeResult.Error);
             Assert.Empty(memberResult.Error);
+            Assert.Empty(bodyShapesResult.Error);
+            Assert.Empty(matchError);
             Assert.Equal(0, typeResult.Exit);
             Assert.Equal(0, memberResult.Exit);
+            Assert.Equal(0, bodyShapesResult.Exit);
+            Assert.Equal(0, matchExit);
             Assert.Contains("N.Widget", typeResult.Output);
-            Assert.Contains("N.Widget", memberResult.Output);
+            Assert.Contains("=> 42", memberResult.Output);
+            Assert.Contains("Answer", bodyShapesResult.Output);
+            Assert.Contains(
+                "No implementation differences detected.",
+                matchOutput);
         }
         finally
         {
