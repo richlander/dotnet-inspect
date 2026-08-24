@@ -63,6 +63,7 @@ function workspaceUrlState(partial: Partial<WorkspaceUrlState> & Pick<
     atPackageRoot: false,
     packageLens: "overview",
     library: null,
+    libraryPack: null,
     selectedTypeId: "",
     selectedMemberKey: "",
     selectedOverloadIndex: null,
