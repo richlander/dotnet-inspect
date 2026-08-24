@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -155,6 +156,7 @@ public sealed class PackageFixtureTests
                 $"{MetadataConfusionId}.{MetadataConfusionVersion}.nupkg",
                 Path.GetFileName(packagePath));
             await VerifyMetadataPackageAsync(temp, packagePath);
+            await VerifyHostileVersionDiagnosticAsync(temp, packagePath);
 
             using ZipArchive package = ZipFile.OpenRead(packagePath);
             AssertPackageIdentity(
@@ -385,6 +387,77 @@ public sealed class PackageFixtureTests
         string temp,
         string packagePath)
     {
+        var result = await RunMetadataGeneratorAsync(temp, packagePath);
+        Assert.True(
+            result.ExitCode == 0,
+            "Metadata fixture verification failed."
+                + Environment.NewLine
+                + result.Stdout
+                + result.Stderr);
+    }
+
+    private static async Task VerifyHostileVersionDiagnosticAsync(
+        string temp,
+        string packagePath)
+    {
+        string hostilePackagePath = Path.Combine(
+            temp,
+            "hostile-version.nupkg");
+        File.Copy(packagePath, hostilePackagePath);
+        using (ZipArchive package = ZipFile.Open(
+            hostilePackagePath,
+            ZipArchiveMode.Update))
+        {
+            ZipArchiveEntry nuspec = Assert.Single(
+                package.Entries,
+                entry => entry.FullName.EndsWith(
+                    ".nuspec",
+                    StringComparison.OrdinalIgnoreCase));
+            XDocument document;
+            using (Stream source = nuspec.Open())
+            {
+                document = XDocument.Load(source);
+            }
+            Assert.Single(
+                document.Descendants(),
+                element => element.Name.LocalName == "version")
+                .Value = "9.9.9\u202Ednwp\u202C\u2060";
+            string nuspecPath = nuspec.FullName;
+            nuspec.Delete();
+            ZipArchiveEntry replacement = package.CreateEntry(nuspecPath);
+            using Stream destination = replacement.Open();
+            document.Save(destination);
+        }
+
+        var result = await RunMetadataGeneratorAsync(
+            temp,
+            hostilePackagePath);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.True(
+            result.Stderr.Contains(
+                "The package version does not match the version-owned fixture generator.",
+                StringComparison.Ordinal),
+            "A hostile package version did not produce the controlled mismatch diagnostic.");
+        Assert.True(
+            result.Stderr.All(
+                value => value is '\r' or '\n' or '\t'
+                    || char.GetUnicodeCategory(value) is not (
+                        UnicodeCategory.Control
+                        or UnicodeCategory.Format
+                        or UnicodeCategory.Surrogate
+                        or UnicodeCategory.LineSeparator
+                        or UnicodeCategory.ParagraphSeparator)),
+            "The hostile package-version diagnostic rendered a live control, "
+                + "format, surrogate, or separator scalar.");
+    }
+
+    private static async Task<(
+        int ExitCode,
+        string Stdout,
+        string Stderr)> RunMetadataGeneratorAsync(
+            string temp,
+            string packagePath)
+    {
         string generator = Assert.Single(
             Directory.EnumerateFiles(
                 Path.Combine(
@@ -412,12 +485,7 @@ public sealed class PackageFixtureTests
         await process.WaitForExitAsync();
         string stdout = await stdoutTask;
         string stderr = await stderrTask;
-        Assert.True(
-            process.ExitCode == 0,
-            "Metadata fixture verification failed."
-                + Environment.NewLine
-                + stdout
-                + stderr);
+        return (process.ExitCode, stdout, stderr);
     }
 
     private static void AssertPackageIdentity(

@@ -91,7 +91,7 @@ static int VerifyPackage(string packagePath)
     if (!string.Equals(packageVersion, FixtureVersion, StringComparison.Ordinal))
     {
         throw new InvalidDataException(
-            $"The package version '{packageVersion}' does not match fixture version '{FixtureVersion}'.");
+            "The package version does not match the version-owned fixture generator.");
     }
 
     Console.WriteLine(
