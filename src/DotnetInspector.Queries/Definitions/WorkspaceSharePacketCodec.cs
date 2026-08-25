@@ -1,11 +1,18 @@
 using System.Buffers;
 using System.Buffers.Text;
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Queries.Definitions;
+
+internal readonly record struct GroupExpressionPin(
+    int SegmentIndex,
+    int SeparatorIndex,
+    int ValueStart,
+    int ValueLength);
 
 /// <summary>
 /// Decodes and canonically emits the versioned base64url workspace share
@@ -553,8 +560,12 @@ public static class WorkspaceSharePacketCodec
                 ex);
         }
 
-        if (value.Length == 0)
-            throw InvalidShape($"Workspace share {owner} must not be empty.");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw InvalidShape(
+                $"Workspace share {owner} must not be empty or whitespace.");
+        }
+
         EnsureWellFormedUnicode(value, owner);
         return value;
     }
@@ -574,24 +585,68 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static bool IsGroupExpression(string value)
+    internal static bool IsGroupExpression(string value)
     {
-        if (value.Length < 2 || value[0] != ':' || value.Contains('@', StringComparison.Ordinal))
+        return TryParseGroupExpression(value, out IReadOnlyList<GroupExpressionPin> pins)
+            && pins.Count == 0;
+    }
+
+    internal static bool TryParseGroupExpression(
+        string value,
+        out IReadOnlyList<GroupExpressionPin> pins)
+    {
+        pins = Array.Empty<GroupExpressionPin>();
+        if (value.Length < 2 || value[0] != ':')
             return false;
 
-        ReadOnlySpan<char> remaining = value.AsSpan(1);
+        var parsedPins = new List<GroupExpressionPin>();
+        int position = 1;
+        int segmentIndex = 0;
         while (true)
         {
-            int separator = remaining.IndexOfAny(':', '+');
-            ReadOnlySpan<char> segment = separator < 0
-                ? remaining
-                : remaining[..separator];
-            if (!IsGroupName(segment))
+            int nameStart = position;
+            while (position < value.Length
+                && value[position] is not ('@' or ':' or '+'))
+            {
+                if (!IsGroupNameCharacter(value[position]))
+                    return false;
+                position++;
+            }
+            if (position == nameStart)
                 return false;
-            if (separator < 0)
-                return true;
 
-            remaining = remaining[(separator + 1)..];
+            if (position < value.Length && value[position] == '@')
+            {
+                int separatorIndex = position++;
+                int valueStart = position;
+                while (position < value.Length
+                    && value[position] is not (':' or '+'))
+                {
+                    if (!IsGroupVersionCharacter(value[position]))
+                        return false;
+                    position++;
+                }
+                if (position == valueStart)
+                    return false;
+
+                parsedPins.Add(new GroupExpressionPin(
+                    segmentIndex,
+                    separatorIndex,
+                    valueStart,
+                    position - valueStart));
+            }
+
+            if (position == value.Length)
+            {
+                pins = parsedPins.Count == 0
+                    ? Array.Empty<GroupExpressionPin>()
+                    : new ReadOnlyCollection<GroupExpressionPin>(
+                        parsedPins.ToArray());
+                return true;
+            }
+
+            position++;
+            segmentIndex++;
         }
     }
 
@@ -604,21 +659,24 @@ public static class WorkspaceSharePacketCodec
         return baseSegment.SequenceEqual("Platform");
     }
 
-    private static bool IsGroupName(ReadOnlySpan<char> value)
+    internal static bool IsGroupName(ReadOnlySpan<char> value)
     {
         if (value.IsEmpty)
             return false;
         foreach (char character in value)
         {
-            if (!char.IsAsciiLetterOrDigit(character)
-                && character is not ('.' or '_' or '-'))
-            {
+            if (!IsGroupNameCharacter(character))
                 return false;
-            }
         }
 
         return true;
     }
+
+    private static bool IsGroupNameCharacter(char value) =>
+        char.IsAsciiLetterOrDigit(value) || value is '.' or '_' or '-';
+
+    private static bool IsGroupVersionCharacter(char value) =>
+        char.IsAsciiLetterOrDigit(value) || value is '.' or '-';
 
     private static byte[] WriteCanonicalJson(WorkspaceSharePacket packet)
     {
