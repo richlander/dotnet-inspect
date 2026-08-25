@@ -43,17 +43,14 @@ public static class CompilerGeneratedNames
     internal static bool IsLocalFunctionOrLambda(string methodName)
         => TryGetLiftedOwnerName(methodName, out _);
 
+    internal static bool HasLiftedMethodMarker(string methodName)
+        => LastLiftedMethodMarker(methodName) >= 0;
+
     internal static bool TryGetLiftedOwnerName(
         string methodName,
         out string ownerName)
     {
-        int close = Math.Max(
-            methodName.LastIndexOf(
-                ">g__",
-                StringComparison.Ordinal),
-            methodName.LastIndexOf(
-                ">b__",
-                StringComparison.Ordinal));
+        int close = LastLiftedMethodMarker(methodName);
         if (methodName.Length < 4
             || methodName[0] != '<'
             || close <= 1
@@ -66,6 +63,15 @@ public static class CompilerGeneratedNames
         ownerName = methodName[1..close];
         return true;
     }
+
+    static int LastLiftedMethodMarker(string methodName) =>
+        Math.Max(
+            methodName.LastIndexOf(
+                ">g__",
+                StringComparison.Ordinal),
+            methodName.LastIndexOf(
+                ">b__",
+                StringComparison.Ordinal));
 
     /// <summary>
     /// Returns the qualified display name of the immediate containing type for

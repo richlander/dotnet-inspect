@@ -122,6 +122,11 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     MethodIdentity source)
                     in ExecutionSourceMethodsByMoveNextToken())
                 {
+                    if (HasNoncanonicalCompilerGeneratedName(
+                            source))
+                    {
+                        continue;
+                    }
                     AddEvidenceSource(
                         typeScopeEvidenceSources,
                         moveNextToken,
@@ -436,6 +441,11 @@ internal sealed class LibraryBodyAsyncSourceResolver
                         (MethodDefinitionHandle)handle)
                         .GetCustomAttributes());
     }
+
+    internal bool HasMalformedCompilerGeneratedLiftedName(
+        MethodIdentity source) =>
+        CompilerGeneratedNames.HasLiftedMethodMarker(source.Name)
+        && HasNoncanonicalCompilerGeneratedName(source);
 
     internal void Prewarm()
     {

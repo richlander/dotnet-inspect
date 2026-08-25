@@ -329,9 +329,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ownerTypeScope,
                 directlySelectedBody))
         {
-            return IsNoncanonicalGeneratedOwner(sourceOwner)
-                ? null
-                : sourceOwner;
+            return sourceOwner;
         }
 
         MethodIdentity? asyncSource =
@@ -368,7 +366,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         asyncSource.MetadataToken)
                         == true))
         {
-            return IsNoncanonicalGeneratedOwner(sourceOwner)
+            return IsMalformedGeneratedLiftedOwner(sourceOwner)
                 ? null
                 : sourceOwner;
         }
@@ -492,15 +490,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ultimateOwner = null;
                 return false;
             }
-            if (IsNoncanonicalGeneratedOwner(sourceOwner))
-            {
-                ultimateOwner = null;
-                return false;
-            }
             current = sourceOwner;
         }
 
-        if (IsNoncanonicalGeneratedOwner(current))
+        if (IsMalformedGeneratedLiftedOwner(current))
         {
             ultimateOwner = null;
             return false;
@@ -510,11 +503,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return true;
     }
 
-    bool IsNoncanonicalGeneratedOwner(
+    bool IsMalformedGeneratedLiftedOwner(
         MethodIdentity? source) =>
         source is not null
         && _asyncSourceResolver
-            .HasNoncanonicalCompilerGeneratedName(source);
+            .HasMalformedCompilerGeneratedLiftedName(source);
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -814,6 +807,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             directlySelectedBody)
                         && sourceOwner is not null)
                     {
+                        if (IsMalformedGeneratedLiftedOwner(
+                                sourceOwner))
+                        {
+                            continue;
+                        }
                         ownersByBody[method] = sourceOwner;
                     }
                 }

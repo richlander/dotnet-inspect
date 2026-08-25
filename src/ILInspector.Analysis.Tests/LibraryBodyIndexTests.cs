@@ -4855,6 +4855,129 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            typeof(LibraryBodyIndexTests).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+
+        AssertOwner(
+            nameof(
+                OptimizationOpportunityFixtures
+                    .CompilerGeneratedOwner));
+        AssertOwner(
+            nameof(
+                CompilerGeneratedOwnerContainer
+                    .CompilerGeneratedTypeOwner));
+
+        void AssertOwner(string ownerName)
+        {
+            MethodIdentity owner = Assert.Single(
+                index.Methods,
+                method => method.Name == ownerName);
+            MethodIdentity lifted = Assert.Single(
+                index.Methods,
+                method => method.Name.StartsWith(
+                    $"<{ownerName}>g__EqualsCore|",
+                    StringComparison.Ordinal));
+
+            Assert.Equal(
+                owner,
+                index.ResolveDeclaredMethod(lifted));
+            Assert.Contains(
+                index.DirectCalls,
+                call => call.EvidenceMethod == lifted
+                    && call.Caller == owner);
+        }
+    }
+
+    [Fact]
+    public void
+        Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies()
+    {
+        byte[] immediateImage =
+            BuildMalformedAsyncSourceAssembly(
+                malformedGeneratedLiftedSource: true);
+        LibraryBodyIndex immediateFull =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedImmediateScope.dll",
+                [.. immediateImage],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity malformedSource = Assert.Single(
+            immediateFull.Methods,
+            method => method.Name == "Noise>b__0_0");
+        LibraryBodyIndex immediateScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedImmediateScope.dll",
+                [.. immediateImage],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    malformedSource.MetadataToken,
+                });
+        Assert.DoesNotContain(
+            immediateScoped.DirectCalls,
+            call => call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "Read");
+
+        byte[] intermediateImage =
+            BuildMalformedAsyncSourceAssembly(
+                malformedNestedLiftedIntermediate: true);
+        LibraryBodyIndex intermediateFull =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedIntermediateScope.dll",
+                [.. intermediateImage],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity malformedOwner = Assert.Single(
+            intermediateFull.Methods,
+            method => method.Name == "Noise>b__0_0");
+        LibraryBodyIndex intermediateScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedIntermediateScope.dll",
+                [.. intermediateImage],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    malformedOwner.MetadataToken,
+                });
+        Assert.DoesNotContain(
+            intermediateScoped.DirectCalls,
+            call => call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "Read");
+    }
+
+    [Fact]
+    public void
+        ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                malformedNestedLiftedIntermediate: true);
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TerminalMalformedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity lifted = Assert.Single(
+            full.Methods,
+            method => method.Name
+                == "<Noise>b__0_0>b__0_1");
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TerminalMalformedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        lifted.DeclaringType));
+
+        Assert.Null(
+            scoped.ResolveDeclaredMethod(lifted));
+    }
+
+    [Fact]
+    public void
         DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller()
     {
         byte[] image =

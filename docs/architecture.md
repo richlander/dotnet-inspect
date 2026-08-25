@@ -856,11 +856,14 @@ Research overlay bridge, and the application layer:
   evidence bodies are acquired. In unscoped indexes, an unresolved ultimate
   owner retains the authenticated immediate source in `DeclaredSources`;
   direct calls retain their physical caller rather than becoming logical
-  attribution. Compiler-generated lifted names require the canonical opening
-  delimiter before they can enter that source authority. Scoped indexes retain
-  neither fallback. Lifted-owner
-  groups authenticate state-machine claims across the complete owner
-  candidate set in every scope without acquiring unselected owner bodies.
+  attribution. Async execution sources reject noncanonical method-level
+  compiler-generated methods. Owner chains reject malformed generated-like
+  lifted names while preserving ordinary compiler-generated owners that
+  already own valid lifted bodies. Rejected execution sources and owners cannot
+  expand a scoped acquisition to descendant physical bodies. Scoped indexes
+  retain neither fallback. Lifted-owner groups authenticate state-machine
+  claims across the complete owner candidate set in every scope without
+  acquiring unselected owner bodies.
   Ownership-derived recommendations require an authenticated ultimate owner
   in full, method, and type scopes; unresolved ownership retains physical
   evidence and body-intrinsic opportunities but fails closed for attribution.
@@ -899,6 +902,10 @@ Research overlay bridge, and the application layer:
   `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
   `ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
   gate malformed immediate and intermediate names.
+  `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
+  `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
+  `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
+  compatibility, scope admission, and terminal-hop authentication.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
