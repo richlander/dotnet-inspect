@@ -6,6 +6,8 @@ namespace CSharpText;
 /// </summary>
 public static class FqnParser
 {
+    private const int MaxNestedGenericDepth = 64;
+
     /// <summary>
     /// Result of parsing an FQN string.
     /// </summary>
@@ -129,14 +131,43 @@ public static class FqnParser
         if (angleIdx <= 0)
             return typeName;
 
-        var closeIdx = typeName.LastIndexOf('>');
-        if (closeIdx <= angleIdx)
-            return typeName;
+        var normalized = new System.Text.StringBuilder(typeName.Length);
+        var segmentStart = 0;
+        while (angleIdx > 0)
+        {
+            var closeIdx = FindMatchingAngleBracket(typeName, angleIdx);
+            if (closeIdx < 0)
+                return typeName;
+            if (!TryCountTypeParameters(
+                    typeName.AsSpan((angleIdx + 1)..closeIdx),
+                    out var arity))
+            {
+                return typeName;
+            }
 
-        var baseName = typeName[..angleIdx];
-        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx));
-        var suffix = closeIdx + 1 < typeName.Length ? typeName[(closeIdx + 1)..] : "";
-        return $"{baseName}`{arity}{suffix}";
+            normalized.Append(typeName, segmentStart, angleIdx - segmentStart);
+            normalized.Append('`');
+            normalized.Append(arity);
+            segmentStart = closeIdx + 1;
+            angleIdx = typeName.IndexOf('<', segmentStart);
+        }
+
+        normalized.Append(typeName, segmentStart, typeName.Length - segmentStart);
+        return normalized.ToString();
+    }
+
+    private static int FindMatchingAngleBracket(string value, int openIndex)
+    {
+        var depth = 0;
+        for (var i = openIndex; i < value.Length; i++)
+        {
+            if (value[i] == '<')
+                depth++;
+            else if (value[i] == '>' && --depth == 0)
+                return i;
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -145,15 +176,90 @@ public static class FqnParser
     public static string NormalizeMemberName(string memberName)
     {
         memberName = memberName.Trim();
-        var angleIdx = memberName.IndexOf('<');
-        if (angleIdx > 0)
+        var angleIdx = FindTerminalGenericArgumentListStart(memberName);
+        if (angleIdx > 0 && GetMemberGenericArity(memberName).HasValue)
         {
-            var closeIdx = memberName.LastIndexOf('>');
-            if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
-                memberName = memberName[..angleIdx];
+            memberName = memberName[..angleIdx];
+        }
+        else
+        {
+            var backtickIdx = memberName.LastIndexOf('`');
+            if (backtickIdx > 0 && GetMemberGenericArity(memberName).HasValue)
+                memberName = memberName[..backtickIdx];
         }
 
         return NormalizeOperatorOrSpecialMemberName(memberName);
+    }
+
+    /// <summary>
+    /// Returns the arity of a well-formed generic member selector.
+    /// </summary>
+    public static int? GetMemberGenericArity(string memberName)
+    {
+        memberName = memberName.Trim();
+        var angleIdx = FindTerminalGenericArgumentListStart(memberName);
+        if (angleIdx > 0)
+        {
+            if (memberName.AsSpan(..angleIdx).TrimEnd().EndsWith(
+                    ">",
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var closeIdx = FindMatchingAngleBracket(memberName, angleIdx);
+            if (closeIdx != memberName.Length - 1
+                || !TryCountTypeParameters(
+                    memberName.AsSpan((angleIdx + 1)..closeIdx),
+                    out var arity))
+            {
+                return null;
+            }
+
+            return arity;
+        }
+
+        var backtickIdx = memberName.LastIndexOf('`');
+        if (backtickIdx > 0
+            && backtickIdx < memberName.Length - 1
+            && memberName[backtickIdx + 1] != '0'
+            && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0
+            && int.TryParse(
+                memberName.AsSpan((backtickIdx + 1)..),
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var metadataArity))
+        {
+            return metadataArity;
+        }
+
+        return null;
+    }
+
+    private static int FindTerminalGenericArgumentListStart(
+        ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty || value[^1] != '>')
+            return -1;
+
+        var depth = 0;
+        for (var i = value.Length - 1; i >= 0; i--)
+        {
+            if (value[i] == '>')
+            {
+                depth++;
+            }
+            else if (value[i] == '<')
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+                if (depth < 0)
+                    return -1;
+            }
+        }
+
+        return -1;
     }
 
     private static string NormalizeOperatorOrSpecialMemberName(string memberName)
@@ -168,8 +274,13 @@ public static class FqnParser
             || memberName.Equals("[]", StringComparison.OrdinalIgnoreCase))
             return "this[]";
 
+        var requestedMemberName = memberName;
+        var hasOperatorPrefix = false;
         if (memberName.StartsWith("operator", StringComparison.OrdinalIgnoreCase))
+        {
+            hasOperatorPrefix = true;
             memberName = memberName["operator".Length..].Trim();
+        }
         else if (memberName.StartsWith("op_", StringComparison.OrdinalIgnoreCase))
             return memberName;
 
@@ -208,24 +319,425 @@ public static class FqnParser
             ">>>" => "op_UnsignedRightShift",
             "true" => "op_True",
             "false" => "op_False",
-            _ => memberName
+            _ => hasOperatorPrefix ? requestedMemberName : memberName
         };
     }
 
     internal static int CountTypeParameters(ReadOnlySpan<char> typeParams)
-    {
-        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
-            return 0;
+        => TryCountTypeParameters(typeParams, out var count) ? count : 0;
 
-        int count = 1;
-        int depth = 0;
-        foreach (char c in typeParams)
+    private static bool TryCountTypeParameters(
+        ReadOnlySpan<char> typeParams,
+        out int count,
+        bool nestingValidated = false)
+    {
+        count = 0;
+        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
         {
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ',' && depth == 0) count++;
+            if (nestingValidated)
+                return false;
+
+            count = 1;
+            return true;
         }
-        return count;
+        if (!nestingValidated
+            && !HasSupportedGenericNesting(typeParams))
+        {
+            return false;
+        }
+
+        var unboundArity = 1;
+        var isUnboundGeneric = false;
+        foreach (var c in typeParams)
+        {
+            if (c == ',')
+            {
+                unboundArity++;
+                isUnboundGeneric = true;
+            }
+            else if (!char.IsWhiteSpace(c))
+            {
+                isUnboundGeneric = false;
+                break;
+            }
+        }
+        if (isUnboundGeneric)
+        {
+            if (nestingValidated)
+                return false;
+
+            count = unboundArity;
+            return true;
+        }
+
+        count = 1;
+        var segmentStart = 0;
+        var currentPartHasCore = false;
+        var coreSeparatedByWhitespace = false;
+        var coreCompleted = false;
+        var hasPostfix = false;
+        var nullableApplied = false;
+        var pointerApplied = false;
+        var byRefApplied = false;
+        var arrayRankDepth = 0;
+        for (var i = 0; i < typeParams.Length; i++)
+        {
+            if (arrayRankDepth > 0)
+            {
+                if (typeParams[i] == ']')
+                {
+                    arrayRankDepth--;
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    nullableApplied = false;
+                    pointerApplied = false;
+                }
+                else if (typeParams[i] != ','
+                    && !char.IsWhiteSpace(typeParams[i]))
+                {
+                    count = 0;
+                    return false;
+                }
+
+                continue;
+            }
+
+            switch (typeParams[i])
+            {
+                case '<':
+                    if (!currentPartHasCore
+                        || coreCompleted
+                        || typeParams[segmentStart..i].IsWhiteSpace())
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    var close = FindMatchingAngleBracket(typeParams, i);
+                    if (close < 0
+                        || !TryCountTypeParameters(
+                            typeParams[(i + 1)..close],
+                            out _,
+                            nestingValidated: true))
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    i = close;
+                    coreCompleted = true;
+                    hasPostfix = false;
+                    break;
+                case '>':
+                    count = 0;
+                    return false;
+                case ',':
+                    if (!currentPartHasCore
+                        || typeParams[segmentStart..i].IsWhiteSpace())
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    count++;
+                    segmentStart = i + 1;
+                    currentPartHasCore = false;
+                    coreSeparatedByWhitespace = false;
+                    coreCompleted = false;
+                    hasPostfix = false;
+                    nullableApplied = false;
+                    pointerApplied = false;
+                    byRefApplied = false;
+                    break;
+                case '[':
+                    if (!currentPartHasCore
+                        || byRefApplied
+                        || typeParams[segmentStart..i].IsWhiteSpace())
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    arrayRankDepth++;
+                    break;
+                case ']':
+                    count = 0;
+                    return false;
+                case '?':
+                    if (!currentPartHasCore
+                        || nullableApplied
+                        || pointerApplied
+                        || byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    nullableApplied = true;
+                    break;
+                case '*':
+                    if (!currentPartHasCore
+                        || nullableApplied
+                        || byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    pointerApplied = true;
+                    break;
+                case '&':
+                    if (!currentPartHasCore || byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    byRefApplied = true;
+                    break;
+                case '.':
+                case '+':
+                    if (!currentPartHasCore
+                        || hasPostfix
+                        || byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    currentPartHasCore = false;
+                    coreSeparatedByWhitespace = false;
+                    coreCompleted = false;
+                    nullableApplied = false;
+                    pointerApplied = false;
+                    break;
+                case ':':
+                    if (!currentPartHasCore
+                        || hasPostfix
+                        || byRefApplied
+                        || i + 1 >= typeParams.Length
+                        || typeParams[i + 1] != ':')
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    i++;
+                    currentPartHasCore = false;
+                    coreSeparatedByWhitespace = false;
+                    coreCompleted = false;
+                    nullableApplied = false;
+                    pointerApplied = false;
+                    break;
+                case '(':
+                    if (currentPartHasCore
+                        || coreCompleted
+                        || !typeParams[segmentStart..i].Trim().IsEmpty
+                        || !TryFindTupleClose(typeParams, i, out var tupleClose))
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    i = tupleClose;
+                    currentPartHasCore = true;
+                    coreCompleted = true;
+                    hasPostfix = false;
+                    break;
+                case ')':
+                    count = 0;
+                    return false;
+                default:
+                    if (char.IsWhiteSpace(typeParams[i]))
+                    {
+                        if (currentPartHasCore && !coreCompleted)
+                            coreSeparatedByWhitespace = true;
+                        break;
+                    }
+                    if (coreCompleted || coreSeparatedByWhitespace)
+                    {
+                        count = 0;
+                        return false;
+                    }
+                    currentPartHasCore = true;
+                    break;
+            }
+        }
+
+        if (arrayRankDepth != 0
+            || !currentPartHasCore
+            || typeParams[segmentStart..].IsWhiteSpace())
+        {
+            count = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryFindTupleClose(
+        ReadOnlySpan<char> value,
+        int openIndex,
+        out int closeIndex)
+    {
+        closeIndex = -1;
+        var parenthesisDepth = 1;
+        var angleDepth = 0;
+        var bracketDepth = 0;
+        var elementStart = openIndex + 1;
+        var elementCount = 0;
+
+        for (var i = elementStart; i < value.Length; i++)
+        {
+            switch (value[i])
+            {
+                case '(':
+                    parenthesisDepth++;
+                    if (parenthesisDepth > MaxNestedGenericDepth)
+                        return false;
+                    break;
+                case ')':
+                    parenthesisDepth--;
+                    if (parenthesisDepth < 0)
+                        return false;
+                    if (parenthesisDepth != 0)
+                        break;
+                    if (angleDepth != 0
+                        || bracketDepth != 0
+                        || !IsValidTupleElement(value[elementStart..i]))
+                    {
+                        return false;
+                    }
+
+                    elementCount++;
+                    if (elementCount < 2)
+                        return false;
+                    closeIndex = i;
+                    return true;
+                case '<':
+                    angleDepth++;
+                    if (angleDepth > MaxNestedGenericDepth)
+                        return false;
+                    break;
+                case '>':
+                    if (--angleDepth < 0)
+                        return false;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    if (--bracketDepth < 0)
+                        return false;
+                    break;
+                case ',':
+                    if (parenthesisDepth != 1
+                        || angleDepth != 0
+                        || bracketDepth != 0)
+                    {
+                        break;
+                    }
+                    if (!IsValidTupleElement(value[elementStart..i]))
+                        return false;
+                    elementCount++;
+                    elementStart = i + 1;
+                    break;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsValidTupleElement(ReadOnlySpan<char> element)
+    {
+        element = element.Trim();
+        if (element.IsEmpty)
+            return false;
+        if (TryCountTypeParameters(
+                element,
+                out var elementTypeCount,
+                nestingValidated: true)
+            && elementTypeCount == 1)
+        {
+            return true;
+        }
+
+        var nameSeparator = -1;
+        for (var i = element.Length - 1; i >= 0; i--)
+        {
+            if (!char.IsWhiteSpace(element[i]))
+                continue;
+            nameSeparator = i;
+            break;
+        }
+        if (nameSeparator <= 0)
+            return false;
+
+        var elementType = element[..nameSeparator].TrimEnd();
+        var name = element[(nameSeparator + 1)..].Trim();
+        if (elementType.IsEmpty || name.IsEmpty)
+            return false;
+
+        var escaped = name[0] == '@';
+        var identifier = escaped ? name[1..] : name;
+        var identifierText = identifier.ToString();
+        if (!CSharpIdentifier.IsIdentifierLike(identifierText)
+            || (!escaped
+                && CSharpKeywords.RequiresDeclarationEscape(identifierText)))
+        {
+            return false;
+        }
+
+        return TryCountTypeParameters(
+                   elementType,
+                   out elementTypeCount,
+                   nestingValidated: true)
+               && elementTypeCount == 1;
+    }
+
+    private static bool HasSupportedGenericNesting(
+        ReadOnlySpan<char> value)
+    {
+        var depth = 0;
+        foreach (var c in value)
+        {
+            if (c == '<')
+            {
+                depth++;
+                if (depth > MaxNestedGenericDepth)
+                    return false;
+            }
+            else if (c == '>')
+            {
+                depth--;
+                if (depth < 0)
+                    return false;
+            }
+        }
+
+        return depth == 0;
+    }
+
+    private static int FindMatchingAngleBracket(
+        ReadOnlySpan<char> value,
+        int openIndex)
+    {
+        var depth = 0;
+        for (var i = openIndex; i < value.Length; i++)
+        {
+            if (value[i] == '<')
+                depth++;
+            else if (value[i] == '>' && --depth == 0)
+                return i;
+        }
+
+        return -1;
     }
 
     /// <summary>
