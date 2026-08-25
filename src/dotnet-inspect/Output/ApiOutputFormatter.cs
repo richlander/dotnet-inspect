@@ -1193,12 +1193,21 @@ public static class ApiOutputFormatter
             int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
 
             rows.Add(new MemberSourceLocationRow(
-                detail ? null : indexRows[i].Selector,
-                string.IsNullOrWhiteSpace(signature) ? null : MarkoutInline.Code(signature),
-                member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
+                detail ? null : indexRows[i].SelectorText,
+                string.IsNullOrWhiteSpace(signature)
+                    ? null
+                    : MarkoutInline.CodeText(
+                        ApiViewText.CSharpField(signature)),
+                member.SourceFilePath is null
+                    ? null
+                    : MarkoutInline.CodeText(
+                        ApiViewText.Field(member.SourceFilePath)),
                 member.SourceLineNumber,
                 endLine,
-                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls))
+                ApiViewText.OptionalField(
+                    SelectSourceUrl(
+                        member.SourceUrl,
+                        options.BrowsableUrls)))
             {
                 Checksum = member.SourceChecksum,
                 ChecksumAlgorithm = member.SourceChecksumAlgorithm,

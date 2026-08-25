@@ -1521,6 +1521,33 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatTypeName_ExactSegmentDisambiguatesLiteralBackslashOnce()
+    {
+        const string name = @"Name\u0041Alpha";
+        var exactName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "",
+                ImmutableArray.Create(name))).Name;
+
+        Assert.Equal(
+            @"Name\\u0041Alpha",
+            CSharpFormatter.FormatTypeName(
+                new ApiType
+                {
+                    Name = name,
+                    DefinitionName = exactName,
+                }));
+        Assert.Equal(
+            @"Name\\u0041Alpha",
+            CSharpFormatter.FormatDeclarationLeafMetadataName(
+                new ApiType
+                {
+                    Name = name,
+                    DefinitionName = exactName,
+                }));
+    }
+
+    [Fact]
     public void FormatTypeName_DistributesExactNestedGenericParameters()
     {
         MetadataTypeDefinitionName exactName =

@@ -166,6 +166,73 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void CSharpCodeText_PreservesContainmentEvidence()
+    {
+        CSharpPresentationText contained =
+            ApiViewText.CSharpField("void M()\u202E");
+
+        CSharpPresentationText code =
+            MarkoutInline.CodeText(contained);
+
+        Assert.Equal(
+            @"<code>void M()\u202E</code>",
+            code.ToString());
+        Assert.Equal(contained.Evidence, code.Evidence);
+        Assert.True(code.Evidence.RequiredContainment);
+    }
+
+    [Fact]
+    public void SourceLocationRows_UseTypedContainmentCurrencies()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            SourceUrl = "https://example.invalid/T\u200Bype.cs",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run\u200BHidden",
+                    Kind = "method",
+                    Accessibility = "public",
+                    Signature = "void Run\u200BHidden()",
+                    SourceFilePath = "/src/M\u200Bember.cs",
+                    SourceUrl = "https://example.invalid/M\u200Bember.cs",
+                    SourceLineNumber = 10,
+                },
+            ],
+        };
+        TypeView view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateMemberSourceLocations(
+            view,
+            type,
+            new TypeOptions());
+
+        TypeSourceFileRow typeSource = Assert.Single(view.SourceFileRows!);
+        MemberSourceLocationRow memberSource =
+            Assert.Single(view.SourceLocationRows!);
+        string rendered = string.Join(
+            ' ',
+            typeSource.Url,
+            memberSource.Selector,
+            memberSource.Signature,
+            memberSource.File,
+            memberSource.Url);
+        Assert.DoesNotContain('\u200B', rendered);
+        Assert.Contains(@"\u200B", rendered);
+    }
+
+    [Fact]
     public void DocumentationEncoding_PreservesLiteralEscapeIdentity()
     {
         var comment = new DocComment

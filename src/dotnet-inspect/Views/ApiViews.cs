@@ -358,7 +358,7 @@ public class TypeView
         List<TypeSourceFileRow> rows = [];
         if (SourceUrl != null)
         {
-            rows.Add(new TypeSourceFileRow(SourceUrl)
+            rows.Add(new TypeSourceFileRow(ApiViewText.Field(SourceUrl))
             {
                 Checksum = SourceChecksum,
                 ChecksumAlgorithm = SourceChecksumAlgorithm,
@@ -367,7 +367,8 @@ public class TypeView
         if (AdditionalSourceFiles is { Count: > 0 })
             rows.AddRange(AdditionalSourceFiles
                 .Where(file => file.SourceUrl != null)
-                .Select(file => new TypeSourceFileRow(file.SourceUrl!)
+                .Select(file => new TypeSourceFileRow(
+                    ApiViewText.Field(file.SourceUrl!))
                 {
                     Checksum = file.SourceChecksum,
                     ChecksumAlgorithm = file.SourceChecksumAlgorithm,
@@ -778,9 +779,10 @@ public sealed class MemberIndexRow(
 
 [MarkoutSerializable]
 /// <inheritdoc cref="SourceFileRow"/>
-public record TypeSourceFileRow(string Url)
+public sealed class TypeSourceFileRow(InertString urlText)
 {
-    public string Url { get; init; } = CSharpIdentifier.ContainRenderedText(Url);
+    [MarkoutIgnore, JsonIgnore] public InertString UrlText { get; } = urlText;
+    public string Url => UrlText.ToString();
 
     [MarkoutIgnore]
     [JsonIgnore]
@@ -793,29 +795,31 @@ public record TypeSourceFileRow(string Url)
 
 [MarkoutSerializable]
 /// <inheritdoc cref="SourceFileRow"/>
-public record MemberSourceLocationRow(
-    string? Selector,
-    string? Signature,
-    string? File,
-    int? Line,
-    int? EndLine,
-    string? Url)
+public sealed class MemberSourceLocationRow(
+    InertString? selectorText,
+    CSharpPresentationText? signatureText,
+    InertString? fileText,
+    int? line,
+    int? endLine,
+    InertString? urlText)
 {
-    // Redeclared in full, in constructor order; partial redeclaration reorders
-    // the rendered columns.
+    [MarkoutIgnore, JsonIgnore] public InertString? SelectorText { get; } = selectorText;
     [MarkoutSkipNull]
-    public string? Selector { get; init; } = Contain(Selector);
+    public string? Selector => SelectorText?.ToString();
+    [MarkoutIgnore, JsonIgnore] public CSharpPresentationText? SignatureText { get; } = signatureText;
     [MarkoutSkipNull]
-    public string? Signature { get; init; } = Contain(Signature);
+    public string? Signature => SignatureText?.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString? FileText { get; } = fileText;
     [MarkoutSkipNull]
-    public string? File { get; init; } = Contain(File);
+    public string? File => FileText?.ToString();
     [MarkoutSkipNull]
-    public int? Line { get; init; } = Line;
+    public int? Line { get; } = line;
     [MarkoutPropertyName("End Line")]
     [MarkoutSkipNull]
-    public int? EndLine { get; init; } = EndLine;
+    public int? EndLine { get; } = endLine;
+    [MarkoutIgnore, JsonIgnore] public InertString? UrlText { get; } = urlText;
     [MarkoutSkipNull]
-    public string? Url { get; init; } = Contain(Url);
+    public string? Url => UrlText?.ToString();
 
     [MarkoutIgnore]
     [JsonIgnore]
@@ -824,9 +828,6 @@ public record MemberSourceLocationRow(
     [MarkoutIgnore]
     [JsonIgnore]
     internal string? ChecksumAlgorithm { get; init; }
-
-    private static string? Contain(string? value)
-        => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
 }
 
 [MarkoutSerializable]

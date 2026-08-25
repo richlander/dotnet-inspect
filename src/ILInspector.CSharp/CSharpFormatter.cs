@@ -95,18 +95,13 @@ public sealed class CSharpFormatter
                     StringComparison.Ordinal)
                 && (!hasDeclaredArity || arityMatches))
             {
-                return type.Name;
+                return CSharpIdentifier.ContainIdentifierForDeclaration(
+                    type.Name);
             }
 
-            string leaf = rawLeaf
-                .Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace(".", "\\.", StringComparison.Ordinal)
-                .Replace("+", "\\+", StringComparison.Ordinal);
             if (arityMatches)
-            {
-                return MetadataNameArity.StripFromSegment(leaf);
-            }
-            return leaf;
+                rawLeaf = MetadataNameArity.StripFromSegment(rawLeaf);
+            return ContainExactSegment(rawLeaf);
         }
 
         string name = type.Name;
@@ -116,7 +111,8 @@ public sealed class CSharpFormatter
         int angle = name.IndexOf('<');
         if (angle >= 0)
             name = name[..angle];
-        return MetadataNameArity.StripFromSegment(name);
+        return CSharpIdentifier.ContainIdentifierForDeclaration(
+            MetadataNameArity.StripFromSegment(name));
     }
 
     readonly CSharpDeclarationOptions _declarationOptions;
@@ -650,11 +646,9 @@ public sealed class CSharpFormatter
     }
 
     static string ContainExactSegment(string segment)
-        => CSharpIdentifier.ContainIdentifierForDeclaration(
-            segment
-                .Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace(".", "\\.", StringComparison.Ordinal)
-                .Replace("+", "\\+", StringComparison.Ordinal));
+        => CSharpIdentifier.ContainIdentifierForDeclaration(segment)
+            .Replace(".", "\\.", StringComparison.Ordinal)
+            .Replace("+", "\\+", StringComparison.Ordinal);
 
     static bool HasArityBeforeFlatBoundary(string name)
     {

@@ -19,6 +19,8 @@ internal static class ApiPresentationText
 /// <remarks>
 /// <c>CSharpField_MixedCSharpAndVisualEscapes_PreservesSpellingWithInertEvidence</c>
 /// gates the distinction between C# escape syntax and the canonical evidence codec.
+/// <c>CSharpCodeText_PreservesContainmentEvidence</c> gates concern provenance
+/// when trusted presentation markup is added.
 /// </remarks>
 public readonly struct CSharpPresentationText
 {
@@ -35,6 +37,9 @@ public readonly struct CSharpPresentationText
 
     /// <summary>Gets canonical evidence for the untreated rendered value.</summary>
     public InertString Evidence { get; }
+
+    internal CSharpPresentationText WithPresentationText(string text)
+        => new(text, Evidence);
 
     internal static CSharpPresentationText Create(string value)
     {

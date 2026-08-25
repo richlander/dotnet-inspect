@@ -2265,8 +2265,7 @@ internal static class CSharpDeclarationWriter
     }
 
     static string FormatConstructorTypeName(ApiType type)
-        => SanitizeIdentifier(
-            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
+        => CSharpFormatter.FormatDeclarationLeafMetadataName(type);
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
     {

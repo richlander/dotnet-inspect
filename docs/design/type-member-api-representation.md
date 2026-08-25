@@ -98,8 +98,12 @@ presentation boundary therefore never decodes it: it preserves existing C#
 escape syntax and encodes only residual unsafe scalars or unpaired surrogates.
 Metadata identifier containment disambiguates literal backslashes before that
 boundary, so a raw name containing `\u0041` cannot masquerade as a generated
-escape. `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
+escape. Adding trusted inline-code markup preserves the original containment
+evidence rather than re-importing its visible spelling as clean text.
+`SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
+`SemanticTypeOutputContainmentTests.CSharpCodeText_PreservesContainmentEvidence`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
+`CSharpFormatterTests.FormatTypeName_ExactSegmentDisambiguatesLiteralBackslashOnce`,
 and the `ContainIdentifier_*`, `ContainRawComposedName_*`, and
 `ContainComposedName_*` cases in
 `CSharpIdentifierSanitizationTests` enforce those properties.

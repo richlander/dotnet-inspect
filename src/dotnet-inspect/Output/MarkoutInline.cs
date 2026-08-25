@@ -38,7 +38,7 @@ internal static class MarkoutInline
             $"<code>{EscapeXmlText(value.ToString())}</code>");
 
     public static CSharpPresentationText CodeText(CSharpPresentationText value)
-        => CSharpPresentationText.Create(
+        => value.WithPresentationText(
             $"<code>{EscapeXmlText(value.ToString())}</code>");
 
     private static string EscapeXmlText(string value)
