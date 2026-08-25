@@ -10,6 +10,7 @@
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
     "paths": {
       "/inspect-web-engine.js": ["./src/inspect-web-engine.d.ts"]
     },

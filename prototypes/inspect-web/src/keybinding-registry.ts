@@ -203,7 +203,9 @@ export class KeybindingRegistry {
     const candidates: Candidate[] = [];
     const path = eventPath(event);
     for (let scopeDepth = 0; scopeDepth < path.length; scopeDepth++) {
-      const bindings = this.#scopedBindings.get(path[scopeDepth]);
+      const scope = path[scopeDepth];
+      if (!scope) continue;
+      const bindings = this.#scopedBindings.get(scope);
       if (!bindings) continue;
       for (const binding of bindings) {
         if (matches(binding, event)) {
@@ -224,11 +226,16 @@ export class KeybindingRegistry {
 
     for (let index = 0; index < candidates.length;) {
       const first = candidates[index];
+      if (!first) break;
       let end = index + 1;
-      while (end < candidates.length
-        && candidates[end].binding.description.priority
-          === first.binding.description.priority
-        && candidates[end].scopeDepth === first.scopeDepth) {
+      while (end < candidates.length) {
+        const candidate = candidates[end];
+        if (!candidate
+          || candidate.binding.description.priority
+            !== first.binding.description.priority
+          || candidate.scopeDepth !== first.scopeDepth) {
+          break;
+        }
         end++;
       }
       const group = candidates.slice(index, end);
