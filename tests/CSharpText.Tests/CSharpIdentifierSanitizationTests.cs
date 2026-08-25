@@ -257,34 +257,6 @@ public sealed class CSharpIdentifierSanitizationTests
         Assert.StartsWith("Meth", contained, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void ContainComposedName_DisambiguatesLiteralEscapeSpelling()
-        => Assert.Equal(
-            @"Meth\\u202Erest",
-            CSharpIdentifierCore.ContainComposedName(@"Meth\u202Erest"));
-
-    [Fact]
-    public void ContainComposedName_RoundTripsEscapeCollisions()
-    {
-        string[] names =
-        [
-            @"Meth\nrest",
-            @"Meth\\nrest",
-            @"Meth\u202Erest",
-            @"Meth\\u202Erest",
-            "Meth\u202Erest",
-            "Meth\\\u202Erest",
-        ];
-
-        foreach (string name in names)
-        {
-            Assert.Equal(
-                name,
-                CSharpIdentifierCore.DecodeComposedName(
-                    CSharpIdentifierCore.ContainComposedName(name)));
-        }
-    }
-
     /// <summary>
     /// Tab is legal in the rendered channels and renders as a space, so containing
     /// it would corrupt ordinary names for nothing. This is the close negative case

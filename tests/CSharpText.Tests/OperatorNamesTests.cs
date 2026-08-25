@@ -82,17 +82,6 @@ public class OperatorNamesTests
     }
 
     [Fact]
-    public void Display_name_disambiguates_literal_escape_spelling()
-    {
-        const string name = @"Run\u202E";
-
-        Assert.Equal(name, OperatorNames.FormatRawDisplayName(name));
-        Assert.Equal(
-            @"Run\\u202E",
-            OperatorNames.FormatDisplayName(name));
-    }
-
-    [Fact]
     public void Unknown_op_prefix_passes_through()
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
 

@@ -4,6 +4,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using InertText;
+using InertText.Encoding;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -19,8 +20,16 @@ internal static class ApiViewText
     public static InertString? OptionalProse(string? value) =>
         value is null ? null : new InertString(TextPolicy.Prose, value);
 
-    public static InertString CSharpField(string value) =>
-        Field(CSharpIdentifier.DecodeRenderedText(value));
+    public static InertString CSharpField(string value)
+    {
+        if (!VisualEncoder.TryDecode(value, out string? untreated))
+        {
+            throw new InvalidOperationException(
+                "C# presentation text is not a valid visual encoding.");
+        }
+
+        return Field(untreated);
+    }
 
     public static InertString? OptionalCSharpField(string? value) =>
         value is null ? null : CSharpField(value);

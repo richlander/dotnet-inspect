@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using ILInspector.CSharp;
 using ILInspector.Metadata;
 using InertText;
+using InertText.Encoding;
 
 namespace DotnetInspector.Models;
 
@@ -226,9 +226,17 @@ internal sealed class ApiArtifactCSharpStringJsonConverter
         writer.WriteStringValue(Contain(value));
 
     internal static string Contain(string value)
-        => new InertString(
+    {
+        if (!VisualEncoder.TryDecode(value, out string? untreated))
+        {
+            throw new JsonException(
+                "C# presentation text is not a valid visual encoding.");
+        }
+
+        return new InertString(
             TextPolicy.Field,
-            CSharpIdentifier.DecodeRenderedText(value)).ToString();
+            untreated).ToString();
+    }
 }
 
 internal sealed class ApiArtifactCSharpStringListJsonConverter
