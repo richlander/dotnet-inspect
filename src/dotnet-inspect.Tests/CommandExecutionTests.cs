@@ -19481,7 +19481,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetExceptionContextCountsTheCoordinate()
+    public async Task LibraryCommand_IlOffsetCountPreservesProjectionKind()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0",
+            "-S", "Context: Member,Performance: Boxing",
+            "--columns", "Member",
+            "--count", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(0, counts["Context: Member"]);
+        Assert.True(counts["Performance: Boxing"] > 0);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetExceptionContextCountsTypedRows()
     {
         var method = typeof(ILOffsetExceptionFixture).GetMethod(
             nameof(ILOffsetExceptionFixture.NestedTryCatch))!;
@@ -19490,6 +19512,9 @@ public partial class CommandExecutionTests
             .First(candidate => body.ExceptionHandlingClauses.Count(
                 clause => candidate >= clause.TryOffset
                     && candidate < clause.TryOffset + clause.TryLength) > 1);
+        int expectedRows = body.ExceptionHandlingClauses.Count(
+            clause => offset >= clause.TryOffset
+                && offset < clause.TryOffset + clause.TryLength);
         string coordinate = $"0x{method.MetadataToken:X}+0x{offset:X}";
 
         var scalar = await RunAppAsync(
@@ -19505,11 +19530,13 @@ public partial class CommandExecutionTests
             "--count", "--tips", "q");
 
         Assert.Equal(0, scalar.Exit);
-        Assert.Equal("1", scalar.Output.Trim());
+        Assert.Equal(
+            expectedRows.ToString(CultureInfo.InvariantCulture),
+            scalar.Output.Trim());
         Assert.Empty(scalar.Error);
 
         Assert.Equal(0, windowed.Exit);
-        Assert.Equal("0", windowed.Output.Trim());
+        Assert.Equal("1", windowed.Output.Trim());
         Assert.Empty(windowed.Error);
     }
 

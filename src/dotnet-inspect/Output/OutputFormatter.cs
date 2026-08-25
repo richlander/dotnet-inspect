@@ -928,40 +928,21 @@ public static class OutputFormatter
             .ToDocumentSchema();
         foreach (var section in includedSections)
         {
-            bool hasRow = section switch
+            bool? hasRow = section switch
             {
                 SectionNames.ILOffset => true,
                 SectionNames.MemberContext => inspection.ILOffset.MemberContext != null,
                 SectionNames.InstructionContext => inspection.ILOffset.InstructionContext != null,
-                SectionNames.ExceptionContext => inspection.ILOffset.ExceptionContext is { Count: > 0 },
                 SectionNames.CallsiteContext => inspection.ILOffset.CallsiteContext != null,
                 SectionNames.ReturnAddressContext => inspection.ILOffset.ReturnAddressContext != null,
-                SectionNames.AllocationContext => inspection.ILOffset.AllocationContext is { Count: > 0 },
-                SectionNames.SafetyContext => inspection.ILOffset.SafetyContext is { Count: > 0 },
-                SectionNames.CostContext => inspection.ILOffset.CostContext is { Count: > 0 },
-                _ => false
+                _ => null
             };
-            if (!hasRow && section is not (
-                    SectionNames.ILOffset
-                    or SectionNames.MemberContext
-                    or SectionNames.InstructionContext
-                    or SectionNames.ExceptionContext
-                    or SectionNames.CallsiteContext
-                    or SectionNames.ReturnAddressContext
-                    or SectionNames.AllocationContext
-                    or SectionNames.SafetyContext
-                    or SectionNames.CostContext))
-            {
+            if (hasRow is null)
                 continue;
-            }
 
             bool projected = ProjectionMatchesSection(
-                schema,
-                section,
-                fields is { Length: > 0 } || columns is { Length: > 0 }
-                    ? [.. fields ?? [], .. columns ?? []]
-                    : null);
-            int count = hasRow && projected
+                schema, section, fields, columns);
+            int count = hasRow.Value && projected
                 ? RowWindow.Apply(rows, new[] { 0 }).Count
                 : 0;
             projection.SetRows(section, count);
@@ -971,7 +952,24 @@ public static class OutputFormatter
     private static bool ProjectionMatchesSection(
         DocumentSchema schema,
         string section,
-        string[]? names)
-        => names is not { Length: > 0 }
-            || schema.ValidateProjection(section, names).Resolved.Length > 0;
+        string[]? fields,
+        string[]? columns)
+    {
+        if (fields is not { Length: > 0 }
+            && columns is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        var sectionSchema = schema.GetSection(section);
+        return sectionSchema is not null
+            && ((fields is { Length: > 0 }
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, fields).Resolved.Length > 0)
+                || (columns is { Length: > 0 }
+                    && sectionSchema.ItemKind.Equals(
+                        "column", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, columns).Resolved.Length > 0));
+    }
 }
