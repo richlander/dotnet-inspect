@@ -54,7 +54,6 @@ public static class MetadataSections
             // is neither Verbose nor Unbounded like the table sections it introduces.
             SizeClass = SectionSizeClass.Fixed,
             Cost = SectionCost.NetworkFree,
-            ScannerKey = null,
             Queries = [MetadataImageQuery.Definition],
             HasExplicitApplicability = true,
             IsApplicable = HasMetadata,
@@ -75,7 +74,6 @@ public static class MetadataSections
             // touches no table.
             SizeClass = SectionSizeClass.Fixed,
             Cost = SectionCost.NetworkFree,
-            ScannerKey = null,
             Queries = [MetadataImageQuery.Definition],
             HasExplicitApplicability = true,
             IsApplicable = static model => model.MetadataHeap is not null,
@@ -97,7 +95,6 @@ public static class MetadataSections
                 // image, not by a subset of it — and a string heap can hold tens of thousands of
                 // entries. Unbounded is the honest classification.
                 Cost = SectionCost.Unbounded,
-                ScannerKey = null,
                 Queries = [MetadataImageQuery.Definition],
                 // Effectiveness follows the heap's size from the cheap image scan. Probing by
                 // rendering would project every table during discovery, paying the section's whole
@@ -125,7 +122,6 @@ public static class MetadataSections
                 // a meaningful bound, so no verbosity may auto-run it. Combined with ExplicitOnly
                 // this section is reachable only by exact name or the @Metadata door.
                 Cost = SectionCost.Unbounded,
-                ScannerKey = null,
                 Queries = [MetadataImageQuery.Definition],
                 // Effectiveness is decided by the query's row count, which is exact: a table with
                 // rows always renders rows. Probing by rendering would project the whole table
