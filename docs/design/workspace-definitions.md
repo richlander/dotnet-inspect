@@ -12,20 +12,24 @@ contract, lifetime rules, and authorization model.
 This is a design proposal. Implementation has begun: the `package`,
 `platform`, and `embedded` member coordinates and one loader that realizes a
 selected context into exactly one `AssemblyContextGroup` now exist in product
-code, and the definition-record loader, registry, scenario resolution, and
-product home demos listed under [What exists today](#what-exists-today) are
-gated. Every other property asserted below is **unverified** until the gates
-named in [Status and gates](#status-and-gates) exist.
+code. Product code also realizes exact already-acquired descriptors into
+coordinated surface and implementation roles for Browser package workspaces.
+The definition-record loader, registry, scenario resolution, product home
+demos, and role realization listed under
+[What exists today](#what-exists-today) are gated. Every other property asserted
+below is **unverified** until the gates named in
+[Status and gates](#status-and-gates) exist.
 
 ## Purpose
 
-Three consumers need a portable workspace description and are currently served
-by none (the browser workbench described below lives in the main tree under
-`prototypes/inspect-web`; claims about it cite that implementation):
+The initiative began with three consumers needing a portable workspace
+description and being served by none (the browser workbench described below
+lives in the main tree under `prototypes/inspect-web`; claims about it cite that
+implementation):
 
-- The browser workbench's home demos are hand-authored base64 URL strings, and
-  one demo (`runCallGraphDemo`) is imperative code because the URL packet
-  cannot express its selection stably (only by positional overload index).
+- The browser workbench's home demos were hand-authored base64 URL strings, and
+  one demo (`runCallGraphDemo`) was imperative code because the URL packet
+  could not express its selection stably (only by positional overload index).
 - Share links carry a terse, unversioned packet whose two wire forms are
   distinguished by shape sniffing (`Array.isArray` vs `.t`).
 - The platform rides in package-shaped slots under the display id
@@ -216,7 +220,7 @@ scheme.
 A call-graph demo over the Extensions family is the composition case: its
 workspace context subscribes `:Platform+Extensions`, referencing the catalog's
 group rather than restating it (the members above are the three packages the
-current imperative demo loads, so the subscription covers its scope — a
+original imperative demo loaded, so the subscription covers its scope — a
 superset, since the demo itself loads no runtime pack). A peer view preset
 selects the target overload by anchor digest.
 
@@ -338,7 +342,8 @@ labels — from the substrate and present them however they like.
 
 The schema's current vocabulary against that rule: the group grammar and
 well-known group names (defined here, substrate-owned), member coordinates
-(`AssemblyResolutionProvenance`, in `ILInspector.Metadata` below L1),
+(currently lowered through `AssemblyResolutionProvenance`, with adapter-owned
+lowering in the target artifact design),
 `type` names (the inspected assembly's authority), `memberAnchor` and
 `memberSignature` (`MemberAnchor` fingerprints and canonical signatures,
 substrate-owned), and `library` (an assembly identity resolved from the
@@ -404,33 +409,65 @@ Hard constraints:
 
 The product registry (`ProductInspectionDemos`) stays a static id→metadata
 table plus peer definition records lowered to a `ResolvedScenario`. Listing
-remains metadata-only. **Today's binding is not yet a full closed section
-preset:** the three home scenarios fix coordinates and view focus (type,
-member anchor/key, library), but STJ and platform views name no `section`,
-and the call-graph view's `section: "call-graph"` is an illustrative token
-until the product-owned section/view-facet registry binds demo selections
-(see [Open questions](#open-questions) — view-facet registry binding — and the
-matching gate under [Status and gates](#status-and-gates)). The residual is
-therefore two tight steps, not "run only": (1) bind each home demo to stable
-existing section ids through that registry, then (2) **run** — realize the
-binding, execute those sections, return ordinary formatted section output. The
-browser home buttons and any imperative call-graph path converge on the same
-registry and sections once both steps exist; TypeScript export of the engine
-surface can land on its own schedule before the web host switches buttons over.
+remains metadata-only. `ProductDemoRunPlan` is the host-neutral lowering of a
+resolved scenario into its selected context, navigation focus, type/member
+selection, and section; CLI and browser encodings consume that plan rather than
+parsing the member selection independently. **Home demos now bind product
+section display names**
+through `ProductDemoSections` (today: `Methods` for STJ; `Call Graph` primary
+bind for the extensions member, expanded at run via `ExpandRunSections` /
+`DemoScenarioRunner` so the closed preset matches the multi-package
+`--caller-package` companion rule: Markdown keeps `Call Graph` + `Callers`;
+table/tsv/jsonl select `Callers` alone (MemberCommand re-adds Callers under
+caller scope, so Call Graph-only tabular silently fell back to a member
+inventory); standalone `--mermaid` keeps `Call Graph`; document `--json` fails
+closed for Call Graph demos until graph sections project into that payload.
+`ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
+section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
+`ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
+mermaid rather than falling through to the type shape tree. Full minted
+view-facet ids remain open ([Open questions](#open-questions) — view-facet
+registry binding). Platform workspaces remain product capability; they are not
+a home-demo entry (home catalog is package- and graph-shaped scenarios).
+**CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
+(`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
+output from the existing pipelines; multi-package workspaces encode extra
+package members as `--caller-package` for the call-graph demo. **inspect-web**
+loads home-demo catalog and coordinates from the product registry through the
+browser engine (`ListHomeDemos` / `ResolveHomeDemo` /
+`RunHomeDemo` over `ProductInspectionDemos`); host-only share encoding and the
+residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for future
+platform members) live in
+`prototypes/inspect-web/src/product-home-demos.ts`. STJ restores via share deep
+links built from the resolved projection. The member-bound Call Graph button
+passes only the product scenario id to `RunHomeDemo`; the engine resolves the
+workspace, focus, member anchor, and section, opens one aggregate browser
+workspace, and returns its package surfaces, exact activation identity, and
+ordinary Call Graph projection. TypeScript applies that typed result to the UI
+without parsing definition member keys or reconstructing package/query inputs.
+Browser package scopes now adapt their exact selected descriptors into
+product-owned `PackageAssemblyContextRoles`; Browser still owns Wasm
+acquisition, cache/deadline budgets, and package/asset provenance.
+Residual: (1) minted facet ids replacing display-name allow list; (2) realize
+definitions via `WorkspaceContextLoader` instead of CLI package/
+`--caller-package` encoding and the browser runtime-pack share encoding for
+platform; (3) Call Graph / Callers structured JSON projection remains the
+shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
+today).
 
 ### Member coordinates
 
 Each member names an acquisition location with a `kind` discriminator mapping
-onto `AssemblyResolutionProvenance`'s closed hierarchy, plus one new case:
+onto the current `AssemblyResolutionProvenance` hierarchy:
 
-| `kind` | Provenance | Coordinate fields |
+| `kind` | Current provenance | Coordinate fields |
 | --- | --- | --- |
 | `package` | `PackageAsset` | `id`; optional `version`, `framework`, and `rid` (`version` is exact when present) |
 | `platform` | `PlatformAsset` | `family`; optional `assembly`, `version`, and `framework` (`version` is exact when present) |
 | `project` | `ProjectAsset` | `path`; optional `framework` and `rid` |
 | `local` | `LocalAsset` | `path` |
 | `directory` | `LocalAsset` | `path`; optional `framework` and `rid` |
-| `embedded` | bundle content | `contentRef`, `digest`, `declaredName` |
+| `embedded` | `EmbeddedAsset` | `contentRef`, `digest`, `declaredName` |
 
 Coordinates are loader inputs that *produce* provenance, not serializations
 of the provenance records. The records carry loader-supplied fields the
@@ -438,6 +475,14 @@ definition never states (the resolver-source labels on `PlatformAsset` and
 `LocalAsset`), and omit fields the loader needs (`LocalAsset` carries no
 path). No field-level round-trip between coordinates and provenance records
 is implied.
+
+The target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md)
+preserves these source-specific coordinates but changes their lowering. Each
+registered adapter produces its own typed provenance and an artifact
+registration; Metadata no longer owns the closed source hierarchy. Every member
+declared in one context remains required, and one failed member still prevents
+creation of a partial assembly group.
 
 For `platform`, `family` is the installed pack family (`runtime`,
 `aspnetcore`, or `netstandard`), while `framework` is the target framework
@@ -703,8 +748,8 @@ layer refuses those with a typed outcome rather than silently flattening them.
 - **Member selection moves to anchor digests.** The positional overload
   index (`o`) is replaced by the `MemberAnchor` fingerprint the UI already
   displays and the call-graph demo already matches on. With that, every
-  existing demo — including the imperative call-graph demo — becomes a data
-  definition plus an ordinary link. The call-graph demo's cross-package scope
+  existing demo — including the formerly imperative call-graph demo — can be a
+  data definition plus an ordinary link. The call-graph demo's cross-package scope
   becomes one `g` entry referencing its package tuples, while `a` independently
   preserves its focused tab. This makes the digest a
   compatibility surface: it hashes the canonical-signature spelling under a
@@ -760,11 +805,11 @@ two persisted contracts are isomorphic.
   prefix and substring probes that are useful for broad discovery but cannot
   satisfy an exact workspace pin. The shared acquisition owner needs an exact
   normalized-version path and a visible not-found outcome for near matches.
-- **A fifth provenance case.** `AssemblyResolutionProvenance` is
-  deliberately closed (private-protected constructor and discriminator), so
-  the `embedded` coordinate requires a new case added in
-  `ILInspector.Metadata` by that layer's owner — a change below the
-  workspace layer.
+- **Embedded provenance during migration.** The current closed
+  `AssemblyResolutionProvenance` hierarchy represents the `embedded` coordinate
+  with `EmbeddedAsset`. The target artifact design replaces that fifth
+  Metadata case with adapter-owned typed provenance; current implementation
+  must not establish it as the permanent cross-source integration seam.
 - **An `ApiSurface` deserializer is not needed** for this feature and stays
   deferred until a surface-only workspace is pursued.
 - **Packet consolidation.** The `popstate` handler currently re-implements
@@ -881,7 +926,13 @@ Implementation must add, at minimum:
   non-ASCII metadata names, canonical signatures, lowercase C0 escapes, quotes,
   backslashes, raw U+007F/U+0085/U+2028/U+2029, and a valid supplementary-plane
   scalar such as U+E0074, with negative lone-high- and lone-low-surrogate cases
-  proving rejection rather than U+FFFD substitution;
+  proving rejection rather than U+FFFD substitution —
+  `WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly`,
+  `Decode_UnicodeAndSignatureVector_RoundTripsExactly`,
+  `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
+  `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
+  validation, canonical writer, fixed vectors, and declared bounds; an
+  independent browser implementation consuming the same vectors remains open;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
@@ -914,18 +965,25 @@ Implementation must add, at minimum:
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
-  (and STJ/platform companions) resolve static product-registry scenarios to
-  `WorkspaceMemberCoordinate` plans and view `memberAnchor` `74b6b4b321`; host
-  acquisition and UI landing remain host work on top of
-  `ProductInspectionDemos` / `ResolvedScenario`;
+  and
+  `BrowserProductHomeDemosTests.ExtensionsCallGraph_RunPlanOwnsWorkspaceFocusAndMemberSelection`
+  resolve the static product-registry scenario to `WorkspaceMemberCoordinate`
+  plans, member anchor `74b6b4b321`, browser workspace requests, and exact
+  activation identity;
+  `BrowserProductHomeDemosTests.ToCallGraphRunPlan_DerivesNonFirstFocusFromNavigation`
+  gates non-first focus derivation from the product navigation plan;
+  `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`
+  gates aggregate workspace projection, non-first focus consumption,
+  digest-prefix selection, and graph execution;
 - a demo-section constraint (design rule under
   [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
-  each product home demo names only existing section/view ids and runs through
-  the normal section pipeline — **unverified** until (a) home-demo views bind
-  stable product section ids (today STJ/platform omit `section`; call-graph's
-  token is not registry-validated), and (b) a run path and gate fail
-  registration of a demo whose selected sections are unknown or that bypasses
-  sections.
+  each product home demo names only existing section ids and runs through the
+  normal section pipeline — gated by
+  `ProductHomeDemos_AllBindKnownProductSections`,
+  `ProductDemoSections_AreProductSectionNames`, and
+  `DemoCommandTests.ExecuteScenario_*_Returns*Section` (CLI encoding). Residual
+  gates for minted facet ids and `WorkspaceContextLoader` group run remain
+  open with the view-facet registry question.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -944,21 +1002,48 @@ Definition records and product demos (this slice):
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the three home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
-  the portable load path for external definitions;
-- `InspectionDefinitionTests` is the gate for round-trip, separation,
-  demo-parity, null nested-array rejection, whole-record coordinate budget,
-  dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
-  filesystem / cross-kind peer resolution; and
-- **not yet:** closed section presets + **run**
-  ([above](#product-demos-are-closed-section-presets)) — bind each home demo to
-  product-owned section ids (not merely coordinates/type focus); realize the
-  binding; execute those sections; return formatted section output on CLI and
-  (via the engine / generated TS surface) on inspect-web; replace hand-authored
-  home links and imperative call-graph load once that path exists. Today's
-  `ResolvedScenario` plans are a partial binding. A resolve-only plan dump is
-  not the user-facing demo command.
+  `RendererRegistry` style) of the two home scenarios; listing is metadata-only
+  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `ProductDemoSections` binding; JSON remains the portable load path for external
+  definitions;
+- `ProductDemoRunPlan` lowers the resolved context, focus, type/member
+  selection, and section once for host encodings;
+- `ProductDemoSections` is the closed allow list of product section display names
+  home demos may select until minted view-facet ids land; `ExpandRunSections`
+  expands Call Graph binds format-aware (Markdown: Call Graph + Callers;
+  table/tsv/jsonl: Callers);
+- CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
+  metadata and **runs** the bound section through `TypeCommand` /
+  `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
+  including `--mermaid` and fail-closed Call Graph `--json`;
+- `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
+  demo-parity, section binding, CLI lowering, and real section output for the
+  two home demos; inspect-web's generated `RunHomeDemo` binding runs the
+  member-bound Call Graph preset from its product scenario id;
+- `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
+  base64url packet into an immutable product-owned semantic model. It rejects
+  legacy prototype packets, malformed or non-canonical encoding and JSON,
+  invalid coordinate and context topology, and partial state through typed
+  outcomes. Its fixed .NET vectors cover composed package/platform contexts,
+  independent focus and context indexes, Unicode metadata and canonical
+  signatures, and the pinned scalar-escaping rules; and
+- `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
+  already-acquired package descriptors as coordinated surface and
+  implementation groups. It owns role-local binding, identity collision
+  rejection, reference-only surfaces, explicit shared-group reuse, and exact
+  participant correspondence. `PackageAssemblyContextRolesTests` gate the
+  product contract;
+  `BrowserEngineBoundaryTests.WorkspaceBinding_RejectsPackageParticipantsForPlatformScope`,
+  `WorkspaceBinding_RejectsEquivalentAssemblyIdentities`,
+  `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
+  `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
+  Browser adapter and its unchanged Wasm limits; and
+- **not yet:** packet-to-definition transposition, minted view-facet ids,
+  packet view/query binding, or CLI and browser use of the codec;
+  `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
+  package + `--caller-package` encoding, the Browser package path still
+  supplies exact already-acquired descriptors to the product role owner, and
+  platform still uses the resident runtime-pack share encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

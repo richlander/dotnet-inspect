@@ -22,8 +22,6 @@ public static class ProductInspectionDemos
 
     public const string ExtensionsCallGraphScenarioId = "extensions-callgraph";
 
-    public const string PlatformListScenarioId = "platform-list";
-
     private static readonly Entry[] s_entries =
     [
         new(
@@ -36,11 +34,6 @@ public static class ProductInspectionDemos
             "Cross-package call graph",
             "Trace calls across three packages",
             CreateExtensionsCallGraphRecords),
-        new(
-            PlatformListScenarioId,
-            ".NET Platform",
-            "Inspect platform BCL types",
-            CreatePlatformListRecords),
     ];
 
     /// <summary>
@@ -64,6 +57,8 @@ public static class ProductInspectionDemos
 
     /// <summary>
     /// Resolves one home demo. Allocates only that demo's peer definition records.
+    /// Enforces the closed section-preset binding
+    /// (<see cref="ProductDemoSections.EnsureHomeDemoBinding"/>).
     /// </summary>
     public static ResolvedScenario ResolveHomeScenario(string scenarioId)
     {
@@ -74,11 +69,15 @@ public static class ProductInspectionDemos
                 $"Unknown product home demo scenario '{scenarioId}'.");
         }
 
-        return CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        var resolved = CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        ProductDemoSections.EnsureHomeDemoBinding(resolved);
+        return resolved;
     }
 
     /// <summary>
     /// Tries to resolve one home demo without throwing on unknown ids.
+    /// Returns false when the id is unknown. Throws when the demo is known but
+    /// fails the section-preset binding (misconfigured product data).
     /// </summary>
     public static bool TryResolveHomeScenario(
         string scenarioId,
@@ -89,6 +88,7 @@ public static class ProductInspectionDemos
             return false;
 
         resolved = CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        ProductDemoSections.EnsureHomeDemoBinding(resolved);
         return true;
     }
 
@@ -148,7 +148,8 @@ public static class ProductInspectionDemos
             new ViewDefinition(
                 v,
                 "stj-serializer-view",
-                type: "System.Text.Json.JsonSerializer"),
+                type: "System.Text.Json.JsonSerializer",
+                section: ProductDemoSections.Methods),
             new NavigationDefinition(
                 v,
                 "stj-navigation",
@@ -194,7 +195,7 @@ public static class ProductInspectionDemos
                 type: "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
                 memberAnchor: "74b6b4b321",
                 memberKey: "method:TryAddEnumerable",
-                section: "call-graph"),
+                section: ProductDemoSections.CallGraph),
             new NavigationDefinition(
                 v,
                 "extensions-callgraph-navigation",
@@ -213,53 +214,6 @@ public static class ProductInspectionDemos
                 context: "extensions",
                 view: "try-add-enumerable-call-graph",
                 navigation: "extensions-callgraph-navigation"),
-        ];
-    }
-
-    private static InspectionDefinitionRecord[] CreatePlatformListRecords()
-    {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
-        var runtimePlatform = new DefinitionMemberCoordinate.PlatformCoordinate(
-            "runtime",
-            null,
-            "10.0.10",
-            "net10.0");
-        return
-        [
-            new WorkspaceDefinition(
-                v,
-                "platform-list-tour",
-                [
-                    new WorkspaceContextDefinition(
-                        "platform",
-                        framework: "net10.0",
-                        members: [stjPackage, runtimePlatform]),
-                ],
-                title: ".NET Platform List tour",
-                description: "Platform BCL List`1 with System.Text.Json also in the workspace."),
-            new ViewDefinition(
-                v,
-                "platform-list-view",
-                library: "System.Private.CoreLib",
-                type: "System.Collections.Generic.List`1"),
-            new NavigationDefinition(
-                v,
-                "platform-navigation",
-                [
-                    new NavigationTabDefinition("stj", coordinate: stjPackage),
-                    new NavigationTabDefinition("runtime", coordinate: runtimePlatform),
-                ],
-                focus: "runtime"),
-            new ScenarioDefinition(
-                v,
-                PlatformListScenarioId,
-                title: ".NET Platform",
-                description: "Inspect platform BCL types",
-                workspace: "platform-list-tour",
-                context: "platform",
-                view: "platform-list-view",
-                navigation: "platform-navigation"),
         ];
     }
 

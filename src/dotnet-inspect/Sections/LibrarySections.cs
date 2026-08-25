@@ -22,8 +22,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
-    public const string ScannerResourceTriage = "ResourceTriage";
     public const string ScannerBodyShapes = "BodyShapes";
 
     /// <summary>
@@ -132,15 +130,33 @@ public static class LibrarySections
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
             .Add<BodyShapes>(HasMethodBodies)
-            .Add<PerformanceBoxing>(HasMethodBodies)
-            .Add<PerformanceArrays>(HasMethodBodies)
-            .Add<PerformanceClosures>(HasMethodBodies)
-            .Add<PerformanceEnumerators>(HasMethodBodies)
-            .Add<PerformanceLoops>(HasMethodBodies)
-            .Add<PerformanceHotspots>(HasMethodBodies)
-            .Add<PerformanceAsync>(HasMethodBodies)
-            .Add<PerformanceOther>(HasMethodBodies)
-            .Add<ArrayPoolEscapes>(HasMethodBodies)
+            .Add<PerformanceBoxing>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceArrays>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceClosures>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceEnumerators>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceLoops>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceHotspots>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceAsync>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceOther>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<ArrayPoolEscapes>(
+                ResourceTriageQuery.Definition,
+                HasMethodBodies)
             .Add<PInvokeMethods>(ClassifiedMethodsQuery.Definition)
             .Add<AsyncMethods>(ClassifiedMethodsQuery.Definition)
             .Add<Resources>(ResourcesQuery.Definition)
@@ -196,18 +212,6 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
-            {
-                ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions);
-                ctx.Model.PerformanceDiagnosticsReported = true;
-            })
-            .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
-                ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
-                    ctx.BodyIndex,
-                    ctx.DrillMap,
-                    ctx.AssemblyPath,
-                    ctx.Logger)))
             .Add(ScannerBodyShapes, SectionCost.Unbounded, ScanBodyShapes)
             ;
     }
@@ -217,6 +221,34 @@ public static class LibrarySections
         string kind = context.Model.BodyKindQueryOptions.Kind
             ?? throw new InvalidOperationException(
                 "The Body Shapes scanner requires a validated body-kind predicate.");
+        IReadOnlySet<int>? methodTokens = null;
+        if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
+        {
+            switch (context.Model.OptimizationOpportunitiesQueryResult)
+            {
+                case OptimizationOpportunitiesResult.Available:
+                    methodTokens = LibraryMetadataService.PerformanceSourceMethods(
+                            context.Model.PerformanceTriageOpportunities)
+                        .Select(static method => method.MetadataToken)
+                        .ToHashSet();
+                    break;
+
+                case OptimizationOpportunitiesResult.Failed:
+                case OptimizationOpportunitiesResult.NoMetadata:
+                    return;
+
+                case null:
+                    throw new InvalidOperationException(
+                        "Composed Body Shapes predicates require the typed "
+                        + "Optimization Opportunities query.");
+
+                default:
+                    throw new InvalidOperationException(
+                        "Composed Body Shapes predicates received an unknown "
+                        + "Optimization Opportunities result.");
+            }
+        }
+
         var metadata = context.MetadataContext
             ?? throw new InvalidOperationException(
                 "The Body Shapes scanner requires the command's prefetched PE image.");
@@ -225,23 +257,6 @@ public static class LibrarySections
             metadata.GetPrefetchedImage(),
             metadata.PortablePdbPath,
             context.BodyReferenceResolver);
-        IReadOnlySet<int>? methodTokens = null;
-        if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
-        {
-            var index = context.BodyIndex();
-            if (!context.Model.PerformanceDiagnosticsReported)
-            {
-                LibraryMetadataService.ReportOptimizationDiagnostics(index);
-                context.Model.PerformanceDiagnosticsReported = true;
-            }
-            methodTokens = LibraryMetadataService.PerformanceSourceMethods(
-                    LibraryMetadataService.FilterPerformanceOpportunities(
-                        index,
-                        context.Model.PerformanceTriageOptions))
-                .Select(static method => method.MetadataToken)
-                .ToHashSet();
-        }
-
         var result = methodTokens is null
             ? BodyShapeSearch.Search(source, kind)
             : BodyShapeSearch.Search(source, kind, methodTokens);
@@ -365,6 +380,12 @@ public static class LibrarySections
                     ctx.MetadataContext?.HasMetadata != false,
                     ctx.BodyIndex))
             .Add(
+                ResourceTriageQuery.Definition,
+                ExecuteResourceTriageQuery)
+            .Add(
+                OptimizationOpportunitiesQuery.Definition,
+                ExecuteOptimizationOpportunitiesQuery)
+            .Add(
                 TopLeverageQuery.Definition,
                 ExecuteTopLeverageQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext);
@@ -393,6 +414,52 @@ public static class LibrarySections
         }
     }
 
+    internal static ResourceTriageResult ExecuteResourceTriageQuery(
+        ScannerContext context)
+    {
+        ResourceTriageResult result = ExecuteResourceTriageQuery(
+            context.MetadataContext?.HasMetadata != false,
+            context.BodyIndex,
+            new ILInspector.Findings.FindingSubject(
+                Path.GetFullPath(context.AssemblyPath),
+                Path.GetFileName(context.AssemblyPath)));
+        if (result is ResourceTriageResult.Available)
+            _ = context.DrillMap();
+        return result;
+    }
+
+    internal static ResourceTriageResult ExecuteResourceTriageQuery(
+        bool hasMetadata,
+        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+        ILInspector.Findings.FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        if (!hasMetadata)
+            return new ResourceTriageResult.NoMetadata();
+
+        try
+        {
+            return ResourceTriageQuery.Execute(
+                acquireIndex(),
+                subject);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ResourceTriageResult.Failed(
+                new ILInspector.Findings.InspectionError(
+                    subject,
+                    ILInspector.Analysis.AnalysisFindings
+                        .ResourceLifecycleDescriptor,
+                    $"{ex.GetType().Name}: {ex.Message}"));
+        }
+    }
+
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         ScannerContext context)
     {
@@ -402,6 +469,40 @@ public static class LibrarySections
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
+    }
+
+    internal static OptimizationOpportunitiesResult
+        ExecuteOptimizationOpportunitiesQuery(ScannerContext context)
+        => ExecuteOptimizationOpportunitiesQuery(
+            context.MetadataContext?.HasMetadata != false,
+            context.BodyIndex,
+            context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
+
+    internal static OptimizationOpportunitiesResult
+        ExecuteOptimizationOpportunitiesQuery(
+            bool hasMetadata,
+            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+            bool includeAllocationFanout)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+
+        if (!hasMetadata)
+            return new OptimizationOpportunitiesResult.NoMetadata();
+
+        try
+        {
+            return OptimizationOpportunitiesQuery.Execute(
+                acquireIndex(),
+                includeAllocationFanout);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new OptimizationOpportunitiesResult.Failed(ex);
+        }
     }
 
     internal static TopLeverageResult ExecuteTopLeverageQuery(
@@ -851,15 +952,16 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => model.OptimizationOpportunities is { } rows
-           && rows.Any(o => PerformanceKinds.SectionForShape(o.Shape) == section);
+        => model.PerformanceTriageOpportunities.Any(
+            opportunity =>
+                PerformanceKinds.SectionForShape(opportunity.Shape) == section);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceBoxing;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceBoxing);
     }
@@ -869,7 +971,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceArrays;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceArrays);
     }
@@ -879,7 +981,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceClosures;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceClosures);
     }
@@ -888,7 +990,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceEnumerators;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators);
     }
@@ -897,7 +999,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceLoops;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceLoops);
     }
@@ -906,7 +1008,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceHotspots;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceHotspots);
     }
@@ -915,7 +1017,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceAsync;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync);
     }
@@ -924,7 +1026,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceOther;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceOther);
     }
@@ -933,9 +1035,10 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.ArrayPoolEscapes;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerResourceTriage;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
-            => model.ResourceTriage is { Count: > 0 };
+            => model.ResourceTriageAssessments.Length > 0
+                || model.ResourceTriage is { Count: > 0 };
     }
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>

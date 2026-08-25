@@ -250,6 +250,15 @@ public sealed class MetadataSource : IDisposable
                 AssemblyResolutionProvenance.Local("MetadataSource snapshot"));
             var bindingPolicy = new AssemblyReferenceBindingPolicy(
                 resolver ?? DefaultAssemblyReferenceResolver(path));
+            // The caller named this exact image, which is a designation, so it
+            // is entitled to core-library identity; see CoreLibraryIdentityTrust.
+            // The resolved reference above records Local provenance because that
+            // describes how the stream is reopened, not how the assembly was
+            // acquired. Routing through GrantIfEntitled keeps the rule the only
+            // source of entitlement.
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                AssemblyResolutionProvenance.Designated("MetadataSource snapshot"));
             return new MetadataSource(
                 path,
                 fullPath,
@@ -305,6 +314,11 @@ public sealed class MetadataSource : IDisposable
                 fullPath,
                 () => File.OpenRead(fullPath),
                 AssemblyResolutionProvenance.Local("MetadataSource"));
+            // The caller named this exact path, which is a designation; see the
+            // sibling site above and CoreLibraryIdentityTrust.
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                AssemblyResolutionProvenance.Designated("MetadataSource"));
             return new MetadataSource(
                 path,
                 path,
@@ -355,6 +369,9 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
             string path = assembly.Path ?? assembly.Identity.Name;
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                assembly.Provenance);
             return new MetadataSource(
                 path,
                 assembly.Path,

@@ -1,10 +1,14 @@
+import { pdbSourceLimitationHtml } from "./data.ts";
+import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
-// dependency-injected render functions. `app.js` owns the type index, filters, member
-// grouping, and navigation/click handling; this module owns only markup shape given an
-// explicit snapshot of the data those helpers already computed. Shared text helpers
+// dependency-injected render functions. This module also binds the controls that its nav pane
+// renders; `dotnet-inspect.ts` owns the type index, filters, member grouping, and navigation
+// state transitions behind explicit callbacks. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `app.js`, since they are used well beyond the
+// factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {
@@ -22,6 +26,7 @@ export interface TypeSummary {
 
 export interface MemberOverloadSummary {
   signature: string;
+  graphOnly?: boolean;
 }
 
 export interface MemberGroup {
@@ -43,28 +48,27 @@ export interface TypePanelPackageContext {
 
 export interface TypeParameterSummary {
   name: string;
-  variance?: string;
+  variance?: string | null;
   constraints?: readonly string[];
 }
 
 export interface CompositionCounts {
   total: number;
-  [key: string]: number;
 }
 
 export interface TypeMetadata {
   modifiers?: readonly string[];
   kind?: string;
-  accessibility?: string;
-  namespace?: string;
-  assembly?: string;
-  baseType?: string;
-  enumUnderlyingType?: string;
+  accessibility?: string | null;
+  namespace?: string | null;
+  assembly?: string | null;
+  baseType?: string | null;
+  enumUnderlyingType?: string | null;
   typeParameters?: readonly TypeParameterSummary[];
   interfaces?: readonly string[];
   derivedTypes?: readonly string[];
   attributes?: readonly string[];
-  composition?: CompositionCounts;
+  composition?: CompositionCounts | null;
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -72,7 +76,8 @@ export interface TypeMetadata {
 export interface TypeSourceResult {
   provider: string;
   provenance: string;
-  url?: string;
+  url?: string | null;
+  pdbSourceLimitation?: string | null;
   text: string;
 }
 
@@ -80,8 +85,205 @@ type EscapeHtml = (value: unknown) => string;
 
 // -- Type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) -----------------------------
 
+export interface TypePanelBindingActions {
+  onClearFilters: () => void;
+  onCopyAnchor: (
+    anchor: "selector" | "digest" | "canonical" | undefined,
+  ) => void;
+  onCopyMemberSource: () => void;
+  onCopyName: () => void;
+  onCopySignature: () => void;
+  onCopyTypeSource: () => void;
+  onKindSelect: (kind: string) => void;
+  onListKeyDown: (event: KeyboardEvent) => boolean;
+  onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberBack: () => void;
+  onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
+  onMemberCompositionKindSelect: (kind: string) => void;
+  onMemberCompositionTraitSelect: (trait: string) => void;
+  onMemberFilterChange: (value: string) => void;
+  onMemberFilterClear: () => void;
+  onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
+  onMemberGroupOpen: (memberKey: string) => void;
+  onMemberKindFilterSelect: (kind: string | undefined) => void;
+  onMemberOverloadOpen: (index: number) => void;
+  onMemberSelect: (memberKey: string | undefined) => void;
+  onMemberTraitFilterSelect: (trait: string | undefined) => void;
+  onNamespaceSelect: (namespace: string) => void;
+  onOverloadSelect: (index: number) => void;
+  onShowTypes: () => void;
+  onTypeFilterChange: (value: string) => void;
+  onTypeFilterEscape: () => void;
+  onTypeSelect: (typeId: string) => void;
+}
+
+export function bindTypePanel(
+  root: ParentNode,
+  actions: TypePanelBindingActions,
+  keybindings: KeybindingRegistry,
+) {
+  root.querySelectorAll<HTMLElement>("[data-type]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeSelect(button.dataset.type ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-namespace]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onNamespaceSelect(button.dataset.namespace ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-nav-member]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberSelect(button.dataset.navMember)));
+  root.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+  root.querySelectorAll<HTMLElement>("[data-member-jump-kind]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberCompositionKindSelect(
+          button.dataset.memberJumpKind ?? "all")));
+  root.querySelectorAll<HTMLElement>("[data-member-jump-access]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberCompositionAccessibilitySelect(
+          button.dataset.memberJumpAccess ?? "all")));
+  root.querySelectorAll<HTMLElement>("[data-member-jump-trait]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberCompositionTraitSelect(
+          button.dataset.memberJumpTrait ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-member]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberGroupOpen(button.dataset.member ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-overload]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
+  root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberKindFilterSelect(
+          button.dataset.memberKindFilter)));
+  root.querySelectorAll<HTMLElement>("[data-member-access-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberAccessibilityFilterSelect(
+          button.dataset.memberAccessFilter)));
+  root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberTraitFilterSelect(
+          button.dataset.memberTraitFilter)));
+  root.querySelector("#nav-to-types")?.addEventListener(
+    "click",
+    actions.onShowTypes);
+  root.querySelector("#clear-filter")?.addEventListener(
+    "click",
+    actions.onClearFilters);
+  root.querySelector("#clear-member-filter")?.addEventListener(
+    "click",
+    actions.onMemberFilterClear);
+  root.querySelector("#member-back")?.addEventListener(
+    "click",
+    actions.onMemberBack);
+  root.querySelector("#copy-name")?.addEventListener(
+    "click",
+    actions.onCopyName);
+  root.querySelector("#copy-signature")?.addEventListener(
+    "click",
+    actions.onCopySignature);
+  root.querySelectorAll<HTMLElement>("[data-copy-anchor]").forEach(button =>
+    button.addEventListener("click", () => {
+      const anchor = button.dataset.copyAnchor;
+      actions.onCopyAnchor(
+        anchor === "selector" || anchor === "digest" || anchor === "canonical"
+          ? anchor
+          : undefined);
+    }));
+  root.querySelector("#copy-source")?.addEventListener(
+    "click",
+    actions.onCopyMemberSource);
+  root.querySelector("#copy-type-source")?.addEventListener(
+    "click",
+    actions.onCopyTypeSource);
+
+  const namespaceJump =
+    root.querySelector<HTMLSelectElement>("#namespace-jump");
+  namespaceJump?.addEventListener(
+    "change",
+    () => actions.onNamespaceSelect(namespaceJump.value));
+
+  const typeList = root.querySelector<HTMLElement>("#type-list");
+  if (typeList) {
+    keybindings.register({
+      id: "type-list.navigate",
+      key: ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "j", "k", "/"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      when: event => event.key.toLowerCase() !== "k"
+        || (!event.metaKey && !event.ctrlKey),
+      run: actions.onListKeyDown,
+    }, typeList);
+    keybindings.register({
+      id: "type-list.extent",
+      key: ["Home", "End"],
+      allowExtraModifiers: true,
+      preventDefault: false,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      run: actions.onListKeyDown,
+    }, typeList);
+  }
+  const memberFilter =
+    root.querySelector<HTMLInputElement>("#member-filter");
+  memberFilter?.addEventListener(
+    "input",
+    () => actions.onMemberFilterChange(memberFilter.value));
+  if (memberFilter) {
+    keybindings.register({
+      id: "member-filter.navigate",
+      key: ["Escape", "ArrowUp", "ArrowDown"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      run: event => actions.onMemberFilterKeyDown(event, memberFilter.value),
+    }, memberFilter);
+  }
+  const filter = root.querySelector<HTMLInputElement>("#type-filter");
+  filter?.addEventListener(
+    "input",
+    () => actions.onTypeFilterChange(filter.value));
+  if (filter) {
+    keybindings.register({
+      id: "type-filter.navigate",
+      key: ["ArrowDown", "Escape"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      run: event => {
+        if (event.key === "ArrowDown") {
+          typeList?.focus();
+          return true;
+        }
+        if (filter.value === "") return false;
+        actions.onTypeFilterEscape();
+        return true;
+      },
+    }, filter);
+  }
+}
+
 export interface TypeNavOptions {
-  current: TypeSummary;
+  current?: TypeSummary | null;
   visible: readonly TypeSummary[];
   typeGroups: ReadonlyMap<string, readonly TypeSummary[]>;
   typeFilter: string;
@@ -132,7 +334,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         ${accessibilityControlHtml}
         ${libraryControlHtml}
       </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list">
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
             <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
@@ -141,7 +343,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
-              const selected = item.id === current.id;
+              const selected = item.id === current?.id;
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
@@ -158,6 +360,8 @@ export interface MemberNavOptions {
   type: TypeSummary;
   entries: readonly MemberNavEntry[];
   memberCount: number;
+  visibleMemberCount: number;
+  filterControlsHtml: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
   escapeHtml: EscapeHtml;
@@ -168,15 +372,21 @@ export interface MemberNavOptions {
 
 export function renderMemberNav(options: MemberNavOptions): string {
   const {
-    type, entries, memberCount, selectedMemberKey, selectedOverloadIndex,
+    type, entries, memberCount, visibleMemberCount, filterControlsHtml,
+    selectedMemberKey, selectedOverloadIndex,
     escapeHtml, typeDisplayName, shortKind, highlight,
   } = options;
+  const navigationSelection = selectedMemberKey
+    ? (selectedOverloadIndex == null
+      ? `member:${selectedMemberKey}`
+      : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
+    : "";
   return `
     <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${memberCount} members</span>
+          <span class="result-count">${visibleMemberCount} of ${memberCount}</span>
         </div>
       </div>
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
@@ -184,17 +394,20 @@ export function renderMemberNav(options: MemberNavOptions): string {
         <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
+      ${filterControlsHtml}
+      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}" data-nav-selection="${escapeHtml(navigationSelection)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
             const isMulti = group.overloads.length > 1;
+            const graphOnly =
+              group.overloads.some(overload => overload.graphOnly);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
-            return `<button class="type-row member-row ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+            return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind))}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
@@ -202,9 +415,9 @@ export function renderMemberNav(options: MemberNavOptions): string {
             <span class="overload-branch">↳</span>
             <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
           </button>`;
-        }).join("")}
+        }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
+      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 
@@ -237,44 +450,20 @@ export function typeHeading(options: TypeHeadingOptions): string {
   </header>`;
 }
 
-export function typeMetadataSignature(item: TypeSummary, packageContext: TypePanelPackageContext): string {
-  return `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
+export interface RenderGraphMemberPendingOptions extends TypeHeadingOptions {
+  title: string;
 }
 
-const COMPOSITION_KINDS: readonly (readonly [string, string])[] = [
-  ["methods", "Methods"],
-  ["properties", "Properties"],
-  ["fields", "Fields"],
-  ["events", "Events"],
-  ["constructors", "Constructors"],
-  ["operators", "Operators"],
-  ["extensionMethods", "Extension methods"],
-  ["explicitInterfaceImplementations", "Explicit impls"],
-];
-
-const COMPOSITION_FLAGS: readonly (readonly [string, string])[] = [
-  ["static", "static"],
-  ["unsafe", "unsafe"],
-  ["async", "async"],
-  ["virtual", "virtual"],
-  ["abstract", "abstract"],
-  ["override", "override"],
-  ["extension", "extension"],
-  ["obsolete", "obsolete"],
-];
-
-export function renderCompositionGrid(composition: CompositionCounts): string {
-  const kinds = COMPOSITION_KINDS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<div class="count-cell"><strong>${composition[key]}</strong><span>${label}</span></div>`)
-    .join("");
-  const flags = COMPOSITION_FLAGS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<span class="count-flag flag-${key}">${composition[key]} ${label}</span>`)
-    .join("");
+export function renderGraphMemberPending(options: RenderGraphMemberPendingOptions): string {
   return `
-    <div class="composition-grid">${kinds || '<div class="count-cell"><strong>0</strong><span>members</span></div>'}</div>
-    ${flags ? `<div class="composition-flags">${flags}</div>` : ""}`;
+    ${typeHeading(options)}
+    <section class="document-section graph-member-pending" aria-live="polite">
+      <div class="graph-expanding"><span class="loader"></span> Opening ${options.escapeHtml(options.title)}…</div>
+    </section>`;
+}
+
+export function typeMetadataSignature(item: TypeSummary, packageContext: TypePanelPackageContext): string {
+  return `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
 }
 
 export interface TypeMetadataStateSlice {
@@ -288,13 +477,17 @@ export interface RenderTypeMetadataOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
   metadataState: TypeMetadataStateSlice;
+  memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
   relatedTypeChip: (name: string) => string;
   factRows: (rows: readonly (readonly [string, string])[]) => string;
 }
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
-  const { item, packageContext, metadataState, escapeHtml, relatedTypeChip, factRows } = options;
+  const {
+    item, packageContext, metadataState, memberCompositionHtml,
+    escapeHtml, relatedTypeChip, factRows,
+  } = options;
   const current = typeMetadataSignature(item, packageContext);
   const fresh = metadataState.typeMetadataKey === current;
   if (metadataState.typeMetadataLoading && fresh) {
@@ -343,10 +536,10 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
-  const composition = meta.composition
+  const composition = meta.composition && memberCompositionHtml
     ? `<section class="document-section">
-        <div class="section-title"><h2>Composition</h2><span>${meta.composition.total} member${meta.composition.total === 1 ? "" : "s"}</span></div>
-        ${renderCompositionGrid(meta.composition)}
+        <div class="section-title"><h2>Members</h2><span>click a count to browse the member list</span></div>
+        ${memberCompositionHtml}
       </section>`
     : "";
 
@@ -377,8 +570,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
 export function typeSourceSignature(
   item: TypeSummary,
   packageContext: TypePanelPackageContext,
-  taste: readonly unknown[],
-  memberRequestKey: (parts: readonly unknown[], taste: readonly unknown[]) => string,
+  taste: readonly string[],
+  memberRequestKey: (parts: readonly string[], taste: readonly string[]) => string,
 ): string {
   return memberRequestKey([
     packageContext.id,
@@ -408,17 +601,17 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   const { currentSignature, sourceState, escapeHtml, highlightCSharp } = options;
   const fresh = sourceState.typeSourceKey === currentSignature;
   if (sourceState.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
   }
   if (fresh && sourceState.typeSource) {
     const typeSource = sourceState.typeSource;
     return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-type-source" type="button">copy</button></div>
+        <div class="source-provenance"><strong>${typeSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(typeSource)}<button id="copy-type-source" type="button">copy</button></div>
         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(typeSource.text)}</code></pre>
       </section>`;
   }
   if (fresh && sourceState.typeSourceError) {
     return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.typeSourceError)}</p></section>`;
   }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
+  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
 }

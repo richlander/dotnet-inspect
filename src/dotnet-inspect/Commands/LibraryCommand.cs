@@ -476,6 +476,14 @@ public class LibraryCommand
             commandQueryDemand.AddRange(DiscoveryQueries);
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerBodyShapes)
+            && options.BodyKindQuery.HasFilter
+            && options.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
 
         var queries = pipeline.GetRequiredQueries(
             discoveryInspection && !fullEffectiveDiscovery
@@ -1879,7 +1887,7 @@ public class LibraryCommand
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,
             result.SourceChecksumAlgorithm,
@@ -2262,7 +2270,7 @@ public class LibraryCommand
         return builder.ToString();
     }
 
-    private static int WriteEffectiveSections(
+    internal static int WriteEffectiveSections(
         string assemblyPath,
         LibraryInspection inspection,
         LibraryOptions options,
@@ -2320,11 +2328,38 @@ public class LibraryCommand
             ? FilterSchemaToEffectiveFields(
                 inspection, allEffective, schemaMap, pipeline, allEffective.ToArray())
             : schemaMap;
+        var failureOptions = options.IncludeSections is not { Count: > 0 }
+            && effectivenessScope is { Count: > 0 }
+                ? options with { IncludeSections = effectivenessScope }
+                : options;
+        int inspectionFailureExitCode = SelectedInspectionFailureExitCode(
+            failureOptions,
+            pipeline,
+            inspection);
         bool hasIntegrityFailure =
             inspection.SourceIntegrityMismatches is { Count: > 0 }
             || inspection.IdentifierConfusionFailure is not null;
-        if (cache && !hasIntegrityFailure)
+        if (cache && !hasIntegrityFailure && inspectionFailureExitCode == 0)
             CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
+
+        if (inspectionFailureExitCode != 0)
+        {
+            if (RejectEmptyExactSection(inspection, failureOptions, pipeline))
+            {
+                return Math.Max(
+                    inspectionFailureExitCode,
+                    IntegrityExitCode(
+                        0,
+                        reportIdentifierFailures,
+                        inspection));
+            }
+
+            WarnEmptySections(
+                [inspection],
+                failureOptions,
+                pipeline,
+                writeEmptyNote: false);
+        }
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -2339,7 +2374,7 @@ public class LibraryCommand
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options);
         return Math.Max(
-            discoveryExitCode,
+            Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
                 0,
                 reportIdentifierFailures,
@@ -2348,8 +2383,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v23: failed effective inspections are no longer cached as successful catalogs.
-    private const string EffectiveCategory = "effective-v23";
+    // Bumped to v24: typed query failures no longer cache successful-looking effective catalogs.
+    private const string EffectiveCategory = "effective-v24";
 
     static LibraryCommand()
     {
@@ -2656,6 +2691,15 @@ public class LibraryCommand
             return section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
                    || section.Equals("P/Invoke Methods", StringComparison.OrdinalIgnoreCase)
                    || section.Equals("Async Methods", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (failureSection.Equals(
+                SectionNames.PerformanceTriage,
+                StringComparison.Ordinal))
+        {
+            return PerformanceKinds.Sections.Contains(
+                section,
+                StringComparer.OrdinalIgnoreCase);
         }
 
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))

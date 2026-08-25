@@ -94,15 +94,52 @@ public sealed class MetadataContext : IDisposable
     /// </summary>
     internal OpenedAssembly? Open(string path)
     {
-        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(p))).Value;
+        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenDesignated(p))).Value;
+    }
+
+    /// <summary>
+    /// Opens a path the caller named directly. Naming an exact file is a
+    /// designation, so the result keeps core-library identity; see
+    /// <see cref="CoreLibraryIdentityTrust"/>. The designation is stated as
+    /// provenance and answered by the rule rather than granted directly, so
+    /// this site is entitled for a reason the rule can be asked about.
+    /// </summary>
+    static OpenedAssembly? OpenDesignated(string path)
+    {
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(path);
+        if (opened is not null)
+        {
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                AssemblyResolutionProvenance.Designated("MetadataContext designation"));
+        }
+        return opened;
     }
 
     internal OpenedAssembly? Open(ResolvedAssemblyReference assembly)
         => _openedRegistrations.GetOrAdd(
             assembly.Registration,
             _ => new Lazy<OpenedAssembly?>(
-                () => OpenedAssembly.TryOpen(assembly.OpenRead),
+                () => OpenResolved(assembly),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    /// <summary>
+    /// Opens an assembly that reference resolution selected, and records
+    /// whether its acquisition entitles it to core-library identity. Discovery
+    /// is trusted by provenance alone; see
+    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// </summary>
+    OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
+    {
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly.OpenRead);
+        if (opened is not null)
+        {
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                assembly.Provenance);
+        }
+        return opened;
+    }
 
     internal OpenedAssembly? Open(
         ResolvedTypeDefinition definition,

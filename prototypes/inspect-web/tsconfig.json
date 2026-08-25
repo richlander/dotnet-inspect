@@ -7,9 +7,15 @@
     "lib": ["DOM", "ES2022"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "exactOptionalPropertyTypes": true,
     "noEmit": true,
+    "noImplicitReturns": true,
+    "paths": {
+      "/inspect-web-engine.js": ["./src/inspect-web-engine.d.ts"]
+    },
     "strict": true,
     "target": "ES2022",
+    "types": [],
     "verbatimModuleSyntax": true
   },
   "include": ["src/**/*.ts"]

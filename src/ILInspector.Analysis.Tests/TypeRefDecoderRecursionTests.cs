@@ -309,6 +309,12 @@ public class TypeRefDecoderRecursionTests
             nestedResult.Resolution!.Type.ToEscapedFullName());
         Assert.Equal(@"N.Outer\+Inner", literalResult.Resolution.Type.ToEscapedFullName());
         Assert.Equal("N.Outer+Inner", nestedResult.Resolution.Type.ToEscapedFullName());
+        Assert.NotEqual(literalResult, nestedResult);
+        Assert.Equal(
+            2,
+            new HashSet<TypeRef> { literalResult, nestedResult }.Count);
+        Assert.Equal(@"Outer\+Inner", literalResult.ToDisplayString());
+        Assert.Equal("Outer.Inner", nestedResult.ToDisplayString());
     }
 
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)

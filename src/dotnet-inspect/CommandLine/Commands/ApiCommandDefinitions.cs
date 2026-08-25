@@ -75,7 +75,6 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
-
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
@@ -204,7 +203,7 @@ public static class ApiCommandDefinitions
         };
         var repoOption = new Option<string[]>("--repo")
         {
-            Description = "Read authored source from local git clone(s) by SourceLink commit + PDB checksum, before the network (Original Source). Can repeat.",
+            Description = "Read PDB-mapped source from local git clone(s) by SourceLink commit + PDB checksum, before the network (PDB Source). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
         var kindOption = new Option<string[]>("-k")
@@ -213,6 +212,17 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
+        var shapeOption = new Option<bool>("--shape")
+        {
+            Description = "Output type shape when the routed target resolves as a type",
+            Hidden = true
+        };
+        var routerDeferredTargetOption =
+            new Option<string?>(
+                RouterCommandDefinition.DeferredTypeOrMemberOptionName)
+            {
+                Hidden = true
+            };
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -237,6 +247,8 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
         memberCommand.Options.Add(kindOption);
+        memberCommand.Options.Add(shapeOption);
+        memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
         opts.AddPrintOptionTo(memberCommand);
@@ -257,7 +269,8 @@ public static class ApiCommandDefinitions
             allOption, memberOption, ctorOption,
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption, repoOption, atOption);
+            binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
+            shapeOption, routerDeferredTargetOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

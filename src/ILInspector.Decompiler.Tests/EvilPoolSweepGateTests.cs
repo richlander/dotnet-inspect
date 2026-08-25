@@ -71,6 +71,16 @@ public class EvilPoolSweepGateTests
     const string LeadPackage = "sweep.lead";
     const string LeadAssembly = "Sweep.Lead.dll";
 
+    const string RunLockWorkerModeEnvironmentVariable =
+        "DOTNET_INSPECT_SWEEP_RUN_LOCK_WORKER";
+    const string RunLockWorkerResultEnvironmentVariable =
+        "DOTNET_INSPECT_SWEEP_RUN_LOCK_RESULT";
+    const string RunLockGateMethod =
+        "ILInspector.Decompiler.Tests.EvilPoolSweepGateTests."
+        + "SweepLauncherSerializesIndependentTestHosts";
+    static readonly TimeSpan RunLockWorkerHostTimeout =
+        EvilPoolSweepProcess.RunLockTimeout + TimeSpan.FromMinutes(2);
+
     // A third package, committed by every world and pooled by none of them, which ships a
     // nuspec and no library at all. It is what the !IsSelected arm needs: the two packages
     // above both ship an assembly, so that whole arm -- library-unavailable, and the
@@ -157,6 +167,7 @@ public class EvilPoolSweepGateTests
         Assert.Equal(
             [
                 "run",
+                "--disable-build-servers",
                 "-p:NoWarn=NU1507",
                 "-p:NuGetAudit=false",
                 Path.Combine(
@@ -165,6 +176,158 @@ public class EvilPoolSweepGateTests
                     "prepare-decompiler-package-sweep.cs"),
             ],
             startInfo.ArgumentList);
+    }
+
+    /// <summary>
+    /// The package-sweep file app has one launcher across independent test hosts, not
+    /// merely one launcher per xUnit process (#4471).
+    /// </summary>
+    [Fact]
+    public void SweepLauncherSerializesIndependentTestHosts()
+    {
+        string? workerMode = Environment.GetEnvironmentVariable(
+            RunLockWorkerModeEnvironmentVariable);
+        if (workerMode is not null)
+        {
+            RunLockWorker(workerMode);
+            return;
+        }
+
+        string blockedResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-blocked-{Guid.NewGuid():N}");
+        string acquiredResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-acquired-{Guid.NewGuid():N}");
+        string childTimeoutResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-child-timeout-{Guid.NewGuid():N}");
+        string appContextDisabledResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-app-context-{Guid.NewGuid():N}");
+        string environmentOverrideResult = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-environment-override-{Guid.NewGuid():N}");
+        try
+        {
+            SweepHostResult blocked;
+            using (EvilPoolSweepProcess.AcquireRunLock(
+                EvilPoolSweepProcess.RunLockTimeout))
+            {
+                blocked = RunLockWorkerHost("probe", blockedResult);
+            }
+
+            Assert.True(
+                blocked.ExitCode == 0,
+                $"Lock probe failed at exit {blocked.ExitCode}.\n"
+                + $"stdout:\n{blocked.Output}\nstderr:\n{blocked.Error}");
+            Assert.Equal("blocked", File.ReadAllText(blockedResult));
+
+            SweepHostResult acquired = RunLockWorkerHost("acquire", acquiredResult);
+            Assert.True(
+                acquired.ExitCode == 0,
+                $"Lock acquisition worker failed at exit {acquired.ExitCode}.\n"
+                + $"stdout:\n{acquired.Output}\nstderr:\n{acquired.Error}");
+            Assert.Equal("acquired", File.ReadAllText(acquiredResult));
+
+            SweepHostResult childTimeout =
+                RunLockWorkerHost("child-timeout", childTimeoutResult);
+            Assert.True(
+                childTimeout.ExitCode != 0,
+                "A child timeout was accepted as lock contention.\n"
+                + $"stdout:\n{childTimeout.Output}\nstderr:\n{childTimeout.Error}");
+            Assert.Contains(
+                "did not exit within one second",
+                childTimeout.Output + childTimeout.Error);
+            Assert.False(File.Exists(childTimeoutResult));
+
+            SweepHostResult appContextDisabled =
+                RunLockWorkerHost(
+                    "app-context-disabled",
+                    appContextDisabledResult);
+            Assert.True(
+                appContextDisabled.ExitCode == 0,
+                $"AppContext lock-disable worker failed at exit "
+                + $"{appContextDisabled.ExitCode}.\n"
+                + $"stdout:\n{appContextDisabled.Output}\n"
+                + $"stderr:\n{appContextDisabled.Error}");
+            Assert.Equal(
+                OperatingSystem.IsWindows() ? "acquired" : "disabled",
+                File.ReadAllText(appContextDisabledResult));
+
+            SweepHostResult environmentOverride =
+                RunLockWorkerHost(
+                    "environment-override",
+                    environmentOverrideResult);
+            Assert.True(
+                environmentOverride.ExitCode == 0,
+                $"Environment override worker failed at exit "
+                + $"{environmentOverride.ExitCode}.\n"
+                + $"stdout:\n{environmentOverride.Output}\n"
+                + $"stderr:\n{environmentOverride.Error}");
+            Assert.Equal(
+                "acquired",
+                File.ReadAllText(environmentOverrideResult));
+        }
+        finally
+        {
+            File.Delete(blockedResult);
+            File.Delete(acquiredResult);
+            File.Delete(childTimeoutResult);
+            File.Delete(appContextDisabledResult);
+            File.Delete(environmentOverrideResult);
+        }
+    }
+
+    /// <summary>
+    /// Launcher ownership survives tree-termination failure until fallback
+    /// termination confirms direct-child exit.
+    /// </summary>
+    [Fact]
+    public void SweepRunKeepsOwnershipUntilFallbackTerminationCompletes()
+    {
+        string resultPath = Path.Combine(
+            Path.GetTempPath(),
+            $"evil-sweep-run-lock-fallback-{Guid.NewGuid():N}");
+        Process process = Process.Start(
+            CreateRunLockWorkerHostStartInfo("hang", resultPath))
+            ?? throw new InvalidOperationException(
+                "Could not start the sweep run-lock fallback worker.");
+        int processId = process.Id;
+        bool releasedBeforeExit = false;
+        var runLock = new CallbackDisposable(
+            () => releasedBeforeExit = IsProcessRunning(processId));
+        var run = new EvilPoolSweepRun(
+            process,
+            runLock,
+            (candidate, entireProcessTree) =>
+            {
+                if (entireProcessTree)
+                    throw new InvalidOperationException(
+                        "Injected tree-termination failure.");
+
+                candidate.Kill();
+            });
+
+        try
+        {
+            InvalidOperationException error =
+                Assert.Throws<InvalidOperationException>(run.Dispose);
+            Assert.Equal("Injected tree-termination failure.", error.Message);
+            Assert.False(releasedBeforeExit);
+            Assert.False(IsProcessRunning(processId));
+        }
+        finally
+        {
+            if (IsProcessRunning(processId))
+            {
+                using Process survivor = Process.GetProcessById(processId);
+                survivor.Kill(entireProcessTree: true);
+                survivor.WaitForExit();
+            }
+
+            File.Delete(resultPath);
+        }
     }
 
     /// <summary>
@@ -1258,6 +1421,170 @@ public class EvilPoolSweepGateTests
         }
     }
 
+    static void RunLockWorker(string mode)
+    {
+        string resultPath = Environment.GetEnvironmentVariable(
+            RunLockWorkerResultEnvironmentVariable)
+            ?? throw new InvalidOperationException(
+                $"Missing {RunLockWorkerResultEnvironmentVariable}.");
+        if (mode == "hang")
+        {
+            Thread.Sleep(Timeout.Infinite);
+            return;
+        }
+        if (mode is "app-context-disabled" or "environment-override")
+        {
+            AppContext.SetSwitch(
+                EvilPoolSweepProcess.DisableFileLockingSwitch,
+                true);
+            Environment.SetEnvironmentVariable(
+                EvilPoolSweepProcess.DisableFileLockingEnvironmentVariable,
+                mode == "environment-override" ? "0" : null);
+        }
+
+        TimeSpan timeout = mode switch
+        {
+            "probe" => TimeSpan.Zero,
+            "acquire" => EvilPoolSweepProcess.RunLockTimeout,
+            "child-timeout" => EvilPoolSweepProcess.RunLockTimeout,
+            "app-context-disabled" => EvilPoolSweepProcess.RunLockTimeout,
+            "environment-override" => EvilPoolSweepProcess.RunLockTimeout,
+            _ => throw new InvalidOperationException(
+                $"Unknown sweep run-lock worker mode '{mode}'."),
+        };
+        ProcessStartInfo startInfo = mode == "child-timeout"
+            ? CreateRunLockWorkerHostStartInfo("hang", resultPath)
+            : new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+                    is { Length: > 0 } host
+                        ? host
+                        : "dotnet",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+        if (mode != "child-timeout")
+        {
+            startInfo.ArgumentList.Add("--info");
+        }
+
+        EvilPoolSweepRun run;
+        try
+        {
+            run = EvilPoolSweepProcess.Start(startInfo, timeout);
+        }
+        catch (TimeoutException) when (mode == "probe")
+        {
+            File.WriteAllText(resultPath, "blocked");
+            return;
+        }
+        catch (InvalidOperationException ex)
+            when (mode == "app-context-disabled")
+        {
+            Assert.Contains(
+                "runtime configuration disables it",
+                ex.Message);
+            File.WriteAllText(resultPath, "disabled");
+            return;
+        }
+
+        using (run)
+        {
+            Process process = run.Process;
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> error = process.StandardError.ReadToEndAsync();
+            TimeSpan childTimeout = mode == "child-timeout"
+                ? TimeSpan.FromSeconds(1)
+                : TimeSpan.FromMinutes(1);
+            if (!process.WaitForExit((int)childTimeout.TotalMilliseconds))
+            {
+                run.Terminate();
+                throw new TimeoutException(
+                    "The sweep run-lock worker process did not exit within "
+                    + (mode == "child-timeout"
+                        ? "one second."
+                        : "one minute."));
+            }
+
+            Assert.True(
+                process.ExitCode == 0,
+                $"The sweep run-lock worker exited {process.ExitCode}.\n"
+                + $"stdout:\n{output.GetAwaiter().GetResult()}\n"
+                + $"stderr:\n{error.GetAwaiter().GetResult()}");
+            File.WriteAllText(resultPath, "acquired");
+        }
+    }
+
+    static SweepHostResult RunLockWorkerHost(string mode, string resultPath)
+    {
+        ProcessStartInfo startInfo =
+            CreateRunLockWorkerHostStartInfo(mode, resultPath);
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Could not start the sweep run-lock worker host.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit((int)RunLockWorkerHostTimeout.TotalMilliseconds))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            Assert.Fail(
+                $"The sweep run-lock worker host did not exit within "
+                + $"{RunLockWorkerHostTimeout.TotalMinutes:N0} minutes.");
+        }
+
+        return new SweepHostResult(
+            process.ExitCode,
+            output.GetAwaiter().GetResult(),
+            error.GetAwaiter().GetResult());
+    }
+
+    static ProcessStartInfo CreateRunLockWorkerHostStartInfo(
+        string mode,
+        string resultPath)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+                is { Length: > 0 } host
+                    ? host
+                    : "dotnet",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add(RunLockGateMethod);
+        startInfo.ArgumentList.Add("-noColor");
+        startInfo.Environment[RunLockWorkerModeEnvironmentVariable] = mode;
+        startInfo.Environment[RunLockWorkerResultEnvironmentVariable] = resultPath;
+        return startInfo;
+    }
+
+    readonly record struct SweepHostResult(
+        int ExitCode,
+        string Output,
+        string Error);
+
+    sealed class CallbackDisposable(Action callback) : IDisposable
+    {
+        public void Dispose() => callback();
+    }
+
+    static bool IsProcessRunning(int processId)
+    {
+        try
+        {
+            using Process process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
         Directory.Exists(Path.Combine(outputDirectory, "packages"))
             ? Directory.GetFiles(Path.Combine(outputDirectory, "packages"), "*.dll", SearchOption.AllDirectories)
@@ -1919,8 +2246,8 @@ public class EvilPoolSweepGateTests
             // Isolation from the shared NuGet cache is DOTNET_INSPECT_ISOLATED's job, which
             // the sweep applies to its own lookups and not to its restore.
 
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("could not start the sweep");
+            using EvilPoolSweepRun run = EvilPoolSweepProcess.Start(startInfo);
+            Process process = run.Process;
 
             var output = process.StandardOutput.ReadToEndAsync();
             var failures = process.StandardError.ReadToEndAsync();
@@ -1930,7 +2257,7 @@ public class EvilPoolSweepGateTests
             // because a cold `dotnet run` of a file-based app builds it first.
             if (!process.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds))
             {
-                process.Kill(entireProcessTree: true);
+                run.Terminate();
                 Assert.Fail("the sweep did not exit within five minutes");
             }
 

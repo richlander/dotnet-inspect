@@ -67,7 +67,7 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
             source.Identity,
             moduleVersionId,
             GraphNodeStorageKind.CallSite,
-            call.Caller.MetadataToken,
+            call.EvidenceMethod.MetadataToken,
             call.ILOffset,
             call.OperandToken);
 

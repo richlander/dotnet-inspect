@@ -468,6 +468,29 @@ public class LibraryInspection
     [JsonIgnore]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
 
+    private OptimizationOpportunitiesResult?
+        _optimizationOpportunitiesQueryResult;
+
+    /// <summary>Typed whole-assembly optimization evidence.</summary>
+    [JsonIgnore]
+    public OptimizationOpportunitiesResult?
+        OptimizationOpportunitiesQueryResult
+    {
+        get => _optimizationOpportunitiesQueryResult;
+        set
+        {
+            _optimizationOpportunitiesQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>
+    /// CLI-filtered and ranked typed opportunities retained through presentation.
+    /// </summary>
+    [JsonIgnore]
+    public ImmutableArray<OptimizationOpportunity>
+        PerformanceTriageOpportunities { get; set; } = [];
+
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
     /// the kind-scoped sections and the il-offset nested model. Null (absent) when the scan did
@@ -477,6 +500,20 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PerformanceProjection? Performance =>
         PerformanceProjection.FromOpportunities(OptimizationOpportunities);
+
+    private ResourceTriageResult? _resourceTriageQueryResult;
+
+    /// <summary>Typed whole-assembly resource lifecycle evidence and assessments.</summary>
+    [JsonIgnore]
+    public ResourceTriageResult? ResourceTriageQueryResult
+    {
+        get => _resourceTriageQueryResult;
+        set
+        {
+            _resourceTriageQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     private FindingInspection<ResourceLifecycleOccurrence>?
         _resourceLifecycleInspection;
@@ -496,11 +533,18 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ResourceTriageSummary>? ResourceTriage { get; set; }
 
+    /// <summary>CLI-filtered typed assessments retained through presentation.</summary>
     [JsonIgnore]
-    public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
+    public ImmutableArray<ResourceTriageAssessment>
+        ResourceTriageAssessments { get; set; } = [];
+
+    /// <summary>CLI-owned member coordinates joined to typed resource triage evidence.</summary>
+    [JsonIgnore]
+    public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
+        ResourceTriageDrillMap { get; set; }
 
     [JsonIgnore]
-    internal bool PerformanceDiagnosticsReported { get; set; }
+    public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
     /// <summary>
     /// Exact rendered C# syntax matches produced for the selected Body Shapes query.
@@ -755,6 +799,22 @@ public class LibraryInspection
                     SectionNames.TopLeverage,
                     TopLeverageQuery.Definition.Name,
                     leverageFailure.Error.Message));
+            }
+            if (OptimizationOpportunitiesQueryResult
+                is OptimizationOpportunitiesResult.Failed optimizationFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    SectionNames.PerformanceTriage,
+                    OptimizationOpportunitiesQuery.Definition.Name,
+                    optimizationFailure.Error.Message));
+                if (BodyKindQueryOptions.HasFilter
+                    && PerformanceTriageOptions.HasCandidateFilters)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.BodyShapes,
+                        OptimizationOpportunitiesQuery.Definition.Name,
+                        optimizationFailure.Error.Message));
+                }
             }
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
@@ -1265,6 +1325,16 @@ public record class OptimizationOpportunitySummary
     public string? Token { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? EvidenceMethod { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SupportingFinding { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SupportingOperation { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SupportingToken { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SupportingEvidenceMethod { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SupportingIL { get; init; }
     public string Evidence { get; init; } = "";
     public string Fix { get; init; } = "";
     public string Priority { get; init; } = "";

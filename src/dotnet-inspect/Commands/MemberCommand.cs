@@ -1,3 +1,4 @@
+using DotnetInspector.CommandLine;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
@@ -31,12 +32,29 @@ public static class MemberCommand
             return 1;
         }
 
-        // Shared preamble: section validation, discovery, verbosity promotion
-        var (preamble, error) = ApiCommand.RunPreamble(options);
-        if (error.HasValue) return error.Value;
+        if (ApiCommand.RejectUniversallyInvalidMemberSelect(options))
+            return 1;
+        if (ApiCommand.RejectRouteIndependentOptionShape(options))
+            return 1;
 
-        options = (MemberOptions)preamble.Options;
-        var memberPipeline = preamble.MemberPipeline;
+        var unresolvedOptions = options;
+        if (!options.RouterDeferredTypeOrMember)
+        {
+            // Shared preamble: section validation, discovery, verbosity promotion
+            var (preamble, error) = ApiCommand.RunPreamble(options);
+            if (error.HasValue) return error.Value;
+            options = (MemberOptions)preamble.Options;
+        }
+        else if (options.Discover != null
+                 && !options.EffectiveDiscovery)
+        {
+            var (_, discoveryExitCode) = ApiCommand.RunPreamble(options);
+            if (discoveryExitCode.HasValue)
+                return discoveryExitCode.Value;
+
+            throw new InvalidOperationException(
+                "Static discovery did not produce an exit code.");
+        }
 
         var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
         if (sourceError.HasValue) return sourceError.Value;
@@ -78,27 +96,114 @@ public static class MemberCommand
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
+                if (options.RouterDeferredTypeOrMember)
+                {
+                    return await ExecuteDeferredTypeAsync(
+                        unresolvedOptions,
+                        source,
+                        loaded);
+                }
+
                 lookupResult.WriteNotFoundError();
                 return 1;
             }
 
             var apiType = lookupResult.Type!;
+            if (options.RouterDeferredTypeOrMember
+                && lookupResult.ImpliedMember is null
+                && DeferredExactTargetUsesTypePipeline(
+                    apiType,
+                    unresolvedOptions))
+            {
+                return await ExecuteDeferredTypeAsync(
+                    unresolvedOptions,
+                    source,
+                    loaded);
+            }
 
-            // If the type resolved by peeling a trailing Type.Member suffix (e.g.
-            // "System.String.Length" -> type System.String + member Length), apply the peeled
-            // segment as a member filter. Selector-bearing suffixes like ":N"/"~hash" are split
-            // in the parser, but generic arity can still arrive here from Type.M<T>.
             if (lookupResult.ImpliedMember is { } impliedMember)
             {
+                var mergeOptions = options.RouterDeferredTypeOrMember
+                    ? unresolvedOptions
+                    : options;
                 var impliedSelector = MemberTargetSelector.Parse(impliedMember);
-                var mergedFilter = new HashSet<string>(options.MemberFilter, StringComparer.OrdinalIgnoreCase)
+                if (mergeOptions.MemberGenericArity is { } explicitArity
+                    && impliedSelector.GenericArity is { } impliedArity
+                    && explicitArity != impliedArity)
+                {
+                    CommandError.Write("A member selection cannot combine different generic arities.");
+                    return 1;
+                }
+                if (MemberOverloadSelectorsConflict(
+                        mergeOptions,
+                        impliedSelector))
+                {
+                    CommandError.Write(
+                        "A member selection cannot combine different overload selectors.");
+                    return 1;
+                }
+
+                var mergedFilter = new HashSet<string>(
+                    mergeOptions.MemberFilter,
+                    StringComparer.OrdinalIgnoreCase)
                 {
                     impliedSelector.Name
                 };
-                options = options with
+                var mergedArity =
+                    mergeOptions.MemberGenericArity
+                    ?? impliedSelector.GenericArity;
+                if (mergedArity.HasValue && mergedFilter.Count != 1)
+                {
+                    CommandError.Write("A generic arity selector requires exactly one member name.");
+                    return 1;
+                }
+
+                mergeOptions = mergeOptions with
                 {
                     MemberFilter = mergedFilter,
-                    MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
+                    MemberGenericArity = mergedArity,
+                    OverloadIndex =
+                        mergeOptions.OverloadIndex
+                        ?? impliedSelector.OverloadIndex,
+                    MemberDigest = MergeDigestPrefixes(
+                        mergeOptions.MemberDigest,
+                        impliedSelector.DigestPrefix)
+                };
+                if (options.RouterDeferredTypeOrMember)
+                    unresolvedOptions = mergeOptions;
+                else
+                    options = mergeOptions;
+            }
+
+            if (options.RouterDeferredTypeOrMember)
+            {
+                unresolvedOptions = NormalizeResolvedTypeQualifiers(
+                    unresolvedOptions,
+                    apiType.FullName);
+            }
+            else
+            {
+                options = NormalizeResolvedTypeQualifiers(
+                    options,
+                    apiType.FullName);
+            }
+
+            if (options.RouterDeferredTypeOrMember)
+            {
+                if (options.ShapeExplicitlySet)
+                {
+                    CommandError.Write("--shape is only valid for type targets.");
+                    return 1;
+                }
+
+                var (preamble, error) =
+                    ApiCommand.RunPreamble(unresolvedOptions);
+                if (error.HasValue) return error.Value;
+                options = (MemberOptions)preamble.Options with
+                {
+                    PackagePath = source.ResolvedPackagePath,
+                    PackageRangeAddress = null,
+                    ProjectAssetsPath = projectAssetsPath,
                 };
             }
             else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
@@ -113,7 +218,13 @@ public static class MemberCommand
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;
                 if (actualSelect.Sections != null)
-                    options = options with { IncludeSections = actualSelect.Sections };
+                {
+                    options = options with
+                    {
+                        IncludeSections = actualSelect.Sections,
+                        ExactIncludeSectionsOverride = actualSelect.ExactSections,
+                    };
+                }
             }
 
             if (options.BodyKindQuery.HasFilter
@@ -316,10 +427,10 @@ public static class MemberCommand
                 && NeedsMemberSourceResolution(apiType, effectiveOptions))
             {
                 bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                    .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]);
+                    .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
-                // A property/event (including an indexer) has no body of its own: its authored
-                // source lives in the accessor the selected ordinal addresses, so resolve by that
+                // A property/event (including an indexer) has no body of its own: its PDB source
+                // is located through the accessor the selected ordinal addresses, so resolve by that
                 // accessor's name and MethodDef token rather than the property's name and absent
                 // token, which would otherwise resolve nothing (issue #3278).
                 var sourceAccessor = ResolveSourceAccessor(apiType, selectedMember, effectiveOptions.OverloadIndex);
@@ -332,7 +443,7 @@ public static class MemberCommand
                     : (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
                 // A directly-requested single member (name + overload) is already explicitly named
                 // by the caller. When non-public members are in scope (--all), honor that request
-                // for Original Source / Source Diff regardless of accessibility; member inventories
+                // for PDB Source / Source Diff regardless of accessibility; member inventories
                 // keep the public-only default. Explicit interface implementations stay resolvable.
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
@@ -346,7 +457,11 @@ public static class MemberCommand
                 // assembly for the surface vs an implementation assembly for
                 // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
-                var sourceMetadataToken = string.Equals(pdbLookupPath, tokenOriginAssembly, StringComparison.Ordinal)
+                var sourceMetadataToken = LibraryMetadataService
+                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                    .Equals(
+                        Path.GetFullPath(pdbLookupPath),
+                        Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
@@ -354,15 +469,18 @@ public static class MemberCommand
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken);
+                    sourceMetadataToken,
+                    tokenOriginAssembly,
+                    sourceMember?.MetadataToken ?? 0);
 
                 effectiveOptions = effectiveOptions with
                 {
                     MethodSource = resolved.Source,
                     MemberHasNoBody = resolved.MemberHasNoBody,
-                    MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
+                    MemberHasNoPdbDeclaration = resolved.MemberHasNoPdbDeclaration,
                     MemberSourceTooComplex = resolved.MemberSourceTooComplex,
                     MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
+                    PdbSourceUnavailableReason = resolved.PdbSourceUnavailableReason,
                     PdbPath = resolved.PdbPath
                 };
             }
@@ -498,6 +616,66 @@ public static class MemberCommand
         }
     }
 
+    private static bool DeferredExactTargetUsesTypePipeline(
+        ApiType type,
+        MemberOptions options) =>
+        options.RouterDeferredTypeMemberValues.Length == 0
+        || type.DefinitionName?.Segments.Length is not 1;
+
+    private static MemberOptions NormalizeResolvedTypeQualifiers(
+        MemberOptions options,
+        string resolvedTypeName)
+    {
+        if (options.MemberFilter.Count == 0)
+            return options;
+
+        HashSet<string> memberFilter = new(
+            options.MemberFilter.Select(
+                member => SharedParsers.StripResolvedTypeQualifier(
+                    member,
+                    resolvedTypeName)),
+            StringComparer.OrdinalIgnoreCase);
+        return options with { MemberFilter = memberFilter };
+    }
+
+    private static async Task<int> ExecuteDeferredTypeAsync(
+        MemberOptions unresolvedOptions,
+        ApiSourceResult source,
+        ApiServices.LoadedApiSurface loaded)
+    {
+        if (unresolvedOptions.MemberGenericArity.HasValue)
+        {
+            CommandError.Write(
+                "The type command's -m filter does not support generic arity selectors; use the member command.");
+            return 1;
+        }
+
+        if (unresolvedOptions.CallerScopeProjects.Length > 0)
+        {
+            var projectValueCount =
+                unresolvedOptions.CallerScopeProjects.Length
+                + (unresolvedOptions.ProjectPath is null ? 0 : 1);
+            CommandError.Write(projectValueCount > 1
+                ? $"Option '--project' expects a single argument but "
+                    + $"{projectValueCount} were provided."
+                : "--project cannot be combined with --package, --library, or --platform.");
+            return 1;
+        }
+
+        if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
+            is { } incompatibleOption)
+        {
+            CommandError.Write(
+                $"Unrecognized option '{incompatibleOption}'.");
+            return 1;
+        }
+
+        return await TypeCommand.ExecuteResolvedAsync(
+            ApiCommand.ToTypeOptions(unresolvedOptions),
+            source,
+            loaded);
+    }
+
     private static async Task<int?> TryExecuteFindIfMissAsync(MemberOptions options)
     {
         if (options.PackagePath == null || options.AssemblyPath != null || options.PlatformAssembly != null)
@@ -546,6 +724,47 @@ public static class MemberCommand
     private static bool MemberFilterHasWildcard(string filter)
         => filter.Contains('*', StringComparison.Ordinal)
            || filter.Contains('?', StringComparison.Ordinal);
+
+    private static bool MemberOverloadSelectorsConflict(
+        MemberOptions explicitOptions,
+        MemberTargetSelector impliedSelector)
+    {
+        if (explicitOptions.OverloadIndex is { } explicitIndex
+            && impliedSelector.OverloadIndex is { } impliedIndex)
+        {
+            return explicitIndex != impliedIndex;
+        }
+
+        if (explicitOptions.MemberDigest is { Length: > 0 } explicitDigest
+            && impliedSelector.DigestPrefix is { Length: > 0 } impliedDigest)
+        {
+            return !explicitDigest.StartsWith(
+                       impliedDigest,
+                       StringComparison.OrdinalIgnoreCase)
+                   && !impliedDigest.StartsWith(
+                       explicitDigest,
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        return (explicitOptions.OverloadIndex.HasValue
+                && impliedSelector.DigestPrefix is { Length: > 0 })
+            || (explicitOptions.MemberDigest is { Length: > 0 }
+                && impliedSelector.OverloadIndex.HasValue);
+    }
+
+    private static string? MergeDigestPrefixes(
+        string? explicitDigest,
+        string? impliedDigest)
+    {
+        if (string.IsNullOrEmpty(explicitDigest))
+            return impliedDigest;
+        if (string.IsNullOrEmpty(impliedDigest))
+            return explicitDigest;
+
+        return explicitDigest.Length >= impliedDigest.Length
+            ? explicitDigest
+            : impliedDigest;
+    }
 
     private static int BodyAccessorCount(ApiMember member)
         => member.Kind switch
@@ -611,7 +830,7 @@ public static class MemberCommand
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
-        SectionNames.OriginalSource,
+        SectionNames.PdbSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,
         SectionNames.ExceptionRegions,
@@ -661,7 +880,7 @@ public static class MemberCommand
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+        if (sections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
             return true;
 
         bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
@@ -678,7 +897,8 @@ public static class MemberCommand
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
 
     /// <summary>
-    /// The accessor method that carries a selected property's or event's authored source, or
+    /// The accessor method whose PDB sequence points locate a selected property's or event's
+    /// source, or
     /// <see langword="null"/> when the selected member is already method-like (or is a field,
     /// which has no accessor). The accessor ordinal follows the same addressing the body
     /// sections use: 1 is the getter/adder and 2 the setter/remover, counting only accessors

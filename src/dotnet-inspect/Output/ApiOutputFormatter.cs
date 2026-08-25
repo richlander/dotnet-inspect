@@ -634,7 +634,11 @@ public static class ApiOutputFormatter
             foreach (var group in membersByKind)
             {
                 var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads, type.Name);
+                var children = BuildShapeMemberNodes(
+                    group.Key,
+                    membersInGroup,
+                    expandOverloads,
+                    type);
                 var logicalCount = IsOverloadGroupedKind(group.Key)
                     ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
                     : membersInGroup.Count;
@@ -643,7 +647,11 @@ public static class ApiOutputFormatter
             }
         }
 
-        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads, string declaringTypeName)
+        static List<TreeNode> BuildShapeMemberNodes(
+            string kind,
+            IEnumerable<ApiMember> members,
+            bool expandOverloads,
+            ApiType declaringType)
         {
             if (IsOverloadGroupedKind(kind))
             {
@@ -679,32 +687,17 @@ public static class ApiOutputFormatter
                 .OrderBy(m => m.Name, StringComparer.Ordinal)
                 .Select(m => new TreeNode(
                     m.IsFinalizer
-                        ? ShapeDestructorSpelling(declaringTypeName)
+                        ? ShapeDestructorSpelling(declaringType)
                         : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                 .ToList();
         }
 
         // A finalizer renders as the C# destructor `~Type()` rather than its raw
         // metadata signature (`void Finalize()`).
-        static string ShapeDestructorSpelling(string typeName)
+        static string ShapeDestructorSpelling(ApiType type)
         {
-            var name = typeName;
-            // Isolate the innermost nested-type segment BEFORE stripping generic
-            // arity, so a finalizer on a type nested inside a generic outer
-            // (e.g. "Outer`1.Nested" or "Outer`1+Nested") spells "~Nested()"
-            // rather than "~Outer()".
-            int sep = name.LastIndexOfAny(['.', '+']);
-            if (sep >= 0)
-                name = name[(sep + 1)..];
-            int angle = name.IndexOf('<');
-            if (angle >= 0)
-                name = name[..angle];
-            int tick = name.IndexOf('`');
-            if (tick >= 0)
-                name = name[..tick];
-            // Contained on the composed spelling rather than at the call site:
-            // the sibling branch there contains its own text, and a finalizer
-            // node reached output raw because only that one branch was covered.
+            string name =
+                CSharpFormatter.FormatDeclarationLeafMetadataName(type);
             return CSharpIdentifier.ContainRenderedText($"~{name}()");
         }
 
@@ -1608,6 +1601,11 @@ public static class ApiOutputFormatter
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    call.Caller == call.EvidenceMethod
+                        ? null
+                        : MarkoutInline.Code(
+                            $"{FormatMethod(call.EvidenceMethod)} "
+                            + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
                     string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
                     FormatCallsiteKind(call.Kind),
                     MarkoutInline.Code(FormatCallee(call.Callee)),
@@ -1647,22 +1645,34 @@ public static class ApiOutputFormatter
         if (request.Callers && bodyMethods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
-            var rows = new List<CallerSiteRow>();
+            var edges = new List<(
+                string Source,
+                Analysis.DirectCall Call)>();
 
             // Collect callers for each method (all overloads if multiple methods selected)
             foreach (var method in bodyMethods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
-                rows.AddRange(analysisInspection.CallerEdges(targetToken)
-                    .Select(edge => CreateCallerRow(edge.Source, edge.Call)));
+                edges.AddRange(
+                    analysisInspection.CallerEdges(targetToken)
+                        .Select(edge => (edge.Source, edge.Call)));
             }
 
-            // Deduplicate and sort
-            rows = rows
-                .GroupBy(row => (row.Source, row.Caller, row.ILOffset, row.OperandToken))
-                .Select(g => g.First())
+            var rows = edges
+                .GroupBy(edge => (
+                    edge.Source,
+                    edge.Call.EvidenceMethod.ModuleVersionId,
+                    edge.Call.EvidenceMethod.MetadataToken,
+                    edge.Call.ILOffset,
+                    edge.Call.OperandToken))
+                .Select(group => group.First())
+                .Select(edge =>
+                    CreateCallerRow(edge.Source, edge.Call))
                 .OrderBy(row => row.Source, StringComparer.Ordinal)
                 .ThenBy(row => row.Caller, StringComparer.Ordinal)
+                .ThenBy(
+                    row => row.EvidenceMethod,
+                    StringComparer.Ordinal)
                 .ThenBy(row => row.ILOffset, StringComparer.Ordinal)
                 .ToList();
 
@@ -1800,7 +1810,8 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
                 var rows = Analysis.SemanticFactProjection.CostFacts(
-                        analysisInspection.BodyIndex.GetDirectCallsByCaller(),
+                        analysisInspection.BodyIndex
+                            .GetDirectCallsByEvidenceMethod(),
                         semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
@@ -2369,7 +2380,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCallsByCaller = index.GetDirectCallsByCaller();
+            var directCallsByCaller =
+                index.GetDirectCallsByEvidenceMethod();
             var rows = methodTokens
                 .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCallsByCaller, token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
@@ -2431,6 +2443,26 @@ public static class ApiOutputFormatter
                 opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
                 opportunity.EvidenceMethodToken is { } evidenceMethod
                     ? MarkoutInline.Code($"0x{evidenceMethod:X8}")
+                    : null,
+                opportunity.SupportingCallSite
+                    ?.SourceFinding,
+                opportunity.SupportingCallSite
+                    ?.Operation,
+                opportunity.SupportingCallSite
+                    ?.OperandToken is { } supportingToken
+                    ? MarkoutInline.Code(
+                        $"0x{supportingToken:X8}")
+                    : null,
+                opportunity.SupportingCallSite
+                    ?.EvidenceMethodToken is
+                        { } supportingMethod
+                    ? MarkoutInline.Code(
+                        $"0x{supportingMethod:X8}")
+                    : null,
+                opportunity.SupportingCallSite is
+                    { ILOffset: var supportingOffset }
+                    ? MarkoutInline.Code(
+                        $"IL_{supportingOffset:X4}")
                     : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
@@ -2730,6 +2762,11 @@ public static class ApiOutputFormatter
         => new(
             source,
             MarkoutInline.Code(FormatMethod(call.Caller)),
+            call.Caller == call.EvidenceMethod
+                ? null
+                : MarkoutInline.Code(
+                    $"{FormatMethod(call.EvidenceMethod)} "
+                    + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
             MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
             string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
             FormatCallsiteKind(call.Kind),

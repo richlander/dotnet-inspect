@@ -486,9 +486,11 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationOpportunitiesQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
-        Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerBodyShapes, detailedScanners);
+        Assert.DoesNotContain(ResourceTriageQuery.Definition, detailedQueries);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition,
+            detailedQueries);
         Assert.DoesNotContain(TopLeverageQuery.Definition, detailedQueries);
     }
 
@@ -500,12 +502,15 @@ public class SectionPipelineTests
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, performance);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, performance);
 
-        Assert.Contains(LibrarySections.ScannerOptimizationOpportunities, scanners);
-        Assert.Contains(LibrarySections.ScannerResourceTriage, scanners);
+        Assert.Contains(ResourceTriageQuery.Definition, queries);
         Assert.Contains(
             TopLeverageQuery.Definition,
-            pipeline.GetRequiredQueries(Verbosity.Minimal, performance));
+            queries);
+        Assert.Contains(
+            OptimizationOpportunitiesQuery.Definition,
+            queries);
 
         Assert.Contains(
             LibrarySections.ScannerBodyShapes,
@@ -515,6 +520,96 @@ public class SectionPipelineTests
                 {
                     SectionNames.BodyShapes,
                 }));
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    {
+        bool acquired = false;
+
+        ResourceTriageResult result =
+            LibrarySections.ExecuteResourceTriageQuery(
+                hasMetadata: false,
+                () =>
+                {
+                    acquired = true;
+                    throw new InvalidOperationException("must not acquire");
+                },
+                new FindingSubject("native.dll", "native.dll"));
+
+        Assert.IsType<ResourceTriageResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_CompleteEmptyJsonRemainsDistinctFromNoMetadata()
+    {
+        var inspection = new LibraryInspection();
+        var complete =
+            new FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete([]);
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Available(complete, []),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+
+        string completeJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using (JsonDocument document = JsonDocument.Parse(completeJson))
+        {
+            JsonElement resourceTriage =
+                document.RootElement.GetProperty("resource_triage");
+            Assert.Equal(JsonValueKind.Array, resourceTriage.ValueKind);
+            Assert.Equal(0, resourceTriage.GetArrayLength());
+        }
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.NoMetadata(),
+            () => throw new InvalidOperationException(
+                "NoMetadata must not acquire the drill map"));
+
+        string noMetadataJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using JsonDocument noMetadataDocument =
+            JsonDocument.Parse(noMetadataJson);
+        Assert.False(
+            noMetadataDocument.RootElement.TryGetProperty(
+                "resource_triage",
+                out _));
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_FailureProjectsToArrayPoolEscapes()
+    {
+        var inspection = new LibraryInspection();
+        var error = new InspectionError(
+            new FindingSubject("broken.dll", "broken.dll"),
+            Analysis.AnalysisFindings.ResourceLifecycleDescriptor,
+            "body index failed");
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Failed(error),
+            () => throw new InvalidOperationException(
+                "failed results must not acquire the drill map"));
+
+        var failed =
+            Assert.IsType<ResourceTriageResult.Failed>(
+                inspection.ResourceTriageQueryResult);
+        Assert.Same(error, failed.Error);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.ArrayPoolEscapes, projected.Section);
+        Assert.Equal(
+            Analysis.AnalysisFindings.ResourceLifecycleDescriptor.Title,
+            projected.Finding);
+        Assert.Equal(error.Reason, projected.Reason);
+        Assert.Empty(inspection.ResourceTriageAssessments);
+        Assert.Null(inspection.ResourceTriage);
     }
 
     [Fact]
@@ -657,7 +752,7 @@ public class SectionPipelineTests
         SectionNames.AnnotatedSource,
         SectionNames.CostOverlay,
         SectionNames.SemanticsOverlay,
-        SectionNames.OriginalSource,
+        SectionNames.PdbSource,
         SectionNames.Calls,
         SectionNames.ExceptionRegions,
         SectionNames.Callers,
@@ -741,17 +836,9 @@ public class SectionPipelineTests
         var model = new LibraryInspection
         {
             AssemblyInfo = new AssemblyInfo(),
-            OptimizationOpportunities =
+            PerformanceTriageOpportunities =
             [
-                new OptimizationOpportunitySummary
-                {
-                    Member = "Some.Type.Method()",
-                    Shape = "capturing-delegate",
-                    Evidence = "delegate over a captured receiver or closure",
-                    Fix = "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
-                    Confidence = "high",
-                    Loop = "",
-                }
+                PerformanceOpportunity("capturing-delegate"),
             ]
         };
 
@@ -762,7 +849,7 @@ public class SectionPipelineTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
         // Having rows makes the section renderable, not automatic: it is backed by the
-        // OptimizationOpportunities scanner, which declares Cost=Unbounded, so it leaves the
+        // Optimization Opportunities query, which declares Cost=Unbounded, so it leaves the
         // -v:d ladder and is reached through -S or the @Performance door instead. Asserting both
         // directions keeps this test honest about which of the two properties it is pinning.
         Assert.DoesNotContain(section, effective);
@@ -777,16 +864,9 @@ public class SectionPipelineTests
         {
             AssemblyInfo = new AssemblyInfo(),
             HasMethodBodies = true,
-            OptimizationOpportunities =
+            PerformanceTriageOpportunities =
             [
-                new OptimizationOpportunitySummary
-                {
-                    Member = "Some.Type.Method()",
-                    Shape = "capturing-delegate",
-                    Evidence = "delegate over a captured receiver or closure",
-                    Fix = "Use a static local function.",
-                    Confidence = "high",
-                }
+                PerformanceOpportunity("capturing-delegate"),
             ]
         };
 
@@ -1713,6 +1793,8 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                OptimizationOpportunitiesQuery.Definition,
+                ResourceTriageQuery.Definition,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
@@ -4295,20 +4377,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ProductionScannerCatchBoundary_DoesNotSwallowDeclarationViolation()
-    {
-        var registry = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.BodyIndex,
-                    ctx.AssemblyPath,
-                    ctx.Logger));
-
-        Assert.Throws<ScannerCostDeclarationException>(
-            () => registry.RunScanners(["cheap"], NullScannerContext()));
-    }
-
-    [Fact]
     public async Task ProductionQueryCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
         var query = new InspectionQuery<TopLeverageResult>(
@@ -4525,7 +4593,7 @@ public class SectionPipelineTests
         };
 
         // Performance: Boxing declares no cost of its own; it is expensive only because the
-        // OptimizationOpportunities scanner behind it is. If the pipeline stopped consulting the
+        // Optimization Opportunities query behind it is. If the pipeline stopped consulting the
         // registry it would return to the -v:d ladder.
         Assert.DoesNotContain(
             SectionNames.PerformanceBoxing,
@@ -4556,10 +4624,13 @@ public class SectionPipelineTests
 
         // The scanner axis: sections that are expensive because the scan behind them is. This is
         // the family this change moved off the ladder.
-        string[] expectedBodyIndexFamily =
+        string[] expectedScannerBodyIndexFamily =
+        [
+            SectionNames.BodyShapes,
+        ];
+        string[] expectedQueryBodyIndexFamily =
         [
             SectionNames.ArrayPoolEscapes,
-            SectionNames.BodyShapes,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -4577,7 +4648,9 @@ public class SectionPipelineTests
             .ToList();
 
         Assert.Equal(
-            expectedBodyIndexFamily.OrderBy(name => name, StringComparer.Ordinal),
+            expectedScannerBodyIndexFamily.OrderBy(
+                name => name,
+                StringComparer.Ordinal),
             scannerAboveCheap);
 
         // The effective axis: everything the ladder will refuse to auto-render, whichever
@@ -4586,7 +4659,8 @@ public class SectionPipelineTests
         // of cost declaration crossing the boundary requires an explicit review update.
         string[] expectedAboveCheap =
         [
-            .. expectedBodyIndexFamily,
+            .. expectedScannerBodyIndexFamily,
+            .. expectedQueryBodyIndexFamily,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             .. LibraryIntegrationCatalog.CategorySections,
@@ -5150,6 +5224,227 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void OptimizationOpportunitiesQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        var available =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                results.Get(OptimizationOpportunitiesQuery.Definition));
+        Assert.NotEmpty(available.Opportunities);
+        Assert.Empty(available.AllocationFanoutOpportunities);
+        var bodyIndex = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
+        Assert.Contains(
+            "OptimizationOpportunities",
+            bodyIndex.Detail.ToString());
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "drill map");
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(
+            typeof(SectionPipelineTests).Assembly.Location,
+            Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        var ordinary =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                OptimizationOpportunitiesQuery.Execute(
+                    index,
+                    includeAllocationFanout: false));
+        var fanout =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                OptimizationOpportunitiesQuery.Execute(
+                    index,
+                    includeAllocationFanout: true));
+
+        Assert.Empty(ordinary.AllocationFanoutOpportunities);
+        Assert.NotEmpty(fanout.AllocationFanoutOpportunities);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_BodyIndexFailureRemainsTyped()
+    {
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            NullScannerContext());
+
+        var failed =
+            Assert.IsType<OptimizationOpportunitiesResult.Failed>(
+                results.Get(OptimizationOpportunitiesQuery.Definition));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    {
+        bool acquired = false;
+
+        OptimizationOpportunitiesResult result =
+            LibrarySections.ExecuteOptimizationOpportunitiesQuery(
+                hasMetadata: false,
+                () =>
+                {
+                    acquired = true;
+                    throw new InvalidOperationException("must not acquire");
+                },
+                includeAllocationFanout: false);
+
+        Assert.IsType<OptimizationOpportunitiesResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_FailureProjectsToPerformanceSections()
+    {
+        var inspection = new LibraryInspection();
+        var error = new IOException("body index failed");
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "broken.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.Failed(error));
+
+        var failed =
+            Assert.IsType<OptimizationOpportunitiesResult.Failed>(
+                inspection.OptimizationOpportunitiesQueryResult);
+        Assert.Same(error, failed.Error);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.PerformanceTriage, projected.Section);
+        Assert.Equal(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            projected.Finding);
+        foreach (string section in PerformanceKinds.Sections)
+        {
+            Assert.True(LibraryCommand.FailureAffectsSection(
+                projected.Section,
+                section));
+        }
+        Assert.Empty(inspection.PerformanceTriageOpportunities);
+        Assert.Null(inspection.OptimizationOpportunities);
+    }
+
+    [Fact]
+    public async Task ComposedBodyShapes_QueryFailureDoesNotProduceEmptySuccess()
+    {
+        var error = new IOException("body index failed");
+        var registry = new InspectionQueryRegistry<ScannerContext>()
+            .Add(
+                OptimizationOpportunitiesQuery.Definition,
+                _ => new OptimizationOpportunitiesResult.Failed(error));
+        using var httpClient = new HttpClient();
+
+        LibraryInspection inspection = Assert.IsType<LibraryInspection>(
+            await LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions
+                {
+                    BodyKindQuery = new BodyKindQueryOptions
+                    {
+                        Kind = "ArrayCreationExpression",
+                    },
+                    PerformanceTriage = new PerformanceTriageOptions
+                    {
+                        Shapes = ["small-array"],
+                    },
+                },
+                new Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                scanners: [LibrarySections.ScannerBodyShapes],
+                scannerRegistry: LibrarySections.CreateScannerRegistry(),
+                queries: [OptimizationOpportunitiesQuery.Definition],
+                queryRegistry: registry));
+
+        Assert.Null(inspection.BodyShapeSearchResult);
+        var bodyShapesFailure = Assert.Single(
+            inspection.InspectionFailures!,
+            failure => failure.Section == SectionNames.BodyShapes);
+        Assert.Equal(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            bodyShapesFailure.Finding);
+        Assert.Equal(error.Message, bodyShapesFailure.Reason);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_NoMetadataDoesNotProjectFailure()
+    {
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "native.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.NoMetadata());
+
+        Assert.IsType<OptimizationOpportunitiesResult.NoMetadata>(
+            inspection.OptimizationOpportunitiesQueryResult);
+        Assert.Empty(inspection.PerformanceTriageOpportunities);
+        Assert.Null(inspection.OptimizationOpportunities);
+        Assert.Null(inspection.InspectionFailures);
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_RecordsBodyIndexAndDrillMapDuringExecution()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [ResourceTriageQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        Assert.IsType<ResourceTriageResult.Available>(
+            results.Get(ResourceTriageQuery.Definition));
+        var bodyIndex = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+        Assert.Contains("LeakTriage", bodyIndex.Detail.ToString());
+        Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "drill map");
+    }
+
+    [Fact]
     public void TopLeverageQuery_RecordsAndReturnsTheBodyIndexItBuilds()
     {
         var registry = LibrarySections.CreateQueryRegistry();
@@ -5677,6 +5972,26 @@ public class SectionPipelineTests
         Logger = new Output.VerboseLogger(false),
     };
 
+    private static Analysis.OptimizationOpportunity PerformanceOpportunity(
+        string shape)
+        => new(
+            new Analysis.MethodIdentity(
+                "Test",
+                Guid.Empty,
+                Analysis.TypeRef.Definition("Test", "Some", "Type"),
+                "Method",
+                [],
+                Analysis.TypeRef.CoreLib("System", "Void"),
+                0x06000001,
+                IsStatic: true),
+            shape,
+            "delegate over a captured receiver or closure",
+            "Use a static local function.",
+            "high",
+            InLoop: false,
+            ILOffset: 0,
+            Caveat: null);
+
     // ===== Presence flag / CanRender discovery tests =====
 
     [Fact]
@@ -6013,6 +6328,7 @@ public class SectionPipelineTests
             [
                 PackageSections.Signals,
                 PackageSections.AuditArtifactText,
+                PackageSections.AuditFindings,
                 PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
@@ -6041,6 +6357,28 @@ public class SectionPipelineTests
         Assert.Equal(
             expected,
             PackageSectionDescriptors.AuditArtifactText.CanRender(model));
+    }
+
+    [Fact]
+    public void PackagePipeline_PackageContentAuditRendersOnlyWithFindings()
+    {
+        var model = new InspectionResult
+        {
+            PackageContentAudit = new PackageContentAuditResult(
+                [new PackageContentAuditFinding(
+                    "README.md",
+                    PackageContentFindingKind.NonGraphicText,
+                    TextConcern.Format,
+                    new InertString(TextPolicy.Field, "encoded"))],
+                EligibleFiles: 1,
+                ScannedFiles: 1,
+                ScannedBytes: 7,
+                Complete: true),
+        };
+
+        Assert.True(PackageSectionDescriptors.AuditFindings.CanRender(model));
+        model.PackageContentAudit = model.PackageContentAudit with { Findings = [] };
+        Assert.False(PackageSectionDescriptors.AuditFindings.CanRender(model));
     }
 
     [Theory]
@@ -6124,7 +6462,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(20, pipeline.AllSectionNames.Length);
+        Assert.Equal(21, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -6138,6 +6476,7 @@ public class SectionPipelineTests
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
         Assert.Contains(PackageSections.AuditArtifactText, names);
+        Assert.Contains(PackageSections.AuditFindings, names);
         Assert.Contains(PackageSections.AuditIdentifierConfusion, names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Package nuspec file", names);
@@ -6564,6 +6903,10 @@ public class SectionPipelineTests
                     Confidence = "high"
                 }
             ],
+            PerformanceTriageOpportunities =
+            [
+                PerformanceOpportunity("capturing-delegate"),
+            ],
             PInvokeMethods = [new ClassifiedMethodSummary { MethodName = "P", DeclaringType = "T", Signature = "void P()" }],
             AsyncMethods = [new AsyncMethodSummary { MethodName = "A", DeclaringType = "T", Signature = "void A()" }],
             ResourceInspection = MetadataFindings.InspectResources(
@@ -6844,7 +7187,7 @@ public class SectionPipelineTests
         Assert.Contains("Source Files", names);
         Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
-        Assert.Contains("Original Source", names);
+        Assert.Contains("PDB Source", names);
         Assert.Contains("Source Diff", names);
         Assert.Contains("Custom Attributes", names);
         Assert.Contains("Called Types", names);
@@ -7041,13 +7384,13 @@ public class SectionPipelineTests
 
         Assert.Contains("Signature", minimal);
         Assert.DoesNotContain("Decompiled Source", minimal);
-        Assert.DoesNotContain("Original Source", minimal);
+        Assert.DoesNotContain("PDB Source", minimal);
         Assert.Contains("Decompiled Source", normal);
         Assert.Contains("IL", normal);
         Assert.DoesNotContain("Annotated Source", normal);
-        Assert.DoesNotContain("Original Source", normal);
+        Assert.DoesNotContain("PDB Source", normal);
         Assert.Contains("Decompiled Source", detailed);
-        Assert.Contains("Original Source", detailed);
+        Assert.Contains("PDB Source", detailed);
         Assert.Contains("IL", detailed);
         Assert.DoesNotContain("Annotated Source", detailed);
         var annotations = pipeline.GetCostAnnotations();
@@ -7097,7 +7440,7 @@ public class SectionPipelineTests
             [
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL
             ],
@@ -7113,7 +7456,7 @@ public class SectionPipelineTests
             [
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL
             ],

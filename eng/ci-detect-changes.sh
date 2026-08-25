@@ -277,6 +277,7 @@ while IFS= read -r -d '' file; do
     # graph must compile it as well as the solution. Test hosts, CLI-only projects, and
     # unrelated tools stay on the regular code lane.
     src/UnionPolyfill.cs|src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
+    src/tsbindgen/*) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
     tests/*) CODE=true ;;
     tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
@@ -287,6 +288,9 @@ while IFS= read -r -d '' file; do
     eng/test-ci-change-detection.cs) CODE=true ;;
     eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
+    # Package fixture inputs are executable test evidence. The fast CLI test
+    # lane packs and inspects them; the product pack job does not consume them.
+    eng/package-fixtures/*) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
@@ -313,6 +317,7 @@ while IFS= read -r -d '' file; do
     eng/activate-iltools.sh) CODE=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
+    eng/generate-inspect-web-engine-dts.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.
     eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw

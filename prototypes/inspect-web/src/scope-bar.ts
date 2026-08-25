@@ -1,13 +1,45 @@
 type LensDefinition = readonly [id: string, label: string];
 
-export type Scope = "package" | "type" | "member";
+type Scope = "package" | "type" | "member";
 
 export interface RenderScopeBarOptions {
   scope: Scope;
   strip: readonly LensDefinition[];
   activeStripId: string | null;
   stripAttribute: string;
+  showMemberScope?: boolean;
+  emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
+}
+
+export interface ScopeBarBindingActions {
+  onMemberSectionSelect: (section: string | undefined) => void;
+  onPackageLensSelect: (lens: string) => void;
+  onScopeSelect: (scope: string | undefined) => void;
+  onTypeLensSelect: (lens: string) => void;
+}
+
+export function bindScopeBar(
+  root: ParentNode,
+  actions: ScopeBarBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onScopeSelect(button.dataset.scope)));
+  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onPackageLensSelect(
+        button.dataset.packageLens ?? "overview")));
+  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeLensSelect(button.dataset.lens ?? "api")));
+  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberSectionSelect(button.dataset.memberSection)));
 }
 
 function lensButton(
@@ -32,16 +64,26 @@ function scopeSegment(id: string, label: string, active: boolean): string {
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
 export function renderScopeBar(options: RenderScopeBarOptions): string {
-  const { scope, strip, activeStripId, stripAttribute, escapeHtml } = options;
+  const {
+    scope,
+    strip,
+    activeStripId,
+    stripAttribute,
+    showMemberScope = scope === "member",
+    emptyStripLabel = "",
+    escapeHtml,
+  } = options;
   const stripHtml = strip
     .map(([id, label], i) => lensButton(id, label, activeStripId === id, stripAttribute, i, escapeHtml))
-    .join("");
+    .join("") || (emptyStripLabel
+      ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
+      : "");
   return `
     <nav class="lensbar" aria-label="Scope and lenses">
       <div class="scope-switch" role="tablist" aria-label="Scope">
         ${scopeSegment("package", "Package", scope === "package")}
         ${scopeSegment("type", "Types", scope === "type")}
-        ${scope === "member" ? scopeSegment("member", "Member", true) : ""}
+        ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
       </div>
       <span class="lens-separator"></span>
       ${stripHtml}

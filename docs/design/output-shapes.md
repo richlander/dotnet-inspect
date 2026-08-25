@@ -42,6 +42,43 @@ declared row unit is a directed edge: `--count` counts relationships, and
 `--rows` selects the same ordered relationships whether the graph is rendered
 as a Markdown edge table, standalone tree, standalone Mermaid diagram, or
 tabular stream. Tree nodes are presentation context, not additional rows.
+`graph integrations` uses the same row contract: one row is one directed
+logical relationship. Its package groups and finer member/type nodes are
+presentation context, while `--count` and `--rows` count or select logical
+edges consistently across Markdown, tree, Mermaid, tabular, and structured
+output. Isolated explicit packages remain node/group context in graph and JSON
+views, but never become empty data rows in the default Markdown edge table.
+`OutputModes_UseTheSameWindowedLogicalEdges` gates the rendered Markdown table
+row count against the selected logical-edge count.
+
+The `graph integrations --json` failure array preserves both presentation and
+typed addressing: each failure carries its rendered target plus
+`target_kind`/`target_id`, and Integration failures retain structured producer,
+kind, assembly-reference, acquisition-failure, and exception fields. Opaque
+workspace registration handles are deliberately not stringified; the graph
+target and typed reference evidence remain the identities a consumer can
+interpret outside the owning workspace.
+Failure-targeted nodes and groups remain in the JSON document as diagnostic
+context even when they are not endpoints of the selected edge window; they are
+not additional relationship rows. Structured diagnostic text crosses the same
+lossless inert containment boundary as human-readable failures.
+`VisibleGraphFailure_PreservesOutputAndNonzeroExit` gates target
+resolvability, and `StructuredFailureText_IsInertAfterJsonParsing` gates
+containment after a JSON consumer decodes the value.
+
+Integration graph edge rows carry `source`, `source_assembly`, `source_group`,
+`relationship`, `target`, `target_assembly`, `target_group`, `occurrences`,
+and `evidence`. Assembly and group fields preserve endpoint identity within a
+multi-assembly package and package ownership across package contexts;
+plain-text and graph node labels carry the same context. JSON nodes also carry
+assembly identity, and failure target labels retain it. JSON and JSONL keep
+occurrence counts numeric and absent values null; JSON edges carry projected
+evidence rather than exposing
+document-local occurrence ids without the occurrence collection that owns
+them. `ProductionShapedEndpoints_RetainPackageOwnership`,
+`AcquiredEndpoints_RetainAssemblyWithinOnePackage`,
+`AcquiredFailureTargets_RetainAssemblyWithinOnePackage`, and
+`OutputModes_UseTheSameWindowedLogicalEdges` gate these contracts.
 
 ## Flag families
 
@@ -368,7 +405,7 @@ Markdown pipeline. Printable documents are therefore reached only by selecting
 the section that lists them, and `--print` projects that section's rows like
 every other payload projection.
 
-#### A payload lens emits its payload verbatim, and nothing else, on stdout
+#### Payload stdout is visually encoded; exact export is explicit
 
 Everything a rendered surface shows is *contained*: untrusted metadata names,
 attribute text, doc text, and nuspec fragments have their line terminators
@@ -377,44 +414,37 @@ rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
 fence, a tree gutter, or a diagnostic line (issue #3319).
 
 Printing a document (`-S "Package README file" --print`) and `--content`
-deliberately do **not** contain what they emit, and that is a contract rather
-than a gap. Their job is to hand the caller the bytes of a file, the way `cat`
-does; escaping those bytes would corrupt the payload and make the mode useless
-for its purpose. Piping that payload to a file reproduces the file byte for
-byte, with no departure from `cat`: measured against payloads ending in zero,
-one, and two newlines, each comes back with the count it went in with.
+visually encode rendering hazards on stdout. Exact payload transfer is an
+explicit file operation: add `--out <path>` to a selection that resolves one
+payload. An unscoped file export preserves the package bytes exactly, including
+encoding, byte order mark, and line endings; a Markdown scope exports that
+projected text. Terminal-facing output never emits a live control or bidi scalar
+from package content. Multi-file or multi-package `--content --out` is refused
+unless `--jsonl` selects the structured table shape; global selection
+cardinality is resolved before any selected payload is read, and the unique
+payload is read from the same retained package acquisition that supplied its
+selection metadata. Narrow it with `--path` for exact transfer.
 
-What makes that safe is a stream split, and the split is the actual invariant:
+Tool-authored companion sections still use the stream split: for example,
+`package X -S "Package README file" --print --info` writes the encoded document
+to stdout and the `# Info` table to stderr.
 
-> A payload lens writes the payload to **stdout** and writes no tool-authored
-> framing to stdout. Every heading, table, and diagnostic the tool composes
-> goes to **stderr**, where it is contained.
+Two consequences define the boundary:
 
-So `package X -S "Package README file" --print --info` puts the hostile README on stdout and the
-`# Info` table on stderr. Nothing on stdout claims to be the tool speaking, so
-a reader who sees an ANSI escape there knows it came from the file — the same
-thing they know when they run `cat`.
-
-Two consequences worth stating, because they are the boundary and not the rule:
-
-- `--jsonl` is *not* a payload lens. It frames the payload in a structure the
-  caller parses, so the content is JSON-escaped; `\u202E` arrives as the six
-  characters `\u202E`.
+- `--jsonl` preserves the payload as a JSON string value. The wire format
+  escapes control characters as required by JSON; parsing the JSON reconstructs
+  the original value.
 - `--content` is the one lens that writes framing to stdout: it delimits each
   matched file with a `------------ <package> :: <path> ------------` banner,
   because a multi-file payload needs a separator. The banner's *fields* are
-  contained, so a hostile zip entry name cannot break out of it. The banner's
-  *shape* is forgeable by the payload — a file containing that exact line makes
-  one file look like two — which is a real, pre-existing limitation tracked
-  separately, not a property this document claims.
+  contained, and the payload beneath it is encoded under the same prose policy.
 
 These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
-a package whose README carries bidi, ESC, and LS hazards and asserts each half:
-that stdout reproduces the file exactly (up to that one appended terminator),
-that stdout carries no framing, that stderr is contained, and that `--jsonl`
-escapes. Asserting both halves is
-the point — a test that only checked "stdout is raw" would keep passing if
-someone added a heading to stdout.
+a package whose README carries bidi, ESC, and LS hazards and asserts encoded
+stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
+export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
+gates both framed and `--bare` single-file content export with a UTF-16 payload
+that has no trailing newline.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must
@@ -609,7 +639,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
   -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
-# Printable payload: the raw resolved source line
+# Printable payload: the visually encoded resolved source line
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
   -S "Context: Source Location" --print
 #         return JsonSerializer.Serialize(value, options);
@@ -626,8 +656,8 @@ symbolication evidence, `Context: Member` shows the owning metadata context,
 active exception-handling regions, `Context: Callsite` shows the call-like
 operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
-document path, and `--print` returns the raw payload at the location rather than
-a decorated snippet.
+document path, and `--print` returns the visually encoded payload at the
+location rather than a decorated snippet. Add `--out` for exact payload export.
 
 ## Design discipline for future flags
 

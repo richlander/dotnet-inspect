@@ -2497,6 +2497,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             var loaded = new WorkspaceContextLoadOutcome.Loaded(
                 group,
                 [.. members],
+                [],
                 "net11.0",
                 null);
             return new IntegrationFixture(workspace, loaded);

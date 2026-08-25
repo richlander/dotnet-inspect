@@ -71,6 +71,8 @@
     <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <Project Path="src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <Project Path="src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
+    <Project Path="src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <Project Path="src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
@@ -85,6 +87,7 @@
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
+    <Project Path="src/tsbindgen/tsbindgen.csproj" />
   </Folder>
   <Folder Name="/src/runfaster.Tests/Fixtures/">
     <Project Path="src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />
@@ -95,6 +98,7 @@
     <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
+    <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />

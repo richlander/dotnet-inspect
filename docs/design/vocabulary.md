@@ -63,5 +63,6 @@ The library `Body Shapes` section consumes body-kind IDs through
 `--where "Kind=<ID>"` and auto-selects that section when no explicit `-S`
 selection is present. Repeated Performance Triage predicates compose at library
 scope by selecting typed source MethodDef identities before decompilation.
-Exact type and member scoping are also available. The standalone `body-shape`
-command can now be removed without a compatibility alias.
+Exact type and member scoping are also available. The former standalone
+`body-shape` command was removed without a compatibility alias after these
+scoped queries reached parity.

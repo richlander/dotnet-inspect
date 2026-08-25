@@ -81,6 +81,33 @@ internal partial class DiffJsonContext : JsonSerializerContext
 {
 }
 
+/// <summary>
+/// Serialization contract for <c>match --implementation --json</c>
+/// (<see cref="MatchImplementationDocument"/>): snake-case names, omitted nulls, and string enums
+/// to match <see cref="ILInspector.Analysis.StructuralCloneComparisonDocumentJsonContext"/>'s
+/// contract for the nested <see cref="ILInspector.Analysis.StructuralCloneComparisonDocument"/>.
+/// </summary>
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MatchImplementationDocument))]
+internal partial class MatchImplementationDocumentJsonContext : JsonSerializerContext
+{
+}
+
+/// <inheritdoc cref="MatchImplementationDocumentJsonContext"/>
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MatchImplementationDocument))]
+internal partial class MatchImplementationDocumentCompactJsonContext : JsonSerializerContext
+{
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PackageFileJsonRow))]
 internal partial class PackageFileJsonRowContext : JsonSerializerContext
@@ -220,20 +247,6 @@ internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(List<MemberFindResult>))]
 internal partial class MemberFindResultCompactJsonContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
-internal partial class BodyShapeJsonContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
-internal partial class BodyShapeCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

@@ -15,6 +15,27 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class MethodBodyInspectionSessionTests
 {
+    readonly unsafe struct FunctionPointerConversionFixture
+    {
+        public static explicit operator
+            delegate* unmanaged[Cdecl]<int, int>(
+                FunctionPointerConversionFixture value) =>
+            null;
+
+        public static explicit operator
+            delegate* unmanaged[Stdcall]<int, int>(
+                FunctionPointerConversionFixture value) =>
+            null;
+
+        public static delegate* unmanaged[Cdecl]<int, int> CallCdecl(
+            FunctionPointerConversionFixture value) =>
+            (delegate* unmanaged[Cdecl]<int, int>)value;
+
+        public static delegate* unmanaged[Stdcall]<int, int> CallStdcall(
+            FunctionPointerConversionFixture value) =>
+            (delegate* unmanaged[Stdcall]<int, int>)value;
+    }
+
     static string ProductPath => typeof(MethodBodyInspectionSession).Assembly.Location;
     static string TestPath => typeof(MethodBodyInspectionSessionTests).Assembly.Location;
     static readonly ImmutableArray<MetadataReference> PlatformReferences =
@@ -77,7 +98,7 @@ public class MethodBodyInspectionSessionTests
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
         var targetToken = CalledToken(index);
         var identity = index.Methods.First(method => method.MetadataToken == targetToken);
-        var pattern = Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes);
+        var pattern = Analysis.MemberPattern.Method(identity);
         var expected = index.DirectCalls
             .Where(call => call.CalleeDefinitionToken == targetToken || pattern.Matches(call.Callee))
             .ToList();
@@ -91,6 +112,79 @@ public class MethodBodyInspectionSessionTests
         Assert.Equal(
             expected.Select(call => (call.Caller.MetadataToken, call.ILOffset)).OrderBy(value => value),
             actual.Select(edge => (edge.Call.Caller.MetadataToken, edge.Call.ILOffset)).OrderBy(value => value));
+    }
+
+    [Fact]
+    public void CallerEdges_ConversionSelectionExcludesSiblingReturnTypes()
+    {
+        var session = MethodBodyInspectionSession.Open(
+            typeof(object).Assembly.Location);
+        Analysis.TypeRef decimalType =
+            Analysis.TypeRef.CoreLib("System", "Decimal");
+        Analysis.TypeRef intType =
+            Analysis.TypeRef.CoreLib("System", "Int32");
+        Analysis.MethodIdentity target =
+            session.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Equals(decimalType)
+                && method.Name == "op_Explicit"
+                && method.ParameterTypes.SequenceEqual([decimalType])
+                && method.ReturnType.Equals(intType));
+        Analysis.DirectCall sibling =
+            session.BodyIndex.DirectCalls.First(call =>
+                call.Callee.DeclaringType.Equals(decimalType)
+                && call.Callee.Name == target.Name
+                && call.Callee.ParameterTypes.SequenceEqual(
+                    target.ParameterTypes)
+                && !call.Callee.ReturnType.Equals(target.ReturnType));
+
+        ImmutableArray<CallerEdge> actual =
+            session.CallerEdges(target.MetadataToken);
+
+        Assert.NotEmpty(actual);
+        Assert.DoesNotContain(
+            actual,
+            edge => edge.Call == sibling);
+        Assert.All(
+            actual,
+            edge => Assert.Equal(
+                target.ReturnType,
+                edge.Call.Callee.OpenSignatureReturn));
+    }
+
+    [Fact]
+    public void CallerEdges_ConversionSelectionRetainsFunctionPointerShape()
+    {
+        var session = MethodBodyInspectionSession.Open(TestPath);
+        Analysis.DirectCall cdeclCall =
+            session.BodyIndex.DirectCalls.Single(call =>
+                call.Caller.Name
+                    == nameof(
+                        FunctionPointerConversionFixture.CallCdecl)
+                && call.Callee.Name == "op_Explicit");
+        Analysis.DirectCall stdcallCall =
+            session.BodyIndex.DirectCalls.Single(call =>
+                call.Caller.Name
+                    == nameof(
+                        FunctionPointerConversionFixture.CallStdcall)
+                && call.Callee.Name == "op_Explicit");
+        Analysis.MethodIdentity cdecl =
+            session.BodyIndex.DeclaredMethods.Single(method =>
+                method.MetadataToken
+                    == cdeclCall.CalleeDefinitionToken);
+        Analysis.MethodIdentity stdcall =
+            session.BodyIndex.DeclaredMethods.Single(method =>
+                method.MetadataToken
+                    == stdcallCall.CalleeDefinitionToken);
+
+        ImmutableArray<CallerEdge> actual =
+            session.CallerEdges(cdecl.MetadataToken);
+
+        Assert.Contains(
+            actual,
+            edge => edge.Call == cdeclCall);
+        Assert.DoesNotContain(
+            actual,
+            edge => edge.Call == stdcallCall);
     }
 
     [Fact]
@@ -232,9 +326,9 @@ public class MethodBodyInspectionSessionTests
             projection.CallSites
                 .Select(site =>
                     (
-                        site.Call.Caller.AssemblyName,
-                        site.Call.Caller.ModuleVersionId,
-                        site.Call.Caller.MetadataToken,
+                        site.Call.EvidenceMethod.AssemblyName,
+                        site.Call.EvidenceMethod.ModuleVersionId,
+                        site.Call.EvidenceMethod.MetadataToken,
                         site.Call.ILOffset,
                         site.Call.OperandToken))
                 .Distinct()

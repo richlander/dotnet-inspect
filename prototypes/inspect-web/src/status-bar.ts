@@ -1,9 +1,13 @@
-export interface BuildIdentity {
-  version?: string;
-  commit?: string;
-  commitUrl?: string;
-  builtAtUtc?: string;
-}
+import type {
+  BrowserBuildIdentity,
+  BrowserPackageCacheStats,
+} from "./inspect-web-engine.d.ts";
+
+// BuildIdentity/PackageCacheStats used to be hand-written duplicates of the C# DTOs. They're now
+// aliases of the generated, tsbindgen-derived types so this module can't independently drift from
+// InspectWeb.Engine's actual [JSExport] wire shape.
+export type BuildIdentity = BrowserBuildIdentity;
+export type PackageCacheStats = BrowserPackageCacheStats;
 
 export interface BrowserDiagnostics {
   assets: number;
@@ -13,13 +17,6 @@ export interface BrowserDiagnostics {
   startupMs: number;
   precomputeMs: number;
   totalMs: number;
-}
-
-export interface PackageCacheStats {
-  packages: number;
-  resident: number;
-  residentBytes: number;
-  workspaces: number;
 }
 
 export type PackageSource =
@@ -40,6 +37,20 @@ export interface StatusBarModel {
   source?: PackageSource;
   assembly?: string;
   framework?: string;
+  expanded?: boolean;
+}
+
+export interface StatusBarBindingActions {
+  onToggle: () => void;
+}
+
+export function bindStatusBar(
+  root: ParentNode,
+  actions: StatusBarBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-status-bar-toggle-button]")
+    .forEach(button =>
+      button.addEventListener("click", actions.onToggle));
 }
 
 export function fmtMs(milliseconds: number | null | undefined): string {
@@ -72,20 +83,46 @@ export function buildIdentityHtml(
   const commitHtml = identity.commitUrl && shortCommit
     ? `<a href="${escapeHtml(identity.commitUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortCommit)}</a>`
     : escapeHtml(shortCommit);
-  const parsedTimestamp = Date.parse(identity.builtAtUtc || "");
-  const builtAt = Number.isFinite(parsedTimestamp)
+  const title = [
+    `dotnet-inspect ${identity.version}`,
+    commit ? `commit ${commit}` : "",
+  ].filter(Boolean).join(" · ");
+  return `<span class="build-identity" title="${escapeHtml(title)}">v${escapeHtml(identity.version)}${shortCommit ? ` · ${commitHtml}` : ""}</span>`;
+}
+
+function builtAtLabel(builtAtUtc: string | null | undefined): string {
+  const parsedTimestamp = Date.parse(builtAtUtc || "");
+  return Number.isFinite(parsedTimestamp)
     ? new Date(parsedTimestamp).toLocaleString(undefined, {
         dateStyle: "medium",
         timeStyle: "medium",
         timeZone: "UTC",
       })
     : "";
-  const title = [
-    `dotnet-inspect ${identity.version}`,
-    commit ? `commit ${commit}` : "",
-    builtAt ? `built ${builtAt} UTC` : "",
-  ].filter(Boolean).join(" · ");
-  return `<span class="build-identity" title="${escapeHtml(title)}">v${escapeHtml(identity.version)}${shortCommit ? ` · ${commitHtml}` : ""}${builtAt ? ` · built ${escapeHtml(builtAt)} UTC` : ""}</span>`;
+}
+
+function builtAtCompactLabel(builtAtUtc: string | null | undefined): string {
+  const parsedTimestamp = Date.parse(builtAtUtc || "");
+  return Number.isFinite(parsedTimestamp)
+    ? new Date(parsedTimestamp).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeZone: "UTC",
+      })
+    : "";
+}
+
+// Renders the build-date fact on its own (distinct from `buildIdentityHtml`'s version/commit),
+// so the data bar can order it independently: compact drops the time-of-day, expanded keeps the
+// full UTC timestamp for exact reproduction.
+function buildDateHtml(
+  identity: BuildIdentity | null | undefined,
+  escapeHtml: (value: unknown) => string,
+  expanded: boolean,
+): string {
+  if (!identity?.version) return "";
+  const builtAt = expanded ? builtAtLabel(identity.builtAtUtc) : builtAtCompactLabel(identity.builtAtUtc);
+  if (!builtAt) return "";
+  return `<span class="build-date" title="Built ${escapeHtml(builtAt)} UTC">built ${escapeHtml(builtAt)} UTC</span>`;
 }
 
 function diagnosticsHtml(
@@ -112,7 +149,7 @@ function packageCacheHtml(
       <span class="diag" title="${title}">◇ ${cache.packages} package${packagePlural} · ${cache.resident} resident in cache · ${cache.workspaces} workspace${workspacePlural}</span>`;
 }
 
-export function packageSourceLabel(source: unknown): string {
+export function packageSourceLabel(source?: unknown): string {
   if (!source || typeof source !== "object" || !("kind" in source)) {
     return "Unknown";
   }
@@ -143,29 +180,48 @@ export function statusBarHtml(
   const ready = model.ready ?? true;
   const statusLabel = model.statusLabel
     ?? (ready ? "browser wasm ready" : "browser wasm loading");
-  const classes = model.variant === "home"
-    ? "data-bar home-foot"
-    : "statusbar data-bar";
-  const diagnostics = model.compactDiagnostics && model.diagnostics
-    ? `<span class="diag">⚙ ready in ${fmtMs(model.diagnostics.totalMs)}</span>`
-    : diagnosticsHtml(model.diagnostics);
-  const tail = model.variant !== "home" && model.assembly && model.framework
+  const expanded = model.expanded ?? false;
+  const classes = [
+    model.variant === "home" ? "data-bar home-foot" : "statusbar data-bar",
+    expanded ? "expanded" : "",
+  ].filter(Boolean).join(" ");
+
+  const provenance = model.variant !== "home" && model.source
+    ? `<span class="provenance" title="Package provenance">Source: ${escapeHtml(packageSourceLabel(model.source))}</span>`
+    : "";
+  const buildDate = buildDateHtml(model.buildIdentity, escapeHtml, expanded);
+
+  // The compact view always shows a one-line performance summary regardless of
+  // `compactDiagnostics` — that flag no longer distinguishes rendering modes now that
+  // expand/collapse controls verbosity; it is accepted only for call-site compatibility.
+  const perf = expanded
+    ? diagnosticsHtml(model.diagnostics)
+    : (model.diagnostics
+      ? `<span class="diag">⚙ ready in ${fmtMs(model.diagnostics.totalMs)}</span>`
+      : "");
+
+  const expandedExtras = expanded
     ? `
+      ${packageCacheHtml(model.packageCache)}
+      ${model.variant !== "home" && model.assembly && model.framework
+        ? `
       <span class="status-spacer"></span>
-      <span>Source: ${escapeHtml(packageSourceLabel(model.source))}</span>
       <span>${escapeHtml(model.assembly)}</span>
       <span>${escapeHtml(model.framework)}</span>
       <span>public API surface</span>`
+        : ""}`
     : "";
 
   return `
-    <footer class="${classes}">
+    <footer class="${classes}" data-status-bar-toggle="${expanded ? "expanded" : "collapsed"}">
       ${ready
         ? '<span class="ready-dot"></span>'
         : '<span class="home-wasm-spinner" aria-hidden="true"></span>'}<span>${escapeHtml(statusLabel)}</span>
       ${buildIdentityHtml(model.buildIdentity, escapeHtml)}
-      ${diagnostics}
-      ${packageCacheHtml(model.packageCache)}
-      ${tail}
+      ${provenance}
+      ${buildDate}
+      ${perf}
+      ${expandedExtras}
+      <button type="button" class="status-bar-toggle" data-status-bar-toggle-button aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Show all data"}" title="${expanded ? "Collapse" : "Show all data"}">${expanded ? "▲" : "▼"}</button>
     </footer>`;
 }

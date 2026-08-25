@@ -257,7 +257,7 @@ public sealed class AssemblyDependencyResolver :
                 continue;
 
             if (scope == AssemblyResolutionScope.Platform
-                && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
+                && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework or AssemblyDependencyProvenance.CorpusAssembly))
                 continue;
 
             CandidateTier tier = TierFor(dependency.Provenance);
@@ -436,7 +436,15 @@ public sealed class AssemblyDependencyResolver :
             _options.TargetAssemblyPath);
         AssemblyDescriptorResolution target = DescriptorResult(
             targetPath,
-            AssemblyResolutionProvenance.Local(
+            // Only returned as a binding when this file IS the core library
+            // facade, and it is the caller's designated target either way.
+            // Designation is the honest label: the caller named this exact
+            // file, which entitles it to core-library identity, but it says
+            // nothing about where the file came from. Reporting Platform would
+            // claim a coherent closure — a hive or pack — for what may be one
+            // loose file, and that claim is consumed beyond trust: it selects
+            // symbol-server PDB acquisition and is printed as ResolvedFrom.
+            AssemblyResolutionProvenance.Designated(
                 "intrinsic core library"));
         return target.Assembly is null
             ? AssemblyBindingSelection.CannotSelect(
@@ -467,6 +475,11 @@ public sealed class AssemblyDependencyResolver :
                 AssemblyResolutionProvenance.Platform(
                     dependency.FrameworkName ?? "Platform",
                     frameworkVersion: null,
+                    dependency.Provenance.ToString()),
+            // Corpus paths are enumerated by the caller, not discovered beside
+            // the target, so they carry the caller's designation.
+            AssemblyDependencyProvenance.CorpusAssembly =>
+                AssemblyResolutionProvenance.Designated(
                     dependency.Provenance.ToString()),
             _ => AssemblyResolutionProvenance.Local(
                 dependency.Provenance.ToString()),

@@ -6,7 +6,7 @@ namespace InspectWeb.Engine.Tests;
 public class BrowserStaticWebAppConfigTests
 {
     [Fact]
-    public void RootDocumentsAreNotCachedAndConfigIsPublished()
+    public void EntryDocumentsAreNotCachedAndConfigIsPublished()
     {
         string repository = RepositoryRoot();
         string configPath = Path.Combine(
@@ -21,9 +21,16 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(2, routes.Length);
+        Assert.Equal(3, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
+        AssertRoute(routes[2], "/credits", "/index.html");
+        Assert.Equal(
+            "dotnet-isolated:8.0",
+            config.RootElement
+                .GetProperty("platform")
+                .GetProperty("apiRuntime")
+                .GetString());
 
         XDocument project = XDocument.Load(Path.Combine(
             repository,
@@ -43,11 +50,69 @@ public class BrowserStaticWebAppConfigTests
         Assert.Equal(
             "PreserveNewest",
             (string?)content.Attribute("CopyToPublishDirectory"));
+
+        XElement verificationTarget = Assert.Single(
+            project.Descendants("Target"),
+            element =>
+                (string?)element.Attribute("Name") ==
+                "VerifyPublishedInspectWebSite");
+        Assert.Equal(
+            "PublishInspectWebFrontendIndex",
+            (string?)verificationTarget.Attribute("AfterTargets"));
+        XElement verificationCommand = Assert.Single(
+            verificationTarget.Elements("Exec"));
+        Assert.Contains(
+            "verify-site-artifact.js",
+            (string?)verificationCommand.Attribute("Command"));
+        Assert.Contains(
+            "$(PublishDir)wwwroot",
+            (string?)verificationCommand.Attribute("Command"));
     }
 
-    private static void AssertRoute(JsonElement route, string expectedPath)
+    [Fact]
+    public void RouteKeysAreUniqueAfterTrailingSlashNormalization()
+    {
+        string repository = RepositoryRoot();
+        string configPath = Path.Combine(
+            repository,
+            "prototypes",
+            "inspect-web",
+            "staticwebapp.config.json");
+
+        using JsonDocument config = JsonDocument.Parse(File.ReadAllText(configPath));
+        string[] routeKeys =
+        [
+            .. config.RootElement
+                .GetProperty("routes")
+                .EnumerateArray()
+                .Select(route => NormalizeRouteKey(
+                    route.GetProperty("route").GetString()!)),
+        ];
+
+        Assert.Equal(
+            routeKeys.Length,
+            routeKeys.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    private static string NormalizeRouteKey(string route) =>
+        route.Length > 1 ? route.TrimEnd('/') : route;
+
+    private static void AssertRoute(
+        JsonElement route,
+        string expectedPath,
+        string? expectedRewrite = null)
     {
         Assert.Equal(expectedPath, route.GetProperty("route").GetString());
+        if (expectedRewrite is null)
+        {
+            Assert.False(route.TryGetProperty("rewrite", out _));
+        }
+        else
+        {
+            Assert.Equal(
+                expectedRewrite,
+                route.GetProperty("rewrite").GetString());
+        }
         Assert.Equal(
             "no-cache, no-store, must-revalidate",
             route

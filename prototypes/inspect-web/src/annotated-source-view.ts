@@ -6,55 +6,30 @@ import {
   segmentsForLine,
   unanchoredFacts,
   validateDocument,
-} from "./document-model.js";
+} from "./document-model.ts";
+import type {
+  AnnotatedSourceDocument,
+  AnnotatedSourceFact,
+  AnnotatedSourceNode,
+  LineMedium,
+  SourceMedium,
+  SourceSegment,
+} from "./document-model.ts";
+export type {
+  AnnotatedSourceDocument,
+  AnnotatedSourceFact,
+  AnnotatedSourceNode,
+  SourceMedium,
+} from "./document-model.ts";
 
 // The document model owns validation, coordinates, line derivation, segmentation, and
 // fact/target/node resolution. This module owns only the selection state a browser section
 // carries on top of it, and returns a plain model the renderer walks.
 
-export type SourceMedium = "CSharp" | "Il";
-
-type LineMedium = SourceMedium | "Mixed";
-
-export interface TextSpan {
-  start: number;
-  length: number;
-}
-
-export interface AnnotatedSourceNode {
-  id: number;
-  kind: string;
-  medium: SourceMedium;
-  spans: readonly TextSpan[];
-  il_offset?: number | null;
-}
-
-export interface AnnotatedSourceRegion {
-  role: string;
-  spans: readonly TextSpan[];
-}
-
-export interface AnnotatedSourceFact {
-  id: number;
-  descriptor: string;
-  category: string;
-  conditionality: string;
-  detail?: string | null;
-  origin: string;
-  source_offset: number;
-}
-
-export interface AnnotatedSourceTarget {
-  fact_id: number;
-  node_id: number;
-}
-
-export interface AnnotatedSourceDocument {
-  text: string;
-  nodes: readonly AnnotatedSourceNode[];
-  regions: readonly AnnotatedSourceRegion[];
-  facts: readonly AnnotatedSourceFact[];
-  targets: readonly AnnotatedSourceTarget[];
+export function validateAnnotatedSourceDocument(
+  document: unknown,
+): asserts document is AnnotatedSourceDocument {
+  validateDocument(document);
 }
 
 export interface AnnotatedViewState {
@@ -63,27 +38,11 @@ export interface AnnotatedViewState {
   selectedNodeIds?: readonly number[];
 }
 
-interface SourceLine {
-  number: number;
-  start: number;
-  end: number;
-  text: string;
-}
-
-interface SourceSegment {
-  start: number;
-  end: number;
-  text: string;
-  nodeIds: number[];
-  media: SourceMedium[];
+interface AnnotatedViewSegment extends SourceSegment {
   selected: boolean;
 }
 
-export interface AnnotatedViewSegment extends SourceSegment {
-  selected: boolean;
-}
-
-export interface AnnotatedViewLine {
+interface AnnotatedViewLine {
   number: number;
   medium: LineMedium;
   start: number;
@@ -91,7 +50,7 @@ export interface AnnotatedViewLine {
   segments: AnnotatedViewSegment[];
 }
 
-export interface AnnotatedViewFact {
+interface AnnotatedViewFact {
   id: number;
   descriptor: string;
   category: string;
@@ -113,29 +72,6 @@ export interface AnnotatedView {
   unanchoredFactIds: number[];
   hiddenLines: number;
 }
-
-const getLines = buildLines as (text: string) => SourceLine[];
-const getLineMedium = lineMedium as (
-  document: AnnotatedSourceDocument,
-  line: SourceLine,
-) => LineMedium;
-const getNodeIdsForFact = nodeIdsForFact as (
-  document: AnnotatedSourceDocument,
-  factId: number,
-) => number[];
-const getNodesAtOffset = nodesAtOffset as (
-  document: AnnotatedSourceDocument,
-  offset: number,
-  medium?: SourceMedium | null,
-) => AnnotatedSourceNode[];
-const getSegmentsForLine = segmentsForLine as (
-  document: AnnotatedSourceDocument,
-  line: SourceLine,
-  selectedNodeIds?: readonly number[],
-) => SourceSegment[];
-const getUnanchoredFacts = unanchoredFacts as (
-  document: AnnotatedSourceDocument,
-) => AnnotatedSourceFact[];
 
 export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
 
@@ -161,14 +97,14 @@ export function buildAnnotatedView(
       : null;
   const targetNodeIds: number[] = selectedFactId == null
     ? [...new Set(state.selectedNodeIds ?? [])]
-    : getNodeIdsForFact(document, selectedFactId);
+    : nodeIdsForFact(document, selectedFactId);
   const targeted = new Set(targetNodeIds);
 
-  const sourceLines = getLines(document.text);
+  const sourceLines = buildLines(document.text);
   const lines = sourceLines
     .map(line => ({
       ...line,
-      medium: getLineMedium(document, line),
+      medium: lineMedium(document, line),
     }))
     .filter(line => isVisible(line.medium, media))
     .map(line => ({
@@ -176,7 +112,7 @@ export function buildAnnotatedView(
       medium: line.medium,
       start: line.start,
       end: line.end,
-      segments: getSegmentsForLine(document, line, targetNodeIds).map(segment => ({
+      segments: segmentsForLine(document, line, targetNodeIds).map(segment => ({
         ...segment,
         // A segment is highlighted only when a targeted node actually covers it, so one node's
         // several separated spans light up without selecting the text between them.
@@ -194,11 +130,11 @@ export function buildAnnotatedView(
     origin: fact.origin,
     sourceOffset: fact.source_offset,
     anchored: anchored.has(fact.id),
-    nodeIds: getNodeIdsForFact(document, fact.id),
+    nodeIds: nodeIdsForFact(document, fact.id),
     selected: fact.id === selectedFactId,
   }));
 
-  const unanchored = getUnanchoredFacts(document);
+  const unanchored = unanchoredFacts(document);
   return {
     media,
     selectedFactId,
@@ -216,7 +152,7 @@ export function nodeAtOffset(
   offset: number,
   medium: SourceMedium | null = null,
 ): AnnotatedSourceNode | null {
-  const [node] = getNodesAtOffset(document, offset, medium);
+  const [node] = nodesAtOffset(document, offset, medium);
   return node ?? null;
 }
 
@@ -229,11 +165,6 @@ export function factsForNode(
     document.targets.filter(target => target.node_id === nodeId).map(target => target.fact_id),
   );
   return document.facts.filter(fact => factIds.has(fact.id));
-}
-
-export function factLabel(fact: AnnotatedSourceFact): string {
-  const detail = fact.detail ? ` ${fact.detail}` : "";
-  return `${fact.descriptor}${detail}`;
 }
 
 function isVisible(

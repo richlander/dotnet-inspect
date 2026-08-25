@@ -8,6 +8,8 @@ not a tour of every type.
 See [overview.md](../overview.md) for subsystem ownership,
 [section-model.md](section-model.md) for section selection semantics, and
 [output-shapes.md](output-shapes.md) for the shape ladder this note builds on.
+[Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
+owns the source-neutral boundary below workspace-backed assembly queries.
 
 ## Purpose
 
@@ -55,10 +57,11 @@ the ownership boundaries below, not the project count.
 `DotnetInspector.ResearchQueries` companion now implement metadata-image,
 direct-reference, extension-method, custom-attribute, manifest-resource,
 type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
-body-signal comparison, unsafe-evidence, top-leverage, Implementation
+body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
+Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, and group-scoped authored-or-decompiled type/member source. The
+slices, and group-scoped PDB-mapped-or-decompiled type/member source. The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired
@@ -72,13 +75,16 @@ for both traversal directions. These queries return typed results without
 choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, method-classification, audit-metadata, unsafe-evidence, and
-top-leverage queries, plus the Research-backed switch query through a typed,
+union-type, method-classification, audit-metadata, unsafe-evidence,
+top-leverage, optimization-opportunity, and resource-triage queries, plus the
+Research-backed
+switch query through a typed,
 content-shaped registry
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
 `Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
-`Top Leverage`, and `Library Info` sections bind to concrete query definitions
+`Top Leverage`, the Performance section family, and `Library Info` sections
+bind to concrete query definitions
 rather than relying solely on string scanner keys, and the CLI and package
 convenience route lower section selection into that same registry.
 Library and package SourceLink sections
@@ -117,7 +123,7 @@ and acquire body indexes and retained assembly descriptors lazily inside
 selected query execution. The L1 queries receive content-derived inputs rather
 than paths, and the CLI continues to own ranking and rendering. Implementation
 comparison opens descriptor-backed metadata sources once for the offline C#
-and IL producers; authored-source acquisition remains a separate explicit
+and IL producers; PDB-source acquisition remains a separate explicit
 enrichment.
 `ImplementationComparisonQueryTests.Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence`
 gates the stream-backed target-content path.
@@ -125,7 +131,7 @@ gates the stream-backed target-content path.
 `AssemblyContextSourceQuery` accepts one participant, an exact typed target,
 and explicit host capabilities for symbol and source acquisition. It opens the
 workspace snapshot as content, acquires a matching PDB through the supplied
-store, prefers checksum-verified authored source, and otherwise decompiles
+store, prefers checksum-verified PDB source, and otherwise decompiles
 through the participant's `IAssemblyBindingPolicy`. It never accepts an
 assembly or PDB path. A pathless decompiler descriptor may use embedded symbols
 but cannot derive and probe an ambient sidecar path; this is gated by
@@ -133,8 +139,8 @@ but cannot derive and probe an ambient sidecar path; this is gated by
 The query's in-memory host path and typed failure behavior are gated by
 `AssemblyContextSourceQueryTests`.
 
-This is an incremental boundary, not the completed split. The remaining
-library scanners still use the transitional string-keyed `ScannerRegistry`,
+This is an incremental boundary, not the completed split. The remaining Body
+Shapes library scanner still uses the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
 `LibraryInspection` compatibility aggregate, and transitive reference resolution
 remains host-owned. The SourceLink document query delegates PDB acquisition to
@@ -387,7 +393,7 @@ canaries:
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
   Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
-  `Signals`, and
+  the Performance section family, `Signals`, and
   the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections bind
   to query definitions by object identity. A section may bind multiple
   definitions; diagnostic names are never lookup keys.
@@ -452,12 +458,19 @@ canaries, collection is still neither typed nor demand-driven:
   remaining scanner-backed sections. Metadata, `References`, `Library Info`,
   `Extension Methods`, `Custom Attributes`, `Resources`, `Type Forwarders`,
   `Union Types`, `Switches`, `P/Invoke Methods`, `Async Methods`, `Signals`,
-  SourceLink, and the diff `Changes`, `Analysis Diff`, and `Implementation
-  Diff` sections use checked
+  `Unsafe Members`, `Top Leverage`, the Performance section family, SourceLink,
+  and the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections
+  use checked
   query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.
+- Core assembly queries and workspace composition still reference package
+  implementations directly. The target split keeps storage, artifact
+  acquisition, packages, and assemblies as separate concepts; optional source adapters
+  contribute neutral artifacts to a multi-source workspace. The dependency and
+  lifetime rules are defined in
+  [artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.
