@@ -5,6 +5,11 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) proposes
+retiring this document's `--top` in favor of a unified `-n`/bare `-N` as the
+universal item-count flag; treat `--top` below as provisional pending that
+issue's resolution.
+
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
 `find --package-prefix` package rows.

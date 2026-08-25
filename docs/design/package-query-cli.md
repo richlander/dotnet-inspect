@@ -11,7 +11,12 @@ document's vocabulary as canonical rather than inventing its own.
 Design proposal. `find --package-prefix`'s corpus-streaming mechanism (#4551)
 exists; the facet/predicate layer, the row-declaration step, and the tier
 capability gate described here do not. Nothing in this document is a claim
-about behavior that exists today unless stated otherwise.
+about behavior that exists today unless stated otherwise. The corpus-limit
+flag used in examples below (`-n`) is pending
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677), a
+repository-wide flag-numbering issue this document's own analysis
+surfaced — see
+[`-t` is the wrong flag to build on](#-t-is-the-wrong-flag-to-build-on-the-corpus-limit-spelling-is-an-open-issue).
 
 Related docs:
 
@@ -112,49 +117,42 @@ This migration is orthogonal to and does not require changing anything about
 where `PackageProfileQuery` itself lives (L1 is already right); it only moves
 *rendering* onto the shared L2 path.
 
-### `-t` is the wrong flag to build on, and the migration should point at `--top`
+### `-t` is the wrong flag to build on; the corpus-limit spelling is an open issue
 
 The `-t 100` #4551 uses for `find --package-prefix` reuses `find`'s own
 pre-existing `-t`, whose description was widened from "Limit type count
 (`-t 5`) or filter by glob (`-t *Json*`)" to "Limit result count... or
 filter API types by glob." That reuse is real and already merged, but it is
-not a precedent this document should build new predicate/limit flags on, for
-two reasons:
+not a precedent this document should build a new predicate/limit flag on:
+`-t` already means a type name or glob filter everywhere else in the CLI
+(`library`, `type`, `member`, `package -S "SourceLink: Files"`) — a
+different noun than "how many rows" — and `find` only overloads it as
+count-or-glob because `find`'s own type search predates a dedicated
+row-count flag.
 
-- **`-t` already means something unrelated everywhere else in the CLI.**
-  `library`, `type`, `member`, and `package -S "SourceLink: Files"` all bind
-  `-t`/`--type` to a type name or glob filter — a different noun than "how
-  many rows." Only `find` overloads it as count-or-glob, and only because
-  `find`'s own type search predates a dedicated row-count flag.
-- **The repository already has (or is proposing) a flag family for this
-  concept, and it is not `--rows` either.** `-n N` / bare numeric shorthand
-  (`-20`) is a *rendered-line* window (the `--head`/`--tail` family,
-  [output-shapes.md](output-shapes.md)). `--rows N` is a *display* window —
-  "the first six data rows" — applied after projection, with no filter or
-  order awareness of its own; [row-query-order.md](row-query-order.md) is
-  explicit that "`--rows N` remains a renderer/display cap" and a non-goal to
-  avoid ("do not make `--top` a renderer cap; `--rows N` already owns that
-  role"). "The first 500 packages that match" is a **semantic** cap — first N
-  *after* filtering and ordering — which is exactly what
-  [row-query-order.md](row-query-order.md) proposes `--top` for ("take the
-  first N rows after filtering and ordering"; `--count` reports the
-  post-filter count before `--top` applies).
+What the corpus-match bound should actually be spelled as is not settled by
+this document. Working through it surfaced a repository-wide flag-numbering
+problem — `-n`'s already-shipped rendered-line meaning, `--rows`'s
+display-only window, and `row-query-order.md`'s draft `--top` are three
+different names for adjacent-but-not-identical "how many" concepts, and
+every command reaching for its own domain letter (`-t`, and by the same
+argument `-m`) instead of one shared gesture is the more general version of
+the same mistake. That question is tracked in
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) rather than
+answered here: its current direction is that `-n`/bare `-N` becomes the
+universal "first N items" flag (subsuming `--top`), `--lines` becomes the
+explicit opt-in for the old rendered-line meaning, and `-t`/`-m` retire as
+count-or-glob gestures everywhere, including `find`'s own overload.
 
-The Sections-registry migration recommended above is the moment to fix this:
-once `find --package-prefix` rows are declared sections, `--top` (the
-semantic, filter-and-order-aware cap) and `--rows` (the display window on top
-of it, for paging a possibly-larger `--top`-capped set) both apply "for
-free," the same way the row-query-order.md pipeline already describes for
-every other section (`filter -> order -> apply --top -> project -> render`,
-then `--rows` further windows the rendered rows). That migration should
-retire `-t`-as-package-limit in favor of `--top`, not carry the overload
-forward, and should not reach for `--rows` either, since `--rows` explicitly
-does not carry filter/order semantics. `-t` should return to meaning only
-what it means for `find`'s type-search mode, or be dropped from
-`--package-prefix` mode entirely. This document uses `--top` for the
-semantic corpus-match bound in every example below; where #4551's landed
-`-t 100` conflicts with that, treat it as the thing this migration should
-change, not as settled vocabulary to preserve.
+The Sections-registry migration recommended above is still the right moment
+to fix this, whatever #4677 settles on: once `find --package-prefix` rows
+are declared sections, the resolved corpus-limit flag applies "for free,"
+the same way it will for `library`/`member`/`package`, and that migration
+should retire `-t`-as-package-limit rather than carry the overload forward.
+This document uses `-n` (per #4677's current direction) for the semantic
+corpus-match bound in the example below; if #4677 resolves differently,
+update this document's spelling to match rather than treating `-n` as
+independently settled here.
 
 ## Two-tier facets, reusing `--where`
 
@@ -244,16 +242,18 @@ the CLI should not reinvent that wording, and the browser experience should
 not need to translate a differently-shaped CLI completion signal.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
-corpus bound apply before or after a nuspec-tier predicate runs? Per the
-[flag-numbering correction above](#-t-is-the-wrong-flag-to-build-on-and-the-migration-should-point-at---top),
-that bound should be `--top`, not `find`'s current `-t` — and
-[row-query-order.md](row-query-order.md) already frames the underlying
-question as a general goal ("keep `--top` meaningful by defining it as a
-post-filter, post-order semantic row cap"). The same before/after question
-applies once a predicate can shrink what the bound counts:
+corpus bound apply before or after a nuspec-tier predicate runs? Per
+[the flag-numbering discussion above](#-t-is-the-wrong-flag-to-build-on-the-corpus-limit-spelling-is-an-open-issue),
+this document uses `-n` for that bound pending
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) — but
+whatever spelling it resolves to, [row-query-order.md](row-query-order.md)
+already frames the underlying question as a general goal ("keep `--top`
+meaningful by defining it as a post-filter, post-order semantic row cap").
+The same before/after question applies once a predicate can shrink what the
+bound counts:
 
-- **Nuspec-tier `--where`** should filter before `--top` truncates: `--top
-  500` should mean "the first 500 packages that match," not "the first 500
+- **Nuspec-tier `--where`** should filter before `-n` truncates: `-n 500`
+  should mean "the first 500 packages that match," not "the first 500
   packages, then whichever of those happen to match." The former is the
   honest reading of "first N matches" and the one #4654's browser review
   process would flag the latter for overclaiming.
@@ -307,11 +307,13 @@ the CLI's named facets as canonical for the browser's facet rail.
    any implementation.
 2. **Migrate `find --package-prefix` rendering onto the shared Sections
    registry** — a mostly behavior-preserving prerequisite so `-S`/`--where`/
-   `--count`/`--top`/`--rows` work the same way they do for
+   `--count`/`-n`/`--rows` work the same way they do for
    `library`/`member`/`package`, without a second bespoke implementation
    inside `PackageProfileFindOutputFormatter`. Its one deliberate, called-out
-   behavior change is retiring `-t`-as-package-limit in favor of `--top`, per
-   [`-t` is the wrong flag to build on](#-t-is-the-wrong-flag-to-build-on-and-the-migration-should-point-at---top).
+   behavior change is retiring `-t`-as-package-limit, resolved by whatever
+   [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) settles
+   on — see
+   [`-t` is the wrong flag to build on](#-t-is-the-wrong-flag-to-build-on-the-corpus-limit-spelling-is-an-open-issue).
 3. **Wire nuspec-tier `--where`** onto package-profile rows, deciding and
    documenting the filter-before-bound ordering from
    [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).

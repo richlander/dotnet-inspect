@@ -14,7 +14,10 @@ Related docs:
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [Command model](command-model.md) — command surface and shared options
 - [The package query CLI](package-query-cli.md) — a facet-matched package
-  corpus row applying this ladder's "declared row unit" discipline
+  corpus row applying this ladder's "declared row unit" discipline, and the
+  source of [#4677](https://github.com/richlander/dotnet-inspect/issues/4677),
+  a proposal to redefine this document's `-n`/rendered-line default as a
+  universal item-count flag instead
 
 ## The shape ladder
 
