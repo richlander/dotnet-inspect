@@ -3,7 +3,6 @@ using DotnetInspector.Core;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
-using ILInspector.CSharp;
 using Markout;
 
 // The .NET runtime is the one writer of this process's stderr that CommandError
@@ -202,12 +201,6 @@ try
     // Create and invoke command
     var rootCommand = CommandLineBuilder.CreateRootCommand();
     var result = rootCommand.Parse(args);
-    if (result.Errors.Count > 0)
-    {
-        foreach (var error in result.Errors)
-            CommandError.Write(FormatParseError(error.Message));
-        return 1;
-    }
     int exitCode = await CommandLineBuilder.InvokeAsync(result);
 
     // Flush tail writer to emit only the last N lines
@@ -247,62 +240,6 @@ try
         #pragma warning disable RS0030 // An accounted stderr sink: the --info view is tool-composed, and InfoViewContext contains what it renders (issue #3319).
         MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
         #pragma warning restore RS0030
-    }
-
-    // Parse diagnostics quote argv, which an agent may have composed from a
-    // hostile package or type name, so the quoted fragment is untrusted even
-    // though the surrounding sentence is not.
-    static string Contain(string text) => CSharpIdentifier.ContainRenderedText(text);
-
-    static string FormatParseError(string message)
-    {
-        if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
-            && TryParseCannotParseArgument(message, out var value, out var option, out var type))
-        {
-            var expected = type switch
-            {
-                "System.Int32" or "System.Nullable`1[System.Int32]" => "an integer",
-                _ => "a valid value",
-            };
-            return $"Cannot parse value '{Contain(value)}' for option '{Contain(option)}' as {expected}.";
-        }
-
-        // Some validators still hand back a message that carries its own prefix.
-        // CommandError owns the prefix now, so drop theirs rather than emit
-        // "Error: Error: ...".
-        return message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
-            ? Contain(message["Error:".Length..].TrimStart())
-            : Contain(message);
-    }
-
-    static bool TryParseCannotParseArgument(string message, out string value, out string option, out string type)
-    {
-        value = "";
-        option = "";
-        type = "";
-        const string prefix = "Cannot parse argument '";
-        int valueStart = prefix.Length;
-        int valueEnd = message.IndexOf('\'', valueStart);
-        const string middle = " for option '";
-        if (valueEnd < 0 || !message.AsSpan(valueEnd + 1).StartsWith(middle, StringComparison.Ordinal))
-            return false;
-
-        int optionStart = valueEnd + 1 + middle.Length;
-        int optionEnd = message.IndexOf('\'', optionStart);
-        const string typeMarker = " as expected type '";
-        int typeStart = message.IndexOf(typeMarker, optionEnd + 1, StringComparison.Ordinal);
-        if (optionEnd < 0 || typeStart < 0)
-            return false;
-
-        typeStart += typeMarker.Length;
-        int typeEnd = message.IndexOf('\'', typeStart);
-        if (typeEnd < 0)
-            return false;
-
-        value = message[valueStart..valueEnd];
-        option = message[optionStart..optionEnd];
-        type = message[typeStart..typeEnd];
-        return true;
     }
 
     if (traceMermaid != null)
