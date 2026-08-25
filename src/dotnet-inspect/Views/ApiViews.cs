@@ -3,9 +3,22 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Views;
+
+internal static class ApiViewText
+{
+    public static InertString Field(string value) =>
+        new(TextPolicy.Field, value);
+
+    public static InertString? OptionalField(string? value) =>
+        value is null ? null : Field(value);
+
+    public static InertString? OptionalProse(string? value) =>
+        value is null ? null : new InertString(TextPolicy.Prose, value);
+}
 
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
@@ -13,8 +26,20 @@ namespace DotnetInspector.Views;
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
 public class TypeView
 {
-    [MarkoutIgnore] public string Title { get; set; } = "";
-    [MarkoutIgnore] public string? Description { get; set; }
+    public TypeView()
+    {
+    }
+
+    public TypeView(InertString titleText, InertString? descriptionText = null)
+    {
+        TitleText = titleText;
+        DescriptionText = descriptionText;
+    }
+
+    [MarkoutIgnore, JsonIgnore] public InertString TitleText { get; init; }
+    [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; init; }
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    [MarkoutIgnore] public string? Description => DescriptionText?.ToString();
 
     [MarkoutSection(Name = "Summary", Headless = true)]
     [JsonIgnore]
@@ -493,22 +518,26 @@ public class EnumValueRow
 }
 
 [MarkoutSerializable]
-public class TypeParameterRow
+public class TypeParameterRow(InertString parameterText, InertString constraintsText)
 {
-    public string Parameter { get; set; } = "";
-    public string Constraints { get; set; } = "";
+    [MarkoutIgnore, JsonIgnore] public InertString ParameterText { get; } = parameterText;
+    [MarkoutIgnore, JsonIgnore] public InertString ConstraintsText { get; } = constraintsText;
+    public string Parameter => ParameterText.ToString();
+    public string Constraints => ConstraintsText.ToString();
 }
 
 [MarkoutSerializable]
-public class InterfaceRow
+public class InterfaceRow(InertString interfaceText)
 {
-    public string Interface { get; set; } = "";
+    [MarkoutIgnore, JsonIgnore] public InertString InterfaceText { get; } = interfaceText;
+    public string Interface => InterfaceText.ToString();
 }
 
 [MarkoutSerializable]
-public class BaseclassRow
+public class BaseclassRow(InertString typeText)
 {
-    public string Type { get; set; } = "";
+    [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
+    public string Type => TypeText.ToString();
 }
 
 /// <summary>
@@ -522,9 +551,13 @@ public class BaseclassRow
 /// </remarks>
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
-public class TypeInfoSection
+public class TypeInfoSection(
+    InertString? typeText = null,
+    InertString? typeParametersText = null)
 {
-    public string? Type { get; init; }
+    [MarkoutIgnore, JsonIgnore] internal InertString? TypeText { get; } = typeText;
+    [MarkoutIgnore, JsonIgnore] internal InertString? TypeParametersText { get; } = typeParametersText;
+    public string? Type => TypeText?.ToString();
     public string? Kind { get; init; }
     public string? Modifiers { get; init; }
 
@@ -532,7 +565,7 @@ public class TypeInfoSection
     public string? BaseType { get; init; }
 
     [MarkoutPropertyName("Type Parameters")]
-    public string? TypeParameters { get; init; }
+    public string? TypeParameters => TypeParametersText?.ToString();
 
     public int? Interfaces { get; init; }
 
@@ -642,7 +675,19 @@ public class CliApiSurface
 }
 
 [MarkoutSerializable]
-public record TypeSummaryRow(string Kind, string Type, string Members, string? Description);
+public sealed class TypeSummaryRow(
+    string kind,
+    InertString typeText,
+    string members,
+    InertString? descriptionText)
+{
+    public string Kind { get; } = kind;
+    [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
+    public string Type => MarkoutInline.Code(TypeText);
+    public string Members { get; } = members;
+    [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    public string? Description => DescriptionText?.ToString();
+}
 
 [MarkoutSerializable]
 public record ForwarderSummaryRow(
@@ -747,33 +792,71 @@ public record MemberSignatureRow(
 /// Compact summary row for Minimal verbosity: one row per unique member name with overload count.
 /// </summary>
 [MarkoutSerializable]
-public record MethodSummaryRow(
-    string Name,
-    [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    string Overloads,
-    [property: MarkoutSkipNull] string? Decode);
+public sealed class MethodSummaryRow(
+    InertString nameText,
+    InertString returnTypeText,
+    string overloads,
+    string? decode)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString ReturnTypeText { get; } = returnTypeText;
+    [MarkoutPropertyName("Return Type")] public string ReturnType => ReturnTypeText.ToString();
+    public string Overloads { get; } = overloads;
+    [MarkoutSkipNull] public string? Decode { get; } = decode;
+}
 
 [MarkoutSerializable]
-public record ConstructorSummaryRow(
-    string Name,
-    string Overloads,
-    [property: MarkoutSkipNull] string? Decode);
+public sealed class ConstructorSummaryRow(
+    InertString nameText,
+    string overloads,
+    string? decode)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    public string Overloads { get; } = overloads;
+    [MarkoutSkipNull] public string? Decode { get; } = decode;
+}
 
 [MarkoutSerializable]
-public record PropertySummaryRow(
-    string Name,
-    [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    string Accessors,
-    [property: MarkoutSkipNull] string? Decode);
+public sealed class PropertySummaryRow(
+    InertString nameText,
+    InertString returnTypeText,
+    InertString accessorsText,
+    string? decode)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString ReturnTypeText { get; } = returnTypeText;
+    [MarkoutPropertyName("Return Type")] public string ReturnType => ReturnTypeText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString AccessorsText { get; } = accessorsText;
+    public string Accessors => AccessorsText.ToString();
+    [MarkoutSkipNull] public string? Decode { get; } = decode;
+}
 
 [MarkoutSerializable]
-public record FieldSummaryRow(
-    string Name,
-    [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    [property: MarkoutSkipNull] string? Decode);
+public sealed class FieldSummaryRow(
+    InertString nameText,
+    InertString returnTypeText,
+    string? decode)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString ReturnTypeText { get; } = returnTypeText;
+    [MarkoutPropertyName("Return Type")] public string ReturnType => ReturnTypeText.ToString();
+    [MarkoutSkipNull] public string? Decode { get; } = decode;
+}
 
 [MarkoutSerializable]
-public record EventSummaryRow(string Name, string Type);
+public sealed class EventSummaryRow(
+    InertString nameText,
+    InertString typeText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
+    public string Type => TypeText.ToString();
+}
 
 [MarkoutSerializable]
 public record MethodAttributeRow(string Name, string Value);
@@ -801,10 +884,13 @@ public record ConstructorParameterRow(string Parameter, string Type, string Note
 /// View model for type shape output (--shape).
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(FullName))]
-public class TypeShapeView
+public class TypeShapeView(InertString fullNameText)
 {
+    [MarkoutIgnore, JsonIgnore]
+    public InertString FullNameText { get; } = fullNameText;
+
     [MarkoutIgnore]
-    public string FullName { get; set; } = "";
+    public string FullName => FullNameText.ToString();
 
     public string Kind { get; set; } = "";
 
@@ -849,12 +935,38 @@ public class ApiSurfaceTableView
 }
 
 [MarkoutSerializable]
-public record ApiTableRow(string Kind, string Name,
-    [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    string Detail);
+public sealed class ApiTableRow(
+    string kind,
+    InertString nameText,
+    InertString returnTypeText,
+    InertString detailText)
+{
+    public string Kind { get; } = kind;
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString ReturnTypeText { get; } = returnTypeText;
+
+    [MarkoutPropertyName("Return Type")]
+    public string ReturnType => ReturnTypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore] public InertString DetailText { get; } = detailText;
+    public string Detail => DetailText.ToString();
+}
 
 [MarkoutSerializable]
-public record ApiSurfaceTableRow(string Kind, string Type, string Members, string? Description);
+public sealed class ApiSurfaceTableRow(
+    string kind,
+    InertString typeText,
+    string members,
+    InertString? descriptionText)
+{
+    public string Kind { get; } = kind;
+    [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
+    public string Type => MarkoutInline.Code(TypeText);
+    public string Members { get; } = members;
+    [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    public string? Description => DescriptionText?.ToString();
+}
 
 [MarkoutSerializable]
 public sealed record FidelityCauseRow(

@@ -408,10 +408,10 @@ every other payload projection.
 #### Payload stdout is visually encoded; exact export is explicit
 
 Everything a rendered surface shows is *contained*: untrusted metadata names,
-attribute text, doc text, and nuspec fragments have their line terminators
-folded and their rendering hazards (VT, ANSI escapes, bidi overrides, LS/PS)
-rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
-fence, a tree gutter, or a diagnostic line (issue #3319).
+attribute text, doc text, and nuspec fragments have non-graphic Unicode
+scalars (`Cc`, `Cf`, `Cs`, `Zl`, and `Zp`, with the prose exemptions where
+applicable) rewritten in visible, invertible form, so they cannot escape a
+table cell, a code fence, a tree gutter, or a diagnostic line (issue #3319).
 
 Printing a document (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an

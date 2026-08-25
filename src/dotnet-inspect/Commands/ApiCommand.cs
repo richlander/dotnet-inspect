@@ -1149,7 +1149,9 @@ public class ApiCommand
             // facility, so the combination is rejected rather than silently dropped.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
-            Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
+            Console.WriteLine(JsonSerializer.Serialize(
+                api,
+                ApiArtifactJson.SurfaceContext.ApiSurface));
             return successExitCode;
         }
 
@@ -3121,9 +3123,13 @@ public class ApiCommand
         }
 
         if (options.CompactJson)
-            Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeCompactJsonContext.Default.ApiType));
+            Console.WriteLine(JsonSerializer.Serialize(
+                outputType,
+                ApiArtifactJson.CompactTypeContext.ApiType));
         else
-            Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
+            Console.WriteLine(JsonSerializer.Serialize(
+                outputType,
+                ApiArtifactJson.TypeContext.ApiType));
     }
 
     private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)

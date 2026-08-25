@@ -76,6 +76,19 @@ of repeated in every row.
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 
+#### `dotnet-inspect` presentation
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `InertString` fields on API view rows | One rendered semantic API value | Which lossless visual spelling may cross a Markdown, table, TSV, JSONL, or shape sink | Raw type/member identity, lookup text, or correspondence |
+| `ApiArtifactJson` write contexts | One API document JSON serialization | Whether every decoded JSON string value is visually contained while preserving the established schema | A deserializable identity model; consumers that need raw identity use the ordinary `ApiTypeJsonContext` |
+
+`SemanticTypeOutputContainmentTests` gates the typed view currency, unchanged
+raw identity, decoded JSON values, and schema-neutral benign text.
+`PackageFixtureTests.PackageFixtureCatalog_PacksMetadataConfusionPackage` runs
+the repository-owned SRM fixture through Markdown, shape, table, JSONL, and
+document JSON as the real-artifact gate.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |

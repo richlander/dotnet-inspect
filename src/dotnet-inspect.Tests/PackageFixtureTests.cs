@@ -8,6 +8,7 @@ using System.Xml.Linq;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class PackageFixtureTests
 {
     private const string ToolV2Version = "1.0.0";
@@ -240,6 +241,12 @@ public sealed class PackageFixtureTests
             using Stream assemblyStream = assembly.Open();
             using var image = new MemoryStream();
             assemblyStream.CopyTo(image);
+            string fixtureAssemblyPath = Path.Combine(
+                temp,
+                $"{MetadataConfusionId}.dll");
+            File.WriteAllBytes(
+                fixtureAssemblyPath,
+                image.ToArray());
             image.Position = 0;
             using var pe = new PEReader(image);
             MetadataReader reader = pe.GetMetadataReader();
@@ -262,6 +269,9 @@ public sealed class PackageFixtureTests
                         && reader.GetString(type.Name)
                             == "Route\u202EepyT\u202C";
                 });
+
+            await VerifySemanticTypeOutputContainmentAsync(
+                fixtureAssemblyPath);
         }
         finally
         {
@@ -364,6 +374,7 @@ public sealed class PackageFixtureTests
         {
             startInfo.ArgumentList.Add(argument);
         }
+
         startInfo.Environment["NUGET_PACKAGES"] = Path.Combine(
             temp,
             "nuget-packages");
@@ -381,6 +392,107 @@ public sealed class PackageFixtureTests
             $"dotnet pack failed for {fixturePackage}.{Environment.NewLine}"
                 + stdout
                 + stderr);
+    }
+
+    private static async Task VerifySemanticTypeOutputContainmentAsync(
+        string assemblyPath)
+    {
+        await AssertContainedTypeOutputAsync(
+            ["type", "--library", assemblyPath, "--all", "--table", "--tips", "q"],
+            @"\u200B",
+            @"\u2060");
+        await AssertContainedTypeOutputAsync(
+            ["type", "--library", assemblyPath, "--all", "--jsonl", "--tips", "q"],
+            @"\u200B",
+            @"\u2060");
+        await AssertContainedTypeOutputAsync(
+            ["type", "--library", assemblyPath, "--all", "--tips", "q"],
+            @"\u200B",
+            @"\u2060");
+        await AssertContainedTypeOutputAsync(
+            ["type", "Arity`2", "--library", assemblyPath, "--shape", "--tips", "q"],
+            @"\u2060");
+        await AssertContainedTypeOutputAsync(
+            ["type", "Arity`2", "--library", assemblyPath, "--tips", "q"],
+            @"\u2060");
+
+        foreach (string[] arguments in new[]
+        {
+            new[]
+            {
+                "type", "--library", assemblyPath, "--all", "--json", "--tips", "q",
+            },
+            new[]
+            {
+                "type", "Arity`2", "--library", assemblyPath, "--json", "--tips", "q",
+            },
+        })
+        {
+            var (exit, output, error) =
+                await HostileCli.RunAsync(arguments);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(@"\\u2060", output, StringComparison.Ordinal);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.All(
+                EnumerateJsonStrings(document.RootElement),
+                AssertNoRawMetadataConfusionScalar);
+        }
+    }
+
+    private static async Task AssertContainedTypeOutputAsync(
+        string[] arguments,
+        params string[] encodedMarkers)
+    {
+        var (exit, output, error) =
+            await HostileCli.RunAsync(arguments);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        foreach (string marker in encodedMarkers)
+            Assert.Contains(marker, output, StringComparison.Ordinal);
+        AssertNoRawMetadataConfusionScalar(output);
+
+        if (arguments.Contains("--jsonl", StringComparer.Ordinal))
+        {
+            foreach (string line in output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                Assert.All(
+                    EnumerateJsonStrings(document.RootElement),
+                    AssertNoRawMetadataConfusionScalar);
+            }
+        }
+    }
+
+    private static void AssertNoRawMetadataConfusionScalar(string value)
+    {
+        Assert.DoesNotContain('\u200B', value);
+        Assert.DoesNotContain('\u2060', value);
+    }
+
+    private static IEnumerable<string> EnumerateJsonStrings(
+        JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                yield return element.GetString()!;
+                break;
+            case JsonValueKind.Array:
+                foreach (JsonElement item in element.EnumerateArray())
+                    foreach (string value in EnumerateJsonStrings(item))
+                        yield return value;
+                break;
+            case JsonValueKind.Object:
+                foreach (JsonProperty property in element.EnumerateObject())
+                    foreach (string value in EnumerateJsonStrings(property.Value))
+                        yield return value;
+                break;
+        }
     }
 
     private static async Task VerifyMetadataPackageAsync(
