@@ -370,6 +370,10 @@ public class PackageCommand
                 versionQueryPinned = null;
                 options = options with { ForceLatest = true };
             }
+            if (versionQueryPinned?.IndexOf('*') >= 0)
+            {
+                versionQueryPinned = null;
+            }
             if (PackageCoordinateResolver.Validate(
                     new PackageCoordinate(
                         normalizedName,

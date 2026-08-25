@@ -914,6 +914,8 @@ The coverage is not yet complete, and the gaps are on the feed path specifically
 rejects duplicates in service-index, version-index, and search responses,
 gated by
 `PackageSourceClientTests.NuGetMetadataReadersRejectDuplicateProperties`.
+The separate v3 search-resource discovery reader rejects them too, gated by
+`PackageSourceClientTests.V3SearchDiscoveryRejectsDuplicateJsonProperties`.
 No set-equality gate yet prevents another direct parser from appearing, which
 is why the remaining gaps are open work below.
 
@@ -960,21 +962,31 @@ This is gated by
 
 ### Malformed NuGet metadata fails visibly
 
-The `NuGetApi` readers propagate service-index, version-index, and search documents with invalid
-JSON or missing required data as `JsonException` rather than representing them as an absent
-resource, empty version list, or empty search. A top-level JSON `null` remains an explicit null
-document. The multi-source client isolates `JsonException` to the source that supplied the
-malformed document and continues to later sources, while metadata response limits and body
-timeouts remain fatal.
+The `NuGetApi` readers propagate service-index, version-index, and search
+documents with invalid JSON or missing operation-critical data as
+`JsonException` rather than representing them as an absent resource, empty
+version list, or empty search. Service-index version metadata is not consumed,
+so it may be absent. Malformed optional or unrelated service resources are
+skipped for compatibility, while malformed `PackageBaseAddress` declarations
+fail closed. Every service-resource type observation, including a non-string
+array entry, counts against the resource limit. A top-level JSON `null` remains
+an explicit null document. The multi-source client isolates `JsonException` to
+the source that supplied the malformed document and continues to later
+sources, while metadata response limits and body timeouts remain fatal.
 
 This is gated by `NuGetApiTests.GetServiceIndexAsync_MalformedJson_Throws`,
 `NuGetApiTests.GetServiceIndexAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.GetServiceIndexAsync_OptionalMalformedDataIsIgnored`,
+`NuGetApiTests.GetServiceIndexAsync_MalformedOptionalSiblingIsIgnored`,
 `NuGetApiTests.GetVersionIndexAsync_MalformedJson_Throws`,
 `NuGetApiTests.GetVersionIndexAsync_InvalidRequiredData_Throws`,
 `NuGetApiTests.GetSearchResponseAsync_MalformedJson_Throws`,
 `NuGetApiTests.GetSearchResponseAsync_InvalidRequiredData_Throws`,
 `NuGetApiTests.MetadataReaders_TopLevelNull_RemainsNull`, and
-`NuGetClientTests.LatestVersion_MalformedSourceContinuesToHealthySource`.
+`NuGetClientTests.LatestVersion_MalformedSourceContinuesToHealthySource`,
+plus
+`PackageSourceClientTests.V3NonStringResourceObservationsAreBounded` and
+`V3VersionRejectsMalformedCriticalServiceResource`.
 
 ### SourceLink provenance is read off the URL source is fetched from
 

@@ -2088,6 +2088,87 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task SignedSourceAliasesShareOneOperationDeadline()
+    {
+        var first =
+            new ServiceIndexHandler.DelayedVersionSourceClient(
+                TimeSpan.FromMilliseconds(10));
+        var second =
+            new ServiceIndexHandler.DelayedVersionSourceClient(
+                Timeout.InfiniteTimeSpan);
+        using var sourceClient =
+            new FailoverPackageSourceClient(
+                [first, second],
+                TimeSpan.FromMilliseconds(100));
+        using var callerDeadline = new CancellationTokenSource(
+            TimeSpan.FromSeconds(5));
+
+        PackageSourceFailure failure = Assert.IsType<
+            PackageSourceOperationResult<PackageVersionResult>.Failed>(
+                await sourceClient.GetVersionsAsync(
+                    PackageId,
+                    callerDeadline.Token))
+            .Failure;
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.True(first.WasCalled);
+        Assert.True(second.WasCalled);
+        Assert.False(callerDeadline.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task SignedSourceAliasesPreserveCallerCancellation()
+    {
+        var transport =
+            new ServiceIndexHandler.DelayedVersionSourceClient(
+                Timeout.InfiniteTimeSpan);
+        using var sourceClient =
+            new FailoverPackageSourceClient(
+                [transport],
+                TimeSpan.FromSeconds(5));
+        using var callerCancellation = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(50));
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => sourceClient.GetVersionsAsync(
+                    PackageId,
+                    callerCancellation.Token));
+
+        Assert.Equal(callerCancellation.Token, exception.CancellationToken);
+    }
+
+    [Fact]
+    public async Task SignedSourceAliasDeadlineLivesThroughPayloadConsumption()
+    {
+        var transport =
+            new ServiceIndexHandler.DeadlinePayloadSourceClient();
+        using var sourceClient =
+            new FailoverPackageSourceClient(
+                [transport],
+                TimeSpan.FromMilliseconds(50));
+
+        PackageSourcePayload payload = Assert.IsType<
+            PackageSourceOperationResult<PackageSourcePayload>.Succeeded>(
+                await sourceClient.GetPackageAsync(
+                    PackageId,
+                    Version,
+                    TestContext.Current.CancellationToken))
+            .Value;
+        await transport.DeadlineObserved.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+
+        await using (payload.Content)
+        {
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                () => payload.Content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+        }
+    }
+
+    [Fact]
     public async Task PackageStreamTimeoutRemainsATypedSourceFailure()
     {
         using var source =
@@ -2984,6 +3065,174 @@ public sealed class PackagePayloadAcquisitionTests
             public void Dispose()
             {
             }
+        }
+
+        internal sealed class DelayedVersionSourceClient(TimeSpan delay)
+            : IPackageSourceClient
+        {
+            public bool WasCalled { get; private set; }
+
+            public PackageSourceIdentity Identity =>
+                PackageSourceIdentity.NuGetOrg;
+
+            public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
+
+            public PackageSourceCapabilities Capabilities =>
+                PackageSourceCapabilities.VersionEnumeration;
+
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchAsync(
+                    string query,
+                    int take = 20,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public async Task<
+                PackageSourceOperationResult<PackageVersionResult>>
+                GetVersionsAsync(
+                    string packageId,
+                    CancellationToken cancellationToken = default)
+            {
+                WasCalled = true;
+                await Task.Delay(delay, cancellationToken);
+                return new PackageSourceOperationResult<
+                    PackageVersionResult>.Failed(
+                        new PackageSourceFailure(
+                            Identity,
+                            Kind,
+                            PackageSourceCapabilities.VersionEnumeration,
+                            Coordinate: null,
+                            PackageSourceFailureKind.Transport,
+                            "transport failed"));
+            }
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                GetPackageAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                TryGetSymbolsAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public void Dispose()
+            {
+            }
+        }
+
+        internal sealed class DeadlinePayloadSourceClient
+            : IPackageSourceClient
+        {
+            private readonly TaskCompletionSource<bool> _deadlineObserved =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task DeadlineObserved => _deadlineObserved.Task;
+
+            public PackageSourceIdentity Identity =>
+                PackageSourceIdentity.NuGetOrg;
+
+            public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
+
+            public PackageSourceCapabilities Capabilities =>
+                PackageSourceCapabilities.PackagePayload;
+
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchAsync(
+                    string query,
+                    int take = 20,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageVersionResult>>
+                GetVersionsAsync(
+                    string packageId,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                GetPackageAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default)
+            {
+                cancellationToken.Register(
+                    () => _deadlineObserved.TrySetResult(true));
+                return Task.FromResult<
+                    PackageSourceOperationResult<PackageSourcePayload>>(
+                        new PackageSourceOperationResult<PackageSourcePayload>
+                            .Succeeded(
+                                new PackageSourcePayload(
+                                    PackageSourceCoordinate.Create(
+                                        packageId,
+                                        version),
+                                    Identity,
+                                    Kind,
+                                    PackageSourcePayloadKind.Package,
+                                    new CancellationCheckingStream(
+                                        cancellationToken))));
+            }
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                TryGetSymbolsAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public void Dispose()
+            {
+            }
+        }
+
+        sealed class CancellationCheckingStream(
+            CancellationToken routeToken) : Stream
+        {
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position
+            {
+                get => throw new NotSupportedException();
+                set => throw new NotSupportedException();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                routeToken.ThrowIfCancellationRequested();
+                return 0;
+            }
+
+            public override ValueTask<int> ReadAsync(
+                Memory<byte> buffer,
+                CancellationToken cancellationToken = default)
+            {
+                routeToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(0);
+            }
+
+            public override void Flush()
+            {
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) =>
+                throw new NotSupportedException();
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+            public override void Write(
+                byte[] buffer,
+                int offset,
+                int count) =>
+                throw new NotSupportedException();
         }
 
         sealed class TimeoutReadStream : Stream

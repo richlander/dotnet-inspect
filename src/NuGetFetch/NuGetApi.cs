@@ -28,12 +28,9 @@ public static class NuGetApi
         JsonElement root = document.RootElement;
         if (root.ValueKind == JsonValueKind.Null)
             return null;
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("version", out JsonElement versionElement)
-            || versionElement.ValueKind != JsonValueKind.String
-            || versionElement.GetString() is not { } version)
+        if (root.ValueKind != JsonValueKind.Object)
         {
-            throw InvalidMetadata("service index", "version");
+            throw InvalidMetadata("service index", "resources");
         }
         if (!root.TryGetProperty("resources", out JsonElement resourcesElement)
             || resourcesElement.ValueKind != JsonValueKind.Array)
@@ -41,45 +38,125 @@ public static class NuGetApi
             throw InvalidMetadata("service index", "resources");
         }
 
+        string version =
+            root.TryGetProperty(
+                "version",
+                out JsonElement versionElement)
+            && versionElement.ValueKind == JsonValueKind.String
+                ? versionElement.GetString() ?? ""
+                : "";
         List<ServiceResource> resources = [];
+        int observations = 0;
         foreach (JsonElement resource in resourcesElement.EnumerateArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (resource.ValueKind != JsonValueKind.Object
-                || !resource.TryGetProperty("@id", out JsonElement idElement)
-                || idElement.ValueKind != JsonValueKind.String
-                || idElement.GetString() is not { } id
-                || !resource.TryGetProperty("@type", out JsonElement typeElement))
+            if (resource.ValueKind != JsonValueKind.Object)
             {
-                throw InvalidMetadata("service index", "resources");
+                Observe();
+                continue;
+            }
+            if (!resource.TryGetProperty(
+                    "@type",
+                    out JsonElement typeElement))
+            {
+                Observe();
+                continue;
             }
 
+            List<string> types = [];
+            bool malformedType = false;
+            if (typeElement.ValueKind == JsonValueKind.String)
+            {
+                Observe();
+                if (typeElement.GetString() is { } type
+                    && !string.IsNullOrWhiteSpace(type))
+                {
+                    types.Add(type);
+                }
+                else
+                {
+                    malformedType = true;
+                }
+            }
+            else if (typeElement.ValueKind == JsonValueKind.Array)
+            {
+                bool observedType = false;
+                foreach (JsonElement item in typeElement.EnumerateArray())
+                {
+                    Observe();
+                    observedType = true;
+                    if (item.ValueKind == JsonValueKind.String
+                        && item.GetString() is { } itemType
+                        && !string.IsNullOrWhiteSpace(itemType))
+                    {
+                        types.Add(itemType);
+                    }
+                    else
+                    {
+                        malformedType = true;
+                    }
+                }
+                if (!observedType)
+                {
+                    Observe();
+                    malformedType = true;
+                }
+            }
+            else
+            {
+                Observe();
+                malformedType = true;
+            }
+
+            bool hasCriticalType =
+                types.Any(IsPackageBaseAddressType);
+            if (malformedType)
+            {
+                if (hasCriticalType)
+                    throw InvalidMetadata("service index", "resources");
+                continue;
+            }
+
+            string? id =
+                resource.TryGetProperty(
+                    "@id",
+                    out JsonElement idElement)
+                && idElement.ValueKind == JsonValueKind.String
+                    ? idElement.GetString()
+                    : null;
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                if (hasCriticalType)
+                    throw InvalidMetadata("service index", "resources");
+                continue;
+            }
             string? comment = resource.TryGetProperty(
                 "comment",
                 out JsonElement commentElement)
                 && commentElement.ValueKind == JsonValueKind.String
                     ? commentElement.GetString()
                     : null;
-            int typeCount = 0;
-            foreach (string type in ResourceTypes(typeElement))
+            foreach (string type in types)
             {
-                if ((resources.Count & 127) == 0)
-                    cancellationToken.ThrowIfCancellationRequested();
-                if (resources.Count
-                    >= MaximumExpandedServiceResourceCount)
-                {
-                    throw new NuGetMetadataResourceLimitExceededException(
-                        "The NuGet service index exceeded the expanded resource limit.");
-                }
-
                 resources.Add(new ServiceResource(id, type, comment));
-                typeCount++;
             }
-            if (typeCount == 0)
-                throw InvalidMetadata("service index", "resources");
         }
 
         return new ServiceIndex(version, resources);
+
+        void Observe()
+        {
+            if ((observations & 127) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+            if (observations
+                >= MaximumExpandedServiceResourceCount)
+            {
+                throw new NuGetMetadataResourceLimitExceededException(
+                    "The NuGet service index exceeded the expanded resource limit.");
+            }
+
+            observations++;
+        }
     }
 
     private static async Task<JsonDocument> ParseDocumentAsync(
@@ -102,27 +179,13 @@ public static class NuGetApi
         }
     }
 
-    private static IEnumerable<string> ResourceTypes(JsonElement typeElement)
-    {
-        if (typeElement.ValueKind == JsonValueKind.String
-            && typeElement.GetString() is { } type)
-        {
-            yield return type;
-            yield break;
-        }
-
-        if (typeElement.ValueKind != JsonValueKind.Array)
-            yield break;
-
-        foreach (JsonElement item in typeElement.EnumerateArray())
-        {
-            if (item.ValueKind == JsonValueKind.String
-                && item.GetString() is { } itemType)
-            {
-                yield return itemType;
-            }
-        }
-    }
+    private static bool IsPackageBaseAddressType(string type) =>
+        type.Equals(
+            "PackageBaseAddress",
+            StringComparison.OrdinalIgnoreCase)
+        || type.StartsWith(
+            "PackageBaseAddress/",
+            StringComparison.OrdinalIgnoreCase);
 
     public static ValueTask<VersionIndex?> GetVersionIndexAsync(
         Stream json,

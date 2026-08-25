@@ -139,10 +139,16 @@ second candidate source or a partial aggregate; the producer fails only when
 all of its applicable transports fail. Query-bearing configured aliases with
 one stable producer identity are retained as ordered transports within that
 producer route rather than discarding every alias after the first.
+All transports in that route share one operation deadline; trying another
+alias does not reset the ceiling, and a successful package stream retains the
+same route deadline until the caller disposes it.
 `PackagePayloadAcquisitionTests.SignedSourceAliases_FailOverWithinOneProducer`
 and
-`SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer`
-gates this behavior.
+`SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer` gate
+failover.
+`SignedSourceAliasesShareOneOperationDeadline` and
+`SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate the route-wide
+deadline.
 
 ## Resolving active and eligible sources
 
@@ -529,8 +535,14 @@ aggregation does not add another retry loop.
 Configured HTTP base sources are normalized to `/v3/index.json` for typed
 service-index requests while retaining signed query bytes; producer identity
 continues to describe the configured endpoint path. Service-index `@type`
-accepts the JSON-LD string and array forms, and every expanded
+accepts the JSON-LD string and array forms. Parsing counts every type
+observation, including malformed array entries, against the 4,096-observation
+limit and checks cancellation during traversal. Malformed optional or unrelated
+resources are ignored for compatibility, while any malformed
+`PackageBaseAddress` declaration fails the source closed. Every usable
 `PackageBaseAddress` sibling is validated before selection.
+Package IDs use NuGetFetch's Unicode-aware NuGet package-ID grammar; the
+package layer reuses that predicate rather than narrowing it to ASCII.
 NuGet.org registration enrichment remains a separate package-layer capability;
 raw v3 candidate results do not claim authoritative listing state. The first
 cache pass still receives the complete ordered producer set before any network

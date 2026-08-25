@@ -908,7 +908,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 internal static partial class PackageCoordinateValidation
 {
     public static bool IsValidPackageId(string? packageId) =>
-        packageId is { Length: > 0 and <= 100 }
+        packageId is
+            { Length: > 0 and <= PackageSourceCoordinate.MaxPackageIdLength }
         && PackageIdPattern().IsMatch(packageId);
 
     public static bool IsValidPackageVersion(string? version) =>

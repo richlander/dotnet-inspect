@@ -109,9 +109,11 @@ internal sealed class FailoverPackageSourceClient
     : IPackageSourceClient
 {
     private readonly IReadOnlyList<IPackageSourceClient> _transports;
+    private readonly TimeSpan _operationTimeout;
 
     internal FailoverPackageSourceClient(
-        IReadOnlyList<IPackageSourceClient> transports)
+        IReadOnlyList<IPackageSourceClient> transports,
+        TimeSpan? operationTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(transports);
         if (transports.Count == 0)
@@ -130,6 +132,8 @@ internal sealed class FailoverPackageSourceClient
         }
 
         _transports = [.. transports];
+        _operationTimeout =
+            operationTimeout ?? NuGetFetchOptions.DefaultOperationTimeout;
     }
 
     public PackageSourceIdentity Identity { get; }
@@ -148,41 +152,49 @@ internal sealed class FailoverPackageSourceClient
         bool prerelease = false,
         CancellationToken cancellationToken = default) =>
         ExecuteAsync(
-            transport => transport.SearchAsync(
+            (transport, routeToken) => transport.SearchAsync(
                 query,
                 take,
                 prerelease,
-                cancellationToken));
+                routeToken),
+            PackageSourceCapabilities.Search,
+            cancellationToken);
 
     public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default) =>
         ExecuteAsync(
-            transport => transport.GetVersionsAsync(
+            (transport, routeToken) => transport.GetVersionsAsync(
                 packageId,
-                cancellationToken));
+                routeToken),
+            PackageSourceCapabilities.VersionEnumeration,
+            cancellationToken);
 
     public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
         string version,
         CancellationToken cancellationToken = default) =>
-        ExecuteAsync(
-            transport => transport.GetPackageAsync(
+        ExecutePayloadAsync(
+            (transport, routeToken) => transport.GetPackageAsync(
                 packageId,
                 version,
-                cancellationToken),
-            stopOnNotFound: true);
+                routeToken),
+            PackageSourceCapabilities.PackagePayload,
+            PackageSourceCoordinate.Create(packageId, version),
+            cancellationToken);
 
     public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
         string packageId,
         string version,
         CancellationToken cancellationToken = default) =>
-        ExecuteAsync(
-            transport => transport.TryGetSymbolsAsync(
+        ExecutePayloadAsync(
+            (transport, routeToken) => transport.TryGetSymbolsAsync(
                 packageId,
                 version,
-                cancellationToken),
-            stopOnNotFound: true);
+                routeToken),
+            PackageSourceCapabilities.SymbolPayload,
+            PackageSourceCoordinate.Create(packageId, version),
+            cancellationToken);
 
     public void Dispose()
     {
@@ -191,31 +203,357 @@ internal sealed class FailoverPackageSourceClient
     }
 
     private async Task<PackageSourceOperationResult<T>> ExecuteAsync<T>(
-        Func<IPackageSourceClient,
+        Func<IPackageSourceClient, CancellationToken,
             Task<PackageSourceOperationResult<T>>> operation,
-        bool stopOnNotFound = false)
+        PackageSourceCapabilities capability,
+        CancellationToken cancellationToken)
     {
+        using CancellationTokenSource routeCancellation =
+            CreateRouteCancellation(cancellationToken);
         PackageSourceOperationResult<T>.Failed? lastFailure = null;
-        foreach (IPackageSourceClient transport in _transports)
+        try
         {
-            PackageSourceOperationResult<T> result =
-                await operation(transport).ConfigureAwait(false);
-            if (result
-                is PackageSourceOperationResult<T>.Succeeded)
+            foreach (IPackageSourceClient transport in _transports)
             {
-                return result;
-            }
+                routeCancellation.Token.ThrowIfCancellationRequested();
+                PackageSourceOperationResult<T> result =
+                    await operation(
+                        transport,
+                        routeCancellation.Token).ConfigureAwait(false);
+                routeCancellation.Token.ThrowIfCancellationRequested();
+                if (result
+                    is PackageSourceOperationResult<T>.Succeeded)
+                {
+                    return result;
+                }
 
-            lastFailure =
-                (PackageSourceOperationResult<T>.Failed)result;
-            if (stopOnNotFound
-                && lastFailure.Failure.Kind
-                    == PackageSourceFailureKind.NotFound)
-            {
-                return lastFailure;
+                lastFailure =
+                    (PackageSourceOperationResult<T>.Failed)result;
             }
+        }
+        catch (OperationCanceledException exception)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "NuGet operation was canceled by the caller.",
+                exception,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (routeCancellation.IsCancellationRequested)
+        {
+            return TimeoutFailure<T>(capability);
         }
 
         return lastFailure!;
+    }
+
+    private async Task<PackageSourceOperationResult<PackageSourcePayload>>
+        ExecutePayloadAsync(
+            Func<IPackageSourceClient, CancellationToken,
+                Task<PackageSourceOperationResult<PackageSourcePayload>>> operation,
+            PackageSourceCapabilities capability,
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken)
+    {
+        CancellationTokenSource? routeCancellation =
+            CreateRouteCancellation(cancellationToken);
+        try
+        {
+            PackageSourceOperationResult<PackageSourcePayload>.Failed?
+                lastFailure = null;
+            foreach (IPackageSourceClient transport in _transports)
+            {
+                routeCancellation.Token.ThrowIfCancellationRequested();
+                PackageSourceOperationResult<PackageSourcePayload> result =
+                    await operation(
+                        transport,
+                        routeCancellation.Token).ConfigureAwait(false);
+                routeCancellation.Token.ThrowIfCancellationRequested();
+                if (result
+                    is PackageSourceOperationResult<PackageSourcePayload>
+                        .Succeeded success)
+                {
+                    PackageSourcePayload payload = success.Value with
+                    {
+                        Content = new RouteDeadlineStream(
+                            success.Value.Content,
+                            routeCancellation,
+                            cancellationToken,
+                            _operationTimeout),
+                    };
+                    routeCancellation = null;
+                    return new PackageSourceOperationResult<
+                        PackageSourcePayload>.Succeeded(payload);
+                }
+
+                lastFailure =
+                    (PackageSourceOperationResult<PackageSourcePayload>
+                        .Failed)result;
+                if (lastFailure.Failure.Kind
+                    == PackageSourceFailureKind.NotFound)
+                {
+                    return lastFailure;
+                }
+            }
+
+            return lastFailure!;
+        }
+        catch (OperationCanceledException exception)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "NuGet operation was canceled by the caller.",
+                exception,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (routeCancellation!.IsCancellationRequested)
+        {
+            return TimeoutFailure<PackageSourcePayload>(
+                capability,
+                coordinate);
+        }
+        finally
+        {
+            routeCancellation?.Dispose();
+        }
+    }
+
+    private CancellationTokenSource CreateRouteCancellation(
+        CancellationToken cancellationToken)
+    {
+        CancellationTokenSource source =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        source.CancelAfter(_operationTimeout);
+        return source;
+    }
+
+    private PackageSourceOperationResult<T> TimeoutFailure<T>(
+        PackageSourceCapabilities capability,
+        PackageSourceCoordinate? coordinate = null) =>
+        new PackageSourceOperationResult<T>.Failed(
+            new PackageSourceFailure(
+                Identity,
+                Kind,
+                capability,
+                coordinate,
+                PackageSourceFailureKind.Timeout,
+                "The package source operation exceeded its configured deadline."));
+
+    private sealed class RouteDeadlineStream(
+        Stream inner,
+        CancellationTokenSource routeCancellation,
+        CancellationToken callerToken,
+        TimeSpan operationTimeout)
+        : Stream
+    {
+        private int _disposed;
+
+        public override bool CanRead => inner.CanRead;
+
+        public override bool CanSeek => inner.CanSeek;
+
+        public override bool CanWrite => inner.CanWrite;
+
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() => inner.Flush();
+
+        public override Task FlushAsync(
+            CancellationToken cancellationToken) =>
+            InvokeAsync(() => inner.FlushAsync(cancellationToken));
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            Invoke(() => inner.Read(buffer, offset, count));
+
+        public override Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            InvokeAsync(
+                () => inner.ReadAsync(
+                    buffer,
+                    offset,
+                    count,
+                    cancellationToken));
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            InvokeValueAsync(
+                () => inner.ReadAsync(buffer, cancellationToken));
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            inner.Seek(offset, origin);
+
+        public override void SetLength(long value) =>
+            inner.SetLength(value);
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            Invoke(
+                () => inner.Write(buffer, offset, count));
+
+        public override Task WriteAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            InvokeAsync(
+                () => inner.WriteAsync(
+                    buffer,
+                    offset,
+                    count,
+                    cancellationToken));
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            InvokeValueAsync(
+                () => inner.WriteAsync(buffer, cancellationToken));
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing
+                && Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                try
+                {
+                    inner.Dispose();
+                }
+                finally
+                {
+                    routeCancellation.Dispose();
+                }
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            try
+            {
+                await inner.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                routeCancellation.Dispose();
+            }
+
+            GC.SuppressFinalize(this);
+        }
+
+        private T Invoke<T>(Func<T> operation)
+        {
+            try
+            {
+                return operation();
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw Translate(exception);
+            }
+        }
+
+        private void Invoke(Action operation)
+        {
+            try
+            {
+                operation();
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw Translate(exception);
+            }
+        }
+
+        private async Task InvokeAsync(Func<Task> operation)
+        {
+            try
+            {
+                await operation().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw Translate(exception);
+            }
+        }
+
+        private async Task<T> InvokeAsync<T>(
+            Func<Task<T>> operation)
+        {
+            try
+            {
+                return await operation().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw Translate(exception);
+            }
+        }
+
+        private async ValueTask InvokeValueAsync(
+            Func<ValueTask> operation)
+        {
+            try
+            {
+                await operation().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw Translate(exception);
+            }
+        }
+
+        private async ValueTask<T> InvokeValueAsync<T>(
+            Func<ValueTask<T>> operation)
+        {
+            try
+            {
+                return await operation().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw Translate(exception);
+            }
+        }
+
+        private Exception Translate(
+            OperationCanceledException exception)
+        {
+            if (callerToken.IsCancellationRequested)
+            {
+                return new OperationCanceledException(
+                    "NuGet operation was canceled by the caller.",
+                    exception,
+                    callerToken);
+            }
+
+            return routeCancellation.IsCancellationRequested
+                ? new NuGetOperationTimeoutException(
+                    operationTimeout,
+                    exception)
+                : exception;
+        }
     }
 }

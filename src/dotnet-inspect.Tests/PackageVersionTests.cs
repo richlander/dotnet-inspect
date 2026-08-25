@@ -97,6 +97,21 @@ public class PackageVersionTests
         Assert.DoesNotContain("Stack Trace", error);
     }
 
+    [Fact]
+    public async Task Versions_UnicodePackageIdUsesNuGetGrammar()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "日本語サンプルデータ@not-a-version", "--versions"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("coordinate version", error);
+        Assert.DoesNotContain("requires a package id", error);
+    }
+
     [Theory]
     [InlineData("foo bar")]
     [InlineData("foo+bar")]
@@ -131,6 +146,21 @@ public class PackageVersionTests
         Assert.Equal(0, exit);
         Assert.Equal("8.0.0", output.Trim());
         Assert.DoesNotContain("not found", error);
+    }
+
+    [Fact]
+    public async Task Versions_WildcardSelectorUsesVersionListing()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "System.Text.Json@8.*", "--versions", "1"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output.Trim());
+        Assert.DoesNotContain("exact version", error);
     }
 
     [Fact]

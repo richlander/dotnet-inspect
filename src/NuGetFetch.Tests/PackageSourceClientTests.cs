@@ -444,6 +444,82 @@ public sealed class PackageSourceClientTests
         Assert.Equal([ServiceIndex, Versions], handler.Requested);
     }
 
+    [Fact]
+    public async Task V3VersionIgnoresMalformedOptionalServiceResources()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": 42,
+                      "@type": "VulnerabilityInfo/6.7.0"
+                    },
+                    {
+                      "@id": "https://feed.example/v3/search/",
+                      "@type": ["SearchQueryService/3.5.0", 42]
+                    },
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [Versions] = """{"versions":["1.0.0"]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageCandidateObservation candidate = Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+
+        Assert.Equal("1.0.0", candidate.Coordinate.Version);
+        Assert.Equal([ServiceIndex, Versions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3VersionRejectsMalformedCriticalServiceResource()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = """
+                {
+                  "resources": [
+                    {
+                      "@id": "https://feed.example/v3/flat/",
+                      "@type": [
+                        "PackageBaseAddress/3.0.0",
+                        42
+                      ]
+                    }
+                  ]
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -500,6 +576,42 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task V3NonStringResourceObservationsAreBounded()
+    {
+        string resourceTypeJson = string.Join(
+            ',',
+            Enumerable.Repeat(
+                "0",
+                NuGetApi.MaximumExpandedServiceResourceCount + 1));
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "https://feed.example/v3/search/",
+                      "@type": [{{resourceTypeJson}}]
+                    }
+                  ]
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.ResponseRejected, failure.Kind);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Fact]
     public async Task NuGetMetadataReadersRejectDuplicateProperties()
     {
         await Assert.ThrowsAsync<JsonException>(
@@ -523,6 +635,34 @@ public sealed class PackageSourceClientTests
                         """{"data":[],"data":[{"id":"Contoso","version":"1.0.0"}]}""")),
                 TestContext.Current.CancellationToken)
                 .AsTask());
+    }
+
+    [Fact]
+    public async Task V3SearchDiscoveryRejectsDuplicateJsonProperties()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = """
+                {
+                  "resources": [],
+                  "resources": []
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal([ServiceIndex], handler.Requested);
     }
 
     [Fact]

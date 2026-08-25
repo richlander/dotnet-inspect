@@ -55,6 +55,10 @@ internal static class NuGetV3SearchResourceDiscovery
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
             json,
+            new JsonDocumentOptions
+            {
+                AllowDuplicateProperties = false,
+            },
             cancellationToken: cancellationToken).ConfigureAwait(false);
         if (document.RootElement.ValueKind != JsonValueKind.Object
             || !document.RootElement.TryGetProperty(

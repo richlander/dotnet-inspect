@@ -114,19 +114,8 @@ public class NuGetApiTests
 
     [Theory]
     [InlineData("{}")]
-    [InlineData("""{"resources":[]}""")]
-    [InlineData("""{"version":null,"resources":[]}""")]
     [InlineData("""{"version":"3.0.0","resources":null}""")]
-    [InlineData("""{"version":"3.0.0","resources":[null]}""")]
     [InlineData("""{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0"}]}""")]
-    [InlineData("""{"version":"3.0.0","resources":[{"@id":"https://example.com/flat/"}]}""")]
-    [InlineData(
-        """
-        {"version":"3.0.0","resources":[
-          {"@id":"https://example.com/flat/","@type":"PackageBaseAddress/3.0.0"},
-          null
-        ]}
-        """)]
     public async Task GetServiceIndexAsync_InvalidRequiredData_Throws(string json)
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
@@ -135,6 +124,46 @@ public class NuGetApiTests
             await NuGetApi.GetServiceIndexAsync(
                 stream,
                 TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("""{"resources":[]}""")]
+    [InlineData("""{"version":null,"resources":[]}""")]
+    [InlineData("""{"version":"3.0.0","resources":[null]}""")]
+    [InlineData("""{"version":"3.0.0","resources":[{"@id":"https://example.com/flat/"}]}""")]
+    public async Task GetServiceIndexAsync_OptionalMalformedDataIsIgnored(
+        string json)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+
+        ServiceIndex? result = await NuGetApi.GetServiceIndexAsync(
+            stream,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        Assert.Empty(result.Resources);
+    }
+
+    [Fact]
+    public async Task GetServiceIndexAsync_MalformedOptionalSiblingIsIgnored()
+    {
+        using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(
+                """
+                {"version":"3.0.0","resources":[
+                  {"@id":"https://example.com/flat/","@type":"PackageBaseAddress/3.0.0"},
+                  null
+                ]}
+                """));
+
+        ServiceIndex? result = await NuGetApi.GetServiceIndexAsync(
+            stream,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        Assert.Equal(
+            "PackageBaseAddress/3.0.0",
+            Assert.Single(result.Resources).Type);
     }
 
     // --- Search response deserialization (ported from dotnet-inspect NuGetSearchServiceTests) ---

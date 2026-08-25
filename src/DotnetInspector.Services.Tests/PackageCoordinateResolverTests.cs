@@ -231,7 +231,7 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("sample-")]
     [InlineData("sample..package")]
     [InlineData("sample.-package")]
-    [InlineData("sämple")]
+    [InlineData("sample\u202Epackage")]
     public async Task Coordinate_RejectsAPackageIdOutsideTheGrammar(
         string packageId)
     {
@@ -289,6 +289,9 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("NETStandard.Library")]
     [InlineData("Foo_Bar")]
     [InlineData("a_.b-c")]
+    [InlineData("sämple")]
+    [InlineData("日本語サンプルデータ")]
+    [InlineData("пакет.пример")]
     public void Coordinate_AcceptsRealPackageIds(string packageId)
     {
         // The close negative for the grammar: it is a bound on shape, not a

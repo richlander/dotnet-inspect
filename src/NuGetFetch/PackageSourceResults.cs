@@ -41,6 +41,9 @@ public enum PackageListingState
 /// </summary>
 public sealed record PackageSourceCoordinate
 {
+    /// <summary>The maximum supported NuGet package-ID length.</summary>
+    public const int MaxPackageIdLength = 100;
+
     private PackageSourceCoordinate(string packageId, string version)
     {
         PackageId = packageId;
@@ -52,6 +55,12 @@ public sealed record PackageSourceCoordinate
 
     /// <summary>Gets the normalized lowercase NuGet version.</summary>
     public string Version { get; }
+
+    /// <summary>
+    /// Returns whether a package ID follows NuGet's package-ID grammar.
+    /// </summary>
+    public static bool IsValidPackageId(string? packageId) =>
+        PackageCoordinateValidation.IsValidPackageId(packageId);
 
     /// <summary>Creates a validated package coordinate.</summary>
     public static PackageSourceCoordinate Create(

@@ -662,6 +662,13 @@ bound, but timeout or transport failure during its later consumption is an
 exception because the operation result has already been returned. Invalid
 caller coordinates and caller cancellation likewise remain exceptions rather
 than being misreported as source failures.
+When several signed transport aliases represent one producer, alias failover
+shares one operation ceiling rather than multiplying it by the alias count.
+The same ceiling remains attached to a returned payload stream.
+`PackagePayloadAcquisitionTests.SignedSourceAliasesShareOneOperationDeadline`
+and
+`SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate those
+properties.
 
 Gallery version enumeration joins the complete flat-container list with the
 SemVer2 registration index. Inline pages are consumed in place. External page
@@ -696,6 +703,15 @@ malformed rather than allowing one of several possible listing readings to
 become authoritative. Deadline expiry during traversal, coverage, or final
 authority projection also returns the partial result, while caller cancellation
 outranks a concurrent page failure.
+
+V3 service-index parsing similarly admits at most 4,096 resource-type
+observations. Every array element counts, even when it is not a string, and
+traversal checks cancellation. Missing service-index version metadata and
+malformed optional or unrelated resources remain compatible and are ignored;
+a malformed `PackageBaseAddress` declaration fails closed.
+`PackageSourceClientTests.V3NonStringResourceObservationsAreBounded`,
+`V3VersionIgnoresMalformedOptionalServiceResources`, and
+`V3VersionRejectsMalformedCriticalServiceResource` gate that boundary.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their

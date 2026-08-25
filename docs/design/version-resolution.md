@@ -287,6 +287,10 @@ the nuget.org gallery:
   stable "latest" path already uses the listing-aware search API and is
   unaffected. This is nuget.org-only; other feeds have no listed concept and are
   returned unfiltered.
+- **Selectors do not become coordinates.** A concrete
+  `Name@Version --versions` may use its canonical exact-version shortcut, but
+  `Name@3.0.* --versions` remains a general version-listing request. The
+  wildcard is not submitted to exact-coordinate validation.
 - **Explicit access is preserved.** A pinned concrete `Name@Version` never
   enumerates, so a known unlisted version still resolves and loads — matching
   NuGet's own behavior of restoring a known unlisted version. `Name@latest`,
