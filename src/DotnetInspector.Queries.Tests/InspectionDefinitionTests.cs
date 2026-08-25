@@ -839,6 +839,15 @@ public class InspectionDefinitionTests
             callGraph.Navigation.FocusTab.Coordinate);
         Assert.Equal("Microsoft.Extensions.DependencyInjection.Abstractions", focus.PackageId);
         Assert.Equal("10.0.0", focus.Version);
+
+        ProductDemoRunPlan run = ProductDemoRunPlan.Create(callGraph);
+        Assert.Same(callGraph.SelectedContext, run.Context);
+        Assert.Same(callGraph.Navigation.FocusTab, run.Focus);
+        Assert.Equal(callGraph.View.Type, run.TypeName);
+        Assert.Equal(ProductDemoSections.CallGraph, run.Section);
+        Assert.Equal("TryAddEnumerable", run.Member!.Name);
+        Assert.Equal("method", run.Member.Kind);
+        Assert.Equal("74b6b4b321", run.Member.Anchor);
     }
 
     [Fact]
@@ -850,6 +859,7 @@ public class InspectionDefinitionTests
         var stjPackage = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
             stj.SelectedContext!.Members[0]);
         Assert.Equal("System.Text.Json", stjPackage.PackageId);
+        Assert.Null(ProductDemoRunPlan.Create(stj).Member);
         Assert.False(ProductInspectionDemos.HasScenario("platform-list"));
     }
 
