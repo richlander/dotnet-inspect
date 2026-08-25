@@ -1,21 +1,119 @@
 # Release Notes
 
-## Unreleased
+## v0.22.0
+
+### Inspection and matching
+
+- Adds the `match` command for identity-agnostic structural comparison of two
+  selected methods in one retained assembly. It preserves exact, near,
+  different, unsupported, failed, limit-reached, and
+  ambiguous-correspondence results instead of collapsing incomplete
+  comparisons into matches. Add `--implementation` for side-by-side decompiled
+  C# and IL views of both selected methods (#4540, #4555).
+- Adds `graph integrations` for inducing typed Integration relationships over
+  an explicit, binding-consistent package set. Markdown, tree, Mermaid, count,
+  and structured formats project the same logical edges, while missing peer
+  packages remain visible as failures instead of silently shortening the graph
+  (#4421).
+- Adds `demo` for listing and running closed product-home scenarios backed by
+  real section output rather than separate demonstration logic (#4463).
+- Fixes canonical metadata generic-arity handling across API identity,
+  relationship traversal, type forwarding, PDB/source mapping, decompilation,
+  and selector spelling. Nested and foreign generic types now retain their
+  declared arity without trusting unvalidated name suffixes. Extension members
+  now attach to their exact target type rather than an approximate same-named
+  or enclosing type (#4233, #4539).
+- **Breaking:** Canonical member identity now preserves exact metadata
+  structure and spelling in declaring-type anchors and repairs represented
+  canonical components used by selectors. Corrections include nested `+`
+  separators, normalized generic-argument separators, literal-name escaping,
+  encoded-arity handling, and malformed generic-instantiation spelling.
+  Because `Name~digest` fingerprints that represented canonical signature,
+  persisted selectors can change whenever one of those components was
+  repaired; refresh affected selectors from `Member Index`. Extension
+  selectors can also move between same-named types of different arity or from
+  an enclosing type to a nested target; rediscover them on the exact target
+  type (#4233).
 
 ### Source and implementation evidence
 
 - Renames `Original Source` to `PDB Source` and the Implementation Diff
   `--authored-source` flag to `--pdb-source`, reflecting that checksum and
-  SourceLink origin evidence do not independently prove build provenance.
+  SourceLink-origin evidence do not independently prove build provenance.
   Both old spellings remain accepted as hidden compatibility aliases. The
-  Implementation Diff `Mechanism` row value likewise changes from `Source` to
-  `PDB Source` in Markdown, `--table`, `--tsv`, `--jsonl`, and `--json` output
-  (#4381). **Breaking:** when `PDB Source` or `Source Diff` is selected exactly,
-  acquisition failures now return a non-zero exit status under `--count`,
-  `--table`, `--tsv`, `--jsonl`, and document `--json`; Markdown, plaintext,
-  bare, and `--print` projections continue to render the explanatory payload.
-  PDB Source no longer requires a SourceLink map when a local source document
-  named by the PDB can be checksum-verified.
+  Implementation Diff `Mechanism` value likewise changes from `Source` to
+  `PDB Source` in Markdown and structured output (#4385).
+- **Breaking:** exact `PDB Source` or `Source Diff` acquisition failures now
+  return a non-zero exit status in count, tabular, JSONL, and document JSON
+  output. Markdown, plaintext, bare, and print projections continue to render
+  the explanatory payload. PDB Source can also use checksum-verified local
+  documents without requiring a SourceLink map (#4385).
+- Bodyless members now report that fact instead of a missing-PDB-mapping reason
+  when platform API shape comes from a reference assembly and source lookup
+  uses a different runtime image (#4588).
+
+### Package acquisition and audit
+
+- Adds the opt-in `Audit: Findings` package section for bounded scans of
+  text-bearing package files and decoded SourceLink maps. Findings identify
+  control or bidi text, package-source declarations, cleared restore sources,
+  concerning SourceLink text, and literal parent-path references while keeping
+  artifact text visually encoded in terminal output (#4408).
+- **Breaking:** Package signature inspection now verifies signed archive
+  content against its embedded hash and validates NuGet signer, repository,
+  certificate, and accepted timestamp profiles before reporting valid
+  provenance. Malformed signature entries and invalid profiles fail closed.
+  For a valid repository signature without a verified author signature, the
+  Signature section now reports `Author Verified: No`, where v0.21.0 omitted
+  that field. The `Repository` field now reports the verified repository
+  certificate identity instead of a fixed `nuget.org` value, and `Repository
+  Verified` is present when a valid repository signature is established,
+  either as the primary signature or a valid countersignature (#4408).
+- Package Signals now include default `Provenance / Signature` and
+  `NuGet / Listing` rows for the verified signature and Gallery listing facts
+  already acquired by package inspection (#4408, #4486).
+- Uses authoritative Gallery registration metadata for package listing and
+  version state. Pagination, malformed responses, deadline exhaustion, and
+  rejected results remain explicit rather than being interpreted as complete
+  package history (#4486).
+- **Breaking:** Listing-aware `package` version output now emits column headers
+  by default for every non-JSONL projection, including Markdown/table, TSV,
+  plaintext, bare, and the current JSON compatibility path. This applies to
+  plain, pinned, and ranged `--versions --include-unlisted` requests and to
+  `--latest-version --include-unlisted`; JSONL is unchanged. Use `--no-headers`
+  to retain the v0.21.0 headerless shape (#4486).
+- Tool v2 RID-companion verification now falls back from direct nuspec lookup
+  to authoritative version indexes on the active configured sources. `RID
+  Package` availability remains `Unknown` after indeterminate source failures
+  rather than being reported as absent, and cache hits with unknown
+  source-dependent availability recheck the active sources (#4594).
+
+### Performance analysis
+
+- Moves Performance Triage onto the typed inspection-query path while
+  preserving section selection, ranking, candidate identity, and structured
+  output behavior. Body-shape predicates continue to intersect with the exact
+  source MethodDefs selected by Performance Triage (#4409).
+- Aggregate repeated-scan rows can now retain a separate exact supporting call
+  coordinate in structured output. The support remains distinct from the
+  aggregate Finding and candidate identity, enabling external runtime
+  correlation without changing static priority or confidence (#4544).
+- Distinguishes unresolved scoped recommendation owners instead of assigning
+  async-alternative evidence to an unauthenticated source method (#4488).
+
+### Analysis, decompiler, and trust correctness
+
+- Materializes complete stack-slot copy components and raises the bounded
+  structural-clone comparison limit, improving coverage without emitting
+  partial clone results (#4407, #4506).
+- Hardens scoped analysis diagnostic aggregation and aligns structural-review
+  carets with their rendered evidence (#4499, #4374).
+- Matches exact conversion callers by return type and rejects malformed trusted
+  generic ownership rather than accepting ambiguous metadata identity (#4562,
+  #4561).
+- Grants core-platform status only to a provenance-backed coherent closure,
+  preventing unrelated assemblies from acquiring platform trust by name or
+  declaration alone (#4500).
 
 ## v0.21.0
 

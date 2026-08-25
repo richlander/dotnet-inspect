@@ -1,3 +1,6 @@
+import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+
 export interface PackageBarPackage {
   id: string;
   version: string;
@@ -13,9 +16,11 @@ export interface PackageBarState {
 export interface ParsedPackageQuery {
   packageId: string;
   version: string;
+  explicitVersion: boolean;
 }
 
 interface PackageBarOptions {
+  keybindings: KeybindingRegistry;
   state: PackageBarState;
   escapeHtml: (value: unknown) => string;
   packageIdentityKey: (pkg: PackageBarPackage) => string;
@@ -23,7 +28,7 @@ interface PackageBarOptions {
   selectPackageTab: (pkg: PackageBarPackage) => void;
   closePackageTab: (packageKey: string) => void;
   openRuntimePack: () => void;
-  openPackage: (packageId: string, version: string) => void;
+  openPackage: (query: ParsedPackageQuery) => void;
   selectFramework: (framework: string) => void;
   selectVersion: (version: string) => void;
   showToast: (message: string) => void;
@@ -144,11 +149,30 @@ export function parsePackageQuery(value: string): ParsedPackageQuery | null {
 
   const packageId = separator > 0 ? trimmed.slice(0, separator) : trimmed;
   const version = separator > 0 ? trimmed.slice(separator + 1) : "latest";
-  return { packageId, version };
+  return { packageId, version, explicitVersion: separator > 0 };
+}
+
+export function findPackageTabForQuery(
+  state: PackageBarState,
+  query: ParsedPackageQuery,
+): PackageBarPackage | null {
+  const idMatches = state.packages.filter(item =>
+    !item.isRuntimePack
+    && item.id.toLowerCase() === query.packageId.toLowerCase());
+  const matches = query.explicitVersion
+    ? idMatches.filter(item =>
+      item.version.toLowerCase() === query.version.toLowerCase())
+    : idMatches;
+
+  if (state.package && matches.includes(state.package))
+    return state.package;
+  // Prefer the most recently retained matching tab when another package is active.
+  return matches.at(-1) ?? null;
 }
 
 export function createPackageBar(options: PackageBarOptions) {
   const {
+    keybindings,
     state,
     escapeHtml,
     packageIdentityKey,
@@ -180,11 +204,16 @@ export function createPackageBar(options: PackageBarOptions) {
         if (event.target instanceof Element && event.target.closest("[data-package-close]")) return;
         activate();
       });
-      tab.addEventListener("keydown", event => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        activate();
-      });
+      keybindings.register({
+        id: "package-tab.activate",
+        key: ["Enter", " "],
+        allowExtraModifiers: true,
+        priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+        run: () => {
+          activate();
+          return true;
+        },
+      }, tab);
     });
 
     root.querySelectorAll<HTMLButtonElement>("[data-package-close]").forEach(button =>
@@ -220,7 +249,7 @@ export function createPackageBar(options: PackageBarOptions) {
         showToast("enter a package, optionally followed by @version");
         return;
       }
-      openPackage(parsed.packageId, parsed.version);
+      openPackage(parsed);
     });
   }
 

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   captureMemberFocus as captureMemberFocusImpl,
   createMemberFocusRestorer as createMemberFocusRestorerImpl,
+  focusPlatformGraphError as focusPlatformGraphErrorImpl,
   resolveMemberFocusSnapshot,
   restoreMemberFocus as restoreMemberFocusImpl,
 } from "../src/member-focus.ts";
@@ -45,6 +46,12 @@ function restoreMemberFocus(
 ): void {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   restoreMemberFocusImpl(document as unknown as Document, snapshot, requestFrame, isCurrent);
+}
+
+function focusPlatformGraphError(document: MockDocument): boolean {
+  // The harness supplies the exact DOM subset the product reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return focusPlatformGraphErrorImpl(document as unknown as Document);
 }
 
 function createMemberFocusRestorer() {
@@ -99,6 +106,32 @@ function createDocument() {
   };
   return { document, element, elements };
 }
+
+test("a blocked graph refusal receives focus after replacement render", () => {
+  const { document, element } = createDocument();
+  const oldNode = element("#old-graph-node", {
+    id: "flowchart-n1-0",
+  });
+  document.activeElement = oldNode;
+
+  oldNode.isConnected = false;
+  document.activeElement = document.body;
+  const error = element("#platform-drill-error", {
+    id: "platform-drill-error",
+  });
+
+  assert.equal(focusPlatformGraphError(document), true);
+  assert.equal(document.activeElement, error);
+});
+
+test("a missing graph refusal does not disturb current focus", () => {
+  const { document, element } = createDocument();
+  const unrelated = element("#unrelated", { id: "unrelated" });
+  document.activeElement = unrelated;
+
+  assert.equal(focusPlatformGraphError(document), false);
+  assert.equal(document.activeElement, unrelated);
+});
 
 test("navigation focus and scroll survive completion before loading focus restores", () => {
   const { document, element, elements } = createDocument();
