@@ -110,7 +110,14 @@ export function renderPackageQueryView(options: RenderPackageQueryOptions): stri
     : "";
 
   if (!state.outcome.rows.length && state.outcome.completion.kind !== "streaming") {
-    return `${failures}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`;
+    // A failed source means "no rows" is not the same claim as "no matches" —
+    // some of the space was never searched, so the empty state must say so
+    // rather than implying a clean, confident zero (see the honesty rule in
+    // package-query.ts's QueryOutcome doc comment).
+    const emptyState = state.outcome.failures.length
+      ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
+      : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`;
+    return `${failures}${emptyState}`;
   }
 
   const activeKeys = new Set(state.request.facets.map(f => f.key));

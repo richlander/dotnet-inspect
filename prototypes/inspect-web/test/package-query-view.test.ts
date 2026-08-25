@@ -129,6 +129,25 @@ test("no matches after completion renders the empty-match state, not the composi
   assert.match(html, /No matches/);
 });
 
+test("zero rows plus a failure never renders as a confirmed empty result", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(
+      appendFailure(emptyOutcome(), "feed Y unreachable"),
+      { kind: "exhausted" },
+    ),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.match(html, /feed Y unreachable/);
+  // "No matches" alone would falsely claim a clean, confirmed zero even
+  // though a source failed and part of the space was never searched.
+  assert.doesNotMatch(html, /<h2>No matches<\/h2>/);
+  assert.match(html, /not a confirmed empty result/);
+});
+
 test("deepen is disabled with no selection and enabled once a row is selected", () => {
   const withoutSelection = renderPackageQueryView({
     state: {

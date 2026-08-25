@@ -10,6 +10,17 @@ and wired to it afterward. It extends
 gated expensive work), and follows the terminology and honesty rules in
 [untrusted-data-threat-model.md](untrusted-data-threat-model.md).
 
+**What is already enforced vs. what is a design requirement.** The pure
+state/render contract in `src/package-query.ts` and
+`src/package-query-view.ts` exists today and its properties named below (race
+safety, tier escaping, the empty/partial-failure distinction, cancel
+semantics) are enforced by `test/package-query.test.ts` and
+`test/package-query-view.test.ts`. Everything else in this document —
+anything that depends on #4551's source client, the query bar, promoted-tier
+"Deepen," visualization, or saved-query persistence — is a requirement for
+that future implementation, not a claim about code that exists yet, and is
+unverified until the corresponding landing-sequence step ships its own gate.
+
 ## Why this is not another workbench lens
 
 The Metadata Explorer and the annotated source viewer are full-bleed layers
@@ -44,7 +55,17 @@ QueryResultRow     — one package's nuspec-derived projection + which predicate
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` +
 `Failures`, never a success-shaped empty result) rather than inventing a new
 error convention. `QueryRequest` is the one thing that must be shareable and
-re-runnable — see [Sharing](#sharing-and-url-shape).
+re-runnable — see [Sharing](#sharing-and-url-shape). The scaffolded
+`QueryRequest` (`scopeLabel`/`scopeQuery`/`facets: QueryFacetTerm[]`) is the
+view's in-memory runtime shape, not the persisted/URL form byte-for-byte: the
+`kind: "query"` record in
+[Saving queries and results](#saving-queries-and-results) stores `facets` as
+`FacetRef`s (references into the fixed vocabulary) rather than full
+`QueryFacetTerm` objects, and adds `schemaVersion`/`id`. Converting between
+them is a pure, one-way-each mapping (`QueryFacetTerm` already carries the
+`key` a `FacetRef` needs) that has no persistence-format ambiguity to resolve,
+but it is not yet implemented or tested — tracked as part of landing-sequence
+step 1's remaining scope, not asserted as done here.
 
 Every row carries a **tier tag**: `nuspec` (satisfied by manifest metadata
 alone) or `promoted` (the row was opened at the assembly/IL level after the

@@ -94,6 +94,34 @@ test("controller run() streams pages into state and applies final completion", a
   assert.ok(updates > 0);
 });
 
+test("starting a new run() aborts the previous generation's abortSignal, not just cancel()", async () => {
+  const state = initialQueryState();
+  let firstAborted = false;
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+
+  const slowThenFast: PackageQueryDataSource = {
+    async run(request, onPage, _onFailure, abortSignal) {
+      if (request.scopeQuery === "slow") {
+        abortSignal.addEventListener("abort", () => { firstAborted = true; });
+        await firstGate;
+        return { kind: "cancelled" };
+      }
+      onPage([row("fresh")]);
+      return { kind: "exhausted" };
+    },
+  };
+
+  const controller = createPackageQueryController(state, slowThenFast, () => {});
+
+  const firstRun = controller.run(createQueryRequest("slow", "slow"));
+  await controller.run(createQueryRequest("fast", "fast"));
+  releaseFirst();
+  await firstRun;
+
+  assert.ok(firstAborted, "starting a newer run() should abort the superseded generation's signal");
+});
+
 test("a superseded run's late pages never land in the newer outcome", async () => {
   const state = initialQueryState();
   let releaseFirst!: () => void;
