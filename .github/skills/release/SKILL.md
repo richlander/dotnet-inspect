@@ -72,8 +72,8 @@ Open `release.yml` and `promote-inspect-web.yml` together:
 2. Dispatch `promote-inspect-web.yml` with the matching staging run ID and
    `confirm=promote`.
 3. Confirm immediately that both resolve jobs report the same full release SHA.
-   If either is wrong, cancel package publication before its publish job starts
-   and leave site production unapproved.
+   If either is wrong, cancel both workflow runs before package publication
+   starts. Do not leave a stale promotion run waiting for approval.
 4. Monitor the package builds and automatic NuGet publication.
 5. Wait for the package workflow and GitHub release to succeed, then approve
    the production-site environment. Never promote the site first.
@@ -100,8 +100,9 @@ staging work to finish and rerun the original push-triggered run:
 gh run rerun "$staging_run_id" --failed
 ```
 
-Rerun only failed or cancelled jobs so a successful build keeps its single
-uploaded artifact while deployment retries. Do not rerun all jobs, which can
-upload another artifact that promotion rejects. Promote the successful
-failed-job rerun. Do not substitute a manual staging dispatch; promotion rejects
-non-push runs.
+Rerun only failed or cancelled jobs so a successful build keeps its artifact
+while deployment retries. If GitHub reruns a cancelled build after upload, the
+workflow replaces the retained same-name artifact;
+`PromotionWorkflowContract` gates that promotion still sees exactly one.
+Promote the successful failed-job rerun. Do not substitute a manual staging
+dispatch; promotion rejects non-push runs.

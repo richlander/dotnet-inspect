@@ -1047,9 +1047,12 @@ archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
 `inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
 download that artifact by ID with digest mismatch configured as an error and
 deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
-includes the managed API's hidden `.azurefunctions` dependencies, and the
-post-download gate requires its extension loader before deployment. Candidate
-build code never runs in the staging deployment job. The separate
+includes the managed API's hidden `.azurefunctions` dependencies and overwrites
+the same-name artifact on a rerun, so a cancelled attempt can be retried without
+leaving multiple artifacts that promotion rejects.
+`PromotionWorkflowContract` gates both properties. The post-download gate
+requires the extension loader before deployment. Candidate build code never
+runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 

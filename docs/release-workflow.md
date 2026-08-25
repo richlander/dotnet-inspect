@@ -212,8 +212,9 @@ both before dispatching, and expect to update them:
 9. Dispatch both workflows as one operator action. Do not substitute a newer
    run for either side after the exact-SHA comparison.
 10. Confirm immediately that both resolve jobs report the expected release SHA.
-    If either is wrong, cancel the package workflow before its publish job
-    starts and leave the production-site environment unapproved.
+    If either is wrong, cancel both the package and promotion workflow runs
+    before package publication starts. Do not leave a stale promotion run
+    waiting for approval.
 11. Monitor the package builds and automatic NuGet publication. There is no
     NuGet environment approval after dispatch.
 12. Wait for the package workflow and GitHub release to succeed, then approve
@@ -275,13 +276,16 @@ check the production site's status bar for the same version and linked commit.
   certification run IDs.
 - **The release commit's staging run was cancelled by a newer push:** wait for
   active staging work to finish, then rerun only the failed or cancelled jobs
-  with `gh run rerun <staging-run-id> --failed`. This preserves a successful
-  build's single uploaded artifact while retrying deployment; do not rerun all
-  jobs. Use that successful rerun for promotion. A manually dispatched staging
-  run is still not promotable.
+  with `gh run rerun <staging-run-id> --failed`. A successful build keeps its
+  artifact; if GitHub reruns a cancelled build after its upload completed, the
+  upload replaces the retained same-name artifact. `PromotionWorkflowContract`
+  gates this rerun-safe wiring so promotion still sees exactly one artifact.
+  Use the successful rerun for promotion. A manually dispatched staging run is
+  still not promotable.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
 - **Either side resolves a different SHA:** cancel the package workflow
-  immediately, leave the site unapproved, and select matching evidence. If
+  and the promotion workflow immediately, then select matching evidence. If
   package publication already started, audit the partial immutable package set
-  before retrying. Do not treat ancestry or an equal version string as a match.
+  before retrying. Do not leave a stale promotion run waiting for approval, and
+  do not treat ancestry or an equal version string as a match.

@@ -222,6 +222,12 @@ internal static class PromotionWorkflowContract
             ValidateStaging,
             "Staging workflow contract accepted an artifact without hidden Function dependencies.");
         AssertMutationRejected(
+            stagingWorkflow,
+            "          overwrite: true\n",
+            "",
+            ValidateStaging,
+            "Staging workflow contract accepted a non-rerun-safe artifact upload.");
+        AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:Features=runtime-async=on \\\n",
             "",
@@ -777,6 +783,7 @@ internal static class PromotionWorkflowContract
                 ["name"] = "inspect-web-site",
                 ["path"] = "artifacts/inspect-web-publish",
                 ["if-no-files-found"] = "error",
+                ["overwrite"] = "true",
                 ["retention-days"] = "30",
                 ["include-hidden-files"] = "true",
             },
