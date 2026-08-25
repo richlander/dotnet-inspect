@@ -139,10 +139,16 @@ charges endpoint slots, seals questions, and lends owner-local
 operation-stamped facets: the core-Queries endpoint lease to endpoint
 realization/pairing and the Research projection lease to its internal session.
 The owning subsystems reference neither ResearchQueries nor each other's
-contract. That operation then owns total mechanism projection, bounded producer
-work, bounded authored Source acquisition, completion, and cleanup. A separate
-synchronous ResearchQueries direct operation mints the same concrete ledger
-before invoking its internal Research session; `match`, ReturnToSender, and
+contract. That operation then owns prerequisite producer preflight/projection,
+bounded authored Source input acquisition, dependent Source producer
+preflight/projection, completion, and cleanup. A separate synchronous
+ResearchQueries direct operation owns both the source-bounded direct
+designation factory and executor. Its designation retains only the two live
+Metadata sources and MVIDs. After minting the same concrete ledger and charging
+admission, the operation uses a core-Queries direct-pairing factory to create
+the role manifests, bindings, qualified keys, and admitted pairing before
+invoking its internal Research session. `ILInspector.Research` never references
+or constructs a Queries/workspace currency, and `match`, ReturnToSender, and
 round-trip callers cannot invoke Research comparison directly. The CLI receives
 only completed inert results.
 

@@ -355,32 +355,52 @@ BodyEvidenceNativePayloadSnapshot<T>
 BodyEvidencePlanBudgetLeaseSet
   Operation               exact owning operation id
   Endpoint                planned-only IComparisonEndpointBudgetLease
+  DirectPairing           direct-only IDirectParticipantPairingBudgetLease
   Projection              planned/direct IBodyEvidenceProjectionBudgetLease
+
+BodyEvidenceOperationBudgetLeaseSet
+  Operation               exact owning operation id
+  Plan                    BodyEvidencePlanBudgetLeaseSet
+  AuthoredSource          planned-only IAuthoredSourceBudgetLease
 
 BodyEvidenceOperationStageDescriptor
   Id                     Admission | QuestionSealing |
                          EndpointRealization | ParticipantPairing |
-                         PlanExpansion | ProducerPreflight | Projection |
-                         Completion | Cleanup
+                         PlanExpansion | PrerequisiteProducerPreflight |
+                         PrerequisiteProjection |
+                         DependentInputAcquisition |
+                         DependentProducerPreflight |
+                         DependentProjection | Completion | Cleanup
   AppliesTo              Planned | Direct | Both
   Owners                 exact operation-kind -> ResearchQueries |
-                         EndpointOwner | AcquisitionCoordinator | Research map
+                         EndpointOwner | AcquisitionCoordinator |
+                         DirectPairingFactory | SourceAcquisitionOwner |
+                         Research map
   BudgetAuthorities      exact operation-kind -> Ledger | EndpointFacet |
-                         ProjectionFacet | None map
-  Dimensions             exact closed stage-authorized budget dimensions
+                         DirectPairingFacet | ProjectionFacet |
+                         AuthoredSourceFacet | None map
+  Dimensions             exact operation-kind ->
+                         closed stage-authorized budget-dimension set map
 
 BodyEvidenceOperationStageCatalog
   Entries                 exact descriptor set in required execution order
   Planned                 exact applicable ordered stage-id set
   Direct                  exact applicable ordered stage-id set
 
+BodyEvidenceProducerPhase
+  Id                     Prerequisite | Dependent
+  Mechanisms             exact catalog-derived mechanism-id set
+  Dependencies           exact completed-ledger prerequisites
+
 BodyEvidenceProducerWorkEstimate
-  InputUnits              checked conservative raw-body/metadata input units
+  Phase                  exact catalog-declared producer phase
+  InputUnits              checked conservative admitted-input units
   WorkUnits               checked conservative producer operations
   PeakScratchBytes        checked maximum live producer-owned scratch
 
 BodyEvidenceProducerWorkPlan
-  Entries                 every producer-eligible
+  Phase                  exact current producer phase
+  Entries                 every phase-eligible
                          (work-item id, mechanism id) -> exact estimate
   InputUnits              checked complete entry sum
   WorkUnits               checked complete entry sum
@@ -405,11 +425,16 @@ BodyEvidencePresentationMap
   Entries                 exactly one inert participant/member label group per
                          work-item id
 
+DirectMemberDesignationId
+  Value                  opaque core-Queries authority identity
+  Construction           non-defaultable; internal core-Queries constructor
+  Minting                ResearchQueries direct operation only
+
 DirectMemberPairingDesignation
-  Id                     opaque invocation-scoped designation identity
-  Pairing                 one direct-slot ArtifactParticipantPairing
-  Before/After            exact live participant binding + MVID
-  Authority               invocation-scoped explicit participant pairing
+  Id                     exact DirectMemberDesignationId
+  Before/After            exact live MetadataSource + MVID
+  Authority               source-bounded explicit comparison grant
+  Construction            sealed; only direct operation factory can mint
   Lifetime                cannot outlive either supplied source
 
 DirectMemberComparisonInput
@@ -459,19 +484,26 @@ live-backed snapshot.
 
 Producer-native comparison objects are callback-local values, not ledger or
 completed-result payloads. Each mechanism catalog entry declares one typed
-snapshot DTO, one internal lowering operation, and one conservative typed work
-estimator. The estimator uses only already admitted bounded metadata/body size
-facts; it cannot decode, canonicalize, decompile, diff, or otherwise perform
-the work it estimates. The estimate includes every producer-owned decode and
-canonicalization allocation implied by those raw facts. After plan sealing and
-before invoking any producer, the session computes the complete
-`BodyEvidenceProducerWorkPlan` for every producer-eligible work-item/mechanism
-pair. It validates exact set equality with the planned producer population and
-atomically charges the checked aggregate input/work totals. Unknown,
-overflowing, omitted, duplicate, or rejected estimates fail before the first
-callback begins; the plan also rejects any entry whose peak scratch exceeds the
-operation cap. Projection then uses the current operation-stamped projection
-facet to obtain one
+snapshot DTO, one internal lowering operation, one producer phase, and one
+conservative typed work estimator. A prerequisite estimator uses only already
+admitted bounded metadata/body size facts. A dependent estimator uses only
+already admitted bounded dependent-input facts produced after its prerequisite
+ledgers complete. Neither may decode, canonicalize, decompile, inspect
+Findings, diff, or otherwise perform the work it estimates. Each estimate
+includes every producer-owned decode and canonicalization allocation implied by
+those raw facts.
+
+After plan sealing and before invoking any prerequisite producer, the session
+computes the complete prerequisite `BodyEvidenceProducerWorkPlan`. After every
+prerequisite ledger is complete and the exact dependent population and bounded
+dependent inputs exist, it separately computes the complete dependent work
+plan before invoking any dependent producer. Each phase validates exact set
+equality with its catalog-derived eligible population and atomically charges
+the checked aggregate input/work totals against the same cumulative operation
+ledger. Unknown, overflowing, omitted, duplicate, or rejected estimates fail
+before that phase's first callback begins; each plan also rejects any entry
+whose peak scratch exceeds the operation cap. Projection then uses the current
+operation-stamped projection facet to obtain one
 `BodyEvidenceProducerWorkReservation` for the entry's peak scratch immediately
 before invoking that producer. Concurrent execution waits for scratch capacity
 or propagates cancellation; ordinary reservation contention does not become
@@ -713,7 +745,7 @@ CorrespondedKey
   MemberBodyCorrespondenceKey + RelationshipRole
 
 DesignatedMemberPairKey
-  DirectMemberPairingDesignation.Pairing.Id
+  DirectMemberPairingDesignation.Id
   Before MetadataMethodAddress + RelationshipRole
   After MetadataMethodAddress + RelationshipRole
 
@@ -868,11 +900,13 @@ empty or success-shaped output.
 
 `ImplementationEvidenceMechanismCatalog` is the closed source of mechanism ids,
 owners, sync/async execution kind, local-implementation eligibility, and
-dependencies. The session selects its complete mechanism set from that catalog
-and materializes the dependency graph before projection. The requested set must
-be non-empty and dependency-closed. Unknown ids, an empty set, and a known
-mechanism whose required catalog dependency is absent all reject before plan
-projection; hosts cannot synthesize descriptors or an "all available" set.
+dependencies. It also assigns every mechanism to the `Prerequisite` or
+`Dependent` producer phase. The session selects its complete mechanism set from
+that catalog and materializes the dependency graph and phase sets before
+projection. The requested set must be non-empty and dependency-closed. Unknown
+ids, an empty set, and a known mechanism whose required catalog dependency is
+absent all reject before plan projection; hosts cannot synthesize descriptors,
+phases, or an "all available" set.
 
 `Project` and `ProjectAsync` privately walk all work items and require one
 `Compared`, `Absent`, or `Failed` disposition per work-item id. A callback sees
@@ -960,26 +994,60 @@ before Source becomes eligible. Queries therefore owns one non-optional
 entire planned or direct operation. The ledger mints one
 applicable `BodyEvidencePlanBudgetLeaseSet`: a planned
 `IComparisonEndpointBudgetLease` declared with endpoint/coordinator contracts
-in core Queries, and a planned/direct `IBodyEvidenceProjectionBudgetLease`
-declared with the internal Research session. ResearchQueries uses the ledger directly for
-plan-slot preflight, question sealing, and plan construction; it lends only the
-owner-local facet to endpoint realizers/coordinator or Research projectors.
-Every facet carries the same unforgeable operation id and can reserve only its
-declared dimensions. Neither owning subsystem references ResearchQueries or
-the other subsystem's lease contract.
+in core Queries, a direct-only
+`IDirectParticipantPairingBudgetLease` declared with its internal direct-pairing
+factory, and a planned/direct `IBodyEvidenceProjectionBudgetLease` declared
+with the internal Research session. The planned operation also mints one
+`IAuthoredSourceBudgetLease` from its separate authored-source ledger.
+ResearchQueries uses the plan ledger directly for plan-slot preflight, question
+sealing, and plan construction; it lends only the owner-local facet to endpoint
+realizers/coordinator, the direct-pairing factory, Source acquisition owners, or
+Research projectors. Every facet carries the same unforgeable operation id and
+can reserve only its declared dimensions. Neither owning subsystem references
+ResearchQueries or another subsystem's lease contract.
 
 `BodyEvidenceOperationStageCatalog` is the single source of truth for the
 operation boundary rather than a documentation-only checklist. The planned
 pipeline contains every catalog stage. The direct pipeline omits only
-`EndpointRealization`; its internally authorized designation still passes
-through admission, question sealing, participant lowering, plan expansion,
-producer preflight, projection, completion, and cleanup. Stage descriptors
-assign orchestration, facet, and budget dimensions, not pairing or mechanism
-semantics. Source-architecture and set-equality gates derive the expected
-planned/direct stage registrations, lease-facet adapters, budget methods, and
-boundary fixtures from this catalog. A missing or extra implementation stage,
-an unowned dimension, or a stage reordered across its prerequisite fails the
-gate.
+`EndpointRealization` and the three planned-only dependent stages because its
+closed synchronous mechanism set contains no dependent mechanism. Its
+internally authorized designation still passes through admission, question
+sealing, participant lowering, plan expansion, prerequisite producer preflight,
+prerequisite projection, completion, and cleanup. Stage descriptors assign
+orchestration, facet, and budget dimensions, not pairing or mechanism
+semantics. Their dimension maps are per operation kind: for example, qualified
+participant inputs belong to planned endpoint realization but direct
+participant pairing. Source-architecture and set-equality gates derive the
+expected planned/direct stage registrations, lease-facet adapters, budget
+methods, `(operation kind, stage, dimension)` edges, and boundary fixtures from
+this catalog. A missing or extra implementation stage, an unowned dimension,
+or a stage reordered across its prerequisite fails the gate.
+
+The catalog entries are:
+
+| Stage | Applies to | Owner by operation kind | Budget authority by operation kind | Authorized dimensions by operation kind |
+| --- | --- | --- | --- | --- |
+| `Admission` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | endpoint slots and retained request/coordinate characters |
+| `QuestionSealing` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | declared questions, selection-request entries, and retained request characters |
+| `EndpointRealization` | Planned | planned: endpoint owner | planned: endpoint facet | qualified participant inputs and retained request/receipt characters |
+| `ParticipantPairing` | Both | planned: acquisition coordinator; direct: core-Queries direct-pairing factory | planned: endpoint facet; direct: direct-pairing facet | planned: validation only; direct: qualified participant inputs |
+| `PlanExpansion` | Both | planned/direct: Research | planned/direct: projection facet | correlation-scope entries, target requests/attempts, work items, and ledger dispositions |
+| `PrerequisiteProducerPreflight` | Both | planned/direct: Research | planned/direct: projection facet | producer input units and producer work units |
+| `PrerequisiteProjection` | Both | planned/direct: Research | planned/direct: projection facet | live producer scratch, retained snapshot bytes, and retained presentation characters |
+| `DependentInputAcquisition` | Planned | planned: Source acquisition owner | planned: authored-source facet | every authored-source budget dimension |
+| `DependentProducerPreflight` | Planned | planned: Research | planned: projection facet | producer input units and producer work units |
+| `DependentProjection` | Planned | planned: Research | planned: projection facet | live producer scratch, retained snapshot bytes, and retained presentation characters |
+| `Completion` | Both | planned/direct: Research | planned/direct: projection facet | validation/publication only |
+| `Cleanup` | Both | planned/direct: ResearchQueries | planned/direct: none | none |
+
+The concrete plan ledger backs the endpoint, direct-pairing, and projection
+facets; the authored-source ledger backs only its source facet. Every facet is
+stamped with the same operation id. Core Queries declares the opaque
+`DirectMemberDesignationId`, the direct-pairing facet, and the internal
+direct-pairing factory. Its existing friend boundary permits only
+`DotnetInspector.ResearchQueries` to mint a public designation and invoke that
+factory; neither public callers nor `ILInspector.Research` can mint the
+authority.
 
 | Dimension | Default | Accounting |
 | --- | ---: | --- |
@@ -991,7 +1059,7 @@ gate.
 | Target requests and attempts | 65,536 | One charge when each request/attempt identity is minted |
 | Work items | 65,536 | Every healthy, absent, ambiguous, or failed work-item identity |
 | Ledger dispositions | 262,144 | Requested mechanism/work-item product, preflighted before projection |
-| Producer input units | 4,194,304 | Complete catalog-declared raw-body/metadata input population, preflighted before producer decode |
+| Producer input units | 4,194,304 | Complete catalog-declared admitted-input population for each phase, including bounded Source snapshots |
 | Producer work units | 64,000,000 | Catalog-declared conservative operations; ordered matching charges checked matrix cells |
 | Live producer scratch bytes | 256 MiB | Scoped conservative reservation held through native-result release |
 | Retained request/receipt characters | 8,388,608 | Every selector, filter, structural identity, opaque id, proof, and diagnostic string copied into plan input, endpoint outcome, or receipt |
@@ -1042,19 +1110,33 @@ characters already retained by endpoint realization.
 
 Later known counts are preflighted before their next phase: correlation scopes
 before selection, and requests, attempts, work items, and the mechanism product
-before projection. Each mechanism catalog entry maps its producer's already
-bounded input facts to checked `InputUnits`, `WorkUnits`, and
-`PeakScratchBytes`. The session seals the complete producer-work plan and
-atomically charges its input/work totals before the first producer callback.
-For IL/Finding ordered matching, the work estimate includes the checked
-`(oldCount + 1) * (newCount + 1)` cell product and scratch includes the complete
-matrix and producer-owned arrays. A catalog entry without a finite conservative
-estimator cannot run. Projection acquires each entry's live-scratch reservation
-before its callback. Each producer result is then typed-lowered, measured, and
-charged before its inert disposition enters a ledger; the native object and
-scratch reservation are released before another callback runs. Presentation
-characters reserve and charge before retention. Source evidence that survives
-its own acquisition budget also charges this final-result budget before ledger
+before prerequisite projection. Each prerequisite mechanism catalog entry maps
+its producer's already bounded input facts to checked `InputUnits`,
+`WorkUnits`, and `PeakScratchBytes`. The session seals the complete
+prerequisite work plan and atomically charges its input/work totals before the
+first prerequisite callback.
+
+After the prerequisite ledgers determine the exact Source-eligible population,
+the planned-only `DependentInputAcquisition` stage acquires and checksum
+verifies Source under the operation-stamped authored-source facet. It may
+perform bounded linear decoding, exact member-body slicing, and a raw line
+census, but returns only a bounded verified Source-input snapshot; it does not
+invoke `TextFindings.Inspect`, construct Finding keys, or compare bodies. The
+dependent estimator uses only each admitted snapshot's checked text length and
+line census to conservatively cover Source Finding inspection, key arrays,
+canonicalization, and matching. The session then seals and atomically charges
+the complete Source producer-work plan and checks every peak before the first
+Source producer callback. For IL/Finding ordered matching in either phase, the
+work estimate includes the checked `(oldCount + 1) * (newCount + 1)` cell
+product and scratch includes the complete matrix and producer-owned arrays. A
+catalog entry without a finite conservative estimator cannot run.
+
+Each projection phase acquires its entry's live-scratch reservation before its
+callback. Each producer result is then typed-lowered, measured, and charged
+before its inert disposition enters a ledger; the native object and scratch
+reservation are released before another callback runs. Presentation characters
+reserve and charge before retention. Source evidence that survives its own
+acquisition budget also charges this final-result budget before ledger
 retention. Checked arithmetic rejects overflow. A charge that would exceed the
 limit stops the planned query as
 `ImplementationComparisonQueryOutcome.Failed(Planning | Projection |
@@ -1064,12 +1146,24 @@ inventory, shortens a correlation, drops a work item/disposition, or publishes
 a partially retained receipt. Staged inert dispositions from a failed planned
 projection are discarded; no native result remains accumulated behind them.
 
-`DirectImplementationComparisonOperation` is the sole direct executor. It
-mints the same concrete ledger in `DotnetInspector.ResearchQueries`, charges
-one internal endpoint slot and two qualified designation inputs, seals its one
-internal question/domain/scope/work-item population, and lends the projection
-facet to the internal Research session and producer projectors. A direct overrun
-stamps
+`DirectImplementationComparisonOperation` is the sole direct designation
+factory and executor. `DesignateMemberPair` mints only one opaque id and retains
+the two caller-owned live sources and their MVIDs for the lexical operation
+lifetime; it creates no role manifest, binding, qualified key, participant
+pairing, outcome, question, or work item. `Execute` mints the same concrete
+ledger in `DotnetInspector.ResearchQueries` and charges one internal endpoint
+slot. It then passes the operation-stamped direct-pairing facet to the
+core-Queries direct-pairing factory. That factory charges the two qualified
+designation inputs before projecting the sources/MVIDs into two
+invocation-scoped `DirectSourceParticipant` values and minting one
+single-participant `SameSelection` role manifest per side, the two
+side-qualified input keys, their bindings, and one admitted
+`ArtifactParticipantPairing` whose id and
+`DirectMemberDesignation` authority are the exact designation id. The operation
+then seals its one internal question/domain/scope/work-item population and
+lends the projection facet to the internal Research session and producer
+projectors. No Research type constructs or retains a workspace/acquisition
+currency. A direct overrun stamps
 `Failed(PlanBudgetExceeded)` into every requested direct ledger, retains only
 the fixed-size typed budget diagnostic, and returns one complete `Unavailable`
 result with no request, native, or presentation payload from the failed
@@ -1106,8 +1200,9 @@ ImplementationComparisonQueryFailure
 
 `DirectImplementationComparisonOperation.Execute` is a synchronous
 ResearchQueries operation over caller-owned live sources. It mints its ledger
-before direct lowering, retains the designation and sources only through the
-lexical call, and returns one inert `ImplementationMemberDiffResult`.
+before direct participant pairing or lowering, retains the designation and
+sources only through the lexical call, and returns one inert
+`ImplementationMemberDiffResult`.
 `ILInspector.Research` exposes only the internal lease-requiring direct session
 used by this operation; it has no public direct executor. Direct operations do
 not enter `InspectionQueryRegistry` and cannot request Source, but their budget,
@@ -1206,6 +1301,17 @@ Unknown dimensions reserve and charge atomically as they are discovered.
 Transport charges operations before sending and bytes while reading; reading
 stops before the aggregate cap is exceeded. No retry, manually issued redirect
 follow-up, cache materialization, or decoded string bypasses accounting.
+Successful per-member acquisition retains one bounded checksum-verified raw
+Source-input snapshot with checked text length and line census. It performs no
+Finding inspection or comparison. After every eligible acquisition reaches a
+terminal input outcome, the query validates exact outcome-set equality with the
+eligible population. Acquisition failures receive typed Source dispositions
+without producer callbacks. The query derives the exact Source producer
+population from the successful input-outcome subset, seals and cumulatively
+charges its complete dependent work plan, and checks every peak before invoking
+the first Source producer. An acquisition failure therefore cannot disappear,
+become producer absence, or let another eligible item start comparison before
+the complete dependent input and preflight boundaries.
 
 Source dispositions are staged until the entire mechanism succeeds. If any
 aggregate dimension is exhausted, the query cancels and drains owned Source
@@ -1487,23 +1593,27 @@ adapter, Metadata, or Research to reconstruct same-side role correspondence.
 The query returns one completed `ImplementationDiffResult`; no enrichment step
 exists.
 
-Use `ImplementationDiff.DesignateMemberPair` when the caller already owns two
-live `MetadataSource` values. The factory explicitly authorizes those two
-participants for this invocation and captures exact live bindings plus MVIDs in a
-`DirectMemberPairingDesignation`. The designation privately wraps one
-direct-slot `ArtifactParticipantPairing` using the same pairing id/bindings as
-the planned lifecycle; it is not a second participant currency. Assembly
-identity may differ because the designation is explicit comparison authority,
-not inferred correspondence. It accepts no paths, handles, tokens, or display
-identity. The designation cannot outlive either source.
+Use `DirectImplementationComparisonOperation.DesignateMemberPair` when the
+caller already owns two live `MetadataSource` values. The ResearchQueries-owned
+factory explicitly authorizes only those two sources for this invocation and
+captures their exact MVIDs in a `DirectMemberPairingDesignation`. It retains no
+workspace participant, role manifest/binding, qualified input key, or
+`ArtifactParticipantPairing`; those acquisition currencies do not exist until
+the operation admits the designation under its ledger. Assembly identity may
+differ because the designation is explicit comparison authority, not inferred
+correspondence. It accepts no paths, handles, method tokens/addresses, or
+display identity. The designation cannot outlive either source.
 
 The caller passes that designation, exact old/new `MetadataMethodAddress`
 values, a relationship role for each side, the Research-owned synchronous
 mechanism set, and its budget to
 `DirectImplementationComparisonOperation.Execute`. The Queries-owned operation
-mints the ledger, validates both addresses against the designated participant
-bindings, and asks the internal lease-requiring Research session to lower the
-wrapped pairing into one `DesignatedMemberPairKey` work item. It returns
+mints the ledger, charges admission, constructs the role manifests, bindings,
+qualified keys, and admitted direct pairing under the core-Queries direct
+pairing factory, validates both addresses against those operation-issued
+participant bindings, and asks the internal lease-requiring Research session to
+lower that pairing into one `DesignatedMemberPairKey` work item. The pairing id
+is the exact designation id, not a second identity. It returns
 `ImplementationMemberDiffResult` before either source can expire and cannot
 feed an assembly-wide Implementation Diff. The completed direct result retains
 only inert subjects, ledgers, native-payload snapshots, outcomes, absence
@@ -1724,7 +1834,7 @@ not invoke or reconstruct the C# and IL producers independently.
 | `ImplementationDiffMechanism` / `AllAvailable` | Retire in favor of the closed mechanism catalog; no context-free host-owned mechanism set |
 | Public `ImplementationDiffResult` / `ImplementationDiffMember` constructors, `SourceComparison` init, and record copying | Sealed non-record results with internal constructors, get-only immutable state, and no post-completion enrichment |
 | `ImplementationDiffResult.Members` and planned `ResearchComparison.BySubject()` | Work-item-keyed result projection and the producer/session `BodyEvidenceResearchChange` union; any producer-subject view retains its work-item id |
-| `ImplementationDiff.CompareMembers` handle-only pairing and shared `ImplementationMemberDiffResult.Subject` | `DesignateMemberPair` plus Queries-owned `DirectImplementationComparisonOperation.Execute`; its `DirectMemberComparisonInput`, exact addresses, and per-side roles lower under the operation-stamped projection facet to one `DesignatedMemberPairKey`, including explicitly designated cross-identity assemblies, and the result retains both side-local subjects |
+| `ImplementationDiff.CompareMembers` handle-only pairing and shared `ImplementationMemberDiffResult.Subject` | ResearchQueries-owned `DirectImplementationComparisonOperation.DesignateMemberPair` plus `Execute`; the designation retains only two live sources/MVIDs, while the admitted direct pairing, role manifests/bindings, and side-qualified keys are operation-issued after admission. Its `DirectMemberComparisonInput`, exact addresses, and per-side roles lower under the operation-stamped projection facet to one `DesignatedMemberPairKey`, including explicitly designated cross-identity assemblies, and the result retains both side-local subjects |
 | `MatchCommand.BuildImplementationDiffView` direct result construction and unconditional zero exit | Invocation-scoped direct designation passed to the Queries-owned direct operation plus a formatter overload for its product-issued `ImplementationMemberDiffResult`; retained direct failure returns nonzero |
 | Direct `IsExact`/empty-row inference | Exhaustive `Exact \| Different \| NotApplicable \| Unavailable` handling; all-absent results retain reasons and never masquerade as exact, changed, or failed |
 | ReturnToSender and round-trip `CompareMembers` calls | Product-issued direct designations passed through the Queries-owned direct operation over original/emitted or emitted/emitted sources; differing assembly identities remain valid, failed ledgers map to context-failed/unavailable, and all-absent ledgers map to typed not-applicable rather than semantic difference |
@@ -1754,11 +1864,11 @@ The target lifecycle is unverified until these gates exist:
 | Mechanism dependency totality | Research + Queries with empty selection, Source-only selection, C#-only change, IL-only change, both exact, proven one-sided change, failed/ambiguous counterpart, native comparison unavailable, Finding inspection/cross-validation failure, and presentation-filter mutations | An empty set or Source without a requested local mechanism is accepted; a known required dependency is absent; Source omits a requested local prerequisite; a failed prerequisite, counterpart, correspondence, native comparison, Finding inspection, or cross-validation performs I/O; a proven one-sided change becomes `NotEligible`; no-change performs I/O; or presentation affects eligibility |
 | Synchronous mechanism ownership | Research API, Queries-owned direct-operation, and harness tests over `ResearchChangeMechanism` and `ImplementationDiffMechanism` | Either default/context-free `AllAvailable` includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; a retired assembly/direct overload remains; a caller bypasses `DirectImplementationComparisonOperation` to invoke a Research producer; or a host runner does not declare its complete set |
 | Operation lifetime | Queries + CLI with revoked authorization, borrowed sessions, direct designation expiry, completion validation failure, success-plus-cleanup failure, primary-plus-cleanup failure, cancellation with successful/failing cleanup, post-disposal full-result enumeration, and single-threaded awaited reentrancy | Begin/slot preflight/question sealing/endpoint realization/participant pairing/project/complete escape one current planned lease; a direct operation escapes one current direct lease or its designation/source lifetime; the assembly/package CLI opens a reader/session around Research; direct `match`, ReturnToSender, or round-trip use invokes Research without the Queries-owned operation; a borrowed session is disposed; an owned lease or scratch reservation leaks on success, failure, or cancellation; a completed result reaches disposed participant/group/source/reader state or cannot enumerate every receipt/ledger/native/change/presentation value after cleanup; a failed query lacks the typed outer arm or exposes a partial/completed result; cleanup replaces a non-cancellation primary failure or loses its diagnostic; successful cancellation cleanup returns an outcome instead of propagating cancellation; failed cancellation cleanup does not supersede cancellation with `Failed(Cleanup)` and every typed cleanup diagnostic; `ImplementationDiffResult.HasFailures` absorbs query failure; or Browser/Wasm requires threads/blocking |
-| Operation-stage inventory | Catalog-derived source-architecture/set-equality tests + planned/direct order and stage-removal non-vacuity mutations | The descriptor catalog, planned pipeline, direct pipeline, owner registrations, lease-facet adapters, allowed stage/dimension edge set, budget methods, or boundary-fixture sets differ; a planned stage is omitted/duplicated/reordered; direct omits a stage other than endpoint realization; a stage has no exact per-kind owner or budget authority; a dimension is authorized by no stage or a stage charges an undeclared dimension; a host/harness registers a stage; removing endpoint realization, direct admission, producer preflight, completion, or cleanup remains green; or stage metadata is inferred from display text/reflection rather than the closed typed catalog |
-| Planned population budget | Queries + endpoint-realizer + acquisition-coordinator boundary tests at one below/equal/one above every default, count multiplication, integer overflow, direct/planned, native/Browser, and raised-limit authorization | The budget ledger is minted after endpoint-slot preflight, question sealing, endpoint realization, or participant pairing; a crossing stage can run without its owner-local operation-stamped facet; endpoint/projection facets name different operation ids, expose foreign dimensions, or are backed by different ledgers; endpoint slots are not charged before acquisition; a host seals immutable questions; a question input is copied before its entry/variable payload charge; an endpoint materializes a role binding, manifest entry, outcome payload, or query-owned variable copy before reservation; endpoint budget receipts differ from the realized manifest union or independently measured retained outcome characters; a realized union is qualified or partitioned before that equality is validated; any endpoint-slot/input/question/selection-request entry/request-or-receipt character/correlation-scope/target-request/attempt/work-item/disposition/snapshot/presentation path bypasses the same ledger; a zero-match question retains uncharged selectors/filter operands; planned/direct operations mint different concrete ledger types or Research/callers can mint, replenish, or substitute one; a host raises a default without `BodyEvidencePlanBudgetOverrideCapability`; an exhaustive selector, Source override, per-artifact limit, or `InspectionCost` is accepted as that grant; overflow wraps; exhaustion truncates a census, correlation, endpoint outcome, ledger, snapshot, or output; a partial manifest/pairing/plan/result escapes; or failure omits phase/dimension/limit/charge |
-| Producer work budget | Mechanism-catalog estimator set equality + planned/direct exact-boundary fixtures + IL/Finding ordered-match canaries + cancellation/failure allocation instrumentation | A mechanism lacks one compile-time typed conservative estimator; the complete `(work item, mechanism)` estimate-key set differs from the producer-eligible population; aggregate input/work totals and every single-entry peak are not preflighted before the first callback; an estimator decodes/canonicalizes/decompiles/diffs or uses unadmitted content; input/work/scratch arithmetic wraps; ordered matching omits its full checked cell product, matrix, or producer-owned arrays; a producer starts without the current operation-stamped projection facet or before its live-scratch reservation succeeds; ordinary concurrent scratch contention becomes exhaustion instead of bounded waiting; actual catalog-declared scratch can exceed its reservation; failure/cancellation leaks live scratch, replenishes cumulative work, or starts another callback before native-result release; a snapshot charge substitutes for producer-work preflight; an unestimable producer runs; planned exhaustion returns partial success; direct exhaustion is not one complete `Unavailable` result; scheduling changes which items are successful; or estimator/lowering code introduces reflection, trim warnings, or a Browser/Wasm-incompatible dependency |
+| Operation-stage inventory | Catalog-derived source-architecture/set-equality tests + planned/direct order and stage-removal non-vacuity mutations | The descriptor catalog, planned pipeline, direct pipeline, owner registrations, lease-facet adapters, allowed `(operation kind, stage, dimension)` edge set, budget methods, or boundary-fixture sets differ; a planned stage is omitted/duplicated/reordered; direct omits a stage other than endpoint realization or the catalog-declared planned-only dependent stages; a stage lacks its exact per-kind owner, budget authority, or dimension set; a dimension is authorized by no stage for an applicable operation kind or a stage charges a dimension absent from that exact kind/stage edge; a host/harness registers a stage; removing endpoint realization, direct admission/participant pairing, either producer preflight/projection boundary, dependent input acquisition, completion, or cleanup remains green; or stage metadata is inferred from display text/reflection rather than the closed typed catalog |
+| Planned population budget | Queries + endpoint-realizer + acquisition-coordinator boundary tests at one below/equal/one above every default, count multiplication, integer overflow, direct/planned, native/Browser, and raised-limit authorization | The budget ledger is minted after endpoint-slot preflight, question sealing, endpoint realization, or participant pairing; a crossing stage can run without its owner-local operation-stamped facet; endpoint/direct-pairing/projection facets name different operation ids, expose foreign dimensions, or are backed by different ledgers; endpoint slots are not charged before acquisition; a host seals immutable questions; a question input is copied before its entry/variable payload charge; an endpoint materializes a role binding, manifest entry, outcome payload, or query-owned variable copy before reservation; a direct-pairing factory materializes a role manifest, binding, qualified key, pairing, or outcome before its two participant inputs are charged; any endpoint receipt differs from its own endpoint's realized manifest count or independently measured retained outcome characters, aggregate receipt sums differ from the exact realized union/payload sum, or compensating endpoint-local errors pass; a realized union is qualified or partitioned before those equalities are validated; any endpoint-slot/input/question/selection-request entry/request-or-receipt character/correlation-scope/target-request/attempt/work-item/disposition/snapshot/presentation path bypasses the same ledger; a zero-match question retains uncharged selectors/filter operands; planned/direct operations mint different concrete ledger types or Research/callers can mint, replenish, or substitute one; a host raises a default without `BodyEvidencePlanBudgetOverrideCapability`; an exhaustive selector, Source override, per-artifact limit, or `InspectionCost` is accepted as that grant; overflow wraps; exhaustion truncates a census, correlation, endpoint outcome, ledger, snapshot, or output; a partial manifest/pairing/plan/result escapes; or failure omits phase/dimension/limit/charge |
+| Producer work budget | Mechanism-catalog phase/estimator set equality + planned/direct exact-boundary fixtures + IL/Finding/Source ordered-match canaries + cancellation/failure allocation instrumentation | A mechanism lacks one compile-time typed phase or conservative estimator; the complete `(work item, mechanism)` estimate-key set for either phase differs from that phase's exact producer-eligible population; prerequisite aggregate input/work totals and every peak are not preflighted before the first prerequisite callback; dependent eligibility/input acquisition does not follow complete prerequisite ledgers; Source acquisition invokes `TextFindings.Inspect`, constructs comparison keys, or compares before dependent preflight; dependent aggregate input/work totals and every peak are not preflighted before the first dependent callback; an estimator decodes/canonicalizes/decompiles/inspects Findings/diffs or uses unadmitted content; input/work/scratch arithmetic wraps; ordered matching omits its full checked cell product, matrix, or producer-owned arrays; a producer starts without the current operation-stamped projection facet or before its live-scratch reservation succeeds; ordinary concurrent scratch contention becomes exhaustion instead of bounded waiting; actual catalog-declared scratch can exceed its reservation; failure/cancellation leaks live scratch, replenishes cumulative work, or starts another callback before native-result release; a snapshot charge substitutes for producer-work preflight; an unestimable producer runs; planned exhaustion returns partial success; direct exhaustion is not one complete `Unavailable` result; scheduling changes which items are successful; or estimator/lowering code introduces reflection, trim warnings, or a Browser/Wasm-incompatible dependency |
 | Authored-source budget | Queries boundary tests at one below/equal/one above every default, cached/uncached, retry/redirect, embedded/external PDB, shared documents, native/Browser transport-visible operations, varied scheduling, and raised-limit authorization | Any query-time PDB/source path lacks the same non-optional ledger lease; any operation/byte/decoded-text/retention/concurrency path bypasses accounting; a host raises a default without an invocation-scoped `AuthoredSourceBudgetOverrideCapability`; static `InspectionCost` is accepted as that grant; per-item/redirect limits replace the aggregate; exhaustion publishes any eligible success or scheduling changes an eligible item's disposition kind; or failure omits dimension/limit/charge |
-| Direct-member pairing authority | ResearchQueries operation, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, wrong-side direct keys, and designation lifetime expiry | A public `ImplementationDiff.CompareMembers` remains or accepts raw sources/handles; a caller bypasses the Queries-owned direct operation; designation creates a parallel pairing id rather than wrapping one direct-slot `ArtifactParticipantPairing`; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own internally charged slot/question/domain/scope/work item; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one `DesignatedMemberPairKey`; an endpoint path can mint that key; a direct input key's side disagrees with its binding arm; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; the completed direct result retains the designation, participant, source, or lease; feeds assembly-wide comparison; or bypasses address/role validation |
+| Direct-member pairing authority | ResearchQueries operation, core-Queries direct-pairing factory, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, wrong-side direct keys, and designation lifetime expiry | A public `ImplementationDiff.CompareMembers` remains or accepts raw sources/handles; a caller bypasses the Queries-owned direct operation; Research or a caller mints a designation; the pre-operation designation contains a direct/workspace participant, role manifest/binding, qualified input key, or `ArtifactParticipantPairing`; the operation creates the direct participant/pairing before ledger admission or mints a pairing id different from the designation id; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own internally charged slot/question/domain/scope/work item; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one `DesignatedMemberPairKey`; an endpoint path can mint that key; a direct input key's side disagrees with its binding arm; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; the completed direct result retains the designation, participant, source, or lease; feeds assembly-wide comparison; or bypasses address/role validation |
 | Finding cross-validation totality | Research + Queries over semantic success plus Finding acquisition failure, semantic/Finding disagreement, duplicate generic diagnostics, partial IL payload, and Source requested | The final mechanism ledger remains `Compared`; the same work item/mechanism has both `Compared` and `Failed` outcomes; `HasFailures` is false; partial payload supplies a semantic verdict or Source eligibility; Source performs I/O; the selected CLI exits zero; or the failed row is missing/duplicated |
 | Direct-consumer outcome totality | Research + `match --implementation` + authored rebuild + round-trip/scope tests with failed C#, IL, address, role, and subject projection; two-body native-unavailable results; resolved bodyless/bodyful transitions; all-body-dependent mechanisms absent; API-exact/body-absent and API-different/body-absent ledgers; and mixed exact/absent ledgers | `Compared` lacks exactly one exact-or-different verdict; two-body native unavailable is not `Failed(ComparisonUnavailable)`; missing-body native unavailable becomes failure; subject projection failure invokes a producer, lacks complete failed ledgers/diagnostics, leaves `HasFailures` false, or yields `Exact`/`Different`; reduction does not follow `Unavailable` then `Different` then `Exact` then `NotApplicable` precedence; bodylessness overrides an applicable API verdict; a direct result lacks ledger-derived `HasFailures`, typed diagnostics, or retained absence reasons; `match` exits zero for failure or nonzero for not-applicable; authored rebuild reports `IlDifferent` for failed/not-applicable evidence; round-trip reports `Changed`/`Exact` for either; or a consumer drops the diagnostic/absence reason instead of mapping it to nonzero/context-failed/unavailable or typed not-applicable |
 | Ledger output visibility | CLI text/Markdown/table/TSV/JSON/JSONL over producer-lined evidence, multiple producer changes, producer-different Body Signals/no-line evidence, session body-presence evidence with no adapter and with every optional line filtered, producer exact/no-line controls, presentation-safe failed partial IL evidence, pre-producer single/multi-outcome endpoint/participant/selection/target/correspondence failure, native comparison unavailable, Source missing mapping, Source not eligible, query/cleanup failure, changed/native-line filtering, row windows including `--jsonl --rows 1`, and `Member`-/empty-field-only projections over ledger and query failures | A completed or failed query cannot use the one schema; a producer `Compared(Different)` has an empty/incomplete/duplicate change set or any retained producer change with no post-filter line lacks exactly one native typed fallback; a session `Compared(Different)` with no post-filter line lacks exactly one body-presence fallback; `Compared(Exact)` emits a fallback; optional lines losing a filter erase a difference; a failed disposition lacks one mandatory diagnostic, a failed endpoint slot omits any terminal request's diagnostic/outcome/absent-arm context, partial evidence supplies a verdict/replaces that diagnostic, or presentation-safe partial evidence has no defined ordinary row; Source `MissingMapping` is hidden or `NotEligible` is forced visible; structured output loses `recordKind`, disposition, typed producer/body-presence change, partial-evidence classification, or typed reason; a query diagnostic fabricates a ledger disposition; evidence does not count toward the semantic row window; diagnostic records count against or are suppressed by that window; the integrity descriptor and section schema differ; a user projection removes any required integrity column when diagnostics exist or changes successful diagnostic-free projection; JSONL emits a second table/ad hoc object; or ordering is nondeterministic |
@@ -1806,6 +1916,9 @@ The target lifecycle is unverified until these gates exist:
   before any aggregate operation charge.
 - The CLI derives PDB-source targets from already-rendered changed members
   and owns the async acquisition loop outside one Queries-owned operation.
+- `PdbSourceAcquisition` constructs `TextFindings` during acquisition, before a
+  complete Source producer population can be derived or its comparison
+  work/scratch can be preflighted.
 - Source acquisition has per-item protections but no aggregate eligible-item,
   PDB, document, outbound-operation, transferred-byte, retained-byte, or
   concurrency

@@ -145,6 +145,21 @@ unambiguous top-level name, because `+` cannot distinguish nesting from a
 literal metadata character. This is gated by
 `AssemblyContextSourceQueryTests.RequestFromLegacyApiType_RequiresUnambiguousMetadataName`.
 
+The target structured Implementation Diff lifecycle splits that compatibility
+shape at the producer-work boundary. Its planned-only dependent-input
+acquisition reuses the mapping, fetch, checksum, decoding, and exact body-slice
+owners, but returns one bounded verified raw Source-input snapshot with checked
+text length and line census. It does not invoke `TextFindings.Inspect`,
+construct Finding keys, or compare old/new bodies. After every local
+prerequisite ledger is complete, ResearchQueries derives the exact
+Source-eligible population, acquires those bounded inputs under the
+authored-source lease, and preflights the complete Source producer work/scratch
+plan.
+Only the later dependent Source producer callback constructs Findings and
+compares them under its operation-stamped projection reservation. The
+`Producer work budget` gate in
+[implementation-diff.md](implementation-diff.md#gates) enforces that split.
+
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 PDB-source attempt so Decompiler fallback can run.

@@ -141,10 +141,11 @@ Two resolution paths, chosen by scope:
   Metadata-owned exact `MetadataMethodAddress` or carried `MemberBodyTarget`
   inside its side-local participant. Cross-version comparison may then project
   `MemberBodyCorrespondenceKey` from the independently resolved methods; a
-  direct comparison instead first requires a host-issued
-  `DirectMemberPairingDesignation` over the two live participants, then a
-  `DirectMemberComparisonInput` carrying each independently resolved exact
-  address and relationship role. Neither path
+  direct comparison instead first requires a ResearchQueries-issued
+  `DirectMemberPairingDesignation` over the two live sources, then the
+  Queries-owned operation admits that grant into one direct participant pairing
+  before accepting a `DirectMemberComparisonInput` carrying each independently
+  resolved exact address and relationship role. Neither path
   resolves by normalized canonical signature, `MemberAnchor` fingerprint,
   `ResearchMemberIdentity`, display spelling, token equality, or occurrence.
   Duplicate structural candidates remain typed ambiguity.

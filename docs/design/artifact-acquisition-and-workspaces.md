@@ -456,6 +456,12 @@ AssemblyParticipantRoleManifest
                          complete exact implementation-role participant set
   Bindings               sealed map, exactly one binding per selection
 
+DirectSourceParticipant
+  Id                     DirectMemberDesignationId + Before | After
+  Source                 exact live MetadataSource, internal only
+  Mvid                   exact source module MVID
+  Lifetime               cannot outlive the designation or source
+
 ArtifactParticipantManifestEntry
   InputId                opaque manifest-local participant-input identity
   LogicalSlot            endpoint-owner-issued cross-version slot
@@ -471,7 +477,8 @@ ArtifactParticipantInputKey
   LocalId                originating manifest-/designation-local input id
 
 ArtifactParticipantPairing
-  Id                     opaque comparison-scoped participant identity
+  Id                     opaque comparison-scoped participant identity;
+                         direct arm uses exact designation id
   Authority              LogicalSlot | DirectMemberDesignation
   Kind                   Paired | BeforeOnly | AfterOnly
   Before/After           exact role binding + input key whose origin Side
@@ -632,24 +639,29 @@ Queries; the ResearchQueries operation supplies a facet backed by its concrete
 ledger and stamped with that operation's id.
 Acquisition takes no Research plan/result type and gains no mechanism or
 presentation authority. Before qualifying one input or allocating an outcome
-partition, the coordinator computes the exact checked manifest-entry sum from
-every realized request arm and requires it to equal the receipt set's complete
-participant-input charge. It independently measures every query-owned variable
-payload retained by the outcome set and requires the exact checked character
-sum to equal the receipts' `RetainedCharacters`. It also requires exact
-endpoint-key equality among the plan requests, outcomes, and receipts. It does
-not double-charge entries or characters already retained by endpoint
-realization. A missing, extra, rekeyed, undercharged, or overcharged receipt
-returns one typed planning-budget failure without constructing qualified keys,
+partition, the coordinator requires exact endpoint-key equality among the plan
+requests, outcomes, and receipts. For every declared endpoint key, it then
+matches the endpoint's receipt to that endpoint's own outcome. A realized
+outcome's `ParticipantInputs` must equal its own manifest-entry count; a
+terminal outcome must report zero participant inputs. The coordinator
+independently measures that outcome's query-owned variable payload and requires
+its exact character count to equal the same receipt's `RetainedCharacters`.
+Only after every endpoint-local equality succeeds does it compare the checked
+receipt sums to the complete realized-manifest union and complete retained
+outcome payload. Correct keys and aggregate sums cannot hide compensating
+endpoint-local undercharges or overcharges. It validates rather than
+double-charging entries or characters already retained by endpoint realization.
+A missing, extra, rekeyed, undercharged, or overcharged receipt returns one
+typed planning-budget failure without constructing qualified keys,
 candidate/affected payloads, `InputMap`, participant outcomes, or a partial
 slot-outcome set.
 
 The comparison coordinator accepts only that endpoint facet, its exact budget
-receipt set, a sealed pairing plan, and endpoint outcome set, and emits one sealed
-`ComparisonEndpointPairingSlotOutcomeSet`. A slot whose two sides are explicit
-`Absent(proof)` becomes `EndpointAbsent` and retains both proofs. For a slot
-whose requested sides realize, the coordinator forms the exact union of the
-before/after **qualified input keys** and seals one
+receipt set, a sealed pairing plan, and endpoint outcome set, and emits one
+sealed `ComparisonEndpointPairingSlotOutcomeSet`. A slot whose two sides are
+explicit `Absent(proof)` becomes `EndpointAbsent` and retains both proofs. For
+a slot whose requested sides realize, the coordinator forms the exact union of
+the before/after **qualified input keys** and seals one
 `ArtifactParticipantPairingOutcomeSet`. Its outcomes form a disjoint,
 non-empty partition of that union: the set's `Inputs` equals the exact manifest
 union after qualification, `InputMap` and every outcome's `Inputs` agree, and
@@ -753,7 +765,7 @@ or requires that cold digest pass.
 | Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Exact selection/body role binding, artifact registration, workspace context id, canonical bundle-relative `ContentRef`, provider handle, source-declared bundle digest |
 | Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Exact selection/body role binding, artifact registration, absolute path, retained-snapshot id, optional owner-issued digest |
 | Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Exact selection/body role binding, both artifact registrations, adapters' source-specific provenance and locators, optional source-declared or owner-issued digests |
-| Direct live-member call | One invocation-scoped paired-input designation | Exact single-participant role manifests, live bindings, and MVIDs |
+| Direct live-member call | One invocation-scoped source-bounded designation, admitted by the direct operation | Exact operation-issued single-participant role manifests, live bindings, side-qualified keys, and MVIDs |
 
 A package selection slot describes the request, not whichever framework folder
 won independently on one side. Default highest-compatible selection uses one
@@ -785,25 +797,33 @@ cannot renumber an existing pairing. Those values remain side-local evidence
 and never become cross-side participant identity.
 
 The direct live-member call is the one non-adapter designation.
-`ImplementationDiff.DesignateMemberPair` explicitly authorizes exactly two
-already-open participants as a pair and returns a typed
+`DirectImplementationComparisonOperation.DesignateMemberPair` in
+ResearchQueries explicitly authorizes exactly two already-open
+`MetadataSource` values and returns a typed
 `DirectMemberPairingDesignation`. The factory mints its opaque
-invocation-scoped designation id. The designation wraps one direct-slot
-admitted `ArtifactParticipantPairing` and retains that pairing's opaque id,
-exact live participant bindings, both MVIDs, and a lifetime bounded by the
-supplied sources. It does not mint an endpoint slot, outcome receipt, role
-manifest, question, or work item.
+invocation-scoped designation id and retains only the two sources, their exact
+MVIDs, and a lifetime bounded by those sources. The designation is not an
+`ArtifactParticipantPairing` and contains no workspace participant, role
+manifest/binding, qualified input key, endpoint slot, outcome receipt,
+question, work item, path, handle, method token/address, or display identity.
 
-The Queries-owned direct operation first charges its one slot and two inputs,
-then mints the internal one-slot/one-admitted-outcome receipt over the two
-designated participant-input keys used by lowering. It qualifies those keys by
-designation id and side before sealing, so they remain distinct even when both
-selections use one live source. For each side the operation mints a
-single-participant role manifest whose selection and implementation roles share
-that participant, so each direct binding has `Body = SameSelection`; the caller
-cannot substitute a terminal or `ReferenceOnly` arm. The designation does not
-create a parallel pairing identity and contains no path, handle, token, or
-display identity.
+The Queries-owned direct operation first mints its ledger and charges its one
+slot. During its cataloged participant-pairing stage, it passes the
+non-optional operation-stamped `IDirectParticipantPairingBudgetLease` to the
+core-Queries direct-pairing factory. The factory charges both participant
+inputs before materializing a direct participant, qualifying either key, or
+creating a role currency. It projects each designated source/MVID into one
+invocation-scoped `DirectSourceParticipant` keyed by designation id and side,
+so the participants and keys remain distinct even when both selections use one
+live source. For each side it mints a single-participant role manifest whose
+selection and implementation roles share that participant, so each direct
+binding has `Body = SameSelection`; the caller cannot substitute a terminal or
+`ReferenceOnly` arm. It then constructs the one admitted
+`ArtifactParticipantPairing` and internal outcome. The pairing's id and
+`DirectMemberDesignation` authority are the exact
+`DirectMemberDesignationId` declared in core Queries, not a second identity.
+Research receives the operation-issued admitted pairing through its internal
+projection session and never constructs an acquisition currency.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path
@@ -1275,6 +1295,7 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonEndpointRealization_BudgetsManifestBeforeMaterialization`
 - `ComparisonEndpointBudgetReceiptSet_EqualsOutcomeSet`
 - `ComparisonEndpointBudgetReceipt_ChargesEveryRetainedPayload`
+- `ComparisonEndpointBudgetReceipt_ValidatesEachEndpointBeforeAggregate`
 - `ComparisonEndpointBudgeting_DoesNotEnterWorkspaceRoleOwner`
 - `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
 - `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
@@ -1305,6 +1326,8 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonParticipantPairing_AdaptersCannotMintDirectAuthority`
 - `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`
+- `DirectMemberDesignation_ContainsNoPreAdmissionPairingCurrency`
+- `DirectMemberPairing_IsConstructedAfterLedgerAdmission`
 - `DirectMemberPairingOutcome_InputsEqualDesignation`
 - `DirectMemberPairingInputKeys_DistinguishSameSourceSides`
 - `DirectMemberPairing_AllowsExplicitCrossIdentityPairWithoutWeakeningEndpoints`

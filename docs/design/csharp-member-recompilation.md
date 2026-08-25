@@ -158,13 +158,15 @@ The common selected-member provenance creates two correlated selection
 requests, not one physical target. Each donor independently mints its own
 `BodyEvidenceTarget` from that donor's API/metadata surface: an exact
 `MetadataMethodAddress` or a carried `MemberBodyTarget`. Each target resolves
-only inside its donor participant. The round-trip request first creates a
+only inside its donor participant. The round-trip request first asks
+`DirectImplementationComparisonOperation.DesignateMemberPair` for a
 `DirectMemberPairingDesignation` that authorizes only the two live donor
-participants and retains their MVIDs. It then constructs
-`DirectMemberComparisonInput` with each Metadata-validated exact address and
-relationship role. Neither the common provenance, `ResearchMemberIdentity`, an
-inferred correspondence key, one donor's strict target, nor the exact addresses
-themselves pair the donors.
+sources and retains their MVIDs. `Execute` admits that grant, constructs the
+single-participant role manifests and direct pairing under its ledger, and then
+accepts `DirectMemberComparisonInput` with each Metadata-validated exact
+address and relationship role. Neither the common provenance,
+`ResearchMemberIdentity`, an inferred correspondence key, one donor's strict
+target, nor the exact addresses themselves pair the donors.
 The direct donor comparison applies the existing C# and IL diff contracts.
 Separate original-to-cluster and original-to-all resolution and diff results
 remain available as fidelity evidence, but they are not substituted for the
