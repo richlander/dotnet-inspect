@@ -17,7 +17,7 @@ public static class OperatorNames
     /// byte-identical (issue #3319).
     /// </remarks>
     public static string FormatDisplayName(string name)
-        => CSharpIdentifierCore.ContainComposedName(
+        => CSharpIdentifierCore.ContainRawComposedName(
             FormatRawDisplayName(name));
 
     /// <summary>

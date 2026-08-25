@@ -169,9 +169,7 @@ internal static class CSharpIdentifierCore
     /// an explicit interface implementation's dots, a generic instantiation's angle
     /// brackets, <c>.ctor</c> — and so cannot be spelled as a simple identifier.
     /// Folds the line terminators that would let it break out of a code fence, a
-    /// table row, or a tree gutter, contains rendering hazards, and disambiguates
-    /// literal backslashes from generated escape spellings (issues #3319 and
-    /// #4613).
+    /// table row, or a tree gutter, and changes nothing else (issue #3319).
     /// </summary>
     /// <remarks>
     /// This is the weakest containment in this file, and it is the right one here:
@@ -186,17 +184,42 @@ internal static class CSharpIdentifierCore
     public static string ContainComposedName(string name)
     {
         var folded = name.ReplaceLineEndings(" ");
-        if (!folded.Contains('\\') && !folded.Any(IsRenderingHazard))
+        if (!folded.Any(IsRenderingHazard))
             return folded;
 
         // A visible \uXXXX keeps the identity legible, which matters more here than
         // it does for an identifier: this text is already not compilable C#, so
         // there is nothing to be gained by folding it to identifier characters and
-        // something to be lost by dropping the real bytes of the name. Escape raw
-        // backslashes before adding those generated spellings so the two origins
-        // remain distinguishable.
-        var builder = new StringBuilder(folded.Length + 1);
+        // something to be lost by dropping the real bytes of the name.
+        var builder = new StringBuilder(folded.Length);
         foreach (var ch in folded)
+        {
+            if (IsRenderingHazard(ch))
+                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Contains a raw metadata name that may carry structural punctuation while
+    /// keeping literal backslashes distinct from generated escape spellings.
+    /// </summary>
+    /// <remarks>
+    /// Use this only at the boundary where provenance proves the input is an
+    /// untreated metadata name. Rendered C# and free text may legitimately contain
+    /// backslash escape syntax and use <see cref="ContainComposedName"/> instead.
+    /// </remarks>
+    public static string ContainRawComposedName(string name)
+    {
+        string folded = name.ReplaceLineEndings(" ");
+        if (!folded.Contains('\\') && !folded.Any(IsRenderingHazard))
+            return folded;
+
+        var builder = new StringBuilder(folded.Length + 1);
+        foreach (char ch in folded)
         {
             if (ch == '\\')
                 builder.Append(@"\\");

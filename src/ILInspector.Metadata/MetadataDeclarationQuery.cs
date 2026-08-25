@@ -1533,7 +1533,7 @@ public static class MetadataDeclarationQuery
     /// sanitizing it into one, which would mangle both.
     /// </summary>
     static string SanitizeMemberDisplayName(string name)
-        => CSharpIdentifierCore.ContainComposedName(name);
+        => CSharpIdentifierCore.ContainRawComposedName(name);
 
     static string SanitizeIdentifier(string name)
         => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);

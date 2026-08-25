@@ -119,9 +119,8 @@ public static class CSharpIdentifier
     /// <summary>
     /// Contains free text that is rendered but is not a C# identifier — an IL side
     /// comment, a composed member name (<c>.ctor</c>, <c>IFoo.Bar</c>), a taste
-    /// annotation. Folds line terminators to a space, rewrites every rendering
-    /// hazard as a visible <c>\uXXXX</c>, and doubles literal backslashes so they
-    /// remain distinct from generated escape spellings.
+    /// annotation. Folds line terminators to a space and rewrites every rendering
+    /// hazard as a visible <c>\uXXXX</c>, changing nothing else.
     /// </summary>
     /// <remarks>
     /// One definition for every "neutralize, do not sanitize" channel. These

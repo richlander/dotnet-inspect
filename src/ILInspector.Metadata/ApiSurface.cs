@@ -525,7 +525,7 @@ public class TypeParameter
     /// This is presentation, not identity — <see cref="Name"/> stays raw — so the
     /// untrusted metadata name is contained here (issue #3319).
     /// </remarks>
-    public string DisplayName => CSharpIdentifierCore.ContainComposedName(
+    public string DisplayName => CSharpIdentifierCore.ContainRawComposedName(
         Variance != null ? $"{Variance} {Name}" : Name);
 
     /// <summary>

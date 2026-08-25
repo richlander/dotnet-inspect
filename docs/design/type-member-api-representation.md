@@ -96,7 +96,8 @@ Metadata identifier containment disambiguates literal backslashes before that
 boundary, so a raw name containing `\u0041` cannot masquerade as a generated
 escape. `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
-and the `ContainIdentifier_*` and `ContainComposedName_*` cases in
+and the `ContainIdentifier_*`, `ContainRawComposedName_*`, and
+`ContainComposedName_*` cases in
 `CSharpIdentifierSanitizationTests` enforce those properties.
 
 Documentation is free-form text rather than C# syntax. Extraction folds its

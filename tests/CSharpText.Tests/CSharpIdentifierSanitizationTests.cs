@@ -76,11 +76,18 @@ public sealed class CSharpIdentifierSanitizationTests
         => Assert.Equal(name, CSharpIdentifierCore.ContainComposedName(name));
 
     [Fact]
-    public void ContainComposedName_DisambiguatesLiteralEscapeSpelling()
+    public void ContainRawComposedName_DisambiguatesLiteralEscapeSpelling()
         => Assert.Equal(
             @"System.IFoo.Meth\\u0041",
-            CSharpIdentifierCore.ContainComposedName(
+            CSharpIdentifierCore.ContainRawComposedName(
                 @"System.IFoo.Meth\u0041"));
+
+    [Fact]
+    public void ContainComposedName_PreservesRenderedEscapeSyntax()
+        => Assert.Equal(
+            @"first\nsecond",
+            CSharpIdentifierCore.ContainComposedName(
+                @"first\nsecond"));
 
     /// <summary>
     /// The decompiler's contract for an unspellable-but-harmless name is to keep
