@@ -572,13 +572,13 @@ public sealed class SectionPipeline<TModel>
     /// filtered by verbosity and <c>-S</c>.
     /// </summary>
     public List<string> GetEffectiveSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, bool fixedOverview = false)
+        HashSet<string>? include = null, bool fixedOverview = false, bool explicitInclude = false)
     {
         List<string> result = [];
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
-            if (!IsRequested(entry, i, verbosity, include, fixedOverview))
+            if (!IsRequested(entry, i, verbosity, include, fixedOverview, explicitInclude))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);
@@ -649,14 +649,18 @@ public sealed class SectionPipeline<TModel>
     /// structural applicability; they merely skip render probing so discovery never opens a
     /// whole-assembly index. Registration order is preserved.
     /// </summary>
-    public List<string> GetDiscoverableSections(TModel model, HashSet<string>? include = null)
+    public List<string> GetDiscoverableSections(
+        TModel model,
+        HashSet<string>? include = null,
+        bool explicitInclude = false)
     {
         List<string> result = [];
         foreach (var entry in _entries)
         {
             if (!IsSelectable(entry))
                 continue;
-            if (include is { Count: > 0 } && !include.Contains(entry.Name))
+            if ((explicitInclude || include is { Count: > 0 })
+                && include?.Contains(entry.Name) != true)
                 continue;
             if (entry.IsApplicable(model))
                 result.Add(entry.Name);
@@ -754,11 +758,12 @@ public sealed class SectionPipeline<TModel>
     /// all sections should be rendered (no filtering needed).
     /// </summary>
     public HashSet<string>? ComputeIncludeSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, bool allSelector = false, bool fixedOverview = false)
+        HashSet<string>? include = null, bool allSelector = false, bool fixedOverview = false,
+        bool explicitInclude = false)
     {
         var effective = allSelector
             ? GetAllSelectorSections(model)
-            : GetEffectiveSections(model, verbosity, include, fixedOverview);
+            : GetEffectiveSections(model, verbosity, include, fixedOverview, explicitInclude);
 
         if (allSelector)
             return [.. effective];
@@ -959,11 +964,11 @@ public sealed class SectionPipeline<TModel>
     }
 
     private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
-        HashSet<string>? include, bool fixedOverview = false)
+        HashSet<string>? include, bool fixedOverview = false, bool explicitInclude = false)
     {
         // Explicit include overrides verbosity (and is the only way to select ExplicitOnly sections)
-        if (include is { Count: > 0 })
-            return include.Contains(entry.Name);
+        if (explicitInclude || include is { Count: > 0 })
+            return include?.Contains(entry.Name) == true;
 
         // Not explicitly included: ExplicitOnly sections are never auto-selected by verbosity.
         // In the curated model this covers coordinate-gated sections (IL context) only; the old
