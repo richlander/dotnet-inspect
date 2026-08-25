@@ -192,14 +192,16 @@ The core model is:
 
 ```text
 BodyEvidenceParticipantBinding
-  Pairing                ArtifactParticipantPairing.Id
+  Input                  exact ArtifactParticipantInputKey
   Side                   Before | After
+  Authority              LogicalSlot(inert slot identity) |
+                         DirectMemberDesignation(inert designation id)
   RoleManifest           AssemblyParticipantRoleManifest.Id
   AssemblyIdentity       name + culture + public-key token; version omitted
-  Selection              registration + MVID for exact selection participant
+  Selection              immutable registration identity + MVID
   Body                   SameSelection |
-                         Implementation(registration + MVID) |
-                         ReferenceOnly(proof)
+                         Implementation(immutable registration identity + MVID) |
+                         ReferenceOnly(inert proof)
 
 BodyEvidenceParticipantDomain
   Key                    Admitted(ArtifactParticipantPairing.Id) |
@@ -211,6 +213,32 @@ BodyEvidenceParticipantDomain
   Outcome                live admitted pairing | two-sided endpoint-absence
                          proof | typed terminal outcome with complete upstream
                          request/outcome or ambiguity/failure payload
+
+BodyEvidenceParticipantPairingTerminalReceipt
+  EndpointSlot           exact ComparisonEndpointPairingSlot.Id
+  OutcomeId              exact slot-local pairing-outcome id
+  Kind                   Ambiguous | Failed
+  Inputs                 exact qualified participant-input-key set
+  Payload                complete input-keyed
+                         BodyEvidenceParticipantBinding summaries
+  Reason/Diagnostic      exact inert terminal evidence
+
+BodyEvidenceParticipantDomainReceipt
+  Key                    exact BodyEvidenceParticipantDomain.Key
+  EndpointSlot           originating ComparisonEndpointPairingSlot.Id
+  Outcome                Admitted(pairing id + kind + exact before/after
+                         BodyEvidenceParticipantBinding | proven Absent) |
+                         EndpointAbsent(inert before/after proofs) |
+                         Failed(inert EndpointSlotFailure |
+                         BodyEvidenceParticipantPairingTerminalReceipt)
+
+BodyEvidenceSelectionScopeReceipt
+  Id                     exact BodyEvidenceSelectionScope.Id
+  CorrelationId          exact owning correlation
+  Domain                 exact BodyEvidenceParticipantDomainReceipt.Key
+  Before/After           for admitted domains only:
+                         Selected(request ids) | Absent(inert proof) |
+                         Failed(inert diagnostic)
 
 BodyEvidenceTargetSelectionRequest
   Request                Explicit(non-empty product-owned typed selectors) |
@@ -303,16 +331,19 @@ BodyEvidenceComparisonSession (internal)
 BodyEvidencePlanReceipt
   Revision                projection-free completed-plan identity
   Questions               exact immutable question set
-  ParticipantDomains     exact immutable participant-domain set
+  ParticipantDomains     exact immutable participant-domain receipt set
   Correlations            exact immutable correlation manifest
-  SelectionScopes         complete immutable
-                         id/correlation/domain/outcome receipt map
-  WorkItemSet             internal validated set identity
+  SelectionScopes         complete immutable selection-scope receipt set
+  WorkItemSet             opaque immutable validated set identity
+
+BodyEvidenceNativePayloadSnapshot<T>
+  Mechanism               exact catalog mechanism id
+  Value                   catalog-declared closed immutable typed DTO
 
 BodyEvidenceComparedDisposition<T>
   Verdict                 Exact | Different
   Authority               Producer | SessionBodyPresence
-  Native                  optional producer-owned payload/display evidence
+  Native                  optional BodyEvidenceNativePayloadSnapshot<T>
   BodyPresence            None | BodyAdded | BodyRemoved
 
 BodyEvidenceMechanismLedger<T>
@@ -342,17 +373,53 @@ ImplementationMemberDiffResult
   BeforeSubject           Resolved(ResearchSubjectKey) | Failed
   AfterSubject            Resolved(ResearchSubjectKey) | Failed
   Ledgers                 complete requested synchronous ledgers
-  Native                  producer-owned direct comparison payloads
+  Native                  complete inert native-payload snapshot map
   Outcome                 Exact | Different | NotApplicable | Unavailable
   HasFailures             derived from retained ledgers
   AbsenceReasons          typed retained non-failing details
   Diagnostics             typed retained failure details
 ```
 
-The plan, session, entries, callbacks, and participant proofs remain internal.
-The result retains only the projection-free receipt, including its complete
-question/domain/correlation/scope outcome maps, complete ledgers, native
-producer payloads, and the total presentation map.
+`BodyEvidenceParticipantBinding` is a completed-result snapshot, not an
+`AssemblyContextParticipant` or role-binding object. Registration, MVID,
+role-manifest id, logical-slot/designation authority identity, assembly
+identity, qualified input key, and a `ReferenceOnly` proof are immutable
+identity/evidence values; none opens bytes, resolves metadata, names a live
+group, or carries a callback/lease. The retained authority identity records
+origin only; it cannot reconstitute a logical-slot or direct-designation grant.
+
+The internal `BodyEvidenceParticipantDomain` may retain a live admitted pairing
+only while the query lease is current. Completion lowers every internal domain
+and selection scope to distinct `BodyEvidenceParticipantDomainReceipt` and
+`BodyEvidenceSelectionScopeReceipt` values. The receipt key sets must equal the
+internal domain/scope key sets, but object identity is deliberately different.
+An admitted receipt snapshots each non-absent side into one
+`BodyEvidenceParticipantBinding`; a terminal participant-pairing receipt
+snapshots every candidate/affected input into its exact input-keyed binding
+summary; endpoint failure, selection failure, and absence proofs must already
+be inert. Lowering rejects a missing, extra, substituted, wrong-side, or
+live-backed snapshot.
+
+Producer-native comparison objects are likewise query-lifetime values, not
+completed-result payloads. Each mechanism catalog entry declares one typed
+snapshot DTO and an internal lowering operation. Completion invokes that
+lowering while the query lease is current and retains only
+`BodyEvidenceNativePayloadSnapshot<T>`. The catalog, not a host or producer
+callback, closes the permitted payload-type set. Snapshot DTOs are immutable
+value-only evidence: they may contain typed ids, enums, numbers, strings,
+immutable byte/value arrays, and nested approved DTOs, but no reader, source,
+participant, role object, workspace/session, callback, lease, stream,
+`ContentRef`, or other content-opening/selection authority. A failed
+disposition's presentation-safe partial evidence uses the same snapshot
+boundary. The payload-closure gate is a build/test source-architecture check;
+the product path uses compile-time typed lowering and performs no reflection,
+dynamic loading, or runtime graph walk, preserving NativeAOT and Browser/Wasm.
+
+The plan, session, manifest entries, live pairings/role bindings, callbacks,
+participant objects, and producer-native objects remain internal. The result
+retains only the projection-free receipt, including its complete inert
+question/domain/correlation/scope outcome maps, complete ledgers, inert native
+payload snapshots, and the total presentation map.
 
 ### Target attempts and work-item totality
 
@@ -379,15 +446,18 @@ map, every terminal reason/diagnostic, and any realized opposite's tainted
 manifest revision/input-key summary. Inside a `Participants` slot outcome, every
 `ArtifactParticipantPairingOutcome.Admitted` contributes one `Admitted` domain
 using its `ArtifactParticipantPairing.Id`; only `Paired`, `BeforeOnly`, and
-`AfterOnly` can enter that arm. Every `Ambiguous` or `Failed` participant
-outcome contributes one `Failed(ParticipantPairingTerminal)` domain keyed by
-the exact `(endpoint-slot id, pairing-outcome id, outcome kind)` composite and
-retaining its typed reason, diagnostic, and complete upstream
-candidate/affected-input payload. The slot component makes independently
-slot-local outcome ids comparison-unique without changing acquisition's id
-scope. No downstream layer reconstructs those facts from provenance or side
-bindings. Every domain retains its originating endpoint-slot id, and every slot
-expands to at least one domain.
+`AfterOnly` can enter that arm. Each non-absent binding's qualified input-key
+side must match its `Before`/`After` arm; query lowering revalidates this
+acquisition invariant rather than trusting arm position. Every `Ambiguous` or
+`Failed` participant outcome contributes one
+`Failed(ParticipantPairingTerminal)` domain keyed by the exact
+`(endpoint-slot id, pairing-outcome id, outcome kind)` composite and retaining
+its typed reason, diagnostic, and complete upstream candidate/affected-input
+payload. The slot component makes independently slot-local outcome ids
+comparison-unique without changing acquisition's id scope. No downstream layer
+reconstructs those facts from provenance or side bindings. Every domain
+retains its originating endpoint-slot id, and every slot expands to at least
+one domain.
 
 Exact set equality connects the endpoint plan, slot-outcome set, each
 participant outcome set's qualified input partition (the exact manifest union
@@ -398,6 +468,12 @@ and non-empty. Validation rejects an omitted, duplicated, rekeyed, reparented,
 empty, overlapping, or success-shaped terminal outcome. A failed endpoint or
 ambiguous participant outcome therefore needs no invented participant binding
 to remain in the question population.
+
+Before completion, the coordinator projects this live domain set to the inert
+domain-receipt set described above and validates exact key/payload
+correspondence. The admitted pairing itself, role manifests/bindings,
+participants, and terminal candidate entries never enter
+`BodyEvidencePlanReceipt`.
 
 Before side-local selection, the coordinator seals one
 `BodyEvidenceSelectionCorrelationManifest` from the complete declared
@@ -430,29 +506,31 @@ records an independent outcome for each side:
 - `Failed` carries the selection, inventory, or participant diagnostic that
   prevented the side from proving either selected targets or absence.
 
-The query, plan, and receipt require one bijection among the sealed questions,
+The query and plan require one bijection among the sealed questions, live
 participant domains, manifest correlations, their non-empty
-`(ParticipantDomain.Key, ScopeId)` maps, and the scope map. Every scope appears
-in exactly one correlation with the same domain; every correlation retains one
-exact question; a scope cannot restate or disagree with its question or domain.
+`(ParticipantDomain.Key, ScopeId)` maps, and the scope map. The receipt requires
+the same question/domain-key/correlation/scope sets through its distinct inert
+domain snapshots. Every scope appears in exactly one correlation with the same
+domain key; every correlation retains one exact question; a scope cannot
+restate or disagree with its question or domain.
 Empty correlations, an undeclared or wrong-slot domain, a missing expanded
 domain, missing or extra scopes, duplicate correlation-local domains, altered
 selection/derived intent/endpoint scope, reparented scopes, and a receipt whose
-question/domain/manifest/outcome sets differ from the sealed query input reject
-before projection. An all-failed endpoint population is therefore a valid
-non-empty correlation population whose scopes all retain participant failures,
-not a reason to omit the query.
+question/domain-key/manifest/outcome sets differ from the sealed query input
+reject before projection. An all-failed endpoint population is therefore a
+valid non-empty correlation population whose scopes all retain participant
+failures, not a reason to omit the query.
 
-The receipt retains the exact question set, participant-domain set, and
-correlation manifest plus every scope's domain arm and, for admitted scopes,
-both side-outcome arms. An `EndpointAbsent` scope or admitted scope whose sides
-are both `Absent(proof)` intentionally creates no body work item or mechanism
-ledger because there is no selected body coordinate, but it remains a
-completed absence proof in the immutable result. A `ParticipantFailed` scope
-creates one terminal participant-failed work item under its question-local
-scope and failed-domain key; the work item retains the exact terminal outcome,
-complete upstream payload, every reason, and every diagnostic. Consumers never
-infer absence from an empty work-item set.
+The receipt retains the exact question set, inert participant-domain receipt
+set, and correlation manifest plus every scope's domain key/outcome arm and,
+for admitted scopes, both side-outcome arms. An `EndpointAbsent` scope or
+admitted scope whose sides are both `Absent(proof)` intentionally creates no
+body work item or mechanism ledger because there is no selected body
+coordinate, but it remains a completed absence proof in the immutable result.
+A `ParticipantFailed` scope creates one terminal participant-failed work item
+under its question-local scope and failed-domain key; the work item retains the
+exact inert terminal outcome, complete upstream payload, every reason, and
+every diagnostic. Consumers never infer absence from an empty work-item set.
 
 An `Explicit` request means its retained typed selectors are expected to name
 at least one target across its correlation's complete scope map. An
@@ -889,14 +967,25 @@ items appear successful or failed.
 
 `Complete` is the session's only final transition. It is one-shot and fails
 unless every declared mechanism has one complete, disjoint ledger. Projection
-or completion afterward fails visibly. Completion builds a provisional
-`BodyEvidencePresentationMap` keyed by work-item id. Each entry has inert
-participant and member labels sufficient to distinguish two equal member
-subjects in different TFM/RID/assembly participants. Labels contain no address,
-target, participant proof, or correspondence key from which evidence could be
-reselected. The query publishes `Completed(result)` only after strict cleanup
-succeeds; cleanup failure discards that provisional result and publishes only
-the outer `Failed` arm.
+or completion afterward fails visibly. Completion builds a provisional inert
+`BodyEvidencePlanReceipt` and `BodyEvidencePresentationMap` keyed by work-item
+id. Each presentation entry has inert participant and member labels sufficient
+to distinguish two equal member subjects in different TFM/RID/assembly
+participants. Labels contain no address, target, participant proof, or
+correspondence key from which evidence could be reselected.
+
+Completed-result constructors accept only the closed inert receipt/result
+types and catalog-declared native snapshot DTOs; generic `T` is not a public or
+host-chosen escape hatch. No constructor parameter or retained field can carry an
+`ArtifactParticipantPairing`, role manifest/binding,
+`AssemblyContextParticipant`, source, reader, group, workspace/session, plan,
+callback, lease, or other content-opening authority. Completion validates the
+explicit snapshot equalities before cleanup rather than reflecting over an
+object graph. The query publishes `Completed(result)` only after strict cleanup
+succeeds and a post-disposal consumer can enumerate the full receipt, ledgers,
+native-payload snapshots, changes, and presentation map without touching
+disposed state. Cleanup failure discards that provisional result and publishes
+only the outer `Failed` arm.
 
 `ResearchComparison` becomes a closed union:
 
@@ -909,7 +998,7 @@ BodyEvidenceResearchComparison
   Receipt                 BodyEvidencePlanReceipt
   Ledgers                 complete requested mechanism ledgers
   Presentation            total BodyEvidencePresentationMap
-  Native                  producer-owned comparison payloads
+  Native                  complete inert native-payload snapshot map
   Changes                 complete typed BodyEvidenceResearchChange values
 
 BodyEvidenceResearchChange
@@ -930,12 +1019,12 @@ Planned public result types are sealed non-records with internal constructors
 and get-only immutable collections. `ImplementationDiffResult` is issued only
 from a completed body-evidence comparison; its `WorkItems` projection is keyed
 by `BodyEvidenceWorkItemId` and joins that id's presentation entry, mechanism
-dispositions, and native payloads. `ImplementationMemberDiffResult` is issued
-only by the direct session. It retains separate before/after subjects rather
-than inventing one shared member identity for an arbitrary designated pair.
-Neither result exposes `init`, `with`-copy, or public member/result constructors
-that can attach Source or synthesize a success without a receipt and complete
-ledgers.
+dispositions, and native-payload snapshots.
+`ImplementationMemberDiffResult` is issued only by the direct session. It
+retains separate before/after subjects rather than inventing one shared member
+identity for an arbitrary designated pair. Neither result exposes `init`,
+`with`-copy, or public member/result constructors that can attach Source or
+synthesize a success without a receipt and complete ledgers.
 
 `ImplementationDiffResult.HasFailures` derives only from its retained completed
 ledgers, not rendered or windowed rows. Query and cleanup failure instead
@@ -991,12 +1080,15 @@ line. Failed producer arms and retained partial payloads carry no
 exact/different verdict and are validated separately.
 `ByWorkItem()` is the authoritative grouping; any member-centric convenience
 projection groups producer changes by `(workItemId, ResearchSubjectKey)`, never
-by `ResearchSubjectKey` alone. The planned arm additionally retains its
-receipt, complete ledgers, presentation map, and native payloads.
+by `ResearchSubjectKey` alone. The planned arm additionally retains its receipt,
+complete ledgers, presentation map, and native-payload snapshots.
 
 Each `ResearchChange` carries one mechanism, a `FindingDescriptor`, an
 added/removed/changed/failed classification, its subject, and any native producer
-payload needed for typed presentation. It is deliberately not a
+payload snapshot needed for typed presentation. `ResearchChange` participates
+in the same catalog-declared inert type closure; a planned
+`BodyEvidenceResearchChange` producer arm never wraps the query-lifetime native
+comparison object. It is deliberately not a
 `PairFinding<T>`. Metadata now exposes genuine API type/member comparisons and
 `ResearchComparison.ApiComparison` retains that producer-owned envelope. C#,
 IL/body, body-signal, and ReturnToSender mechanisms do not all expose equivalent
@@ -1098,9 +1190,9 @@ the anchor-carrying row or supplied by the wrapper.
 
 ### ResearchDiff projection
 
-`ResearchChange` binds one native producer payload — `ApiChange` or
-`CSharpRow` (anchor-carrying) or `IlRow` and the analysis signal fields
-(body-substrate) — to one `ResearchSubjectKey` whose `Id` is the anchor
+`ResearchChange` binds one catalog-declared inert native payload snapshot —
+`ApiChange` or `CSharpRow` (anchor-carrying) or `IlRow` and the analysis signal
+fields (body-substrate) — to one `ResearchSubjectKey` whose `Id` is the anchor
 `StableSelector`, and to a cross-mechanism product `ChangeId` via
 `FindingDescriptor`. It never erases the lower-layer typed payload and never
 requires consumers to parse `Message`. Machine consumers query by `ChangeId`
@@ -1109,7 +1201,7 @@ through `HasChange`, `HasChangePrefix`, and `HasChangeCategory`; product
 `csharp.return-expression.changed`), not incidental detail fields. `Message`
 stays producer-owned presentation on either side of the join.
 For a planned comparison, `BodyEvidenceResearchChange` wraps this unchanged
-producer payload with its owning work-item id and mechanism. The separate
+payload snapshot with its owning work-item id and mechanism. The separate
 session-body-presence arm carries no producer subject or Finding. Rendering and
 grouping begin from the typed union and the presentation map, so equal
 `StableSelector` values in two participants cannot collapse and a
@@ -1151,7 +1243,10 @@ synchronous work-item session by lowering the wrapped pairing into one
 `DesignatedMemberPairKey` work item, and returns
 `ImplementationMemberDiffResult` before either source can expire. It accepts
 only Research-owned synchronous mechanisms and cannot feed an assembly-wide
-Implementation Diff. The current handle-only overload is removed.
+Implementation Diff. The completed direct result retains only inert subjects,
+ledgers, native-payload snapshots, outcomes, absence reasons, and diagnostics;
+it does not retain the designation, pairing, participant binding, either
+source, or producer-native object. The current handle-only overload is removed.
 
 `match --implementation` retains its command-owned selector source only long
 enough to designate and compare the two exact methods. It passes the direct
@@ -1338,11 +1433,11 @@ not invoke or reconstruct the C# and IL producers independently.
 
 | Current surface | Target |
 | --- | --- |
-| `AssemblySetResolver` endpoint-to-flat-list comparison input | Sealed `ComparisonEndpointOutcomeSet` plus `ComparisonEndpointPairingSlotOutcomeSet`; exact request/outcome and plan-slot/outcome equality, 1:N participant manifests, and disjoint total participant-outcome partitions preserve admitted bindings and complete terminal payloads |
+| `AssemblySetResolver` endpoint-to-flat-list comparison input | Sealed `ComparisonEndpointOutcomeSet` plus `ComparisonEndpointPairingSlotOutcomeSet`; exact request/outcome and plan-slot/outcome equality, required endpoint-key/slot-arm side agreement, 1:N participant manifests, and disjoint total participant-outcome partitions preserve admitted bindings and complete terminal payloads |
 | `PackageAssemblyContextRoles` nullable surface lookup | Extend this product-owned same-side role authority to issue one sealed `AssemblyParticipantRoleManifest` directly from its complete role sets and exact correspondence input, with `SameSelection`, `Implementation`, or typed `ReferenceOnly` bindings before cross-version pairing; the nullable compatibility lookup is not a comparison input |
 | `AssemblyResolutionProvenance` pattern matching in Research | Opaque adapter-/host-issued `ArtifactParticipantPairing.Id` plus side-local binding |
 | Package/project/directory occurrence index | Logical participant slots; duplicate slots fail ambiguous |
-| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | A pre-acquisition question set whose entries each embed one exact immutable product-owned typed selection request and non-empty endpoint-slot scope; intent derives from the request arm. Pairing then seals admitted, endpoint-absent, and terminal participant domains (including distinct ambiguous/failed pairing outcomes), and the non-empty correlation manifest expands each question's slots to exactly those domain/scope entries, followed by independent terminal or `Selected` / proven `Absent` / `Failed` scope outcomes and a completed receipt retaining the exact requests, questions, domains, manifest, scopes, and proofs |
+| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | A pre-acquisition question set whose entries each embed one exact immutable product-owned typed selection request and non-empty endpoint-slot scope; intent derives from the request arm. Pairing then seals admitted, endpoint-absent, and terminal participant domains (including distinct ambiguous/failed pairing outcomes), and the non-empty correlation manifest expands each question's slots to exactly those domain/scope entries, followed by independent terminal or `Selected` / proven `Absent` / `Failed` scope outcomes and a completed receipt retaining exact inert snapshots of the requests, questions, domain keys/payloads, manifest, scopes, and proofs without retaining live pairings or participants |
 | `CSharpBodyDiff` raw-key/occurrence index | Scope-local participant pairing plus `MemberBodyCorrespondenceKey` and role |
 | Correspondence collision rejected or selected by occurrence | `CorrespondenceAmbiguousKey` retaining every colliding side-local attempt, plus per-attempt counterpart-unavailable work items |
 | Scope-free `CorrespondedKey` and cross-scope aliases | Scope-local corresponded keys, collision buckets, aliases, and taint; independent scopes remain independent proof domains |
@@ -1379,21 +1474,22 @@ The target lifecycle is unverified until these gates exist:
 
 | Gate | Surface | Fails if |
 | --- | --- | --- |
-| Endpoint-manifest totality | Artifact adapters + Queries over package `Preferred`, explicit/all TFM/RID, distinct/shared/absent implementation roles, project outputs/dependencies, platform, directory, two-bundle embedded workspace, cross-source, explicit endpoint absence, and single/mixed/two-sided failed endpoints | Request and outcome `(Side, Id)` sets differ; the pairing plan omits or repeats a request; a duplicate/rekeyed/cross-side outcome occupies another request; failed/omitted acquisition is treated as `Absent`; a failed slot's outcome map differs from its exact requested arms, its terminal-key set is empty/inexact, one terminal reason/diagnostic is lost, or a realized opposite is reclassified one-sided instead of retained as tainted input summary; one endpoint is forced to one participant; a realized endpoint has an empty/unsealed manifest; a real selected inventory differs from its manifest; the manifest differs from the workspace role generation, loses or duplicates a role participant, treats shared-group reuse as correspondence, fabricates an implementation for a reference-only surface, or reconstructs role correspondence from asset layout; an embedded pair lacks a host-issued paired designation or uses workspace context/`ContentRef` as cross-side identity; or pairing differs from a failure-free manifest union |
-| Participant correspondence | Workspace roles + adapters + Queries over same/distinct/reference-only selection/body roles, repeated/equal-identity, colliding/reordered manifest-local input ids, duplicate-slot, swapped/foreign/missing/extra payload-identity, same-source direct inputs, absent/available content-digest, and reordered-input fixtures | The acquisition slot-outcome set differs from the endpoint plan; a planned participant key omits the endpoint key, side, manifest revision, or local id; a direct participant key omits the designation id or side; equal local ids across manifests/direct sides collapse, make valid outcomes overlap, or permit silent shortening; a participant outcome set does not partition its exact qualified manifest union; an outcome's input set differs from its admitted binding identities or complete ambiguity/failure payload identities; participant pairing requests or requires a content digest; the adapter, Implementation Diff, Metadata, or Research reconstructs same-side role correspondence or translates a nullable compatibility lookup; path/version/TFM/RID/`ContentRef`/digest/MVID/registration/role-manifest id, physical method/body address, or occurrence becomes cross-version pairing identity/evidence; duplicate logical slots select one; an `Ambiguous` or `Failed` pairing outcome exposes an admitted binding or is omitted, reconstructed downstream, or loses its exact slot/outcome id/kind, complete upstream payload, reason, or diagnostic when lowered to a terminal domain; direct admitted keys differ from the two side-qualified designation inputs or bindings do not use `SameSelection`; or adding a participant renumbers another |
-| Selection-correlation totality | CLI/host + Queries over explicit/enumerative questions spanning one/multiple endpoint slots and admitted pairings, two-sided endpoint absence, single/mixed/two-sided endpoint failure, all-failed and mixed admitted/failed endpoint populations, all-ambiguous and mixed admitted/ambiguous participant-pairing outcomes, one question over multiple slots with colliding slot-local terminal ids, multiple questions over one ambiguous slot, zero-result filters, reordered inputs, omitted/substituted/mixed/reparented questions/requests/scopes/domains, and direct lowering | A question does not embed its exact immutable typed selection request; a request is omitted, rekeyed, substituted, or disagrees with its derived intent; the pre-acquisition question ids or endpoint-slot scopes differ from the sealed question set; a question names no slot or an unknown slot; an endpoint slot expands to no domain; any `Admitted(Paired \| BeforeOnly \| AfterOnly)`, `Ambiguous`, or `Failed` participant outcome lacks exactly one matching admitted/terminal participant domain; terminal participant domain keys omit the endpoint-slot id or collide when different slots reuse one local outcome id; pairing outcomes differ from the sealed slot-owned admitted/endpoint-absent/failed participant-domain set; a failed endpoint domain loses any requested outcome key, terminal payload/diagnostic, or realized tainted-input summary; a correlation changes its question/selection/derived intent/slot scope, lacks the exact domain expansion of those slots, omits an endpoint-absent, ambiguous, or failed domain, or duplicates a domain; a scope is missing, extra, belongs to multiple correlations, disagrees on correlation/domain, or is omitted before selection; a terminal domain fabricates a participant/side inventory/request; a terminal pairing domain loses its exact slot/outcome id/kind/payload/reason/diagnostic or lacks a question-local participant-failed work item; query input, plan, and receipt request/question/domain/manifest/scope sets differ; a selected or failed correlated scope still yields no-match; a correlation made entirely of endpoint-absent/admitted-two-sided-absent scopes does not yield typed no-match; an all-ambiguous or all-failed correlation cannot complete with retained failures; an enumerative terminal failure becomes silent; an enumerative proven-empty correlation invents evidence; or direct lowering lacks its one internal slot outcome/request/question/admitted-domain/scope |
+| Endpoint-manifest totality | Artifact adapters + Queries over package `Preferred`, explicit/all TFM/RID, distinct/shared/absent implementation roles, project outputs/dependencies, platform, directory, two-bundle embedded workspace, cross-source, explicit endpoint absence, wrong-arm requests, and single/mixed/two-sided failed endpoints | Request and outcome `(Side, Id)` sets differ; the pairing plan omits or repeats a request or places it in an arm that disagrees with `ComparisonEndpointKey.Side`; a duplicate/rekeyed/cross-side outcome occupies another request; failed/omitted acquisition is treated as `Absent`; a failed slot's outcome map differs from its exact requested arms, any outcome key disagrees with its source arm, its terminal-key set is empty/inexact, one terminal reason/diagnostic is lost, or a realized opposite is reclassified one-sided instead of retained as tainted input summary; one endpoint is forced to one participant; a realized endpoint has an empty/unsealed manifest; a real selected inventory differs from its manifest; the manifest differs from the workspace role generation, loses or duplicates a role participant, treats shared-group reuse as correspondence, fabricates an implementation for a reference-only surface, or reconstructs role correspondence from asset layout; an embedded pair lacks a host-issued paired designation or uses workspace context/`ContentRef` as cross-side identity; or pairing differs from a failure-free manifest union |
+| Participant correspondence | Workspace roles + adapters + Queries over same/distinct/reference-only selection/body roles, repeated/equal-identity, colliding/reordered manifest-local input ids, duplicate-slot, wrong-arm/swapped/foreign/missing/extra payload-identity, same-source direct inputs, absent/available content-digest, and reordered-input fixtures | The acquisition slot-outcome set differs from the endpoint plan; a planned participant key omits the endpoint key, side, manifest revision, or local id; a direct participant key omits the designation id or side; a qualified key's side disagrees with its pairing binding arm; equal local ids across manifests/direct sides collapse, make valid outcomes overlap, or permit silent shortening; a participant outcome set does not partition its exact qualified manifest union; an outcome's input set differs from its admitted binding identities or complete ambiguity/failure payload identities; participant pairing requests or requires a content digest; the adapter, Implementation Diff, Metadata, or Research reconstructs same-side role correspondence or translates a nullable compatibility lookup; path/version/TFM/RID/`ContentRef`/digest/MVID/registration/role-manifest id, physical method/body address, or occurrence becomes cross-version pairing identity/evidence; duplicate logical slots select one; an `Ambiguous` or `Failed` pairing outcome exposes an admitted binding or is omitted, reconstructed downstream, or loses its exact slot/outcome id/kind, complete upstream payload, reason, or diagnostic when lowered to a terminal domain; direct admitted keys differ from the two side-qualified designation inputs or bindings do not use `SameSelection`; or adding a participant renumbers another |
+| Selection-correlation totality | CLI/host + Queries over explicit/enumerative questions spanning one/multiple endpoint slots and admitted pairings, two-sided endpoint absence, single/mixed/two-sided endpoint failure, all-failed and mixed admitted/failed endpoint populations, all-ambiguous and mixed admitted/ambiguous participant-pairing outcomes, one question over multiple slots with colliding slot-local terminal ids, multiple questions over one ambiguous slot, zero-result filters, reordered inputs, omitted/substituted/mixed/reparented questions/requests/scopes/domains, inert receipt lowering, and direct lowering | A question does not embed its exact immutable typed selection request; a request is omitted, rekeyed, substituted, or disagrees with its derived intent; the pre-acquisition question ids or endpoint-slot scopes differ from the sealed question set; a question names no slot or an unknown slot; an endpoint slot expands to no domain; any `Admitted(Paired \| BeforeOnly \| AfterOnly)`, `Ambiguous`, or `Failed` participant outcome lacks exactly one matching admitted/terminal participant domain; terminal participant domain keys omit the endpoint-slot id or collide when different slots reuse one local outcome id; pairing outcomes differ from the sealed slot-owned admitted/endpoint-absent/failed participant-domain set; a failed endpoint domain loses any requested outcome key, terminal payload/diagnostic, or realized tainted-input summary; a correlation changes its question/selection/derived intent/slot scope, lacks the exact domain expansion of those slots, omits an endpoint-absent, ambiguous, or failed domain, or duplicates a domain; a scope is missing, extra, belongs to multiple correlations, disagrees on correlation/domain, or is omitted before selection; a terminal domain fabricates a participant/side inventory/request; a terminal pairing domain loses its exact slot/outcome id/kind/payload/reason/diagnostic or lacks a question-local participant-failed work item; receipt domain keys differ from the live domain set or an admitted/terminal snapshot loses, substitutes, or wrong-sides an input binding; query input, plan, and receipt request/question/domain-key/manifest/scope sets differ; a selected or failed correlated scope still yields no-match; a correlation made entirely of endpoint-absent/admitted-two-sided-absent scopes does not yield typed no-match; an all-ambiguous or all-failed correlation cannot complete with retained failures; an enumerative terminal failure becomes silent; an enumerative proven-empty correlation invents evidence; or direct lowering lacks its one internal slot outcome/request/question/admitted-domain/scope |
 | Body-target attempt totality | Research + Queries over same/distinct/reference-only selection/body roles, AssemblyRef-version-only drift, accessor roles, signature drift, same-scope and split-across-scope correspondence-key collisions, multi-participant selectors, overlapping selectors, endpoint/two-sided participant absence, selection/resolution failure, incomplete `All`, bodyless methods, and participant ambiguity/failure | An admitted scope side is not exactly `Selected`, proven `Absent`, or `Failed`; an endpoint-absent or participant-failed scope has side outcomes or target requests; an endpoint-absent scope invents a work item or loses either proof; an ambiguous/failed participant domain lacks exactly one question-local terminal work item and complete failure ledgers or invokes selection/resolution/producers; the completed participant-domain/scope outcome set differs from the sealed manifest/query input or plan; a two-sided absent admitted scope disappears, invents a work item, or is inferred from an empty work-item set; selected request ids differ from their requests; a failed/incomplete/ambiguous census becomes absence or a shortened selected set; a target request is not already scope/side/participant/role-generation scoped; selection enumerates the implementation role or body resolution uses the selection surface when a distinct implementation was designated; a reference-only binding invokes Metadata, becomes `Absent`/`Bodyless`/semantic add-remove, or lacks one unavailable attempt and complete failure ledgers; an exact target omits or bypasses relationship-role validation; one strict target is fanned across versions/participants; a selection failure invokes body resolution; one request lacks exactly one attempt; one attempt maps to zero/multiple work items; a same-scope collision lacks one side-scoped ambiguity work item keyed by the authoritative `CorrespondenceAmbiguousKey` and retaining all colliding attempts; a split-across-scope collision creates ambiguity, duplicate-key rejection, or cross-scope aliasing; a dependent opposite attempt lacks its own counterpart-unavailable item; a work item lacks attempts or question-local failure identity; correlation ids authorize matching; `AttemptMap`, aliases, and discriminated keys differ; remove/add shares one request/key/attempt; bodyless becomes a resolution failure; or aliases weaken exact/strict/correspondence validation |
 | Counterpart and body-presence disposition | Research C#/IL/body-signal tests over bodyful/bodyful, resolved bodyless/bodyful and bodyful/bodyless, proven-one-sided bodyful/bodyless, failed selector, failed body-key resolution, correspondence ambiguity, ambiguous/failed participant pairing, failed endpoint, and bodyless/bodyless scopes | Two bodyful sides bypass the producer; producer authority lacks one native exact/different verdict or carries body-presence evidence; a resolved or proven-one-sided exactly-one-bodyful item lacks a session-authoritative `Compared(Different, BodyAdded \| BodyRemoved)` value or exactly one matching `BodyEvidenceResearchChange` session arm; optional single-side display evidence supplies another verdict; a missing-body native result becomes `Failed(ComparisonUnavailable)`; a failed/incomplete/ambiguous counterpart or terminal participant domain produces semantic pair/add/remove or Source eligibility instead of its typed terminal failure; an attempt appears in both failure items; a failure-free unambiguous matched coordinate is tainted; no bodyful side is not `Absent(NoBody)`; or bodyless becomes a target failure |
-| Planned population ownership | Source-architecture + non-vacuity mutations | A plan/session/projector escapes Research/Queries; a producer enumerates or filters its own population; a completed result retains a callback/plan; a public constructor, `init`, or record copy fabricates/mutates a planned result; or removing, adding, or duplicating one disposition does not reject completion |
+| Planned population ownership | Source-architecture, completed-result type-closure, and non-vacuity mutations | A plan/session/projector escapes Research/Queries; a producer enumerates or filters its own population; a completed-result constructor or retained field can carry a live pairing, role manifest/binding, participant, source, reader, group, workspace/session, plan, callback, lease, producer-native object, or content-opening authority; a public constructor, `init`, or record copy fabricates/mutates a planned result; or removing, adding, or duplicating one disposition does not reject completion |
+| Completed payload inertness | Source-architecture + mechanism-catalog payload-type set equality + success/failure/partial-evidence post-disposal fixtures | A mechanism lacks one catalog-declared typed snapshot DTO/lowering; a host or producer can add an unregistered payload type; a snapshot DTO field/type closure can reference a reader, source, participant, role object, workspace/session, callback, lease, stream, `ContentRef`, or other opening/selection authority; completion retains the producer-native object or skips snapshotting failed partial evidence; a snapshot loses typed native evidence needed by a ledger/change; or full result enumeration after disposal touches producer state |
 | Mechanism dependency totality | Research + Queries with empty selection, Source-only selection, C#-only change, IL-only change, both exact, proven one-sided change, failed/ambiguous counterpart, native comparison unavailable, Finding inspection/cross-validation failure, and presentation-filter mutations | An empty set or Source without a requested local mechanism is accepted; a known required dependency is absent; Source omits a requested local prerequisite; a failed prerequisite, counterpart, correspondence, native comparison, Finding inspection, or cross-validation performs I/O; a proven one-sided change becomes `NotEligible`; no-change performs I/O; or presentation affects eligibility |
 | Synchronous mechanism ownership | Research API and harness tests over `ResearchChangeMechanism` and `ImplementationDiffMechanism` | Either default/context-free `AllAvailable` includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; a retired assembly overload remains; or a host runner does not declare its complete set |
-| Async query lifetime | Queries + CLI with revoked authorization, borrowed sessions, completion validation failure, success-plus-cleanup failure, primary-plus-cleanup failure, cancellation, and single-threaded awaited reentrancy | Begin/project/complete escape one current lease; the assembly/package CLI opens a reader/session around Research; direct `match` use escapes its selector source/designation lifetime; a borrowed session is disposed; an owned lease leaks; a failed query lacks the typed outer arm or exposes a partial/completed result; cleanup replaces a primary failure or loses its diagnostic; `ImplementationDiffResult.HasFailures` absorbs query failure; cancellation returns an outcome or partial/failure-shaped result; or Browser/Wasm requires threads/blocking |
+| Async query lifetime | Queries + CLI with revoked authorization, borrowed sessions, completion validation failure, success-plus-cleanup failure, primary-plus-cleanup failure, cancellation, post-disposal full-result enumeration, and single-threaded awaited reentrancy | Begin/project/complete escape one current lease; the assembly/package CLI opens a reader/session around Research; direct `match` use escapes its selector source/designation lifetime; a borrowed session is disposed; an owned lease leaks; a completed result reaches disposed participant/group/source/reader state or cannot enumerate every receipt/ledger/native/change/presentation value after cleanup; a failed query lacks the typed outer arm or exposes a partial/completed result; cleanup replaces a primary failure or loses its diagnostic; `ImplementationDiffResult.HasFailures` absorbs query failure; cancellation returns an outcome or partial/failure-shaped result; or Browser/Wasm requires threads/blocking |
 | Authored-source budget | Queries boundary tests at one below/equal/one above every default, cached/uncached, retry/redirect, embedded/external PDB, shared documents, native/Browser transport-visible operations, varied scheduling, and raised-limit authorization | Any query-time PDB/source path lacks the same non-optional ledger lease; any operation/byte/decoded-text/retention/concurrency path bypasses accounting; a host raises a default without an invocation-scoped `AuthoredSourceBudgetOverrideCapability`; static `InspectionCost` is accepted as that grant; per-item/redirect limits replace the aggregate; exhaustion publishes any eligible success or scheduling changes an eligible item's disposition kind; or failure omits dimension/limit/charge |
-| Direct-member pairing authority | Research, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, and designation lifetime expiry | `CompareMembers` accepts raw sources/handles instead of `DirectMemberComparisonInput`; designation creates a parallel pairing id rather than wrapping one direct-slot `ArtifactParticipantPairing`; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own internal selection scope; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one `DesignatedMemberPairKey`; an endpoint path can mint that key; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; feeds assembly-wide comparison; or bypasses address/role validation |
+| Direct-member pairing authority | Research, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, wrong-side direct keys, and designation lifetime expiry | `CompareMembers` accepts raw sources/handles instead of `DirectMemberComparisonInput`; designation creates a parallel pairing id rather than wrapping one direct-slot `ArtifactParticipantPairing`; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own internal selection scope; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one `DesignatedMemberPairKey`; an endpoint path can mint that key; a direct input key's side disagrees with its binding arm; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; the completed direct result retains the designation, participant, or source; feeds assembly-wide comparison; or bypasses address/role validation |
 | Finding cross-validation totality | Research + Queries over semantic success plus Finding acquisition failure, semantic/Finding disagreement, duplicate generic diagnostics, partial IL payload, and Source requested | The final mechanism ledger remains `Compared`; the same work item/mechanism has both `Compared` and `Failed` outcomes; `HasFailures` is false; partial payload supplies a semantic verdict or Source eligibility; Source performs I/O; the selected CLI exits zero; or the failed row is missing/duplicated |
 | Direct-consumer outcome totality | Research + `match --implementation` + authored rebuild + round-trip/scope tests with failed C#, IL, address, and role dispositions, two-body native-unavailable results, resolved bodyless/bodyful transitions, all-bodyless mechanisms, and mixed exact/absent ledgers | `Compared` lacks exactly one exact-or-different verdict; two-body native unavailable is not `Failed(ComparisonUnavailable)`; missing-body native unavailable becomes failure; reduction does not follow `Unavailable` then `Different` then `Exact` then `NotApplicable` precedence; a direct result lacks ledger-derived `HasFailures`, typed diagnostics, or retained absence reasons; `match` exits zero for failure or nonzero for not-applicable; authored rebuild reports `IlDifferent` for failed/not-applicable evidence; round-trip reports `Changed`/`Exact` for either; or a consumer drops the diagnostic/absence reason instead of mapping it to nonzero/context-failed/unavailable or typed not-applicable |
 | Ledger output visibility | CLI text/Markdown/table/TSV/JSON/JSONL over producer-lined evidence, multiple producer changes, producer-different Body Signals/no-line evidence, session body-presence evidence with no adapter and with every optional line filtered, producer exact/no-line controls, presentation-safe failed partial IL evidence, pre-producer single/multi-outcome endpoint/participant/selection/target/correspondence failure, native comparison unavailable, Source missing mapping, Source not eligible, query/cleanup failure, changed/native-line filtering, row windows including `--jsonl --rows 1`, and `Member`-/empty-field-only projections over ledger and query failures | A completed or failed query cannot use the one schema; a producer `Compared(Different)` has an empty/incomplete/duplicate change set or any retained producer change with no post-filter line lacks exactly one native typed fallback; a session `Compared(Different)` with no post-filter line lacks exactly one body-presence fallback; `Compared(Exact)` emits a fallback; optional lines losing a filter erase a difference; a failed disposition lacks one mandatory diagnostic, a failed endpoint slot omits any terminal request's diagnostic/outcome context, partial evidence supplies a verdict/replaces that diagnostic, or presentation-safe partial evidence has no defined ordinary row; Source `MissingMapping` is hidden or `NotEligible` is forced visible; structured output loses `recordKind`, disposition, typed producer/body-presence change, partial-evidence classification, or typed reason; evidence does not count toward the semantic row window; diagnostic records count against or are suppressed by that window; the integrity descriptor and section schema differ; a user projection removes any required integrity column when diagnostics exist or changes successful diagnostic-free projection; JSONL emits a second table/ad hoc object; or ordering is nondeterministic |
-| Result and exit totality | Research + CLI text/Markdown/table/TSV/JSON/JSONL with public-construction attempts, duplicate member subjects across participants, complete/omitted explicit/enumerative selection correlations over admitted/endpoint-absent/terminal domains, empty-mechanism rejection, producer/session difference with and without visible lines, bodyless `Absent`, mixed exact/absent, all-absent direct results, hidden/windowed/projected target, participant, correspondence, mechanism, Finding acquisition/cross-validation, budget, query, cleanup, and direct-result failures plus other `Absent` controls | A planned result can be publicly constructed, copied, or enriched; its receipt loses a sealed question or its exact selection request/endpoint-slot scope, participant domain, correlation manifest, expected scope, side outcome, or absence proof; an endpoint-absent domain loses proof, a failed endpoint domain loses any request outcome/terminal diagnostic/tainted realized summary, or an ambiguous/failed participant domain is omitted, collapsed, or permits explicit no-match; equal subjects in distinct work items collapse; a producer/session difference lacks its required `BodyEvidenceResearchChange` or post-filter evidence row; a presentation row loses its work-item/participant context; a planned empty mechanism set completes; a failure disappears from retained ledgers/query outcome; completed-result `HasFailures` absorbs outer failure; selected Implementation Diff exits zero for a failure; `Absent` exits nonzero; all-absent has no `NotApplicable` arm; mixed exact/absent loses its absence reason; or ledger/query failure produces empty or contentless projected output |
+| Result and exit totality | Research + CLI text/Markdown/table/TSV/JSON/JSONL with public-construction attempts, duplicate member subjects across participants, complete/omitted explicit/enumerative selection correlations over admitted/endpoint-absent/terminal domains, empty-mechanism rejection, producer/session difference with and without visible lines, bodyless `Absent`, mixed exact/absent, all-absent direct results, hidden/windowed/projected target, participant, correspondence, mechanism, Finding acquisition/cross-validation, budget, query, cleanup, and direct-result failures plus other `Absent` controls | A planned result can be publicly constructed, copied, or enriched; its receipt loses a sealed question or its exact selection request/endpoint-slot scope, inert participant-domain snapshot, correlation manifest, expected scope, side outcome, or absence proof, or retains a live domain/pairing/role object instead; an endpoint-absent domain loses proof, a failed endpoint domain loses any request outcome/terminal diagnostic/tainted realized summary, or an ambiguous/failed participant domain is omitted, collapsed, or permits explicit no-match; equal subjects in distinct work items collapse; a producer/session difference lacks its required `BodyEvidenceResearchChange` or post-filter evidence row; a presentation row loses its work-item/participant context; a planned empty mechanism set completes; a failure disappears from retained ledgers/query outcome; completed-result `HasFailures` absorbs outer failure; selected Implementation Diff exits zero for a failure; `Absent` exits nonzero; all-absent has no `NotApplicable` arm; mixed exact/absent loses its absence reason; or ledger/query failure produces empty or contentless projected output |
 
 ## Current mismatches
 

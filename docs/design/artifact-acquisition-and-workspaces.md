@@ -412,10 +412,12 @@ ComparisonEndpointRequest
 
 ComparisonEndpointPairingSlot
   Id                     opaque host-issued comparison-scope identity
-  Before/After           Request(ComparisonEndpointKey) | Absent(proof)
+  Before                 Request(key with Side = Before) | Absent(proof)
+  After                  Request(key with Side = After) | Absent(proof)
 
 ComparisonEndpointPairingPlan
   Slots                  sealed before acquisition; every request appears once
+                         in the arm matching its key's Side
 
 ComparisonEndpointOutcome
   Key                    exact originating ComparisonEndpointKey
@@ -462,7 +464,8 @@ ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
   Authority              LogicalSlot | DirectMemberDesignation
   Kind                   Paired | BeforeOnly | AfterOnly
-  Before/After           exact role binding + ArtifactParticipantInputKey |
+  Before/After           exact role binding + input key whose origin Side
+                         matches the binding arm |
                          proven Absent
 
 ArtifactParticipantPairingOutcome
@@ -506,8 +509,12 @@ ComparisonEndpointPairingSlotOutcomeSet
 ```
 
 The host seals the endpoint-pairing plan and request-key set before acquisition.
-Every request appears in exactly one pairing-slot side. An `Absent` side is a
-typed proof that no endpoint exists there, not a failed or omitted request.
+Every request appears in exactly one pairing-slot arm, and the arm must equal
+`ComparisonEndpointKey.Side`: a `Before` key cannot occupy an `After` arm or
+vice versa. Arm/key-side agreement is validated while sealing the plan, before
+acquisition, independently of exact-once coverage. An `Absent` side is a typed
+proof that no endpoint exists there, not a failed or omitted request.
+
 Every declared request produces exactly one endpoint outcome under the same
 `(Side, Id)` key. Outcome construction validates that the embedded key equals
 its map key, and sealing requires exact set equality between request and
@@ -575,7 +582,9 @@ local id)`. The endpoint key includes `Side`; equal local ids in independently
 sealed before/after manifests therefore remain distinct, and a manifest from
 another endpoint or revision cannot occupy the input's place. The manifest
 validates local-id uniqueness, while every later binding, candidate/affected
-payload, `Inputs` set, and `InputMap` uses only the qualified key.
+payload, `Inputs` set, and `InputMap` uses only the qualified key. Sealing also
+requires the planned key's endpoint side to match the pairing binding's
+`Before`/`After` arm; a qualified key cannot legitimize a wrong-arm request.
 
 The comparison coordinator accepts only a sealed pairing plan and endpoint
 outcome set and emits one sealed
@@ -604,7 +613,8 @@ the qualified keys represented by its complete affected-input payload. The
 direct path applies the same admitted equality after qualifying its two local
 ids as `Direct(designation id, Before)` and
 `Direct(designation id, After)`. Those keys remain distinct even when both
-methods use one live source. Missing, extra, foreign, or swapped payload
+methods use one live source. Their side must likewise match the direct
+pairing's binding arm. Missing, extra, foreign, wrong-arm, or swapped payload
 identities reject sealing even when `InputMap` by itself is a total partition.
 
 The outer slot-outcome set requires exact plan-slot/outcome equality and
@@ -623,7 +633,8 @@ realized entry retains its manifest revision and exact qualified input-key set
 as tainted context without retaining live participant bindings. `TerminalKeys`
 must equal the non-`Realized` map keys and must be non-empty. Embedded request
 and slot keys, the requested-key set, outcome-map key set, and terminal-key set
-are all validated for exact equality.
+are all validated for exact equality. Every outcome key must also match the
+slot arm from which it came.
 
 The failed slot does **not** classify entries from a realized opposite manifest
 as one-sided; the missing manifest cannot prove their absence. A two-sided
@@ -1187,6 +1198,7 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonEndpointOutcomeSet_EqualsDeclaredRequestKeys`
 - `ComparisonEndpointOutcome_RejectsRekeyedOrCrossSideResult`
 - `ComparisonEndpointPairingPlan_UsesEveryRequestExactlyOnce`
+- `ComparisonEndpointPairingPlan_RequiresArmSideAgreement`
 - `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
 - `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
 - `ComparisonEndpointFailure_RetainsEveryRequestedOutcome`
@@ -1202,6 +1214,7 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonParticipantPairingOutcomeSet_PartitionsInputSet`
 - `ComparisonPlannedPairingOutcomeSet_InputsEqualManifestUnion`
 - `ComparisonParticipantPairingOutcome_PayloadMatchesInputPartition`
+- `ComparisonParticipantPairingBinding_RequiresInputKeySideAgreement`
 - `ComparisonParticipantPairingTerminal_RetainsCompleteTypedPayload`
 - `ComparisonParticipantPairingTerminal_HasNoAdmittedBinding`
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
