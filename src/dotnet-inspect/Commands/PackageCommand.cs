@@ -365,6 +365,13 @@ public class PackageCommand
 
             var (versionQueryName, versionQueryPinned) = PackageExtractor.ParsePackageReference(packageArgs[0]);
             string normalizedName = versionQueryName.ToLowerInvariant();
+            if (PackageCoordinateResolver.Validate(
+                    new PackageCoordinate(normalizedName))
+                is { } invalidCoordinate)
+            {
+                CommandError.Write(invalidCoordinate.Message);
+                return 1;
+            }
             if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
             {
                 versionQueryPinned = null;

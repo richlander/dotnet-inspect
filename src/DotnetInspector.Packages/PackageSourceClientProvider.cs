@@ -1,4 +1,3 @@
-using System.Net;
 using DotnetInspector.Core;
 using NuGetFetch;
 
@@ -35,13 +34,19 @@ internal static class PackageSourceClientProvider
     internal static string ProducerKey(PackageSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        return ProducerKey(source.Url);
+    }
+
+    internal static string ProducerKey(string sourceUrl)
+    {
+        ArgumentNullException.ThrowIfNull(sourceUrl);
         string identity =
-            Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
+            Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? endpoint)
                 && endpoint.Scheme is "http" or "https"
                     ? PackageSourceIdentity
                         .ForProducerEndpoint(endpoint)
                         .Value
-                    : source.Url;
+                    : sourceUrl;
         return NuGetCache.GetSourceKey(identity);
     }
 
@@ -53,8 +58,6 @@ internal static class PackageSourceClientProvider
         using var trafficScope = NetworkTelemetry.Scope(trafficKind);
         FeedFailureTelemetry.Record(
             source.Url,
-            failure.Kind == PackageSourceFailureKind.AuthenticationRequired
-                ? HttpStatusCode.Unauthorized
-                : null);
+            failure.StatusCode);
     }
 }

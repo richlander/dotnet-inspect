@@ -288,6 +288,7 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserAssemblySurface selectedAssembly =
             Assert.Single(surface.Assemblies);
+        Assert.False(handler.ServiceIndexRequested);
         Assert.Equal(
             "aspnetcore.app",
             selectedAssembly.PlatformPack);
@@ -3830,6 +3831,7 @@ public sealed class BrowserEngineBoundaryTests
         byte[]? nupkg = null) : HttpMessageHandler
     {
         public int Requests { get; private set; }
+        public bool ServiceIndexRequested { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -3838,16 +3840,19 @@ public sealed class BrowserEngineBoundaryTests
             cancellationToken.ThrowIfCancellationRequested();
             Requests++;
             string url = request.RequestUri!.AbsoluteUri;
+            ServiceIndexRequested |= url.Equals(
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase);
             string package = packageId.ToLowerInvariant();
             if (url.Equals(
-                    $"https://api.nuget.org/v3-flatcontainer/{package}/index.json",
+                    $"https://globalcdn.nuget.org/v3-flatcontainer/{package}/index.json",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return Json($$"""{"versions":["{{version}}"]}""");
             }
 
             if (url.Equals(
-                    $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
+                    $"https://globalcdn.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return Json(
@@ -3858,7 +3863,7 @@ public sealed class BrowserEngineBoundaryTests
 
             if (nupkg is not null
                 && url.Equals(
-                    $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg",
+                    $"https://globalcdn.nuget.org/packages/{package}.{version}.nupkg",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(
@@ -3900,7 +3905,7 @@ public sealed class BrowserEngineBoundaryTests
             {
                 string package = packageId.ToLowerInvariant();
                 if (url.Equals(
-                        $"https://api.nuget.org/v3-flatcontainer/{package}/index.json",
+                        $"https://globalcdn.nuget.org/v3-flatcontainer/{package}/index.json",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     return await Json(
@@ -3908,7 +3913,7 @@ public sealed class BrowserEngineBoundaryTests
                 }
 
                 if (url.Equals(
-                        $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
+                        $"https://globalcdn.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     return await Json(
@@ -3919,7 +3924,7 @@ public sealed class BrowserEngineBoundaryTests
                 }
 
                 if (url.Equals(
-                        $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg",
+                        $"https://globalcdn.nuget.org/packages/{package}.{version}.nupkg",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     BeforeDownload?.Invoke(packageId);

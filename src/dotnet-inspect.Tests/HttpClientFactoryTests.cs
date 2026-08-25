@@ -215,6 +215,39 @@ public class HttpClientFactoryTests : IDisposable
                 injected));
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public void PackageSourceClientProvider_ProjectsExactHttpStatus(
+        HttpStatusCode status)
+    {
+        var source = new NuGetFetch.PackageSource(
+                "private",
+                "https://private.example/v3/index.json");
+        var failure = new NuGetFetch.PackageSourceFailure(
+                NuGetFetch.PackageSourceIdentity.ForHttpEndpoint(
+                    new Uri(source.Url)),
+                NuGetFetch.PackageSourceKind.NuGetV3,
+                NuGetFetch.PackageSourceCapabilities.VersionEnumeration,
+                Coordinate: null,
+                NuGetFetch.PackageSourceFailureKind.Transport,
+                "The source operation failed.",
+                status);
+        using var scope = FeedFailureTelemetry.Scope();
+
+        PackageSourceClientProvider.RecordFailure(
+                source,
+                failure,
+                NetworkTrafficKind.PackageVersionList);
+
+        var described =
+                FeedFailureTelemetry.Current!.DescribeFailure("contoso");
+        Assert.NotNull(described);
+        Assert.Contains($"{(int)status}", described.Value.ToString());
+    }
+
     [Fact]
     public async Task PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect()
     {

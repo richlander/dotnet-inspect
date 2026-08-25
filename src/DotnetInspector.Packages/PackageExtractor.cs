@@ -1596,7 +1596,9 @@ public static class PackageExtractor
         bool skipCache = false,
         bool includePrerelease = false,
         bool requireCompleteSources = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<NuGetSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         string normalizedName = packageName.ToLowerInvariant();
         NuGet.Versioning.NuGetVersion? bestStable = null;
@@ -1637,7 +1639,8 @@ public static class PackageExtractor
                         source,
                         log,
                         includePrerelease,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        borrowedSourceClientFactory).ConfigureAwait(false);
                 string? fetchedVersion =
                     NormalizeCandidateVersion(lookup.Version);
 
@@ -1813,13 +1816,16 @@ public static class PackageExtractor
         string packageName,
         NuGetSource source,
         Action<string>? log,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<NuGetSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         using var failureScope = FeedFailureTelemetry.Scope();
         log?.Invoke(
             $"Fetching versions from: {PackageSourceDisplay.ForDiagnostics(source)}");
-        using IPackageSourceClient sourceClient =
-            PackageSourceClientProvider.Create(source, client);
+        IPackageSourceClient sourceClient =
+            borrowedSourceClientFactory?.Invoke(source)
+            ?? PackageSourceClientProvider.Create(source, client);
         using var trafficScope =
             NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
         PackageSourceOperationResult<PackageVersionResult> operation;
@@ -1834,6 +1840,11 @@ public static class PackageExtractor
         {
             log?.Invoke("Network access is disabled (--offline mode).");
             return SourceVersionList.Failure;
+        }
+        finally
+        {
+            if (borrowedSourceClientFactory is null)
+                sourceClient.Dispose();
         }
         if (operation
             is PackageSourceOperationResult<PackageVersionResult>.Failed failed)
@@ -2171,9 +2182,33 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log,
         bool includePrerelease,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<NuGetSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         using var failureScope = FeedFailureTelemetry.Scope();
+
+        if (borrowedSourceClientFactory is not null)
+        {
+            SourceVersionList typedLookup =
+                await FetchAllVersionsFromSourceAsync(
+                    client,
+                    packageName,
+                    source,
+                    log,
+                    cancellationToken,
+                    borrowedSourceClientFactory).ConfigureAwait(false);
+            if (typedLookup.Versions is not { } typedVersions)
+            {
+                return typedLookup.Failed || typedLookup.SourceMissing
+                    ? SourceLatestVersion.Failure
+                    : SourceLatestVersion.Absent;
+            }
+
+            return PickLatest(typedVersions, includePrerelease) is { } typed
+                ? SourceLatestVersion.Found(typed)
+                : SourceLatestVersion.Absent;
+        }
 
         // For nuget.org, use the search API — returns latest version directly without listing all versions.
         // Throwaway scope: search is best-effort before the authoritative flat-container
@@ -2503,7 +2538,9 @@ public static class PackageExtractor
         Action<string>? log,
         bool useCache,
         bool requireCompleteSources,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<NuGetSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         string normalizedName = packageName.ToLowerInvariant();
         var perSource = await FetchListingsPerSourceAsync(
@@ -2513,7 +2550,8 @@ public static class PackageExtractor
             log,
             useCache,
             cancellationToken,
-            requireCompleteSources).ConfigureAwait(false);
+            requireCompleteSources,
+            borrowedSourceClientFactory).ConfigureAwait(false);
         if (perSource is null)
             return (null, HasIncompleteMetadata: false);
         if (perSource.Any(candidate => !candidate.Authoritative))
@@ -2823,7 +2861,9 @@ public static class PackageExtractor
         Action<string>? log,
         bool useCache = true,
         CancellationToken cancellationToken = default,
-        bool requireCompleteSources = false)
+        bool requireCompleteSources = false,
+        Func<NuGetSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         var perSource = new List<SourceVersionListings>();
 
@@ -2876,7 +2916,8 @@ public static class PackageExtractor
                         normalizedName,
                         source,
                         log,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        borrowedSourceClientFactory).ConfigureAwait(false);
             }
             if (listings == null)
             {
@@ -2982,8 +3023,48 @@ public static class PackageExtractor
         string packageName,
         NuGetSource source,
         Action<string>? log,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<NuGetSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
+        if (borrowedSourceClientFactory is not null)
+        {
+            IPackageSourceClient sourceClient =
+                borrowedSourceClientFactory(source);
+            PackageSourceOperationResult<PackageVersionResult> operation =
+                await sourceClient.GetVersionsAsync(
+                    packageName,
+                    cancellationToken).ConfigureAwait(false);
+            if (operation
+                is PackageSourceOperationResult<PackageVersionResult>.Failed
+                    failed)
+            {
+                RecordVersionSourceFailure(source, failed.Failure);
+                return (
+                    null,
+                    Authoritative: true,
+                    Failed: failed.Failure.Kind
+                        != PackageSourceFailureKind.NotFound,
+                    SourceMissing: failed.Failure.Kind
+                        == PackageSourceFailureKind.Unsupported);
+            }
+
+            PackageVersionResult result =
+                ((PackageSourceOperationResult<PackageVersionResult>.Succeeded)
+                    operation).Value;
+            return (
+                [
+                    .. result.Candidates.Select(candidate =>
+                        new PackageVersionInfo(
+                            candidate.Coordinate.Version,
+                            candidate.ListingState
+                                != PackageListingState.Unlisted)),
+                ],
+                result.HasAuthoritativeListingState,
+                Failed: !result.HasAuthoritativeListingState,
+                SourceMissing: false);
+        }
+
         SourceVersionList lookup = await FetchAllVersionsFromSourceAsync(
             client,
             packageName,

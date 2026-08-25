@@ -193,7 +193,9 @@ public static class PackageCoordinateResolver
         bool includePrerelease = false,
         bool useVersionCache = false,
         bool requireStableFloating = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<PackageSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(coordinate);
@@ -237,7 +239,8 @@ public static class PackageCoordinateResolver
                 skipCache: !useVersionCache,
                 includePrerelease,
                 requireCompleteSources: requireStableFloating,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                borrowedSourceClientFactory).ConfigureAwait(false);
         if (resolution is null)
         {
             return new PackageCoordinateResolution.Unavailable(
@@ -291,7 +294,9 @@ public static class PackageCoordinateResolver
         Action<string>? log = null,
         bool includePrerelease = true,
         bool useVersionCache = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<PackageSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(packageId);
@@ -318,7 +323,9 @@ public static class PackageCoordinateResolver
                 log,
                 useVersionCache,
                 requireCompleteSources: true,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+                cancellationToken: cancellationToken,
+                borrowedSourceClientFactory:
+                    borrowedSourceClientFactory).ConfigureAwait(false);
         if (hasIncompleteMetadata)
         {
             return new PackageVersionListingResult.Unavailable(

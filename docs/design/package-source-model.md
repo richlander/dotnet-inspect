@@ -78,7 +78,9 @@ content domains separate. Credentials selected for a configured endpoint may
 be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
 Runtime v3 clients own isolated credential-free transports rather than
-accepting a shared client or opaque caller handler. Their default handler
+accepting a shared client or opaque caller handler. The desktop compatibility
+adapter may borrow a host-selected per-origin transport without transferring
+ownership. Their default handler
 disables cookies, default credentials, and preauthentication on desktop.
 Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
@@ -89,7 +91,7 @@ redirects is rejected as a source-response safety-bound failure. Malformed raw
 targets, unusable IDNA hosts, and embedded user information are rejected before
 another request is formed.
 This is gated by
-`RuntimeFactoriesDoNotAcceptSharedHttpClient` and
+`OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
 `BrowserNuGetRequestsOmitAmbientCredentials`,
@@ -101,13 +103,18 @@ This is gated by
 
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while
-retaining its query and fragment only in runtime transport configuration. This
-does not change the stricter endpoint identity used for credential adoption or
-legacy caches. Portable descriptors reject queries and fragments. Two immutable
+retaining its query and fragment only in runtime transport configuration.
+Payload authorization, alias collapse, cache admission, and
+realized-coordinate reload all compare that producer identity;
+transport-scoped version metadata continues to use the configured endpoint
+identity. Portable descriptors reject queries and fragments. Two immutable
 content domains that need distinct producer identities require distinct
 endpoint paths rather than a query-only distinction.
 `PackagePayloadAcquisitionTests.SignedSourceAlias_CommitsUnderProducerIdentity`
-gates payload admission and cache publication at that producer boundary.
+and
+`SourceScopedRoutingTests.SignedSourceRestrictionAuthorizesStableProducerIdentity`
+gate payload admission, cache publication, and authorization at that producer
+boundary.
 
 Package-source identity is broader than a NuGet v3 service-index URL. A
 standard v3 feed, the built-in NuGet Gallery browser implementation, and a
@@ -488,8 +495,9 @@ carry normalized coordinates, producer identity, discovery contract, and
 `listed`, `unlisted`, `unknown`, or `not-applicable` state. Exact payload
 results retain their coordinate, producer, transport profile, payload kind,
 and caller-owned stream. Expected source failures retain the source transport
-and exact coordinate when applicable, and are classified without retaining
-source URLs or response text. A payload stream remains deadline-bound after it
+and exact coordinate when applicable, retain the final HTTP status when one
+exists, and are classified without retaining source URLs or response text. A
+payload stream remains deadline-bound after it
 is returned, but a later consumption failure remains an exception because the
 operation result has already completed. These transport results do not yet
 perform multi-source aggregation and are not environment availability
@@ -511,6 +519,11 @@ existing feed-failure diagnostics during this compatibility migration. The
 typed v3 resource owner retries transient service-index, version-index, and
 exact-package requests within one bounded operation deadline; package-layer
 aggregation does not add another retry loop.
+Configured HTTP base sources are normalized to `/v3/index.json` for typed
+service-index requests while retaining signed query bytes; producer identity
+continues to describe the configured endpoint path. Service-index `@type`
+accepts the JSON-LD string and array forms, and every expanded
+`PackageBaseAddress` sibling is validated before selection.
 NuGet.org registration enrichment remains a separate package-layer capability;
 raw v3 candidate results do not claim authoritative listing state. The first
 cache pass still receives the complete ordered producer set before any network

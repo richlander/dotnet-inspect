@@ -331,7 +331,7 @@ public static class PackageSourceClientFactory
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
-            endpoint,
+            NormalizeServiceIndexEndpoint(endpoint),
             CreateOwnedTransport(endpoint),
             options ?? new NuGetFetchOptions(),
             source.Credential);
@@ -362,11 +362,39 @@ public static class PackageSourceClientFactory
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
-            endpoint,
+            NormalizeServiceIndexEndpoint(endpoint),
             client,
             options ?? new NuGetFetchOptions(),
             source.Credential,
             ownsClient: false);
+    }
+
+    internal static Uri NormalizeServiceIndexEndpoint(Uri endpoint)
+    {
+        if (endpoint.AbsolutePath.TrimEnd('/').EndsWith(
+                "index.json",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return endpoint;
+        }
+
+        string original = endpoint.OriginalString;
+        int query = original.IndexOf('?');
+        int fragment = original.IndexOf('#');
+        int suffixStart = query < 0
+            ? fragment
+            : fragment < 0
+                ? query
+                : Math.Min(query, fragment);
+        string path = suffixStart < 0
+            ? original
+            : original[..suffixStart];
+        string suffix = suffixStart < 0
+            ? ""
+            : original[suffixStart..];
+        return new Uri(
+            $"{path.TrimEnd('/')}/v3/index.json{suffix}",
+            UriKind.Absolute);
     }
 
     /// <summary>
@@ -462,6 +490,23 @@ public static class PackageSourceClientFactory
                 transport,
                 OperatingSystem.IsBrowser()),
             options ?? new NuGetFetchOptions());
+    }
+
+    /// <summary>
+    /// Creates the built-in Gallery client over a caller-owned transport.
+    /// </summary>
+    /// <remarks>
+    /// The returned source client does not dispose <paramref name="client"/>.
+    /// </remarks>
+    public static IPackageSourceClient CreateGallery(
+        HttpClient client,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        return new NuGetGalleryPackageSourceClient(
+            client,
+            options ?? new NuGetFetchOptions(),
+            ownsClient: false);
     }
 
     internal static IPackageSourceClient Create(
@@ -630,7 +675,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         bool ownsClient = true)
     {
         _identity = identity;
-        _endpoint = endpoint;
+        _endpoint =
+            PackageSourceClientFactory.NormalizeServiceIndexEndpoint(endpoint);
         _credential = credential;
         _client = client;
         _options = NuGetFetchOptions.Validate(options);

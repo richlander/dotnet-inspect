@@ -82,9 +82,16 @@ HTTP version enumeration and exact package payload requests use
 per-origin transport for production and preserves an injected transport for
 tests; multi-source semantic-version selection, NuGet.org registration
 enrichment, cache authority, and source failover remain package-layer policy.
+The Browser workspace supplies its host-bound Gallery client through the same
+borrowed-client seam, so platform version and payload acquisition use the
+Gallery flat-container, registration, and package CDN routes without requesting
+the blocked NuGet.org service index.
 Every advertised `PackageBaseAddress` resource is validated before one is
-selected, so an unusable or credential-bearing sibling still makes the source
-incomplete. Service-index, version-index, and exact-package requests use the
+selected, including siblings named by an array-valued JSON-LD `@type`, so an
+unusable or credential-bearing sibling still makes the source incomplete.
+Configured base sources are normalized to `/v3/index.json` while signed query
+bytes remain unchanged. Service-index, version-index, and exact-package
+requests use the
 source-owned bounded transient retry policy within one operation deadline;
 absence and authentication failures are not retried.
 `PackageCoordinateResolverTests`,

@@ -73,6 +73,35 @@ public class NuGetApiTests
     }
 
     [Fact]
+    public async Task GetServiceIndexAsync_ExpandsArrayValuedResourceTypes()
+    {
+        const string Json = """
+            {
+              "version": "3.0.0",
+              "resources": [
+                {
+                  "@id": "https://example.com/flat/",
+                  "@type": [
+                    "UnrelatedResource/1.0.0",
+                    "PackageBaseAddress/3.0.0"
+                  ]
+                }
+              ]
+            }
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(Json));
+
+        ServiceIndex result = Assert.IsType<ServiceIndex>(
+            await NuGetApi.GetServiceIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            ["UnrelatedResource/1.0.0", "PackageBaseAddress/3.0.0"],
+            result.Resources.Select(resource => resource.Type));
+    }
+
+    [Fact]
     public async Task GetServiceIndexAsync_MalformedJson_Throws()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{broken"));

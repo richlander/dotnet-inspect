@@ -236,7 +236,8 @@ public sealed record PackageSourceFailure(
     PackageSourceCapabilities Capability,
     PackageSourceCoordinate? Coordinate,
     PackageSourceFailureKind Kind,
-    string Message);
+    string Message,
+    HttpStatusCode? StatusCode = null);
 
 /// <summary>
 /// The typed success or expected source failure of one source operation.
@@ -281,7 +282,8 @@ internal static class PackageSourceOperation
                 exception,
                 capability,
                 coordinate,
-                out PackageSourceFailureKind kind))
+                out PackageSourceFailureKind kind,
+                out HttpStatusCode? statusCode))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new PackageSourceOperationResult<T>.Failed(
@@ -291,7 +293,8 @@ internal static class PackageSourceOperation
                     capability,
                     coordinate,
                     kind,
-                    MessageFor(kind)));
+                    MessageFor(kind),
+                    statusCode));
         }
     }
 
@@ -313,8 +316,18 @@ internal static class PackageSourceOperation
         Exception exception,
         PackageSourceCapabilities capability,
         PackageSourceCoordinate? coordinate,
-        out PackageSourceFailureKind kind)
+        out PackageSourceFailureKind kind,
+        out HttpStatusCode? statusCode)
     {
+        statusCode = exception switch
+        {
+            HttpRequestException http => http.StatusCode,
+            NuGetSourceResponseException
+            {
+                InnerException: HttpRequestException http,
+            } => http.StatusCode,
+            _ => null,
+        };
         kind = exception switch
         {
             TimeoutException =>

@@ -56,7 +56,7 @@ public static class NuGetSourceResolver
         ArgumentNullException.ThrowIfNull(sourceUrls);
         return RestrictToSourceKeys(
             original,
-            [.. sourceUrls.Select(NuGetCache.GetSourceKey)]);
+            [.. sourceUrls.Select(PackageSourceClientProvider.ProducerKey)]);
     }
 
     /// <summary>
@@ -105,7 +105,8 @@ public static class NuGetSourceResolver
         return
         [
             .. activeSources.Where(source =>
-                authorizedKeySet.Contains(NuGetCache.GetSourceKey(source.Url))),
+                authorizedKeySet.Contains(
+                    PackageSourceClientProvider.ProducerKey(source))),
         ];
     }
 
@@ -167,6 +168,16 @@ public static class NuGetSourceResolver
         }
 
         return keys;
+    }
+
+    /// <summary>
+    /// Reduces one source to the stable producer identity used by payload
+    /// authorization and realized coordinates.
+    /// </summary>
+    public static string SourceKey(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return PackageSourceClientProvider.ProducerKey(source);
     }
 
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
@@ -454,7 +465,7 @@ public static class NuGetSourceResolver
     {
         List<NuGetSource> producers = [];
         foreach (IGrouping<string, NuGetSource> aliases in eligibleAliases.GroupBy(
-            source => NuGetCache.GetSourceKey(source.Url),
+            PackageSourceClientProvider.ProducerKey,
             StringComparer.Ordinal))
         {
             NuGetSource first = aliases.First();

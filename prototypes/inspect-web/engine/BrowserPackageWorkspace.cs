@@ -88,6 +88,16 @@ internal static class BrowserPackageWorkspace
                 RequestTimeout = GalleryOperationTimeout,
                 OperationTimeout = GalleryOperationTimeout,
             });
+
+    internal static IPackageSourceClient CreateGalleryClient(
+        HttpClient client) =>
+        PackageSourceClientFactory.CreateGallery(
+            client,
+            new NuGetFetchOptions
+            {
+                RequestTimeout = GalleryOperationTimeout,
+                OperationTimeout = GalleryOperationTimeout,
+            });
     static readonly BrowserSessionPackageStore Store = new();
     static readonly PackagePayloadLimits PayloadLimits = new()
     {

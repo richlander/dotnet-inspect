@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace InspectWeb.Engine;
 
@@ -169,7 +170,7 @@ internal static class BrowserPlatformWorkspace
             targetFramework,
             RuntimeFamily,
             DefaultRuntimeAssembly,
-            new Host(client, sourceAuthorization),
+            Host.Create(client, sourceAuthorization),
             operationTimeout,
             cancellationToken);
 
@@ -205,14 +206,14 @@ internal static class BrowserPlatformWorkspace
             ? OpenUnattributedAsync(
                 targetFramework,
                 AssemblySimpleName(assemblyFileName),
-                new Host(client, sourceAuthorization),
+                Host.Create(client, sourceAuthorization),
                 operationTimeout,
                 cancellationToken)
             : OpenAsync(
                 targetFramework,
                 Family(pack),
                 AssemblySimpleName(assemblyFileName),
-                new Host(client, sourceAuthorization),
+                Host.Create(client, sourceAuthorization),
                 operationTimeout,
                 cancellationToken);
 
@@ -237,7 +238,7 @@ internal static class BrowserPlatformWorkspace
         OpenAssembliesAsync(
             targetFramework,
             assemblies,
-            new Host(client, sourceAuthorization),
+            Host.Create(client, sourceAuthorization),
             operationTimeout,
             cancellationToken);
 
@@ -882,6 +883,7 @@ internal static class BrowserPlatformWorkspace
         {
             HttpClient = host.Client,
             SourceAuthorization = host.SourceAuthorization,
+            BorrowedSourceClientFactory = _ => host.SourceClient,
             PackageStore = store,
             PackageTransferPolicy =
                 new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
@@ -1232,11 +1234,22 @@ internal static class BrowserPlatformWorkspace
     static Host ProductionHost { get; } =
         new(
             BrowserPackageWorkspace.NetworkClient,
-            BrowserPackageWorkspace.PackageSourceAuthorization);
+            BrowserPackageWorkspace.PackageSourceAuthorization,
+            BrowserPackageWorkspace.Gallery);
 
     sealed record Host(
         HttpClient Client,
-        IPackageSourceAuthorization SourceAuthorization);
+        IPackageSourceAuthorization SourceAuthorization,
+        IPackageSourceClient SourceClient)
+    {
+        internal static Host Create(
+            HttpClient client,
+            IPackageSourceAuthorization sourceAuthorization) =>
+            new(
+                client,
+                sourceAuthorization,
+                BrowserPackageWorkspace.CreateGalleryClient(client));
+    }
 
     readonly record struct PlatformSelection(
         string Family,

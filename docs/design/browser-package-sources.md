@@ -573,12 +573,11 @@ identity because signed credentials rotate; feeds that represent distinct
 immutable content domains require distinct endpoint paths.
 The Gallery descriptor creates a runtime client that uses the known search,
 flat-container, package, and symbol CDN routes without requesting the NuGet.org
-service index. The factory creates an isolated credential-free `HttpClient`
-owned by the Gallery client; it does not accept a shared mutable client whose
-defaults could carry authorization, cookies, or API keys to the fixed public
-hosts. The transport timeout is infinite so the finite NuGetFetch request and
-operation deadlines remain authoritative. Disposing the source client disposes
-that transport.
+service index. The default factory creates an isolated credential-free
+`HttpClient` owned by the Gallery client. A Browser host may instead supply a
+borrowed client whose request handler is the host's capability boundary; the
+Gallery client never disposes that transport. The transport timeout is infinite
+so the finite NuGetFetch request and operation deadlines remain authoritative.
 
 The v3 compatibility adapter also owns an isolated credential-free
 `HttpClient`; it does not accept a shared client or opaque caller handler that
@@ -609,7 +608,7 @@ credential's original origin and strips it from cross-origin hops. Exceeding
 the five-redirect ceiling is a typed `response-rejected` failure. Redirect
 targets with malformed raw text, unusable IDNA hosts, or embedded user
 information are typed invalid responses rather than normalized requests.
-`RuntimeFactoriesDoNotAcceptSharedHttpClient`,
+`OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate shared transport
 construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
@@ -729,7 +728,8 @@ cache-first authorized-producer pass, payload admission, and source failover.
 `PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
 `PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`, and
-`PackageSourceClientTests.RuntimeFactoriesDoNotAcceptSharedHttpClient`, and
+`PackageSourceClientTests.OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient`,
+and
 `HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`
 gate
 those boundaries.
@@ -746,7 +746,10 @@ returns typed `Unsupported` from that operation. The adapter does not restore
 the retired NuGet.org-only search shortcut.
 `NuGetV3PackageResourceClient` owns `PackageBaseAddress` discovery,
 normalization, version-index URL construction, and exact package URL
-construction for the v3 source client. It applies bounded retries to transient
+construction for the v3 source client. Configured base URLs gain
+`/v3/index.json` without rewriting signed query bytes, and JSON-LD array-valued
+resource types are expanded before every `PackageBaseAddress` sibling is
+validated. It applies bounded retries to transient
 service-index, version-index, and exact-package responses under the shared
 operation deadline. The canonical NuGet.org v3 client
 discovers the advertised package base instead of substituting the legacy
@@ -762,6 +765,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `LegacyPackageSourceCreatesV3Client`,
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
 `V3ServiceIndexVersionAndPackageRetryTransientResponses`,
+`V3ArrayValuedPackageBaseAddressIsDiscovered`,
+`V3BaseSourceIsNormalizedWithoutChangingSignedQuery`,
 `V3TransientRetriesAreBounded`,
 `CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
 `CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress`,

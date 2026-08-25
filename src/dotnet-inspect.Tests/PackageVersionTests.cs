@@ -77,6 +77,26 @@ public class PackageVersionTests
         Assert.Equal(2, lines.Length);
     }
 
+    [Theory]
+    [InlineData("foo bar")]
+    [InlineData("foo+bar")]
+    [InlineData("foo--bar")]
+    [InlineData("foo.")]
+    public async Task Versions_InvalidPackageId_ReturnsCleanDiagnostic(
+        string packageId)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = ["package", packageId, "--versions"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("A package coordinate requires a package id", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("Stack Trace", error);
+    }
+
     [Fact]
     public async Task Versions_WithRange_ListsTheInclusiveAddressVector()
     {

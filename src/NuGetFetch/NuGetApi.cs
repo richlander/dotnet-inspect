@@ -20,35 +20,93 @@ public static class NuGetApi
         Stream json,
         CancellationToken cancellationToken)
     {
-        ServiceIndex? index = await JsonSerializer.DeserializeAsync(
+        using JsonDocument document = await ParseDocumentAsync(
             json,
-            NuGetJsonContext.Default.ServiceIndex,
             cancellationToken).ConfigureAwait(false);
-
-        if (index is null)
-        {
+        JsonElement root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Null)
             return null;
-        }
-
-        if (index.Version is null)
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("version", out JsonElement versionElement)
+            || versionElement.ValueKind != JsonValueKind.String
+            || versionElement.GetString() is not { } version)
         {
             throw InvalidMetadata("service index", "version");
         }
-
-        if (index.Resources is null)
+        if (!root.TryGetProperty("resources", out JsonElement resourcesElement)
+            || resourcesElement.ValueKind != JsonValueKind.Array)
         {
             throw InvalidMetadata("service index", "resources");
         }
 
-        foreach (ServiceResource resource in index.Resources)
+        List<ServiceResource> resources = [];
+        foreach (JsonElement resource in resourcesElement.EnumerateArray())
         {
-            if (resource is null || resource.Id is null || resource.Type is null)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (resource.ValueKind != JsonValueKind.Object
+                || !resource.TryGetProperty("@id", out JsonElement idElement)
+                || idElement.ValueKind != JsonValueKind.String
+                || idElement.GetString() is not { } id
+                || !resource.TryGetProperty("@type", out JsonElement typeElement))
             {
                 throw InvalidMetadata("service index", "resources");
             }
+
+            string? comment = resource.TryGetProperty(
+                "comment",
+                out JsonElement commentElement)
+                && commentElement.ValueKind == JsonValueKind.String
+                    ? commentElement.GetString()
+                    : null;
+            int typeCount = 0;
+            foreach (string type in ResourceTypes(typeElement))
+            {
+                resources.Add(new ServiceResource(id, type, comment));
+                typeCount++;
+            }
+            if (typeCount == 0)
+                throw InvalidMetadata("service index", "resources");
         }
 
-        return index;
+        return new ServiceIndex(version, resources);
+    }
+
+    private static async Task<JsonDocument> ParseDocumentAsync(
+        Stream json,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await JsonDocument.ParseAsync(
+                json,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException exception)
+        {
+            throw new JsonException(exception.Message, exception);
+        }
+    }
+
+    private static IEnumerable<string> ResourceTypes(JsonElement typeElement)
+    {
+        if (typeElement.ValueKind == JsonValueKind.String
+            && typeElement.GetString() is { } type)
+        {
+            yield return type;
+            yield break;
+        }
+
+        if (typeElement.ValueKind != JsonValueKind.Array)
+            yield break;
+
+        foreach (JsonElement item in typeElement.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String
+                && item.GetString() is { } itemType)
+            {
+                yield return itemType;
+            }
+        }
     }
 
     public static ValueTask<VersionIndex?> GetVersionIndexAsync(

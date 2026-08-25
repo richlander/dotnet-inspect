@@ -244,7 +244,9 @@ public static class PackagePayloadAcquisition
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
         CancellationToken cancellationToken = default,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        Func<PackageSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(coordinate);
@@ -302,8 +304,9 @@ public static class PackagePayloadAcquisition
                     out Uri? endpoint)
                 && endpoint.Scheme is "http" or "https")
             {
-                using IPackageSourceClient sourceClient =
-                    PackageSourceClientProvider.Create(source, client);
+                IPackageSourceClient sourceClient =
+                    borrowedSourceClientFactory?.Invoke(source)
+                    ?? PackageSourceClientProvider.Create(source, client);
                 using var trafficScope =
                     NetworkTelemetry.Scope(
                         NetworkTrafficKind.PackageDownload);
@@ -328,6 +331,11 @@ public static class PackagePayloadAcquisition
                     failedSources.Add(
                         PackageSourceDisplay.ForDiagnostics(source).ToString());
                     continue;
+                }
+                finally
+                {
+                    if (borrowedSourceClientFactory is null)
+                        sourceClient.Dispose();
                 }
                 if (sourceResult
                     is PackageSourcePayloadResult.Acquired acquired)

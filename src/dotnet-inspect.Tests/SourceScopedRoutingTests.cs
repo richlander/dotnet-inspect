@@ -338,6 +338,37 @@ public sealed class SourceScopedRoutingTests : IDisposable
             eligibleKeys));
     }
 
+    [Fact]
+    public void SignedSourceRestrictionAuthorizesStableProducerIdentity()
+    {
+        const string Signed =
+            "https://feed.example/v3/index.json?sig=one#opaque";
+        const string Refreshed =
+            "https://feed.example/v3/index.json?sig=two#different";
+        NuGetSourceOptions restricted =
+            Assert.IsType<NuGetSourceOptions>(
+                NuGetSourceResolver.RestrictToSources(
+                    null,
+                    [Signed]));
+        var active = new[]
+        {
+            new NuGetFetch.PackageSource("refreshed", Refreshed),
+            new NuGetFetch.PackageSource(
+                "other",
+                "https://other.example/v3/index.json"),
+        };
+
+        NuGetFetch.PackageSource authorized = Assert.Single(
+            NuGetSourceResolver.ResolveAuthorizedSources(
+                restricted,
+                active));
+
+        Assert.Equal(Refreshed, authorized.Url);
+        Assert.Equal(
+            NuGetSourceResolver.SourceKey(active[0]),
+            Assert.Single(restricted.AuthorizedSourceKeys!));
+    }
+
     [Theory]
     [InlineData(false, "4.5.6")]
     [InlineData(true, "4.5.6-preview.1")]
