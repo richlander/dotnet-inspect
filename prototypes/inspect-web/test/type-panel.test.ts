@@ -17,6 +17,7 @@ import type {
   TypeSummary,
 } from "../src/type-panel.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
@@ -69,13 +70,23 @@ class FakeRoot {
   }
 }
 
-function keyboardEvent(key: string) {
+function keyboardEvent(
+  key: string,
+  modifiers: Partial<Pick<
+    KeyboardEvent,
+    "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
+  >> = {},
+) {
   const state = { prevented: false };
   const event = fakeDom.keyboardEvent({
+    altKey: modifiers.altKey ?? false,
+    ctrlKey: modifiers.ctrlKey ?? false,
     key,
+    metaKey: modifiers.metaKey ?? false,
     preventDefault: () => {
       state.prevented = true;
     },
+    shiftKey: modifiers.shiftKey ?? false,
   });
   return { event, state };
 }
@@ -96,11 +107,7 @@ function dispatchKey(
 ) {
   const scopedTarget = fakeDom.eventTarget(target);
   Object.assign(input.event, {
-    altKey: false,
-    ctrlKey: false,
     defaultPrevented: false,
-    metaKey: false,
-    shiftKey: false,
     target: scopedTarget,
     composedPath: () => [scopedTarget],
   });
@@ -322,6 +329,50 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   ]);
   assert.equal(forwardedListEvent, listKey.event);
   assert.equal(listKey.state.prevented, false);
+});
+
+test("type list navigation yields Cmd/Ctrl+K to the command palette", () => {
+  const root = new FakeRoot();
+  const typeList = root.add("#type-list", new FakeElement());
+  const calls: string[] = [];
+  const keybindings = bindPanel(root, recordingActions(calls));
+  keybindings.register({
+    id: "workspace.open-commands",
+    key: "k",
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    run: () => {
+      calls.push("commands");
+      return true;
+    },
+  });
+
+  const controlK = keyboardEvent("k", { ctrlKey: true });
+  assert.equal(
+    dispatchKey(keybindings, typeList, controlK).bindingId,
+    "workspace.open-commands",
+  );
+  const metaK = keyboardEvent("k", { metaKey: true });
+  assert.equal(
+    dispatchKey(keybindings, typeList, metaK).bindingId,
+    "workspace.open-commands",
+  );
+  assert.deepEqual(calls, ["commands", "commands"]);
+
+  assert.equal(
+    dispatchKey(keybindings, typeList, keyboardEvent("k")).bindingId,
+    "type-list.navigate",
+  );
+  assert.equal(
+    dispatchKey(
+      keybindings,
+      typeList,
+      keyboardEvent("j", { ctrlKey: true }),
+    ).bindingId,
+    "type-list.navigate",
+  );
+  assert.deepEqual(calls, ["commands", "commands", "list:k", "list:j"]);
 });
 
 test("type panel bindings dispatch the rendered member navigation controls", () => {

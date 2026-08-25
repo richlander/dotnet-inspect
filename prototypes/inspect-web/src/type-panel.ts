@@ -232,6 +232,8 @@ export function bindTypePanel(
       key: ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "j", "k", "/"],
       allowExtraModifiers: true,
       priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      when: event => event.key.toLowerCase() !== "k"
+        || (!event.metaKey && !event.ctrlKey),
       run: actions.onListKeyDown,
     }, typeList);
     keybindings.register({
