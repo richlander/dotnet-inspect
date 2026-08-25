@@ -1357,6 +1357,15 @@ public static class MemberCallGraphFixture
         };
 }
 
+public static class CallerScopeCountFixture
+{
+    public static void Root() => Target();
+
+    public static void Target()
+    {
+    }
+}
+
 // Instance fixtures whose accessors carry non-default modifiers, so the synthesized
 // accessor declarations must reflect virtual/override (from the owning slot) and the
 // per-accessor accessibility of a `private set` rather than the owner's aggregate (#3265).

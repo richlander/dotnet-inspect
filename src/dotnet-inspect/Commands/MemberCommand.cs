@@ -300,7 +300,8 @@ public static class MemberCommand
                 && ShouldImplicitlySelectCallers(effectiveOptions);
             if (callersImplicitlySelected)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
-            else if (effectiveOptions.HasCallerScope)
+            else if (effectiveOptions.HasCallerScope
+                && effectiveOptions.IncludeSections is null)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
             var authoredSelection = callersImplicitlySelected
                 ? ExcludeCallersSection(effectiveOptions)

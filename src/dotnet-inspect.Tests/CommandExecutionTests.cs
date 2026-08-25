@@ -13201,6 +13201,70 @@ public partial class CommandExecutionTests
         Assert.Contains("Overloaded:1 through Overloaded:2", error);
     }
 
+    [Theory]
+    [InlineData("Method Groups", false)]
+    [InlineData("Properties", true)]
+    public async Task Member_CallerScope_SingleSectionCountDoesNotInjectCallers(
+        string section,
+        bool expectedEmpty)
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var unscoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--count", "-S", section, "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--count", "-S", section, "--tips", "q");
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Equal(unscoped.Output, scoped.Output);
+        Assert.True(int.TryParse(unscoped.Output.Trim(), out int count));
+        Assert.Equal(expectedEmpty, count == 0);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_OverloadInventoryCountDoesNotInjectCallers()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        string memberName = nameof(CallerScopeCountFixture.Target);
+        var unscoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "--count", "-S", "Methods", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--count", "-S", "Methods", "--tips", "q");
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Equal(unscoped.Output, scoped.Output);
+        Assert.True(int.TryParse(unscoped.Output.Trim(), out int count));
+        Assert.True(count > 0);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_WithoutSectionSelectionStillAggregatesCallers()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Callers", result.Output);
+        Assert.Contains(nameof(CallerScopeCountFixture.Root), result.Output);
+    }
+
     [Fact]
     public async Task Member_SelectedOverload_SelectDecompiledSource_RendersPlainCSharp()
     {
