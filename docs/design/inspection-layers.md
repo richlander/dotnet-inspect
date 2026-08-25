@@ -57,7 +57,8 @@ the ownership boundaries below, not the project count.
 `DotnetInspector.ResearchQueries` companion now implement metadata-image,
 direct-reference, extension-method, custom-attribute, manifest-resource,
 type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
-body-signal comparison, unsafe-evidence, top-leverage, Implementation
+body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
+Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
 slices, and group-scoped PDB-mapped-or-decompiled type/member source. The
@@ -74,8 +75,9 @@ for both traversal directions. These queries return typed results without
 choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, method-classification, audit-metadata, unsafe-evidence, and
-top-leverage and optimization-opportunity queries, plus the Research-backed
+union-type, method-classification, audit-metadata, unsafe-evidence,
+top-leverage, optimization-opportunity, and resource-triage queries, plus the
+Research-backed
 switch query through a typed,
 content-shaped registry
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
@@ -147,8 +149,8 @@ but cannot derive and probe an ambient sidecar path; this is gated by
 The query's in-memory host path and typed failure behavior are gated by
 `AssemblyContextSourceQueryTests`.
 
-This is an incremental boundary, not the completed split. The remaining
-library scanners still use the transitional string-keyed `ScannerRegistry`,
+This is an incremental boundary, not the completed split. The remaining Body
+Shapes library scanner still uses the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
 `LibraryInspection` compatibility aggregate, and transitive reference resolution
 remains host-owned. The SourceLink document query delegates PDB acquisition to
