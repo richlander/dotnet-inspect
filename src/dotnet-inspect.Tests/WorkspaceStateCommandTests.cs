@@ -154,23 +154,26 @@ public sealed class WorkspaceStateCommandTests
     [Fact]
     public async Task Dash_ReadsBoundedStandardInputInBothDirections()
     {
+        using var encodeInput = Utf8Stream(EquivalentJson);
         var encoded = await ConsoleCapture.RunAsync(
             () => WorkspaceStateCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
-                new StringReader(EquivalentJson)));
+                encodeInput));
 
         Assert.Equal(0, encoded.ExitCode);
         Assert.Empty(encoded.Error);
         Assert.Equal(CanonicalVector, encoded.Output.TrimEnd());
 
+        using var decodeInput = Utf8Stream(
+            CanonicalVector + Environment.NewLine);
         var decoded = await ConsoleCapture.RunAsync(
             () => WorkspaceStateCommand.DecodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
-                new StringReader(CanonicalVector + Environment.NewLine)));
+                decodeInput));
 
         Assert.Equal(0, decoded.ExitCode);
         Assert.Empty(decoded.Error);
@@ -185,17 +188,7 @@ public sealed class WorkspaceStateCommandTests
     [Fact]
     public async Task MaximumPacket_DecodePipeEncode_RoundTrips()
     {
-        const string prefix =
-            "{\"f\":1,\"t\":[[\":Platform\",null,null,null]],"
-            + "\"g\":[[0]],\"a\":0,\"x\":0,\"l\":[\"";
-        const string suffix = "\"]}";
-        string json = prefix
-            + new string(
-                'A',
-                WorkspaceSharePacketCodec.MaxDecodedUtf8Length
-                    - prefix.Length
-                    - suffix.Length)
-            + suffix;
+        string json = CreateMaximumJson();
         Assert.Equal(
             WorkspaceSharePacketCodec.MaxDecodedUtf8Length,
             Encoding.UTF8.GetByteCount(json));
@@ -214,15 +207,68 @@ public sealed class WorkspaceStateCommandTests
         Assert.Empty(decoded.Error);
         Assert.Equal(json, decoded.Output.TrimEnd());
 
+        using var replayInput = Utf8Stream(decoded.Output);
         var replayed = await ConsoleCapture.RunAsync(
             () => WorkspaceStateCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
-                new StringReader(decoded.Output)));
+                replayInput));
         Assert.Equal(0, replayed.ExitCode);
         Assert.Empty(replayed.Error);
         Assert.Equal(packet, replayed.Output.TrimEnd());
+    }
+
+    [Theory]
+    [InlineData("\n\n")]
+    [InlineData("\r\n\r\n")]
+    public async Task RepeatedTerminalLineEndings_DoNotBypassLimits(
+        string lineEndings)
+    {
+        using var jsonInput = Utf8Stream(CreateMaximumJson() + lineEndings);
+        var encoded = await ConsoleCapture.RunAsync(
+            () => WorkspaceStateCommand.EncodeAsync(
+                "-",
+                file: null,
+                TestContext.Current.CancellationToken,
+                jsonInput));
+        Assert.Equal(1, encoded.ExitCode);
+        Assert.Empty(encoded.Output);
+        Assert.Contains(
+            $"exceeds the {WorkspaceSharePacketCodec.MaxDecodedUtf8Length}-character read limit",
+            encoded.Error);
+
+        using var packetInput = Utf8Stream(CanonicalVector + lineEndings);
+        var decoded = await ConsoleCapture.RunAsync(
+            () => WorkspaceStateCommand.DecodeAsync(
+                "-",
+                file: null,
+                TestContext.Current.CancellationToken,
+                packetInput));
+        Assert.Equal(1, decoded.ExitCode);
+        Assert.Empty(decoded.Output);
+        Assert.StartsWith("Error:", decoded.Error);
+    }
+
+    [Fact]
+    public async Task Encode_RejectsInvalidUtf8FromStandardInput()
+    {
+        byte[] input = Encoding.UTF8.GetBytes(
+            "{\"f\":1,\"t\":[[\":Platform\",null,null,null]],"
+            + "\"g\":[[0]],\"a\":0,\"x\":0,\"y\":\"a?b\"}");
+        input[Array.IndexOf(input, (byte)'?')] = 0xFF;
+        using var standardInput = new MemoryStream(input);
+
+        var result = await ConsoleCapture.RunAsync(
+            () => WorkspaceStateCommand.EncodeAsync(
+                "-",
+                file: null,
+                TestContext.Current.CancellationToken,
+                standardInput));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.StartsWith("Error:", result.Error);
     }
 
     [Fact]
@@ -267,28 +313,30 @@ public sealed class WorkspaceStateCommandTests
         Assert.Empty(invalid.Output);
         Assert.Contains("Error: Workspace share state requires", invalid.Error);
 
+        using var oversizedInput = Utf8Stream(new string(
+            ' ',
+            WorkspaceSharePacketCodec.MaxDecodedUtf8Length + 3));
         var oversized = await ConsoleCapture.RunAsync(
             () => WorkspaceStateCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
-                new StringReader(new string(
-                    ' ',
-                    WorkspaceSharePacketCodec.MaxDecodedUtf8Length + 3))));
+                oversizedInput));
         Assert.Equal(1, oversized.ExitCode);
         Assert.Empty(oversized.Output);
         Assert.Contains(
             $"exceeds the {WorkspaceSharePacketCodec.MaxDecodedUtf8Length}-character read limit",
             oversized.Error);
 
+        using var oversizedPacketInput = Utf8Stream(new string(
+            'A',
+            WorkspaceSharePacketCodec.MaxEncodedLength + 1));
         var oversizedPacket = await ConsoleCapture.RunAsync(
             () => WorkspaceStateCommand.DecodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
-                new StringReader(new string(
-                    'A',
-                    WorkspaceSharePacketCodec.MaxEncodedLength + 1))));
+                oversizedPacketInput));
         Assert.Equal(1, oversizedPacket.ExitCode);
         Assert.Empty(oversizedPacket.Output);
         Assert.Contains(
@@ -303,6 +351,24 @@ public sealed class WorkspaceStateCommandTests
             "workspace-state",
             CommandLineBuilder.KnownCommands);
     }
+
+    private static string CreateMaximumJson()
+    {
+        const string prefix =
+            "{\"f\":1,\"t\":[[\":Platform\",null,null,null]],"
+            + "\"g\":[[0]],\"a\":0,\"x\":0,\"l\":[\"";
+        const string suffix = "\"]}";
+        return prefix
+            + new string(
+                'A',
+                WorkspaceSharePacketCodec.MaxDecodedUtf8Length
+                    - prefix.Length
+                    - suffix.Length)
+            + suffix;
+    }
+
+    private static MemoryStream Utf8Stream(string input) =>
+        new(Encoding.UTF8.GetBytes(input));
 
     private static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
         params string[] args) =>

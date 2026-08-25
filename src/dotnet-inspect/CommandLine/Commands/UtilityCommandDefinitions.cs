@@ -44,7 +44,7 @@ public static class UtilityCommandDefinitions
         string description,
         string argumentName,
         string argumentDescription,
-        Func<string?, string?, CancellationToken, TextReader?, Task<int>> action)
+        Func<string?, string?, CancellationToken, Stream?, Task<int>> action)
     {
         var command = new Command(name, description);
         var inputArgument = new Argument<string?>(argumentName)

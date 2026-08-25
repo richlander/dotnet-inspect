@@ -15,7 +15,7 @@ public static class WorkspaceStateCommand
         string? packet,
         string? file,
         CancellationToken cancellationToken,
-        TextReader? standardInput = null)
+        Stream? standardInput = null)
     {
         try
         {
@@ -43,7 +43,7 @@ public static class WorkspaceStateCommand
         string? json,
         string? file,
         CancellationToken cancellationToken,
-        TextReader? standardInput = null)
+        Stream? standardInput = null)
     {
         try
         {
@@ -72,7 +72,7 @@ public static class WorkspaceStateCommand
         string? file,
         int maximumLength,
         bool trimTerminalLineEndings,
-        TextReader? standardInput,
+        Stream? standardInput,
         CancellationToken cancellationToken)
     {
         if (inline is not null && inline != "-")
@@ -104,15 +104,22 @@ public static class WorkspaceStateCommand
         }
         else
         {
+            Stream stream = standardInput ?? Console.OpenStandardInput();
+            using var reader = new StreamReader(
+                stream,
+                s_utf8Strict,
+                detectEncodingFromByteOrderMarks: false,
+                bufferSize: 4096,
+                leaveOpen: standardInput is not null);
             input = await ReadBoundedAsync(
-                standardInput ?? Console.In,
+                reader,
                 readLimit,
                 maximumLength,
                 cancellationToken);
         }
 
         string payload = trimTerminalLineEndings
-            ? input.TrimEnd('\r', '\n')
+            ? RemoveTerminalLineEnding(input)
             : input;
         if (payload.Length > maximumLength)
         {
@@ -121,6 +128,17 @@ public static class WorkspaceStateCommand
         }
 
         return payload;
+    }
+
+    private static string RemoveTerminalLineEnding(string input)
+    {
+        if (input.Length == 0 || input[^1] != '\n')
+            return input;
+
+        int length = input.Length - 1;
+        if (length > 0 && input[length - 1] == '\r')
+            length--;
+        return input[..length];
     }
 
     private static string NormalizeFilePath(string path)

@@ -1083,12 +1083,14 @@ Definition records and product demos (this slice):
   independent focus and context indexes, Unicode metadata and canonical
   signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
   `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
-  those commands accept inline, bounded stdin, or bounded UTF-8 file input and
-  perform no acquisition or execution. Stream and file input may carry one
+  those commands accept inline input or bounded strict UTF-8 stdin/file input
+  and perform no acquisition or execution. Stream and file input may carry one
   terminal LF or CRLF outside the declared payload bound.
   `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
   `Dash_ReadsBoundedStandardInputInBothDirections`,
-  `MaximumPacket_DecodePipeEncode_RoundTrips`, and
+  `MaximumPacket_DecodePipeEncode_RoundTrips`,
+  `RepeatedTerminalLineEndings_DoNotBypassLimits`,
+  `Encode_RejectsInvalidUtf8FromStandardInput`, and
   `Encode_RejectsNonUtf8File` gate that CLI boundary.
   `Encode_RejectsEmptyFilePathWithoutStackTrace` and
   `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
