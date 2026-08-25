@@ -219,10 +219,12 @@ Candidate selection, effectiveness, and execution cost are independent axes.
 - `Moderated`
 - `Unbounded`
 
-The scanner registry owns production cost. A section's effective cost is the
-maximum of its descriptor cost and the transitive cost of its scanner
+The query registry owns production cost. A section's effective cost is the
+maximum of its descriptor cost and the transitive cost of its required query
 prerequisites. A descriptor may raise cost for section-specific work or output,
-but it may not understate scanner-owned work.
+but it may not understate query-owned work. Optional query dependencies execute
+only when independently demanded and therefore do not raise the consumer's
+cost.
 
 `Unbounded` work never enters an automatic verbosity preset. Network, source
 content, and other capability-gated work must remain explicit.
@@ -543,7 +545,9 @@ The section pipeline and derived catalog gates enforce these invariants:
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
-6. Every scanner key resolves, and a descriptor cannot understate scanner cost.
+6. Every query binding resolves, and a descriptor cannot understate effective
+   query cost. `LibraryQueryRegistry_RegistrationMatchesDeclaration` and
+   `LibraryPipeline_ConsultsQueryCosts` gate both properties.
 7. Unbounded sections never enter automatic verbosity presets.
 8. Categories preserve declaration order for deterministic rendering.
 9. Output-shape compatibility is validated before producers run.
