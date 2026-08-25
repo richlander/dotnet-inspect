@@ -505,6 +505,110 @@ public static class PackageCoordinateResolver
     }
 
     /// <summary>
+    /// Returns true for a structurally valid package-relative asset path.
+    /// Framework-root paths additionally validate their framework and runtime
+    /// coordinates.
+    /// </summary>
+    public static bool IsPackageRelativeAssetPath(string relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath)
+            || relativePath[0] is '/' or '\\'
+            || (relativePath.Length >= 2
+                && char.IsAsciiLetter(relativePath[0])
+                && relativePath[1] == ':'))
+        {
+            return false;
+        }
+
+        string[] parts = relativePath.Split('/', '\\');
+        if (parts.Any(static part =>
+                part.Length == 0 || part is "." or ".."))
+        {
+            return false;
+        }
+
+        if (parts.Length >= 3
+            && (parts[0].Equals(
+                    "lib",
+                    StringComparison.OrdinalIgnoreCase)
+                || parts[0].Equals(
+                    "ref",
+                    StringComparison.OrdinalIgnoreCase)
+                || parts[0].Equals(
+                    "tools",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return IsFrameworkFolderName(parts[1]);
+        }
+
+        if (parts.Length >= 5
+            && parts[0].Equals(
+                "runtimes",
+                StringComparison.OrdinalIgnoreCase)
+            && parts[2].Equals(
+                "lib",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return IsAcquisitionTargetText(parts[1])
+                && IsFrameworkFolderName(parts[3]);
+        }
+
+        return true;
+
+        static bool IsFrameworkFolderName(string name)
+        {
+            if (!IsAcquisitionTargetText(name))
+                return false;
+
+            if (name.Equals(
+                    "netstandard",
+                    StringComparison.OrdinalIgnoreCase)
+                || name.Equals(
+                    "netcoreapp",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            bool claimsModeledFamily = name.Equals(
+                "net",
+                StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith(
+                    "netstandard",
+                    StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith(
+                    "netcoreapp",
+                    StringComparison.OrdinalIgnoreCase)
+                || (name.StartsWith(
+                        "net",
+                        StringComparison.OrdinalIgnoreCase)
+                    && name.Length > 3
+                    && (char.IsAsciiDigit(name[3])
+                        || name[3] is '.' or '-' or '+'));
+
+            // Preserve framework folders this resolver cannot select. For a
+            // modeled family, require its full grammar rather than the loose
+            // IsTfmLike prefix check.
+            return !claimsModeledFamily
+                || TfmResolver.TryGetBaseFrameworkIdentity(name, out _)
+                || IsLegacyDottedNetFramework(name);
+
+            static bool IsLegacyDottedNetFramework(string value)
+            {
+                if (!value.StartsWith(
+                        "net",
+                        StringComparison.OrdinalIgnoreCase)
+                    || !Version.TryParse(value.AsSpan(3), out Version? version))
+                {
+                    return false;
+                }
+
+                return version.Major is > 0 and < 5;
+            }
+        }
+    }
+
+    /// <summary>
     /// True when <paramref name="value"/> is a canonical runtime identifier: an
     /// acquisition target moniker in its lowercase spelling.
     /// </summary>
