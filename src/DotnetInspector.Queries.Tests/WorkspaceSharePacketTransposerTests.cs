@@ -94,6 +94,70 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void ToPacket_UsesOnlyContextWhenScenarioSelectionIsImplicit()
+    {
+        WorkspaceSharePacket packet = CreatePacket(
+            [Package("P", framework: "net10.0")],
+            [new WorkspaceShareContext([0])]);
+        WorkspaceSharePacketDefinitionSet explicitDefinitions =
+            Transpose(packet);
+        var implicitScenario = new ScenarioDefinition(
+            1,
+            explicitDefinitions.Scenario.Id,
+            workspace: explicitDefinitions.Workspace.Id,
+            view: explicitDefinitions.View.Id,
+            navigation: explicitDefinitions.Navigation.Id);
+        var implicitDefinitions = new WorkspaceSharePacketDefinitionSet(
+            explicitDefinitions.Workspace,
+            explicitDefinitions.Navigation,
+            explicitDefinitions.View,
+            implicitScenario);
+
+        WorkspaceSharePacketProjectionResult projection =
+            Project(implicitDefinitions);
+
+        Assert.True(projection.Succeeded);
+        WorkspaceSharePacket projected = Assert.IsType<WorkspaceSharePacket>(
+            projection.Packet);
+        Assert.Equal(0, projected.SelectedContextIndex);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(packet),
+            WorkspaceSharePacketCodec.Encode(projected));
+    }
+
+    [Fact]
+    public void ToPacket_RejectsImplicitSelectionAcrossMultipleContexts()
+    {
+        WorkspaceSharePacket packet = CreatePacket(
+            [
+                Package("P", framework: "net10.0"),
+                Package("Q", framework: "net10.0"),
+            ],
+            [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]);
+        WorkspaceSharePacketDefinitionSet explicitDefinitions =
+            Transpose(packet);
+        var implicitScenario = new ScenarioDefinition(
+            1,
+            explicitDefinitions.Scenario.Id,
+            workspace: explicitDefinitions.Workspace.Id,
+            view: explicitDefinitions.View.Id,
+            navigation: explicitDefinitions.Navigation.Id);
+        var implicitDefinitions = new WorkspaceSharePacketDefinitionSet(
+            explicitDefinitions.Workspace,
+            explicitDefinitions.Navigation,
+            explicitDefinitions.View,
+            implicitScenario);
+
+        WorkspaceSharePacketProjectionResult projection =
+            Project(implicitDefinitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal("scenario.context", projection.Failure?.Path);
+    }
+
+    [Fact]
     public void Transpose_PreservesRepeatedTupleAcrossContexts()
     {
         WorkspaceSharePacket packet = CreatePacket(
@@ -528,6 +592,46 @@ public sealed class WorkspaceSharePacketTransposerTests
             projection.Failure?.Kind);
         Assert.Equal(
             "navigation.tabs[0].framework",
+            projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ReportsExactDuplicateMemberPath()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [
+                    new WorkspaceContextDefinition(
+                        "c",
+                        "net10.0",
+                        subscribe: ":Platform",
+                        members:
+                        [
+                            PackageCoordinate("A", "1.0.0"),
+                            PackageCoordinate("B", "1.0.0"),
+                            PackageCoordinate("B", "1.0.0"),
+                        ]),
+                ]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "platform",
+                        subscribe: ":Platform",
+                        framework: "net10.0"),
+                ],
+                "platform"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal(
+            "workspace.contexts[0].members[2]",
             projection.Failure?.Path);
     }
 

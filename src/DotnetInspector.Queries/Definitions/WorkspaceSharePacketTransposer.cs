@@ -531,15 +531,17 @@ public static class WorkspaceSharePacketTransposer
                 "Navigation focus must name one tab.");
         }
 
-        int selectedContextIndex = workspace.Contexts
-            .Select((context, index) => (context, index))
-            .Where(item => string.Equals(
-                item.context.Name,
-                scenario.Context,
-                StringComparison.Ordinal))
-            .Select(item => item.index)
-            .DefaultIfEmpty(-1)
-            .Single();
+        int selectedContextIndex = scenario.Context is null
+            ? 0
+            : workspace.Contexts
+                .Select((context, index) => (context, index))
+                .Where(item => string.Equals(
+                    item.context.Name,
+                    scenario.Context,
+                    StringComparison.Ordinal))
+                .Select(item => item.index)
+                .DefaultIfEmpty(-1)
+                .Single();
         if (selectedContextIndex < 0)
         {
             return InvalidDefinition(
@@ -719,7 +721,7 @@ public static class WorkspaceSharePacketTransposer
                     memberRuntimeIdentifier);
             }
 
-            var sources = new List<AuthoredSourceIdentity>();
+            var contextSourceSet = new HashSet<AuthoredSourceIdentity>();
             if (context.Subscribe is not null)
             {
                 if (!TryParseSubscription(
@@ -731,10 +733,12 @@ public static class WorkspaceSharePacketTransposer
                     return failure;
                 }
 
-                sources.Add(AuthoredSourceIdentity.ForGroup(
+                AuthoredSourceIdentity source = AuthoredSourceIdentity.ForGroup(
                     parsed.CanonicalSubscription,
                     framework,
-                    runtimeIdentifier));
+                    runtimeIdentifier);
+                _ = contextSourceSet.Add(source);
+                _ = allSources.Add(source);
             }
 
             for (int memberIndex = 0;
@@ -752,20 +756,14 @@ public static class WorkspaceSharePacketTransposer
                         "Every member in a packet context must have one effective framework and runtime identifier.");
                 }
 
-                sources.Add(CreateAuthoredSource(
+                AuthoredSourceIdentity source = CreateAuthoredSource(
                     member.Coordinate,
                     framework,
-                    runtimeIdentifier));
-            }
-
-            var contextSourceSet = new HashSet<AuthoredSourceIdentity>();
-            for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
-            {
-                AuthoredSourceIdentity source = sources[sourceIndex];
+                    runtimeIdentifier);
                 if (!contextSourceSet.Add(source))
                 {
                     return InvalidDefinition(
-                        $"{path}.members[{sourceIndex}]",
+                        $"{path}.members[{memberIndex}]",
                         "A workspace context must not repeat one source.");
                 }
                 _ = allSources.Add(source);
@@ -1192,9 +1190,6 @@ public static class WorkspaceSharePacketTransposer
             return InvalidDefinition("scenario.navigation", "Scenario must reference the supplied navigation.");
         if (!string.Equals(scenario.View, view.Id, StringComparison.Ordinal))
             return InvalidDefinition("scenario.view", "Scenario must reference the supplied view.");
-        if (scenario.Context is null)
-            return NonProjectable("scenario.context", "Packet scenarios require an explicit selected context.");
-
         return null;
     }
 
