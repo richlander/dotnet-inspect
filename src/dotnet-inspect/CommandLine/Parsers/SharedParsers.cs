@@ -225,8 +225,8 @@ public static class SharedParsers
     /// <returns>A tuple of (type filter if present, member name).</returns>
     public static (string? TypeFilter, string MemberName) ParseDottedMember(string value)
     {
-        var dotIdx = value.LastIndexOf('.');
-        if (dotIdx > 0 && !value.Contains('*') && !value.Contains('?'))
+        var dotIdx = FqnParser.LastTopLevelDot(value);
+        if (dotIdx > 0 && !TypeMatcher.IsTypeGlobPattern(value))
             return (value[..dotIdx], value[(dotIdx + 1)..]);
         return (null, value);
     }
@@ -272,13 +272,24 @@ public static class SharedParsers
     /// Modifies the array in place and returns extracted metadata.
     /// </summary>
     /// <param name="members">The member arguments to process.</param>
+    /// <param name="inferDottedTypeFilter">
+    /// Whether a qualified member may supply a missing type target.
+    /// </param>
+    /// <param name="suppliedTypeName">
+    /// The explicit type target, used to distinguish its qualifier from an
+    /// explicit-interface member name.
+    /// </param>
     /// <returns>Extracted type filter and overload index if found.</returns>
-    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
+    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, bool GenericArityConflict, HashSet<string> KindFilter) ProcessMemberArguments(
+        string[] members,
+        bool inferDottedTypeFilter = true,
+        string? suppliedTypeName = null)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
         string? memberDigest = null;
         int? genericArity = null;
+        bool genericArityConflict = false;
         HashSet<string> kindFilter = [];
 
         for (int i = 0; i < members.Length; i++)
@@ -289,9 +300,15 @@ public static class SharedParsers
             if (!kindQualified)
             {
                 var (typeFilter, dottedMemberName) = ParseDottedMember(members[i]);
-                if (typeFilter != null)
+                if (typeFilter != null
+                    && (inferDottedTypeFilter
+                        || FqnParser.LastTopLevelDot(typeFilter) < 0
+                        || MatchesSuppliedTypeQualifier(
+                            typeFilter,
+                            suppliedTypeName)))
                 {
-                    dottedTypeFilter = typeFilter;
+                    if (inferDottedTypeFilter)
+                        dottedTypeFilter = typeFilter;
                     members[i] = dottedMemberName;
                 }
             }
@@ -302,13 +319,44 @@ public static class SharedParsers
             if (selector.DigestPrefix is { Length: > 0 })
                 memberDigest = selector.DigestPrefix;
             if (selector.GenericArity is { } arity)
-                genericArity = arity;
+            {
+                if (genericArity is { } existingArity && existingArity != arity)
+                    genericArityConflict = true;
+                else
+                    genericArity = arity;
+            }
             if (selector.OverloadIndex is { } index)
                 overloadIndex = index;
             members[i] = selector.FilterName;
         }
 
-        return (dottedTypeFilter, overloadIndex, memberDigest, genericArity, kindFilter);
+        return (dottedTypeFilter, overloadIndex, memberDigest, genericArity, genericArityConflict, kindFilter);
+    }
+
+    private static bool MatchesSuppliedTypeQualifier(
+        string qualifier,
+        string? suppliedTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(suppliedTypeName))
+            return false;
+
+        return TypeMatcher.MatchesTypeFilter(
+            suppliedTypeName,
+            qualifier);
+    }
+
+    public static string StripResolvedTypeQualifier(
+        string member,
+        string resolvedTypeName)
+    {
+        var (typeFilter, dottedMemberName) =
+            ParseDottedMember(member);
+        return typeFilter is not null
+            && MatchesSuppliedTypeQualifier(
+                typeFilter,
+                resolvedTypeName)
+            ? dottedMemberName
+            : member;
     }
 
     public static (string Name, string? Digest) ParseDigestShorthand(string value)

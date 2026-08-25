@@ -75,11 +75,18 @@ internal sealed record MemberFilterValidationResult(
 
 internal static class ApiTypeLookupService
 {
+    private const int MaxTypeMemberBoundaryProbes = 64;
+
     public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName)
     {
-        var lookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeName);
+        var typeNames = api.Types.Select(t => t.FullName).ToArray();
+        var lookup = TypeMatcher.Lookup(typeNames, typeName);
         if (lookup.Match != null)
             return new ApiTypeLookupResult(typeName, lookup, api.Types.First(t => t.FullName == lookup.Match));
+
+        if (TypeMatcher.IsTypeGlobPattern(typeName)
+            && lookup.Suggestions.Count > 0)
+            return new ApiTypeLookupResult(typeName, lookup, null);
 
         // The query may be a Type.Member where the type portion is itself namespace-qualified
         // (e.g. "System.String.Length" or "System.Text.Json.JsonSerializer.Serialize"). The type
@@ -87,18 +94,47 @@ internal static class ApiTypeLookupService
         // "System" is a namespace — so it is resolved here against real metadata: peel the
         // trailing segment and retry the prefix as a type. If the prefix resolves, the peeled
         // suffix is surfaced as an implied member filter.
-        var dot = FqnParser.LastTopLevelDot(typeName);
-        if (dot > 0)
+        var searchEnd = typeName.Length;
+        var probes = 0;
+        while (searchEnd > 0
+            && probes < MaxTypeMemberBoundaryProbes)
         {
+            probes++;
+            var dot = FqnParser.LastTopLevelDot(typeName[..searchEnd]);
+            if (dot <= 0)
+                break;
+
             var member = typeName[(dot + 1)..];
-            var typeCandidate = typeName[..dot];
-            var prefixLookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeCandidate);
+            var typeEnd = dot;
+            var memberSelector = MemberTargetSelector.Parse(member);
+            if (dot > 1
+                && typeName[dot - 1] == '.'
+                && (memberSelector.Name.Equals(
+                        ".ctor",
+                        StringComparison.OrdinalIgnoreCase)
+                    || memberSelector.Name.Equals(
+                        "cctor",
+                        StringComparison.OrdinalIgnoreCase)
+                    || memberSelector.Name.Equals(
+                        ".cctor",
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                member = $".{member}";
+                typeEnd--;
+            }
+
+            var typeCandidate = typeName[..typeEnd];
+            var prefixLookup = TypeMatcher.Lookup(
+                typeNames,
+                typeCandidate);
             if (prefixLookup.Match != null)
                 return new ApiTypeLookupResult(
                     typeName,
                     prefixLookup,
                     api.Types.First(t => t.FullName == prefixLookup.Match),
                     member);
+
+            searchEnd = dot;
         }
 
         return new ApiTypeLookupResult(typeName, lookup, null);

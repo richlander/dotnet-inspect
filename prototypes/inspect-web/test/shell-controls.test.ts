@@ -11,7 +11,6 @@ import { fakeDom } from "./fake-dom.ts";
 setProductHomeDemoCatalog([
   { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
   { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
-  { id: "platform-list", title: ".NET Platform", summary: "Inspect platform BCL types" },
 ]);
 
 class FakeElement {
@@ -109,7 +108,6 @@ test("home shell accepts only known demos", () => {
   const dismiss = new FakeElement();
   const credits = new FakeElement();
   const stj = new FakeElement({ homeDemo: "stj-serializer" });
-  const platform = new FakeElement({ homeDemo: "platform-list" });
   const callgraph = new FakeElement({ homeDemo: "extensions-callgraph" });
   const unknown = new FakeElement({ homeDemo: "other" });
   const absent = new FakeElement();
@@ -119,7 +117,6 @@ test("home shell accepts only known demos", () => {
   root.addAll(
     "[data-home-demo]",
     stj,
-    platform,
     callgraph,
     unknown,
     absent,
@@ -141,7 +138,6 @@ test("home shell accepts only known demos", () => {
   assert.deepEqual(calls, ["theme", "dismiss"]);
   assert.equal(credits.dispatch("click"), true);
   stj.dispatch("click");
-  platform.dispatch("click");
   callgraph.dispatch("click");
   unknown.dispatch("click");
   absent.dispatch("click");
@@ -150,7 +146,6 @@ test("home shell accepts only known demos", () => {
     "dismiss",
     "credits",
     "demo:stj-serializer",
-    "demo:platform-list",
     "demo:extensions-callgraph",
   ]);
 });

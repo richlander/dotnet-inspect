@@ -453,7 +453,7 @@ public class CommandErrorOwnershipTests
         // it from the severity name and a colon -- which is why the owner is
         // absent from a list of everything that spells one.
         Assert.Equal(
-            ["dotnet-inspect!Program.<<Main>$>g__FormatParseError|0_6(string)"],
+            ["dotnet-inspect!DotnetInspector.CommandLineBuilder.FormatParseError(string)"],
             found.Distinct(StringComparer.Ordinal).OrderBy(f => f, StringComparer.Ordinal));
     }
 
@@ -748,6 +748,102 @@ public class CommandErrorOwnershipTests
         }
     }
 
+    internal static HashSet<string> ProjectPackageDependencies(string projectPath)
+    {
+        HashSet<string> dependencies = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Dictionary<string, string> package in EvaluatedItems(projectPath, "PackageReference"))
+        {
+            if (package.GetValueOrDefault("Identity") is { Length: > 0 } identity)
+            {
+                dependencies.Add(identity);
+            }
+        }
+
+        string assetsPath = EvaluatedProperty(projectPath, "ProjectAssetsFile");
+        if (!File.Exists(assetsPath))
+        {
+            throw new FileNotFoundException(
+                $"Could not inspect the resolved package closure for {projectPath}. "
+                    + "Build or restore the project in Release before running this rule.",
+                assetsPath);
+        }
+
+        using JsonDocument assets = JsonDocument.Parse(File.ReadAllText(assetsPath));
+        dependencies.UnionWith(PackageDependenciesFromAssets(assets.RootElement));
+        return dependencies;
+    }
+
+    internal static HashSet<string> EvaluatedProjectClosure(string projectPath)
+    {
+        return EvaluatedClosures.GetOrAdd(Path.GetFullPath(projectPath), Walk);
+
+        static HashSet<string> Walk(string start)
+        {
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            List<string> frontier = [start];
+
+            while (frontier.Count > 0)
+            {
+                List<string> current = [];
+                foreach (string project in frontier.Where(seen.Add))
+                {
+                    if (!File.Exists(project))
+                    {
+                        throw new FileNotFoundException(
+                            $"Could not inspect the Release project closure because {project} does not exist.",
+                            project);
+                    }
+
+                    current.Add(project);
+                }
+
+                ConcurrentBag<string> found = [];
+                Parallel.ForEach(current, project =>
+                {
+                    foreach (Dictionary<string, string> reference
+                        in EvaluatedItems(project, "ProjectReference"))
+                    {
+                        if (reference.GetValueOrDefault("FullPath") is not { Length: > 0 } full)
+                        {
+                            throw new InvalidOperationException(
+                                $"The Release ProjectReference evaluation for {project} "
+                                    + "returned an item without FullPath.");
+                        }
+
+                        found.Add(Path.GetFullPath(full));
+                    }
+                });
+
+                frontier = [.. found.Where(path => !seen.Contains(path))
+                    .Distinct(StringComparer.Ordinal)];
+            }
+
+            return seen;
+        }
+    }
+
+    private static readonly ConcurrentDictionary<string, HashSet<string>>
+        EvaluatedClosures = new(StringComparer.Ordinal);
+
+    internal static HashSet<string> PackageDependenciesFromAssets(JsonElement assets)
+    {
+        HashSet<string> dependencies = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (JsonProperty library in assets.GetProperty("libraries").EnumerateObject())
+        {
+            if (library.Value.GetProperty("type").GetString() == "package")
+            {
+                int versionSeparator = library.Name.LastIndexOf('/');
+                dependencies.Add(versionSeparator >= 0
+                    ? library.Name[..versionSeparator]
+                    : library.Name);
+            }
+        }
+
+        return dependencies;
+    }
+
     private static readonly ConcurrentDictionary<string, HashSet<string>> Closures = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -927,7 +1023,8 @@ public class CommandErrorOwnershipTests
     /// <summary>
     /// The properties this class asks for.
     /// </summary>
-    private static readonly string[] Properties = ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath"];
+    private static readonly string[] Properties =
+        ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath", "ProjectAssetsFile"];
 
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> PropertyEvaluations =
         new(StringComparer.Ordinal);

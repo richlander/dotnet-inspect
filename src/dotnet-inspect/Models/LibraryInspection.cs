@@ -501,6 +501,20 @@ public class LibraryInspection
     public PerformanceProjection? Performance =>
         PerformanceProjection.FromOpportunities(OptimizationOpportunities);
 
+    private ResourceTriageResult? _resourceTriageQueryResult;
+
+    /// <summary>Typed whole-assembly resource lifecycle evidence and assessments.</summary>
+    [JsonIgnore]
+    public ResourceTriageResult? ResourceTriageQueryResult
+    {
+        get => _resourceTriageQueryResult;
+        set
+        {
+            _resourceTriageQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     private FindingInspection<ResourceLifecycleOccurrence>?
         _resourceLifecycleInspection;
 
@@ -518,6 +532,16 @@ public class LibraryInspection
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ResourceTriageSummary>? ResourceTriage { get; set; }
+
+    /// <summary>CLI-filtered typed assessments retained through presentation.</summary>
+    [JsonIgnore]
+    public ImmutableArray<ResourceTriageAssessment>
+        ResourceTriageAssessments { get; set; } = [];
+
+    /// <summary>CLI-owned member coordinates joined to typed resource triage evidence.</summary>
+    [JsonIgnore]
+    public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
+        ResourceTriageDrillMap { get; set; }
 
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
