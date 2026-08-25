@@ -140,9 +140,14 @@ argument `-m`) instead of one shared gesture is the more general version of
 the same mistake. That question is tracked in
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) rather than
 answered here: its current direction is that `-n`/bare `-N` becomes the
-universal "first N items" flag (subsuming `--top`), `--lines` becomes the
-explicit opt-in for the old rendered-line meaning, and `-t`/`-m` retire as
-count-or-glob gestures everywhere, including `find`'s own overload.
+universal "first N items" flag, `--lines` becomes the explicit opt-in for
+the old rendered-line meaning, `-t`/`-m` retire as count-or-glob gestures
+everywhere (including `find`'s own overload), and `--top` is *not* retired
+but redefined — checked against Kusto's `top N by Expression` operator,
+which requires its ranking clause, `--top` survives as sugar for `-n N
+--order-by <field>`, not as a second count flag. A corpus-match query that
+names a real ranking field (for example, "top 500 by download count") would
+use `--top`; a plain "first 500 that match" uses `-n`.
 
 The Sections-registry migration recommended above is still the right moment
 to fix this, whatever #4677 settles on: once `find --package-prefix` rows

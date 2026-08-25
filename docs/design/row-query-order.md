@@ -6,9 +6,12 @@ Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) proposes
-retiring this document's `--top` in favor of a unified `-n`/bare `-N` as the
-universal item-count flag; treat `--top` below as provisional pending that
-issue's resolution.
+`-n`/bare `-N` as the universal item-count flag for the plain "first/last N"
+case this document currently spells `--top`; `--top` itself is not retired,
+but redefined as sugar for `-n N --order-by <field>` (matching Kusto's `top
+N by Expression`), requiring a real ranking expression rather than standing
+in for a bare count. Treat this document's `--top` examples as provisional
+pending that issue's resolution.
 
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
