@@ -542,6 +542,13 @@ context restored around structural emission.
 `SharedScopeBlockLambda_PreservesPointerArithmeticKind`, and
 `SharedScopeBlockLambda_PreservesArrayPseudoMemberKind` cover nested
 function-like return context and retained syntax-kind metadata.
+`BlockLambda_UsesIndependentLabelScope` requires nested and enclosing
+branches with the same numeric IL offset to retain separate compilable labels.
+`NestedLocalFunction_UsesIndependentLabelScope` enforces the same textual-label
+namespace boundary for a local function nested in its enclosing method.
+`SingleStructuredLambda_WithLineCommentsUsesMultilineBlock` requires a single
+structured lambda body containing printer line comments to remain multiline and
+compile. Both gates cover shared and isolated lambda printers.
 `GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` and
 `GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock` cover generated-block
 state and separator placement, while

@@ -487,7 +487,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
-    readonly HashSet<int> _emittedLabels = [];
+    HashSet<int> _emittedLabels = [];
+    string _labelScopeSuffix = "";
+    int _nextNestedLabelScopeOrdinal;
 
     readonly Dictionary<SwitchBranch, string> _switchTemps = [];
 
@@ -812,8 +814,37 @@ public sealed partial class CSharpPrinter
         // First printed occurrence owns the label; structured replacements stamp
         // the enclosing statement so it must render before any same-offset child.
         if (_emittedLabels.Add(offset))
-            sb.Append(pad).AppendLf($"IL_{offset:X4}:");
+            sb.Append(pad).Append(LabelName(offset)).AppendLf(":");
     }
+
+    string LabelName(int offset) => $"IL_{offset:X4}{_labelScopeSuffix}";
+
+    string AllocateNestedLabelScopeSuffix()
+        => $"{_labelScopeSuffix}_scope{++_nextNestedLabelScopeOrdinal}";
+
+    LabelScopeState EnterNestedLabelScope(IrNode functionScope)
+    {
+        var state = new LabelScopeState(
+            _labelTargets,
+            _emittedLabels,
+            _labelScopeSuffix);
+        _labelTargets = CollectBranchTargets(functionScope);
+        _emittedLabels = [];
+        _labelScopeSuffix = AllocateNestedLabelScopeSuffix();
+        return state;
+    }
+
+    void RestoreLabelScope(LabelScopeState state)
+    {
+        _labelTargets = state.Targets;
+        _emittedLabels = state.Emitted;
+        _labelScopeSuffix = state.Suffix;
+    }
+
+    readonly record struct LabelScopeState(
+        HashSet<int> Targets,
+        HashSet<int> Emitted,
+        string Suffix);
 
     /// <summary>
     /// A statement node that renders only as a comment — an <c>// endfinally</c>/
@@ -832,10 +863,10 @@ public sealed partial class CSharpPrinter
         _ => false,
     };
 
-    static HashSet<int> CollectBranchTargets(IrFunction function)
+    static HashSet<int> CollectBranchTargets(IrNode functionScope)
     {
         var targets = new HashSet<int>();
-        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        foreach (var node in functionScope.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -1861,7 +1892,10 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys);
+                decisionKeys: _decisionKeys)
+            {
+                _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
+            };
             return nestedPrinter.PrintBody(function).TrimEnd();
         }
         finally
@@ -2183,6 +2217,7 @@ public sealed partial class CSharpPrinter
                 else
                 {
                     var enclosingReturnType = _returnTypeOverride;
+                    var enclosingLabelScope = EnterNestedLabelScope(localFunction);
                     _returnTypeOverride = localFunction.ReturnType;
                     try
                     {
@@ -2193,6 +2228,7 @@ public sealed partial class CSharpPrinter
                     finally
                     {
                         _returnTypeOverride = enclosingReturnType;
+                        RestoreLabelScope(enclosingLabelScope);
                     }
                 }
                 sb.Append(pad).AppendLf("}");
@@ -2627,7 +2663,7 @@ public sealed partial class CSharpPrinter
                 sb.Append(pad);
                 int caseStart = sb.Length;
                 sb.Append("if (").Append(temp).Append(" == ").Append(t)
-                    .AppendLf($") goto IL_{switchBranch.TargetOffsets[t]:X4};");
+                    .Append(") goto ").Append(LabelName(switchBranch.TargetOffsets[t])).AppendLf(";");
                 _printedRanges?.RecordRegion(PrintedRegionRole.Case, caseStart, sb.Length);
             }
             return;
@@ -3474,10 +3510,10 @@ public sealed partial class CSharpPrinter
         Throw t => $"throw {Expression(t.Value)};",
         Break => "break;",
         Continue => "continue;",
-        Branch b => $"goto IL_{b.TargetOffset:X4};",
-        ConditionalBranch c => $"if ({Condition(c.Condition)}) goto IL_{c.TargetOffset:X4};",
-        SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(t => $"IL_{t:X4}"))}];",
-        Leave l => $"goto IL_{l.TargetOffset:X4}; // leave",
+        Branch b => $"goto {LabelName(b.TargetOffset)};",
+        ConditionalBranch c => $"if ({Condition(c.Condition)}) goto {LabelName(c.TargetOffset)};",
+        SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(LabelName))}];",
+        Leave l => $"goto {LabelName(l.TargetOffset)}; // leave",
         EndFinally => "// endfinally",
         EndFilter f => $"// endfilter({CommentExpressionText(f.Value)})",
         _ => $"/* {node.Describe()} */",

@@ -143,7 +143,7 @@ public sealed partial class CSharpPrinter
         if (NeedsNestedLambdaScope(lambda))
         {
             string bodyText = LambdaBodyTextWithLocalScope(lambda);
-            string text = statementCount > 1
+            string text = RequiresMultilineLambdaBlock(statementCount, bodyText)
                 ? LambdaBlockText(parameters, bodyText)
                 : $"{parameters} => {{ {FlattenLambdaBodyText(bodyText)} }}";
             return LambdaConversionText(lambda, text);
@@ -164,7 +164,7 @@ public sealed partial class CSharpPrinter
         if (sharedBodyText.Length == 0)
             return LambdaConversionText(lambda, $"{parameters} => {{ }}");
 
-        string blockText = statementCount > 1
+        string blockText = RequiresMultilineLambdaBlock(statementCount, sharedBodyText)
             ? LambdaBlockText(parameters, sharedBodyText, enclosingIndent)
             : $"{parameters} => {{ {FlattenLambdaBodyText(sharedBodyText)} }}";
         return LambdaConversionText(lambda, blockText);
@@ -296,12 +296,16 @@ public sealed partial class CSharpPrinter
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
             function.CopyTypeFactsFrom(_function);
-            return new CSharpPrinter(
+            var printer = new CSharpPrinter(
                 function,
                 _options,
                 CurrentScopeNames(),
                 _stackSlotTelemetry,
-                stackSlotTelemetryScope: lambda).PrintBody(function).Trim();
+                stackSlotTelemetryScope: lambda)
+            {
+                _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
+            };
+            return printer.PrintBody(function).Trim();
         }
         finally
         {
@@ -318,6 +322,7 @@ public sealed partial class CSharpPrinter
         var sb = new StringBuilder();
         var enclosingRanges = _printedRanges;
         var enclosingLambda = _sharedScopeLambda;
+        var enclosingLabelScope = EnterNestedLabelScope(lambda);
         int enclosingIndent = _statementIndent;
         _printedRanges = null;
         _sharedScopeLambda = lambda;
@@ -330,6 +335,7 @@ public sealed partial class CSharpPrinter
         {
             _printedRanges = enclosingRanges;
             _sharedScopeLambda = enclosingLambda;
+            RestoreLabelScope(enclosingLabelScope);
             _statementIndent = enclosingIndent;
         }
     }
@@ -348,6 +354,9 @@ public sealed partial class CSharpPrinter
 
     static string FlattenLambdaBodyText(string bodyText)
         => string.Join(" ", bodyText.Split("\n", StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
+
+    static bool RequiresMultilineLambdaBlock(int statementCount, string bodyText)
+        => statementCount > 1 || bodyText.Contains('\n');
 
     string? LambdaStatement(IrNode node) => node switch
     {

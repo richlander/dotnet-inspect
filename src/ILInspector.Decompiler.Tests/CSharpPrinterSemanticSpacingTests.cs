@@ -1,5 +1,7 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Research;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -709,6 +711,192 @@ public class CSharpPrinterSemanticSpacingTests
         _ = PrintedBodyMap.Create(ranges);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BlockLambda_UsesIndependentLabelScope(bool hasLocal)
+    {
+        var funcInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32]);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new Branch(0x10));
+        var collidingStatement = new ExpressionStatement(new Constant(7, Int32));
+        collidingStatement.SetSourceOffset(0x20);
+        lambdaBlock.Add(collidingStatement);
+        var lambdaTarget = new Return(new Constant(0, Int32));
+        lambdaTarget.SetSourceOffset(0x10);
+        lambdaBlock.Add(lambdaTarget);
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            funcInt,
+            [],
+            hasLocal ? [Int32] : [],
+            hasLocal ? [null] : [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new StoreArgument(
+            0,
+            "callback",
+            funcInt,
+            lambda));
+        outerBlock.Add(new Branch(0x20));
+        var outerTarget = new Return(new Constant(1, Int32));
+        outerTarget.SetSourceOffset(0x20);
+        outerBlock.Add(outerTarget);
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaLabelScopes",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("callback", funcInt)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "    goto IL_0010_scope1;\n" +
+            "    _ = 7;\n" +
+            "    IL_0010_scope1:\n" +
+            "    return 0;",
+            output);
+        Assert.DoesNotContain("IL_0020_scope1", output);
+        Assert.Contains(
+            "};\n" +
+            "goto IL_0020;\n" +
+            "IL_0020:\n" +
+            "return 1;",
+            output);
+        AssertBodyCompiles("public static int M(Func<int> callback)", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedLocalFunction_UsesIndependentLabelScope(bool hasLocal)
+    {
+        var localBlock = new Block(0);
+        localBlock.Add(new Branch(0x10));
+        var localTarget = new Return(new Constant(0, Int32));
+        localTarget.SetSourceOffset(0x10);
+        localBlock.Add(localTarget);
+        var localBody = new BlockContainer();
+        localBody.Add(localBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            Int32,
+            [],
+            isStatic: false,
+            hasLocal ? [Int32] : [],
+            hasLocal ? [null] : [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(localFunction);
+        outerBlock.Add(new Branch(0x10));
+        var outerTarget = new Return(new Constant(1, Int32));
+        outerTarget.SetSourceOffset(0x10);
+        outerBlock.Add(outerTarget);
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LocalFunctionLabelScopes",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "    goto IL_0010_scope1;\n" +
+            "    IL_0010_scope1:\n" +
+            "    return 0;",
+            output);
+        Assert.Contains(
+            "}\n" +
+            "goto IL_0010;\n" +
+            "IL_0010:\n" +
+            "return 1;",
+            output);
+        AssertBodyCompiles("public static int M()", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SingleStructuredLambda_WithLineCommentsUsesMultilineBlock(bool hasLocal)
+    {
+        var action = TypeRef.CoreLib("System", "Action");
+        var tryBody = new BlockContainer();
+        var leaveBlock = new Block(0);
+        leaveBlock.Add(new Leave(0x30));
+        var leaveTarget = new Block(0x30);
+        leaveTarget.Add(new ExpressionStatement(new Constant(9, Int32)));
+        tryBody.Add(leaveBlock);
+        tryBody.Add(leaveTarget);
+        var finallyBody = new BlockContainer();
+        var finallyBlock = new Block(0x10);
+        finallyBlock.Add(new ExpressionStatement(new Constant(3, Int32)));
+        finallyBlock.Add(new EndFinally());
+        finallyBody.Add(finallyBlock);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new TryFinally(tryBody, finallyBody));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            action,
+            [],
+            hasLocal ? [Int32] : [],
+            hasLocal ? [null] : [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new StoreArgument(
+            0,
+            "callback",
+            action,
+            lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaLineComments",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Void,
+                [new Parameter("callback", action)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "callback = () =>\n" +
+            "{\n" +
+            "    try",
+            output);
+        Assert.DoesNotContain("() => { try", output);
+        Assert.Contains("// leave\n", output);
+        Assert.Contains("// endfinally\n", output);
+        AssertBodyCompiles("public static void M(Action callback)", output);
+    }
+
     [Fact]
     public void SharedScopeBlockLambda_RebasesInlineExpressionRanges()
     {
@@ -1198,6 +1386,36 @@ public class CSharpPrinterSemanticSpacingTests
         Assert.Equal(
             expectedKind,
             Assert.Single(map.Nodes, candidate => candidate.Extent == extent).Kind);
+    }
+
+    static void AssertBodyCompiles(string methodHeader, string body)
+    {
+        string source = $$"""
+            using System;
+            static class Gate
+            {
+                {{methodHeader}}
+                {
+            {{body}}
+                }
+            }
+            """;
+        var compilation = CSharpCompilation.Create(
+            "semantic-spacing-lambda-gate",
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+
+        Assert.True(
+            errors.Length == 0,
+            "Rendered body must compile, got:\n  "
+            + string.Join("\n  ", errors)
+            + "\n--- body ---\n"
+            + body);
     }
 
     static string PrintLoopConditional(IrNode thenStatement)
