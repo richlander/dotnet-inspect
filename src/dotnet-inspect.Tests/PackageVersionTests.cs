@@ -118,6 +118,39 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task Versions_NonCanonicalPinUsesCanonicalCoordinate()
+    {
+        await EnsurePackageCached("System.Text.Json", "8.0.0");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "System.Text.Json@8.0", "--versions", "1"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("8.0.0", output.Trim());
+        Assert.DoesNotContain("not found", error);
+    }
+
+    [Fact]
+    public async Task Versions_InvalidPinReturnsCoordinateDiagnostic()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "Example@not-a-version", "--versions", "1"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "A package coordinate version must be one exact normalized NuGet version",
+            error);
+        Assert.DoesNotContain("not found", error);
+    }
+
+    [Fact]
     public async Task Versions_WithRange_ListsTheInclusiveAddressVector()
     {
         var root = CommandLineBuilder.CreateRootCommand();

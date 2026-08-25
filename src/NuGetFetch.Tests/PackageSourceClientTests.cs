@@ -444,6 +444,87 @@ public sealed class PackageSourceClientTests
         Assert.Equal([ServiceIndex, Versions], handler.Requested);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task V3ArrayValuedResourceExpansionIsBounded(
+        bool exceedsLimit)
+    {
+        int typeCount =
+            NuGetApi.MaximumExpandedServiceResourceCount
+            + (exceedsLimit ? 1 : 0);
+        string types = string.Join(
+            ',',
+            Enumerable.Range(0, typeCount).Select(index =>
+                index == typeCount - 1
+                    ? "\"PackageBaseAddress/3.0.0\""
+                    : "\"UnrelatedResource/1.0.0\""));
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": [{{types}}]
+                    }
+                  ]
+                }
+                """,
+            [Versions] = """{"versions":["1.0.0"]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceOperationResult<PackageVersionResult> operation =
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken);
+
+        if (exceedsLimit)
+        {
+            Assert.Equal(
+                PackageSourceFailureKind.ResponseRejected,
+                Failed(operation).Kind);
+            Assert.Equal([ServiceIndex], handler.Requested);
+        }
+        else
+        {
+            Assert.Single(Succeeded(operation).Candidates);
+            Assert.Equal([ServiceIndex, Versions], handler.Requested);
+        }
+    }
+
+    [Fact]
+    public async Task NuGetMetadataReadersRejectDuplicateProperties()
+    {
+        await Assert.ThrowsAsync<JsonException>(
+            () => NuGetApi.GetServiceIndexAsync(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(
+                        """{"version":"3.0.0","version":"3.1.0","resources":[]}""")),
+                TestContext.Current.CancellationToken)
+                .AsTask());
+        await Assert.ThrowsAsync<JsonException>(
+            () => NuGetApi.GetVersionIndexAsync(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(
+                        """{"versions":["1.0.0"],"versions":["2.0.0"]}""")),
+                TestContext.Current.CancellationToken)
+                .AsTask());
+        await Assert.ThrowsAsync<JsonException>(
+            () => NuGetApi.GetSearchResponseAsync(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(
+                        """{"data":[],"data":[{"id":"Contoso","version":"1.0.0"}]}""")),
+                TestContext.Current.CancellationToken)
+                .AsTask());
+    }
+
     [Fact]
     public async Task V3BaseSourceIsNormalizedWithoutChangingSignedQuery()
     {

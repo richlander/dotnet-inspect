@@ -5,6 +5,8 @@ namespace NuGetFetch;
 
 public static class NuGetApi
 {
+    internal const int MaximumExpandedServiceResourceCount = 4096;
+
     private static readonly NuGetFetchOptions DefaultOptions = new();
 
     public static ValueTask<ServiceIndex?> GetServiceIndexAsync(
@@ -61,6 +63,15 @@ public static class NuGetApi
             int typeCount = 0;
             foreach (string type in ResourceTypes(typeElement))
             {
+                if ((resources.Count & 127) == 0)
+                    cancellationToken.ThrowIfCancellationRequested();
+                if (resources.Count
+                    >= MaximumExpandedServiceResourceCount)
+                {
+                    throw new NuGetMetadataResourceLimitExceededException(
+                        "The NuGet service index exceeded the expanded resource limit.");
+                }
+
                 resources.Add(new ServiceResource(id, type, comment));
                 typeCount++;
             }
@@ -79,6 +90,10 @@ public static class NuGetApi
         {
             return await JsonDocument.ParseAsync(
                 json,
+                new JsonDocumentOptions
+                {
+                    AllowDuplicateProperties = false,
+                },
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (JsonException exception)
@@ -215,7 +230,8 @@ public static class NuGetApi
 // This only affects reading. Nothing serialises through this context.
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    AllowDuplicateProperties = false)]
 [JsonSerializable(typeof(ServiceIndex))]
 [JsonSerializable(typeof(VersionIndex))]
 [JsonSerializable(typeof(SearchResponse))]

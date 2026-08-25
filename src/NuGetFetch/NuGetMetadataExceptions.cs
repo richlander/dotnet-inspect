@@ -36,6 +36,9 @@ internal sealed class NuGetRedirectLimitExceededException()
 internal sealed class NuGetRegistrationResourceLimitExceededException(
     string message) : IOException(message);
 
+internal sealed class NuGetMetadataResourceLimitExceededException(
+    string message) : IOException(message);
+
 /// <summary>
 /// Thrown when a NuGet metadata response body does not complete within its configured
 /// body-phase timeout.

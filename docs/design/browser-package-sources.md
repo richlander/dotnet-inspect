@@ -751,7 +751,11 @@ normalization, version-index URL construction, and exact package URL
 construction for the v3 source client. Configured base URLs gain
 `/v3/index.json` without rewriting signed query bytes, and JSON-LD array-valued
 resource types are expanded before every `PackageBaseAddress` sibling is
-validated. It applies bounded retries to transient
+validated. Expansion admits at most 4,096 resource/type pairs and checks
+cancellation during array traversal; exceeding that bound is a typed
+response-rejection failure. This prevents one bounded response from amplifying
+into unbounded retained records or single-threaded Browser/Wasm work. It
+applies bounded retries to transient
 service-index, version-index, and exact-package responses under the shared
 operation deadline. The canonical NuGet.org v3 client
 discovers the advertised package base instead of substituting the legacy
@@ -768,6 +772,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
 `V3ServiceIndexVersionAndPackageRetryTransientResponses`,
 `V3ArrayValuedPackageBaseAddressIsDiscovered`,
+`V3ArrayValuedResourceExpansionIsBounded`,
 `V3BaseSourceIsNormalizedWithoutChangingSignedQuery`,
 `V3TransientRetriesAreBounded`,
 `CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,

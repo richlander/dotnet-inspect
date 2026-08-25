@@ -2008,6 +2008,108 @@ public sealed class PackagePayloadAcquisitionTests
                 [producerKey]));
     }
 
+    [Fact]
+    public async Task SignedSourceAliases_FailOverWithinOneProducer()
+    {
+        const string ExpiredSource =
+            "https://primary.test/v3/index.json?sourceToken=expired";
+        const string CurrentSource =
+            "https://primary.test/v3/index.json?sourceToken=current";
+        IReadOnlyList<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources = [ExpiredSource, CurrentSource],
+                },
+                PackageId);
+        var route = Assert.IsType<RoutedPackageSource>(
+            Assert.Single(sources));
+        Assert.Equal(2, route.Transports.Count);
+        Assert.Single(NuGetSourceResolver.SourceKeys(sources));
+
+        byte[] nupkg =
+            TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var handler = new ServiceIndexHandler.SignedAliasFailoverHandler(
+            ExpiredSource,
+            CurrentSource,
+            nupkg);
+        using var client = new HttpClient(handler);
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(route),
+                new InMemoryPackageStore(),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackagePayloadResult.Acquired>(result);
+        Assert.Equal(
+            [ExpiredSource, CurrentSource, handler.PackageUrl],
+            handler.Requests);
+    }
+
+    [Fact]
+    public async Task SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer()
+    {
+        const string ExpiredSource =
+            "https://primary.test/v3/index.json?sourceToken=expired";
+        const string CurrentSource =
+            "https://primary.test/v3/index.json?sourceToken=current";
+        var route = Assert.IsType<RoutedPackageSource>(
+            Assert.Single(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions
+                    {
+                        Sources = [ExpiredSource, CurrentSource],
+                    },
+                    PackageId)));
+        var handler = new ServiceIndexHandler.SignedAliasFailoverHandler(
+            ExpiredSource,
+            CurrentSource,
+            TestPackageArchive.Create("lib/net10.0/Sample.dll"));
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient sourceClient =
+            PackageSourceClientProvider.Create(route, client);
+
+        PackageVersionResult result = Assert.IsType<
+            PackageSourceOperationResult<PackageVersionResult>.Succeeded>(
+                await sourceClient.GetVersionsAsync(
+                    PackageId,
+                    TestContext.Current.CancellationToken))
+            .Value;
+
+        Assert.Equal(
+            Version,
+            Assert.Single(result.Candidates).Coordinate.Version);
+        Assert.Equal(
+            [ExpiredSource, CurrentSource, handler.VersionsUrl],
+            handler.Requests);
+    }
+
+    [Fact]
+    public async Task PackageStreamTimeoutRemainsATypedSourceFailure()
+    {
+        using var source =
+            new ServiceIndexHandler.TimeoutPayloadSourceClient();
+
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireFromSourceAsync(
+                source,
+                PackageSourceCoordinate.Create(PackageId, Version),
+                new InMemoryPackageStore(),
+                log: null,
+                PackagePayloadLimits.Default,
+                transferPolicy: null,
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<PackageSourcePayloadResult.Failed>(result);
+        Assert.Equal(
+            PackageSourceFailureKind.Timeout,
+            failed.Failure.Kind);
+    }
+
     [Theory]
     [InlineData("/relative/flat")]
     [InlineData("ftp://primary.test/flat")]
@@ -2772,6 +2874,158 @@ public sealed class PackagePayloadAcquisitionTests
                         url,
                         StringComparison.Ordinal)).Authentication;
             }
+        }
+
+        internal sealed class SignedAliasFailoverHandler(
+            string expiredSource,
+            string currentSource,
+            byte[] nupkg) : HttpMessageHandler
+        {
+            readonly List<string> _requests = [];
+
+            internal string PackageUrl =>
+                $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg";
+
+            internal string VersionsUrl =>
+                $"https://primary.test/flat/{PackageId}/index.json";
+
+            internal IReadOnlyList<string> Requests => _requests;
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                string url = request.RequestUri!.ToString();
+                _requests.Add(url);
+                if (url.Equals(expiredSource, StringComparison.Ordinal))
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.Forbidden));
+                }
+
+                if (url.Equals(currentSource, StringComparison.Ordinal))
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = new StringContent(
+                                """{"version":"3.0.0","resources":[{"@id":"https://primary.test/flat/","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        });
+                }
+
+                if (url.Equals(VersionsUrl, StringComparison.Ordinal))
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = new StringContent(
+                                $$"""{"versions":["{{Version}}"]}"""),
+                        });
+                }
+
+                return Task.FromResult(
+                    url.Equals(PackageUrl, StringComparison.Ordinal)
+                        ? new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = new ByteArrayContent(nupkg),
+                        }
+                        : new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+        }
+
+        internal sealed class TimeoutPayloadSourceClient
+            : IPackageSourceClient
+        {
+            public PackageSourceIdentity Identity =>
+                PackageSourceIdentity.NuGetOrg;
+
+            public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
+
+            public PackageSourceCapabilities Capabilities =>
+                PackageSourceCapabilities.PackagePayload;
+
+            public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+            {
+                PackageSourceCoordinate coordinate =
+                    PackageSourceCoordinate.Create(packageId, version);
+                return Task.FromResult<
+                    PackageSourceOperationResult<PackageSourcePayload>>(
+                    new PackageSourceOperationResult<PackageSourcePayload>
+                        .Succeeded(
+                            new PackageSourcePayload(
+                                coordinate,
+                                Identity,
+                                Kind,
+                                PackageSourcePayloadKind.Package,
+                                new TimeoutReadStream())));
+            }
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public void Dispose()
+            {
+            }
+        }
+
+        sealed class TimeoutReadStream : Stream
+        {
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position
+            {
+                get => throw new NotSupportedException();
+                set => throw new NotSupportedException();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) =>
+                throw Timeout();
+
+            public override ValueTask<int> ReadAsync(
+                Memory<byte> buffer,
+                CancellationToken cancellationToken = default) =>
+                ValueTask.FromException<int>(Timeout());
+
+            public override void Flush()
+            {
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) =>
+                throw new NotSupportedException();
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+            public override void Write(
+                byte[] buffer,
+                int offset,
+                int count) =>
+                throw new NotSupportedException();
+
+            private static NuGetRequestTimeoutException Timeout() =>
+                new(
+                    TimeSpan.FromSeconds(1),
+                    new OperationCanceledException());
         }
 
         protected override Task<HttpResponseMessage> SendAsync(

@@ -323,6 +323,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
             and not NuGetRegistrationResourceLimitExceededException
+            and not NuGetMetadataResourceLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
 

@@ -95,6 +95,11 @@ otherwise canonical index path. Exact package pins are normalized once before
 cache lookup and payload acquisition. Borrowed clients retain authoritative
 listing state for floating selection, exclude unlisted candidates, and reject
 partial answers.
+The `package --versions` exact-pin shortcut uses that same canonical
+coordinate, so semantically equivalent spellings share cache and listing
+identity and malformed pins fail before source discovery. A timeout while
+consuming a returned package stream remains a typed source timeout rather than
+being reported as payload-policy rejection.
 Service-index, version-index, and exact-package
 requests use the
 source-owned bounded transient retry policy within one operation deadline;
@@ -103,8 +108,11 @@ absence and authentication failures are not retried.
 `PackagePayloadAcquisitionTests`,
 `PackageExtractorOfflineTests.ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate`,
 `PackageVersionTests.ExactPin_InvalidPackageId_ReturnsCleanDiagnostic`,
+`PackageVersionTests.Versions_NonCanonicalPinUsesCanonicalCoordinate`,
+`PackageVersionTests.Versions_InvalidPinReturnsCoordinateDiagnostic`,
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_ExcludesUnlistedVersion`,
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_PartialListingFailsClosed`,
+`PackagePayloadAcquisitionTests.PackageStreamTimeoutRemainsATypedSourceFailure`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
 and
 `PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,

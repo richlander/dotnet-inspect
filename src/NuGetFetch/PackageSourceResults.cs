@@ -335,7 +335,8 @@ internal static class PackageSourceOperation
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetRedirectLimitExceededException
-                or NuGetRegistrationResourceLimitExceededException =>
+                or NuGetRegistrationResourceLimitExceededException
+                or NuGetMetadataResourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetSourceCapabilityUnavailableException =>
                 PackageSourceFailureKind.Unsupported,
@@ -377,6 +378,7 @@ internal static class PackageSourceOperation
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
+            or NuGetMetadataResourceLimitExceededException
             or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
             or JsonException

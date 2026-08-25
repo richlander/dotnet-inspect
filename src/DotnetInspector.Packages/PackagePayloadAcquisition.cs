@@ -437,18 +437,36 @@ public static class PackagePayloadAcquisition
 
         string producerKey =
             NuGetCache.GetSourceKey(source.Identity.Value);
-        IPackageContent? content = await TryAdmitAsync(
-            payload.Content,
-            payload.AdvertisedLength,
-            coordinate,
-            producerKey,
-            $"source '{source.Kind}'",
-            store,
-            log,
-            limits,
-            transferPolicy,
-            cancellationToken,
-            cancellationToken).ConfigureAwait(false);
+        IPackageContent? content;
+        try
+        {
+            content = await TryAdmitAsync(
+                payload.Content,
+                payload.AdvertisedLength,
+                coordinate,
+                producerKey,
+                $"source '{source.Kind}'",
+                store,
+                log,
+                limits,
+                transferPolicy,
+                cancellationToken,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is
+            NuGetRequestTimeoutException
+            or NuGetOperationTimeoutException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new PackageSourcePayloadResult.Failed(
+                new PackageSourceFailure(
+                    source.Identity,
+                    source.Kind,
+                    PackageSourceCapabilities.PackagePayload,
+                    coordinate,
+                    PackageSourceFailureKind.Timeout,
+                    "The package source operation exceeded its configured deadline."));
+        }
         if (content is null)
         {
             return new PackageSourcePayloadResult.Unavailable(
@@ -585,8 +603,6 @@ public static class PackagePayloadAcquisition
                     or UnauthorizedAccessException
                     or InvalidDataException
                     or NotSupportedException
-                    or NuGetRequestTimeoutException
-                    or NuGetOperationTimeoutException
                     || (ex is OperationCanceledException
                         && !operationCancellationToken.IsCancellationRequested))
             {

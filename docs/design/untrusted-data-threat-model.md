@@ -908,11 +908,14 @@ JSON as "no data" now treat duplicate-bearing JSON the same way; that is fail-cl
 not by itself convert those callers to explicit failure reporting, which remains open work below.
 
 The coverage is not yet complete, and the gaps are on the feed path specifically:
-`PackageExtractor` uses `HardenedJson.Parse` at four call sites but plain
+`PackageExtractor` uses `HardenedJson.Parse` at two call sites but plain
 `System.Text.Json.JsonDocument.Parse` at two more when reading registration pages, and
-`NuGetFetch.NuGetApi` deserializes the service index, version index, and search responses through a
-source-generated context that does not reject duplicates. `runfaster` also still parses its trace
-inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
+`runfaster` still parses its trace inputs directly. `NuGetFetch.NuGetApi`
+rejects duplicates in service-index, version-index, and search responses,
+gated by
+`PackageSourceClientTests.NuGetMetadataReadersRejectDuplicateProperties`.
+No set-equality gate yet prevents another direct parser from appearing, which
+is why the remaining gaps are open work below.
 
 ### NuGet metadata response bodies are bounded
 
@@ -1947,8 +1950,8 @@ only ordinary compiler output.
 
 1. Extend duplicate-property rejection to the readers that still bypass
    `HardenedJson`: the two `JsonDocument.Parse` call sites in
-   `PackageExtractor` registration-page reading, `NuGetFetch.NuGetApi`'s
-   source-generated feed contexts, and `runfaster` trace parsing. Add a gate
+   `PackageExtractor` registration-page reading and `runfaster` trace parsing.
+   Add a gate
    asserting no product JSON entry point parses outside the guard, so the set
    cannot silently regrow.
 2. Define product-wide package, symbol, source-download, and

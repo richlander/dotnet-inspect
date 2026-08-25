@@ -365,17 +365,25 @@ public class PackageCommand
 
             var (versionQueryName, versionQueryPinned) = PackageExtractor.ParsePackageReference(packageArgs[0]);
             string normalizedName = versionQueryName.ToLowerInvariant();
+            if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
+            {
+                versionQueryPinned = null;
+                options = options with { ForceLatest = true };
+            }
             if (PackageCoordinateResolver.Validate(
-                    new PackageCoordinate(normalizedName))
+                    new PackageCoordinate(
+                        normalizedName,
+                        versionQueryPinned))
                 is { } invalidCoordinate)
             {
                 CommandError.Write(invalidCoordinate.Message);
                 return 1;
             }
-            if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
+            if (versionQueryPinned is not null)
             {
-                versionQueryPinned = null;
-                options = options with { ForceLatest = true };
+                versionQueryPinned = PackageSourceCoordinate.Create(
+                    normalizedName,
+                    versionQueryPinned).Version;
             }
             using var requestScope = RequestTelemetry.Scope($"package {normalizedName}", "package versions");
 

@@ -136,7 +136,13 @@ Several transport profiles may implement one producer. Source resolution
 collapses them by producer identity before candidate queries. A transport
 failure falls through to another applicable profile and does not create a
 second candidate source or a partial aggregate; the producer fails only when
-all of its applicable transports fail.
+all of its applicable transports fail. Query-bearing configured aliases with
+one stable producer identity are retained as ordered transports within that
+producer route rather than discarding every alias after the first.
+`PackagePayloadAcquisitionTests.SignedSourceAliases_FailOverWithinOneProducer`
+and
+`SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer`
+gates this behavior.
 
 ## Resolving active and eligible sources
 

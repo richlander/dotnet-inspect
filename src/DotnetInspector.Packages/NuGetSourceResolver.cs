@@ -477,7 +477,11 @@ public static class NuGetSourceResolver
                     + $"'{UrlRedaction.ForDiagnostics(first.Url)}', but those names use conflicting credentials.");
             }
 
-            producers.Add(first);
+            List<NuGetSource> transports = [.. aliases];
+            producers.Add(
+                transports.Count == 1
+                    ? first
+                    : new RoutedPackageSource(transports));
         }
 
         return producers;
