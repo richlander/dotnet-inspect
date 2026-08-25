@@ -48,12 +48,12 @@ Related docs:
 
 ## Thesis
 
-`find --package-prefix` is already the right CLI verb: it streams typed
-manifests over a corpus, bounded by `-t`, honest about truncation and partial
-source failure. What it does not have yet is a way to ask "and does each
-package satisfy *this*" — a facet predicate — cheaply for nuspec-derived
-facts and, on explicit request, expensively for facts that require opening
-IL. This document proposes that predicate layer, and where each piece of it
+`find --package-prefix`'s #4551 diff already makes it the right CLI verb: it
+streams typed manifests over a corpus, bounded by `-t`, honest about
+truncation and partial source failure. What it does not have yet is a way to
+ask "and does each package satisfy *this*" — a facet predicate — cheaply for
+nuspec-derived facts and, on explicit request, expensively for facts that
+require opening IL. This document proposes that predicate layer, and where each piece of it
 belongs across the existing L1/L2/L3 split, rather than treating the CLI
 project as a place to accumulate new bespoke logic the way it did before that
 split existed.
@@ -241,7 +241,7 @@ document proposes:
 
 ## Completion and bound honesty parity with the browser
 
-`find --package-prefix` already reports truncation
+`find --package-prefix`'s #4551 diff already reports truncation
 ("Package discovery reached the requested package limit" /
 "Package discovery was truncated by a pagination limit; narrow the prefix.")
 and visible per-source failures. That is the same completion vocabulary
