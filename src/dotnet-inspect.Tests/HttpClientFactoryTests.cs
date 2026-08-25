@@ -236,6 +236,33 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Contains("Blocked request to non-public address", exception.ToString());
     }
 
+    [Fact]
+    public async Task PackageSourceClient_AllowsConfiguredPrivateIpv6Origin()
+    {
+        Assert.True(Socket.OSSupportsIPv6);
+        using var listener =
+            new TcpListener(IPAddress.IPv6Loopback, 0);
+        listener.Start();
+        int sourcePort =
+            ((IPEndPoint)listener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://[::1]:{sourcePort}/index.json";
+        Task server = ServeHttpResponseAsync(
+            listener,
+            """{"resources":[]}""",
+            TestContext.Current.CancellationToken);
+
+        using HttpClient client =
+            DotnetInspector.Core.HttpClientFactory
+                .CreatePackageSourceClient(sourceUrl);
+        string response = await client.GetStringAsync(
+            sourceUrl,
+            TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.Equal("""{"resources":[]}""", response);
+    }
+
     [Theory]
     [InlineData("8.8.8.8", false)]
     [InlineData("192.0.0.9", false)]

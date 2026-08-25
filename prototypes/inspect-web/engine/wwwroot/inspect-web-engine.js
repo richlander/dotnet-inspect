@@ -17,6 +17,7 @@ let loadRuntimePackExport;
 let loadRuntimePackAssemblyExport;
 let matchPackageDependencyCoordinateExport;
 let packageCacheStatsExport;
+let queryGraphMemberSurfaceExport;
 let queryMemberAnnotatedSourceExport;
 let queryMemberCallGraphExport;
 let queryMemberDocumentationExport;
@@ -42,6 +43,7 @@ let queryTypeProjectionExport;
 let queryTypeSourceExport;
 let resolveHomeDemoExport;
 let resolvePackageDependencyVersionExport;
+let runHomeDemoExport;
 let searchTypesExport;
 
 export async function initializeEngine(onStatus = () => {}) {
@@ -60,6 +62,7 @@ export async function initializeEngine(onStatus = () => {}) {
   loadRuntimePackAssemblyExport = exports.InspectionEngine.LoadRuntimePackAssembly;
   matchPackageDependencyCoordinateExport = exports.InspectionEngine.MatchPackageDependencyCoordinate;
   packageCacheStatsExport = exports.InspectionEngine.PackageCacheStats;
+  queryGraphMemberSurfaceExport = exports.InspectionEngine.QueryGraphMemberSurface;
   queryMemberAnnotatedSourceExport = exports.InspectionEngine.QueryMemberAnnotatedSource;
   queryMemberCallGraphExport = exports.InspectionEngine.QueryMemberCallGraph;
   queryMemberDocumentationExport = exports.InspectionEngine.QueryMemberDocumentation;
@@ -85,6 +88,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryTypeSourceExport = exports.InspectionEngine.QueryTypeSource;
   resolveHomeDemoExport = exports.InspectionEngine.ResolveHomeDemo;
   resolvePackageDependencyVersionExport = exports.InspectionEngine.ResolvePackageDependencyVersion;
+  runHomeDemoExport = exports.InspectionEngine.RunHomeDemo;
   searchTypesExport = exports.InspectionEngine.SearchTypes;
   configureHostExport(window.location.origin);
   await runtime.runMain();
@@ -150,6 +154,12 @@ export function matchPackageDependencyCoordinate(packageId, declaredRange, candi
 export function packageCacheStats() {
   if (!packageCacheStatsExport) throw new Error("The browser inspection engine is not initialized.");
   const result = packageCacheStatsExport();
+  return JSON.parse(result);
+}
+
+export async function queryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
+  if (!queryGraphMemberSurfaceExport) throw new Error("The browser inspection engine is not initialized.");
+  const result = await queryGraphMemberSurfaceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   return JSON.parse(result);
 }
 
@@ -291,6 +301,12 @@ export function resolveHomeDemo(scenarioId) {
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
   if (!resolvePackageDependencyVersionExport) throw new Error("The browser inspection engine is not initialized.");
   return await resolvePackageDependencyVersionExport(packageId, declaredRange);
+}
+
+export async function runHomeDemo(scenarioId) {
+  if (!runHomeDemoExport) throw new Error("The browser inspection engine is not initialized.");
+  const result = await runHomeDemoExport(scenarioId);
+  return JSON.parse(result);
 }
 
 export function searchTypes(query, candidatesJson) {

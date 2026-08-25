@@ -1,16 +1,23 @@
 import {
+  accessibilityFilterIncludingType,
   activeSourceOperationKind,
   assemblyDescriptorForType,
   pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  combinedGraphTargetNavigationDisposition,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphRenderSignature,
-  graphTargetNavigationDisposition,
+  graphTargetBlockedReason,
+  graphMemberDeepLinkDisposition,
+  graphMemberPendingMatchesView,
+  graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetFromShare,
+  graphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
@@ -20,20 +27,30 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
+  partitionGraphMembers,
+  platformPackForGraphAssembly,
   platformPackFromProvenance,
   removeWorkspacePackage,
   removeAppendedNotice,
+  retainGraphMemberProjection,
+  retainGraphOnlyBodyTarget,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
-  resolveOpportunitySourceType,
-  resolvePlatformGraphTargetType,
+  resolveOpportunitySourceCandidate,
+  resolveRuntimeGraphTargetCandidate,
+  runtimeGraphTargetAssemblyIsResident,
+  runtimeGraphTargetNavigationDisposition,
+  runtimePackForFramework,
   scopedRequestState,
+  searchableMemberGroups,
   sourceReloadKind,
   sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   typeLensesFor,
   type DependencyGroupData,
+  type GraphMemberTarget,
+  type GraphMemberShareIdentity,
   type PackageIdentity,
   type PlatformPack,
   type WorkspaceTab,
@@ -54,6 +71,7 @@ import {
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
+  bindWorkspaceLinkNavigation,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -64,6 +82,11 @@ import {
   type WorkspaceView,
 } from "./workspace-navigation.ts";
 import {
+  createWorkbenchKeybindings,
+  WORKBENCH_KEYBINDING_PRIORITY,
+} from "./workbench-keybindings.ts";
+import {
+  createNuGetPackageModel,
   createPackageAcquisition,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
@@ -93,12 +116,10 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
-  callGraphDemoRunnerSpec,
   homeDemoRowHtml,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
-  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -113,6 +134,7 @@ import {
   type MemberFacts,
 } from "./member-detail-inspection.ts";
 import {
+  callGraphErrorForView,
   createCallGraphInspectionCoordinator,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
@@ -120,6 +142,7 @@ import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
+  focusPlatformGraphError,
   type MemberFocusSnapshot,
 } from "./member-focus.ts";
 import {
@@ -165,6 +188,7 @@ import {
 } from "./package-opportunities.ts";
 import {
   bindTypePanel,
+  renderGraphMemberPending,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -225,6 +249,7 @@ import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
+  BrowserHomeDemoRunResult,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -243,9 +268,11 @@ type EngineModule = typeof import("./inspect-web-engine.d.ts");
 let initializeEngine: EngineModule["initializeEngine"];
 let cancelSourceInspection: EngineModule["cancelSourceQuery"];
 let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
+let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectListHomeDemos: EngineModule["listHomeDemos"];
 let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
+let inspectRunHomeDemo: EngineModule["runHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -288,12 +315,14 @@ async function loadEngineModule() {
     listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
+    runHomeDemo: inspectRunHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
     packageCacheStats: inspectPackageCacheStats,
     queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberCallGraph: inspectMemberCallGraph,
+    queryGraphMemberSurface: inspectGraphMemberSurface,
     queryMemberDocumentation: inspectMemberDocumentation,
     queryMemberFacts: inspectMemberFacts,
     queryMemberSource: inspectMemberSource,
@@ -358,6 +387,12 @@ interface AppMemberGroup {
 
 interface AppMemberSurface extends BrowserMemberSurface {
   documentationLoaded?: boolean;
+  graphOnly?: boolean;
+  graphTarget?: BodyTarget;
+}
+
+interface AppTypeSurface extends BrowserTypeSurface {
+  api: AppMemberSurface[];
 }
 
 function loadStoredTaste() {
@@ -450,6 +485,16 @@ interface SpotlightMemberCache {
 interface PlatformRecent {
   assembly: string;
   pack: string;
+}
+
+interface PendingGraphMemberDeepLink {
+  packageKey: string;
+  viewSignature: string;
+  type: string;
+  member: string;
+  overload: number | string | null;
+  section: string | null;
+  target: GraphMemberShareIdentity;
 }
 
 interface RecentPackage {
@@ -553,9 +598,13 @@ const initialState = {
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
+  graphMemberNavigationError: "",
   memberCallGraphKey: "",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
+  graphMemberNavigationSeq: 0,
+  graphMemberNavigationTitle: "",
+  pendingGraphMemberDeepLink: null,
   platformStack: [],
   platformDrillLoading: false,
   platformDrillError: "",
@@ -653,6 +702,7 @@ interface StateOverrides {
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: BrowserCallGraph | null;
+  pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   dotnetReleases: DotnetRelease[] | null;
   memberFacts: MemberFacts | null;
@@ -682,6 +732,7 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const keybindings = createWorkbenchKeybindings();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   queryMemberSource: request => inspectMemberSource(
@@ -871,10 +922,50 @@ function captureView(): WorkspaceView | null {
   };
 }
 
+function viewSignature() {
+  const view = captureView();
+  return view ? workspaceViewSignature(view) : "";
+}
+
+interface ViewOperationOwner {
+  sequence: number;
+  navigationSequence: number;
+  sourceView: string;
+}
+
+function captureViewOperation(sequence: number): ViewOperationOwner {
+  return {
+    sequence,
+    navigationSequence: navigationSequence.current(),
+    sourceView: viewSignature(),
+  };
+}
+
+function ownsViewOperation(
+  owner: ViewOperationOwner,
+  currentSequence: number,
+) {
+  return owner.sequence === currentSequence
+    && owner.navigationSequence === navigationSequence.current()
+    && owner.sourceView === viewSignature();
+}
+
+function invalidateGraphMemberNavigation() {
+  state.graphMemberNavigationSeq++;
+  state.graphMemberNavigationTitle = "";
+  state.graphMemberNavigationError = "";
+  state.pendingGraphMemberDeepLink = null;
+}
+
+function normalizeCurrentNavEntry() {
+  navigationHistory.normalizeCurrent();
+}
+
 function applyView(view: WorkspaceView) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
   invalidateMemberCallGraphWork(state);
+  invalidateGraphMemberNavigation();
   activatePackage(pkg);
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
@@ -883,11 +974,18 @@ function applyView(view: WorkspaceView) {
   const member = type
     ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
     : null;
+  const graphSelection = type && view.bodyTarget
+    ? findGraphMemberSelection(type, view.bodyTarget)
+    : null;
+  const hasSelectedBody =
+    graphSelection?.group.key === view.selectedMemberKey;
   const memberHistory = restoreMemberHistoryState(
     view,
     type,
     member,
-    member ? memberSectionIdsFor(member, pkg.isRuntimePack) : []);
+    member
+      ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
+      : []);
   state.lens = view.lens;
   state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
   state.selectedMemberKey = memberHistory.selectedMemberKey;
@@ -912,6 +1010,55 @@ function applyView(view: WorkspaceView) {
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
+  if (!state.atPackageRoot) revealTypeInFilters(type);
+  const requestedOverloadIndex = view.selectedOverloadIndex;
+  const historyGraphTarget =
+    graphMemberTargetFromShare(graphMemberShareTarget(view.bodyTarget));
+  if (!state.atPackageRoot
+    && type
+    && graphSelection?.group.key === view.selectedMemberKey) {
+    state.selectedMemberKey = graphSelection.group.key;
+    state.memberBrowseTypeId = type.id;
+    state.selectedOverloadIndex = graphSelection.overloadIndex;
+    state.selectedBodyTarget = view.bodyTarget;
+    retainGraphOnlyBodyTarget(
+      graphSelection.group.overloads[graphSelection.overloadIndex],
+      view.bodyTarget);
+    state.memberSection = isMemberSection(view.memberSection)
+      && memberSectionIdsFor(
+        graphSelection.group,
+        pkg.isRuntimePack,
+        true).includes(view.memberSection)
+      ? view.memberSection
+      : "overview";
+  }
+  if (!state.atPackageRoot
+    && state.lens === "api"
+    && view.selectedMemberKey
+    && type
+    && historyGraphTarget
+    && graphSelection?.group.key !== view.selectedMemberKey) {
+    state.selectedMemberKey = view.selectedMemberKey;
+    state.selectedOverloadIndex = view.selectedOverloadIndex;
+    state.memberSection = isMemberSection(view.memberSection)
+      ? view.memberSection
+      : "overview";
+    state.selectedBodyTarget = view.bodyTarget;
+    navigationHistory.normalizeCurrent();
+    state.pendingGraphMemberDeepLink = {
+      packageKey: packageIdentityKey(pkg),
+      viewSignature: viewSignature(),
+      type: type.id,
+      member: view.selectedMemberKey,
+      overload: requestedOverloadIndex,
+      section: view.memberSection,
+      target: historyGraphTarget,
+    };
+    observeAsync(
+      restorePendingGraphMember(),
+      "Restoring a graph member from navigation history");
+    return true;
+  }
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
     if (state.memberSection === "source")
@@ -968,12 +1115,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function memberSectionsFor(member: BrowserMemberSurface | AppMemberGroup) {
+function memberSectionsFor(member: AppMemberGroup) {
   const allowed = new Set(
     memberSectionIdsFor(
       member,
-      state.package?.isRuntimePack));
+      state.package?.isRuntimePack,
+      memberHasSelectedBody(member)));
   return memberSectionDefs.filter(([id]) => allowed.has(id));
+}
+
+function memberHasSelectedBody(member: AppMemberGroup) {
+  const type = selectedType();
+  if (!type || !state.selectedBodyTarget) return false;
+  const selection = findGraphMemberSelection(type, state.selectedBodyTarget);
+  return selection?.group.key === member.key
+    && (state.selectedOverloadIndex == null
+      || selection.overloadIndex === state.selectedOverloadIndex);
 }
 
 const workspaceLocation = createWorkspaceLocationPersistence({
@@ -1024,7 +1181,8 @@ const initialDeepLink = {
   memberTextFilter: initialLocation.memberTextFilter,
   memberKindFilter: initialLocation.memberKindFilter,
   memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
-  memberTraitFilter: initialLocation.memberTraitFilter
+  memberTraitFilter: initialLocation.memberTraitFilter,
+  graphTarget: initialLocation.graphTarget
 };
 
 function requireElement(selector: string): HTMLElement {
@@ -1118,6 +1276,7 @@ const catalogRequests = createCatalogRequests({
   updatePackageVersionSelect: updateVersionSelect,
 });
 const spotlight = createSpotlight({
+  keybindings,
   state,
   lenses: () => typeLensesFor(state.package),
   escapeHtml,
@@ -1155,11 +1314,6 @@ function isInteractiveElement(element: Element | null) {
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
-function isContainedBrowserShortcut(event: KeyboardEvent) {
-  return (event.metaKey || event.ctrlKey)
-    && ["f", "k", "p"].includes(event.key.toLowerCase());
-}
-
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
@@ -1184,6 +1338,7 @@ function closeSpotlight() {
 }
 
 const packageBar = createPackageBar({
+  keybindings,
   state,
   escapeHtml,
   packageIdentityKey,
@@ -1280,10 +1435,10 @@ function reconcileAccessibilityFilter(
 // remember surfaces its declaring type — any member name on the type. The member scan
 // runs only when the cheaper identity/library match misses, so keystroke filtering stays
 // responsive on large packs like the runtime pseudo-package.
-function typeMatchesFilterText(item: BrowserTypeSurface, needle: string) {
+function typeMatchesFilterText(item: AppTypeSurface, needle: string) {
   if (!needle) return true;
   if (`${item.name} ${item.namespace} ${item.kind} ${libraryKey(item)}`.toLowerCase().includes(needle)) return true;
-  const members = item.api;
+  const members = item.api?.filter(member => !member.graphOnly);
   if (!members || !members.length) return false;
   for (const member of members) {
     if ((member.name || "").toLowerCase().includes(needle)) return true;
@@ -1409,6 +1564,21 @@ function defaultAccessibilityFilter(pkg: AppPackage | null | undefined): Set<str
   return new Set((pkg?.accessibility ?? [])
     .filter(descriptor => descriptor.isDefault)
     .map(descriptor => descriptor.id));
+}
+
+function revealTypeInFilters(type: AppTypeSurface | null | undefined) {
+  if (!type) return;
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    type);
+  if (!typeMatchesFilterText(type, state.typeFilter.toLowerCase()))
+    state.typeFilter = "";
+  if (state.namespaceFilter && type.namespace !== state.namespaceFilter)
+    state.namespaceFilter = "";
+  if (state.kindFilter && typeKind(type.kind) !== state.kindFilter)
+    state.kindFilter = "";
+  if (state.libraryScope && !state.libraryScope.has(libraryKey(type)))
+    state.libraryScope = null;
 }
 
 function packageIdentityEquals(
@@ -1613,7 +1783,8 @@ function memberGroups(
 ): AppMemberGroup[] {
   const groups = new Map<string, AppMemberGroup>();
   for (const member of (type?.api ?? []) as AppMemberSurface[]) {
-    const key = `${member.kind}:${member.name}`;
+    const key =
+      `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
     if (!group) {
       group = { key, name: member.name, kind: member.kind, overloads: [] };
@@ -1641,15 +1812,36 @@ function resetMemberFilters() {
 }
 
 function visibleMemberGroups(type: BrowserTypeSurface) {
-  return filterMemberGroups(memberGroups(type), memberFilterState());
+  return filterMemberGroups(publicMemberGroups(type), memberFilterState());
+}
+
+function publicMemberGroups(type: BrowserTypeSurface) {
+  return searchableMemberGroups(memberGroups(type));
+}
+
+function selectedGraphMemberGroup(type: BrowserTypeSurface) {
+  return memberGroups(type).find(group =>
+    group.key === state.selectedMemberKey
+    && group.overloads.some(overload => overload.graphOnly));
+}
+
+function memberSelectionIsAvailable(
+  type: BrowserTypeSurface,
+  visible: readonly { key: string }[],
+) {
+  return visible.some(group => group.key === state.selectedMemberKey)
+    || selectedGraphMemberGroup(type) != null;
 }
 
 function memberKinds(type: BrowserTypeSurface) {
-  return [...new Set(memberGroups(type).map(group => group.kind))];
+  return [...new Set(publicMemberGroups(type).map(group => group.kind))];
 }
 
 function memberAccessibilities(type: BrowserTypeSurface) {
-  const values = new Set((type.api ?? []).map(member => member.accessibility));
+  const values = new Set(
+    publicMemberGroups(type)
+      .flatMap(group => group.overloads)
+      .map(member => member.accessibility));
   return ["public", "protected", "internal", "private", "protected internal", "private protected"]
     .filter(value => values.has(value))
     .concat([...values].filter(value => value && ![
@@ -1658,11 +1850,14 @@ function memberAccessibilities(type: BrowserTypeSurface) {
 }
 
 function availableMemberTraits(type: BrowserTypeSurface) {
-  return MEMBER_TRAITS.filter(([property]) => (type.api ?? []).some(member => member[property]));
+  const publicMembers =
+    publicMemberGroups(type).flatMap(group => group.overloads);
+  return MEMBER_TRAITS.filter(([property]) =>
+    publicMembers.some(member => member[property]));
 }
 
 function renderMemberFilterControls(type: BrowserTypeSurface) {
-  const groups = memberGroups(type);
+  const groups = publicMemberGroups(type);
   const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
@@ -1700,25 +1895,26 @@ function compositionFilterButton(
   return `<button class="composition-filter ${className}" ${attribute}="${escapeHtml(value)}"><strong>${count}</strong><span>${escapeHtml(label)}</span></button>`;
 }
 
-function renderMemberComposition(type: BrowserTypeSurface) {
-  const members = type.api ?? [];
-  const kinds = memberKinds(type)
+function renderMemberComposition(type: AppTypeSurface) {
+  const { publicMembers } = partitionGraphMembers(type.api);
+  const publicSurface = { ...type, api: publicMembers };
+  const kinds = memberKinds(publicSurface)
     .map(kind => compositionFilterButton(
-      members.filter(member => member.kind === kind).length,
+      publicMembers.filter(member => member.kind === kind).length,
       kind.replaceAll("-", " "),
       "data-member-jump-kind",
       kind))
     .join("");
-  const accessibilities = memberAccessibilities(type)
+  const accessibilities = memberAccessibilities(publicSurface)
     .map(accessibility => compositionFilterButton(
-      members.filter(member => member.accessibility === accessibility).length,
+      publicMembers.filter(member => member.accessibility === accessibility).length,
       accessibility,
       "data-member-jump-access",
       accessibility))
     .join("");
-  const traits = availableMemberTraits(type)
+  const traits = availableMemberTraits(publicSurface)
     .map(([property, label]) => compositionFilterButton(
-      members.filter(member => member[property]).length,
+      publicMembers.filter(member => member[property]).length,
       label,
       "data-member-jump-trait",
       property,
@@ -1781,6 +1977,7 @@ function navMode() {
 
 function resetMemberSectionState() {
   invalidateMemberCallGraphWork(state);
+  invalidateGraphMemberNavigation();
   state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
@@ -1795,10 +1992,16 @@ function resetMemberSectionState() {
 }
 
 function openMemberGroup(key: string) {
+  const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
+  const graphOnlyTarget =
+    group?.overloads.length === 1
+      ? graphOnlyBodyTarget(group.overloads[0])
+      : null;
   state.memberBrowseTypeId = selectedType()?.id ?? "";
   state.selectedMemberKey = key;
-  state.selectedOverloadIndex = null;
+  state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
   resetMemberSectionState();
+  state.selectedBodyTarget = graphOnlyTarget;
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
@@ -1814,8 +2017,7 @@ function enterMemberScope() {
   state.lens = "api";
   state.memberBrowseTypeId = type.id;
   const visible = visibleMemberGroups(type);
-  const selectedIsVisible = visible.some(group => group.key === state.selectedMemberKey);
-  if (!selectedIsVisible) {
+  if (!memberSelectionIsAvailable(type, visible)) {
     if (visible.length) openMemberGroup(visible[0].key);
     else {
       state.selectedMemberKey = "";
@@ -1830,7 +2032,7 @@ function normalizeMemberSelection() {
   const type = selectedType();
   if (!type || !state.selectedMemberKey) return;
   const visible = visibleMemberGroups(type);
-  if (!visible.some(group => group.key === state.selectedMemberKey)) {
+  if (!memberSelectionIsAvailable(type, visible)) {
     state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;
@@ -1839,8 +2041,11 @@ function normalizeMemberSelection() {
 }
 
 function openOverload(index: number) {
+  const graphTarget = graphOnlyBodyTarget(
+    selectedMember(selectedType())?.overloads[index]);
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
+  state.selectedBodyTarget = graphTarget;
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
@@ -1852,6 +2057,7 @@ function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
+    state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
   }
   if (state.memberSection === "call-graph" && id !== "call-graph") {
     invalidateMemberCallGraphWork(state);
@@ -1870,14 +2076,23 @@ function applyMemberSection(id: MemberSection) {
   else render();
 }
 
-// Flattened, ordered nav rows for member mode: every member group, with the active
-// group's overloads nested immediately beneath it. This is the exact list ↑/↓ walks.
+// Flattened, ordered nav rows for member mode: filtered public groups plus the selected
+// graph-only target, with active overloads nested beneath their group. This is the exact
+// list ↑/↓ walks.
 function memberNavEntries(type: BrowserTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
       group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
+    }
+  }
+  const graphGroup = selectedGraphMemberGroup(type);
+  if (graphGroup) {
+    entries.push({ kind: "member", group: graphGroup });
+    if (graphGroup.overloads.length > 1) {
+      graphGroup.overloads.forEach(
+        (_, index) => entries.push({ kind: "overload", group: graphGroup, index }));
     }
   }
   return entries;
@@ -2151,8 +2366,8 @@ function render() {
         <section class="detail-pane">
           <header class="detail-head">
             <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
@@ -2296,7 +2511,7 @@ function renderMemberNavPane(type: BrowserTypeSurface) {
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
-    memberCount: memberGroups(type).length,
+    memberCount: publicMemberGroups(type).length,
     visibleMemberCount: visibleGroups.length,
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
@@ -2577,7 +2792,8 @@ const packageInspection = createPackageInspectionCoordinator({
         framework,
         assemblyFileName,
         pack)),
-  platformPackForAssembly,
+  platformPackForAssembly: assemblyName =>
+    platformPackForAssembly(assemblyName) ?? "",
   describeError: errorMessage,
   refreshPackageStats,
   render,
@@ -3361,7 +3577,22 @@ function typeHeadingHtml(item: BrowserTypeSurface) {
   });
 }
 
-function renderTypeMetadataHtml(item: BrowserTypeSurface) {
+function renderGraphMemberPendingHtml(
+  item: BrowserTypeSurface,
+  title: string,
+) {
+  return renderGraphMemberPending({
+    item,
+    title,
+    packageContext: currentPackage(),
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+}
+
+function renderTypeMetadataHtml(item: AppTypeSurface) {
   return renderTypeMetadata({
     item,
     packageContext: currentPackage(),
@@ -3382,9 +3613,21 @@ function renderTypeSourceHtml(item: BrowserTypeSurface) {
   return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
 }
 
-function renderLens(item: BrowserTypeSurface | null | undefined) {
+function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
+  const pending = state.pendingGraphMemberDeepLink;
+  if (state.lens === "api"
+    && pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature())) {
+    const title =
+      state.graphMemberNavigationTitle
+      || `${typeDisplayName(item)}.${pending.target.memberName}`;
+    return renderGraphMemberPendingHtml(item, title);
+  }
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
@@ -3404,24 +3647,51 @@ function renderLens(item: BrowserTypeSurface | null | undefined) {
   if (state.lens === "metadata") {
     return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
-  const groups = memberGroups(item);
-  const visibleGroups = visibleMemberGroups(item);
+  const { publicMembers, graphMembers } =
+    partitionGraphMembers(item.api);
+  const publicSurface = {
+    ...item,
+    api: publicMembers
+  };
+  const publicGroups = memberGroups(publicSurface);
+  const graphGroups = memberGroups({
+    ...item,
+    api: graphMembers
+  });
+  const visibleGroups = visibleMemberGroups(publicSurface);
   return `
     ${typeHeadingHtml(item)}
     <section class="document-section">
-      <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-browser-controls">${renderMemberFilterControls(item)}</div>
+      <div class="section-title"><h2>Public API</h2><span>${publicGroups.length} member groups · ${item.members} overloads</span></div>
+      <div class="member-browser-controls">${renderMemberFilterControls(publicSurface)}</div>
       <div class="api-list">${visibleGroups.map(group => `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(group.overloads[0].signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
         </button>`).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
-    </section>`;
+    </section>
+    ${graphGroups.length
+      ? `<section class="document-section">
+          <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
+          <div class="api-list">${graphGroups.map(group => `
+            <button class="api-row" data-member="${escapeHtml(group.key)}">
+              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+              <code>${highlight(group.overloads[0].signature)}</code>
+              <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
+            </button>`).join("")}</div>
+        </section>`
+      : ""}`;
 }
 
 function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
-  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+  const selectedOverloadIndex = state.selectedOverloadIndex;
+  const hasSelectedOverload =
+    selectedOverloadIndex != null
+    && Number.isInteger(selectedOverloadIndex)
+    && selectedOverloadIndex >= 0
+    && selectedOverloadIndex < member.overloads.length;
+  if (member.overloads.length > 1 && !hasSelectedOverload) {
     return `
       <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
       <section class="overload-picker">
@@ -3438,7 +3708,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
         </div>
       </section>`;
   }
-  const overloadIndex = state.selectedOverloadIndex ?? 0;
+  const overloadIndex = hasSelectedOverload ? selectedOverloadIndex ?? 0 : 0;
   const overload = member.overloads[overloadIndex];
   if (!overload) return "";
   const pkg = currentPackage();
@@ -3513,6 +3783,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
     `;
   } else if (state.memberSection === "call-graph") {
     const active = currentCallGraph();
+    const callGraphError = callGraphErrorForView(state);
     const drilled = state.platformStack.length > 0;
     // A resident runtime-pack member uses the cumulative platform workspace rather than the
     // open-package workspace. Keep its scope label distinct while preserving callers returned
@@ -3552,13 +3823,16 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
               ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
               : ""}
             ${state.platformDrillError
-              ? `<div class="graph-drill-error">${escapeHtml(state.platformDrillError)}</div>`
+              ? `<div id="platform-drill-error" class="graph-drill-error" role="alert" tabindex="-1">${escapeHtml(state.platformDrillError)}</div>`
               : ""}
             ${state.memberCallGraphExpanding
               ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${otherWorkspaceLibraries} other librar${otherWorkspaceLibraries === 1 ? "y" : "ies"} for callers…</div>`
               : ""}
-            ${state.memberCallGraphError
-              ? `<div class="graph-drill-error">${escapeHtml(state.memberCallGraphError)}</div>`
+            ${state.graphMemberNavigationTitle
+              ? `<div class="graph-expanding"><span class="loader"></span> Opening ${escapeHtml(state.graphMemberNavigationTitle)}…</div>`
+              : ""}
+            ${callGraphError
+              ? `<div class="graph-drill-error">${escapeHtml(callGraphError)}</div>`
               : ""}
             ${incompleteGraph}
             ${scopeLine}
@@ -3567,11 +3841,13 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
               <span><i class="legend-swatch target"></i>target member</span>
               <span><i class="legend-swatch same-type"></i>same declaring type</span>
               <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
-              <span><i class="legend-swatch different-assembly"></i>different assembly (click to descend)</span>
+              <span><i class="legend-swatch different-assembly"></i>different assembly</span>
+              <span><i class="legend-swatch loaded-node"></i>solid border: no platform lookup</span>
+              <span><i class="legend-swatch platform-node"></i>dashed border: external assembly (platform lookup on click)</span>
             </div>
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
-        : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(state.memberCallGraphError || "No call graph result was returned.")}</p></section>`;
+        : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
   } else if (state.memberSection === "annotated") {
@@ -3866,7 +4142,7 @@ const libraryControlActions: LibraryControlBindingActions = {
 async function openPlatformLensLibrary(
   lens: PlatformLibraryLens,
   name: string,
-  selectedPack: string | undefined,
+  selectedPack: string | null | undefined,
   originPackage: AppPackage = currentPackage(),
   noticeRetryState: NoticeRetryState | null = null,
 ) {
@@ -3897,12 +4173,12 @@ async function openPlatformLensLibrary(
   const resident = runtimeAssemblyIsResident(
     runtimePackPackage(),
     key,
-    pack);
+    pack ?? "");
   if (!resident) {
     const runtimeResult = await loadRuntimePackAssembly(
       platformScopeTfm(),
       `${key}.dll`,
-      pack,
+      pack ?? "",
       () => state.packages.includes(originPackage));
     const loaded = runtimeResult.packageModel;
     if (!loaded) {
@@ -4079,8 +4355,7 @@ function bindTypePanelEvents() {
     },
     onMemberFilterKeyDown: (event, value) => {
       if (event.key === "Escape") {
-        if (navMode() !== "member" && value === "") return;
-        event.preventDefault();
+        if (navMode() !== "member" && value === "") return false;
         if (navMode() === "member") {
           exitMemberScope();
         } else {
@@ -4088,11 +4363,11 @@ function bindTypePanelEvents() {
           normalizeMemberSelection();
           renderMemberFilterAndRestoreFocus("#member-filter");
         }
-        return;
+        return true;
       }
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-      event.preventDefault();
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
       stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+      return true;
     },
     onMemberGroupOpen: memberKey => {
       enterMemberNavigation(() => openMemberGroup(memberKey));
@@ -4154,7 +4429,7 @@ function bindTypePanelEvents() {
         .findIndex(item => item.id === state.selectedTypeId);
       render();
     },
-  });
+  }, keybindings);
 }
 
 function bindScopeBarEvents() {
@@ -4216,15 +4491,35 @@ function bindPackageOpportunitiesEvents() {
         openDependencyPackage(packageId, ""),
         "Opening an opportunity package"),
     onTypeSelect: opportunity => {
-      const target = resolveOpportunitySourceType(
-        currentPackage(),
-        opportunity);
-      if (!target) {
+      if (opportunity.sourceIdentity === "legacy") {
         openSpotlight(shortTypeName(opportunity.typeId));
         return;
       }
+      if (opportunity.sourceIdentity !== "exact"
+        || !opportunity.sourceDefinitionId) {
+        appendQueryNotice(
+          "The opportunity source could not be opened because its exact identity is unavailable.");
+        render();
+        return;
+      }
+      const candidate = resolveOpportunitySourceCandidate(
+        currentPackage(),
+        opportunity);
+      if (candidate.status !== "unique") {
+        const reason = candidate.status === "ambiguous"
+          ? "the exact identity matched multiple loaded types"
+          : candidate.status === "skew"
+            ? "the loaded assembly identity does not match the exact source"
+            : candidate.status === "resident"
+              ? "the exact source type is not projected from the loaded assembly"
+              : "the loaded package does not contain the exact source identity";
+        appendQueryNotice(
+          `The opportunity source could not be opened: ${reason}.`);
+        render();
+        return;
+      }
       state.atPackageRoot = false;
-      navigateToType(target);
+      navigateToType(candidate.type);
     },
   });
 }
@@ -4302,7 +4597,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
     + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
@@ -4364,45 +4659,45 @@ function setTheme(theme: "light" | "dark", renderView = true) {
   }
 }
 
-function handleTypeKeys(event: KeyboardEvent) {
+function handleTypeKeys(event: KeyboardEvent): boolean {
   if (navMode() === "member") {
     if (event.key === "ArrowDown" || event.key === "j") {
-      event.preventDefault();
       stepMemberNav(1, true);
+      return true;
     } else if (event.key === "ArrowUp" || event.key === "k") {
-      event.preventDefault();
       stepMemberNav(-1, true);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
+      return true;
+    } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture (see the document keydown
+      // handler); leave it unclaimed here so it isn't swallowed as in-page stepping.
       stepHorizontal(-1);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
+      return true;
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       stepHorizontal(1);
+      return true;
     }
-    return;
+    return false;
   }
   const items = filteredTypes();
-  if (!items.length) return;
+  if (!items.length) return false;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
   if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
   if (event.key === "ArrowDown" || event.key === "j") {
-    event.preventDefault();
     cursor = Math.min(items.length - 1, cursor + 1);
   } else if (event.key === "ArrowUp" || event.key === "k") {
-    event.preventDefault();
     cursor = Math.max(0, cursor - 1);
   } else if (event.key === "Home") {
     cursor = 0;
   } else if (event.key === "End") {
     cursor = items.length - 1;
   } else if (event.key === "/") {
-    event.preventDefault();
     focusFilter();
-    return;
+    return true;
   } else {
-    return;
+    return false;
   }
   selectTypeByCursor(cursor, items, true);
+  return true;
 }
 
 function selectTypeByCursor(
@@ -4589,7 +4884,7 @@ function spotlightMemberCandidates() {
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
-      for (const group of memberGroups(type)) {
+      for (const group of searchableMemberGroups(memberGroups(type))) {
         pool.push({ pkg, type, memberKey: group.key, name: group.name, kind: group.kind });
       }
     }
@@ -4691,12 +4986,12 @@ function platformLibraryRoster(query: string) {
 }
 
 // Which shared framework an assembly ships in. Product-supplied provenance from
-// a surface or graph target wins, followed by the resident model, current index,
-// and recent history; CoreCLR remains the last compatibility fallback.
+// a surface wins, followed by the resident model, current index, and recent
+// history.
 function platformPackForAssembly(
   key: string,
   exactPack: unknown = null,
-): PlatformPack {
+): PlatformPack | null {
   const resident = runtimePackPackage();
   return platformPackFromProvenance(
     key,
@@ -4709,12 +5004,13 @@ function platformPackForAssembly(
 // Remember an opened platform library at the front of the recent list (most-recent
 // first, deduped, capped) and persist it. Recent duplicates the .NET / ASP.NET Core
 // catalog groups by design — no cross-group de-dupe.
-function recordPlatformRecent(assembly: string, pack: string) {
+function recordPlatformRecent(assembly: string, pack: string | null) {
   const key = (assembly || "").replace(/\.dll$/i, "");
   if (!key) return;
   const normPack = pack === "aspnetcore.app" ? "aspnetcore.app"
     : pack === "netcore.app" ? "netcore.app"
     : platformPackForAssembly(key);
+  if (!normPack) return;
   const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
   state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
   try {
@@ -5302,6 +5598,7 @@ async function pickSpotlight(
   state.memberCallGraph = null;
   state.memberCallGraphKey = "";
   state.memberCallGraphError = "";
+  state.graphMemberNavigationError = "";
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -5419,6 +5716,41 @@ function workbenchModalOwnsFocus() {
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
+  const packageKey = packageIdentityKey(state.package);
+  const currentViewSignature = viewSignature();
+  const pending = graphMemberPendingMatchesView(
+    state.pendingGraphMemberDeepLink,
+    packageKey,
+    currentViewSignature)
+    ? state.pendingGraphMemberDeepLink
+    : null;
+  const pendingOverload = Number(pending?.overload);
+  const selectedOverloadIndex = pending
+    && Number.isInteger(pendingOverload)
+    && pendingOverload >= 0
+    ? pendingOverload
+    : state.selectedOverloadIndex;
+  let graphTarget = pending?.target ?? null;
+  if (!pending && state.selectedBodyTarget) {
+    const type = selectedType();
+    const candidate = state.package.isRuntimePack
+      ? resolveRuntimeGraphTargetCandidate(
+          state.package,
+          state.selectedBodyTarget)
+      : resolveLoadedGraphTargetCandidate(
+          [state.package],
+          state.selectedBodyTarget);
+    const selection = type
+      ? findGraphMemberSelection(type, state.selectedBodyTarget)
+      : null;
+    if (candidate.status === "unique"
+      && candidate.type === type
+      && selection?.group.key === state.selectedMemberKey
+      && selection.overloadIndex === state.selectedOverloadIndex) {
+      graphTarget = graphMemberTargetFromShare(
+        graphMemberShareTarget(state.selectedBodyTarget));
+    }
+  }
   const library = isRuntimePackId(state.package.id)
     && state.libraryScope?.size === 1
     ? [...state.libraryScope][0]
@@ -5436,11 +5768,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     packageLens: state.packageLens,
     library,
     libraryPack: library ? platformPackForAssembly(library) : null,
-    selectedTypeId: state.selectedTypeId,
-    selectedMemberKey: state.selectedMemberKey,
-    selectedOverloadIndex: state.selectedOverloadIndex,
-    memberSection: state.memberSection,
-    selectedBodyTarget: state.selectedBodyTarget,
+    selectedTypeId: pending?.type ?? state.selectedTypeId,
+    selectedMemberKey: pending?.member ?? state.selectedMemberKey,
+    selectedOverloadIndex,
+    memberSection: pending?.section ?? state.memberSection,
+    selectedBodyTarget: pending ? null : state.selectedBodyTarget,
+    graphTarget,
     memberBrowse: memberScopeIsActive(state, selectedType()?.id),
     memberTextFilter: state.memberTextFilter,
     memberKindFilter: state.memberKindFilter,
@@ -5497,6 +5830,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
   state.memberCallGraphSeq++;
+  invalidateGraphMemberNavigation();
+  state.selectedBodyTarget = null;
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
@@ -5539,10 +5874,13 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
-  state.selectedBodyTarget = null;
-  if (restoreType && deep) {
+  if (deep?.graphTarget && !restoreType) {
+    appendQueryNotice(
+      "The shared graph member's declaring type is no longer available and was not opened.");
+  } else if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     if (!type) return;
+    revealTypeInFilters(type);
     const groups = memberGroups(type);
     state.memberTextFilter = deep.memberTextFilter || "";
     state.memberKindFilter = deep.memberKindFilter
@@ -5561,7 +5899,69 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
-    if (group) {
+    const graphCandidate = deep.member && deep.graphTarget
+      ? pkg.isRuntimePack
+        ? resolveRuntimeGraphTargetCandidate(pkg, deep.graphTarget)
+        : resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget)
+      : null;
+    const localGraphSelection =
+      deep.graphTarget
+        && graphCandidate?.status === "unique"
+        && graphCandidate.type === type
+        ? findGraphMemberSelection(type, deep.graphTarget)
+        : null;
+    const disposition =
+      pkg.isRuntimePack && deep.member && deep.graphTarget && !localGraphSelection
+        ? "mismatch"
+        : graphMemberDeepLinkDisposition(
+            deep,
+            graphCandidate,
+            type,
+            group,
+            localGraphSelection);
+    if (disposition === "local"
+      && localGraphSelection
+      && deep.graphTarget) {
+      state.selectedMemberKey = localGraphSelection.group.key;
+      state.selectedOverloadIndex = localGraphSelection.overloadIndex;
+      state.selectedBodyTarget = deep.graphTarget;
+      retainGraphOnlyBodyTarget(
+        localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
+        deep.graphTarget);
+      state.memberSection = deep.section
+        && isMemberSection(deep.section)
+        && memberSectionIdsFor(
+          localGraphSelection.group,
+          state.package?.isRuntimePack,
+          true).includes(deep.section)
+        ? deep.section
+        : "overview";
+    } else if (disposition === "graph"
+      && deep.member
+      && deep.graphTarget) {
+      const overloadIndex = Number(deep.overload);
+      state.selectedMemberKey = deep.member;
+      state.selectedOverloadIndex =
+        Number.isInteger(overloadIndex) && overloadIndex >= 0
+          ? overloadIndex
+          : null;
+      state.memberSection = deep.section && isMemberSection(deep.section)
+        ? deep.section
+        : "overview";
+      state.selectedBodyTarget = deep.graphTarget;
+      state.pendingGraphMemberDeepLink = {
+        packageKey: packageIdentityKey(pkg),
+        viewSignature: viewSignature(),
+        type: deep.type ?? type.id,
+        member: deep.member,
+        overload: deep.overload ?? null,
+        section: deep.section ?? null,
+        target: deep.graphTarget
+      };
+    } else if (disposition === "mismatch") {
+      appendQueryNotice(
+        "The shared graph member no longer matches this package and was not opened.");
+    } else if (disposition === "public" && group && deep.member) {
       state.memberBrowseTypeId = type.id;
       state.selectedMemberKey = deep.member ?? "";
       const overloadIndex = Number(deep.overload);
@@ -5570,16 +5970,21 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         && overloadIndex < group.overloads.length) {
         state.selectedOverloadIndex = overloadIndex;
       }
+      const restoredOverload = group.overloads[
+        state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
+      const hasSelectedBody = bodyTargetMatchesOverload(
+        deep.bodyTarget,
+        group,
+        restoredOverload);
       if (deep.section
         && isMemberSection(deep.section)
         && memberSectionIdsFor(
           group,
-          state.package?.isRuntimePack).includes(deep.section)) {
+          state.package?.isRuntimePack,
+          hasSelectedBody).includes(deep.section)) {
         state.memberSection = deep.section;
       }
-      const restoredOverload = group.overloads[
-        state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
-      if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
+      if (hasSelectedBody) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
     }
@@ -5590,6 +5995,16 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
 function loadSelectionData() {
+  if (state.pendingGraphMemberDeepLink
+    && !graphMemberPendingMatchesView(
+      state.pendingGraphMemberDeepLink,
+      packageIdentityKey(state.package),
+      viewSignature())) {
+    invalidateGraphMemberNavigation();
+  }
+  if (state.pendingGraphMemberDeepLink) {
+    return restorePendingGraphMember();
+  }
   if (state.atPackageRoot) return undefined;
   if (state.lens === "source") {
     return loadSelectedTypeSource();
@@ -5768,8 +6183,8 @@ function bindHomeEvents() {
 // Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
 // (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
 // deep links built from the resolved projection; member-bound Call Graph demos
-// stay an imperative multi-package member load until WorkspaceContextLoader
-// group run is the browser substrate.
+// execute through one generated engine operation over the product-resolved
+// workspace and view.
 function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
@@ -5783,7 +6198,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
   }
   const link = productHomeDemoLocationHref(resolved);
   if (!link) {
-    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
   workspaceLocation.push(link);
@@ -5795,6 +6210,10 @@ function runHomeDemo(kind: ProductHomeDemoId) {
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
+  navigationSequence.begin();
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  invalidateGraphMemberNavigation();
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6024,7 +6443,7 @@ async function loadSelectedMemberAnnotatedSource() {
     assembly: type.assembly,
     typeIdentity: type.definitionId ?? type.id,
     type: type.queryId ?? type.id,
-    member: overload.name,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
     memberSignature: overload.signature,
     selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
@@ -6170,7 +6589,7 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    bindGraphPanZoom(container, viewport);
+    bindGraphPanZoom(container, viewport, { keybindings });
     bindTypeGraphNodes(viewport, nodeId => {
       const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
       if (!graphNode) return null;
@@ -6203,12 +6622,7 @@ function navigateToType(target: BrowserTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
-  const bucket = target.accessibilityId;
-  if (!state.accessibilityFilter.has(bucket)) {
-    const next = new Set(state.accessibilityFilter);
-    next.add(bucket);
-    state.accessibilityFilter = next;
-  }
+  revealTypeInFilters(target);
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -6320,7 +6734,7 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    bindGraphPanZoom(container, viewport);
+    bindGraphPanZoom(container, viewport, { keybindings });
     bindDependencyGraphNodes(viewport, nodeId => {
       const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
       if (!info || info.kind === "self") return null;
@@ -6443,7 +6857,8 @@ async function loadSelectedMemberCallGraph() {
     typeIdentity: type.definitionId ?? type.id,
     platformType:
       type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
-    platformPack: platformPackForAssembly(type.assembly, type.platformPack),
+    platformPack:
+      platformPackForAssembly(type.assembly, type.platformPack) ?? "",
     platformAssemblyVersion: platformAssembly?.version ?? null,
     platformAssemblyCulture: platformAssembly?.culture ?? null,
     platformAssemblyPublicKeyToken:
@@ -6543,6 +6958,7 @@ async function renderMermaidCallGraph() {
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
       bindGraphPanZoom(container, viewport, {
+        keybindings,
         resolveCallGraphNode: nodeId =>
           callGraphNodeBinding(active, nodeId),
       });
@@ -6575,16 +6991,50 @@ function callGraphNodeBinding(
   const drilled =
     state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
   if (drilled) {
-    if (target.id === "n0"
-      || !target.assembly
-      || !target.assemblyVersion
-      || !typeId) return null;
+    if (target.id === "n0" || !target.assembly || !typeId) return null;
+    const pack = runtimePackForFramework(
+      runtimePackPackage(),
+      state.package?.activeFramework || "");
+    const candidate = pack
+      ? resolveRuntimeGraphTargetCandidate(pack, target)
+      : { status: "missing" } as const;
+    const resident = candidate.status === "unique" && pack
+      ? findRuntimeMemberSelection(pack, target, candidate)
+      : null;
+    const assemblyResident =
+      runtimeGraphTargetAssemblyIsResident(pack, target);
+    const disposition = runtimeGraphTargetNavigationDisposition(
+      candidate,
+      target,
+      Boolean(resident),
+      assemblyResident);
+    if (disposition === "blocked") {
+      return blockedCallGraphNodeBinding(
+        target,
+        graphTargetBlockedReason(candidate, "runtime"));
+    }
+    if (disposition === "none") return null;
     return {
-      platform: true,
-      onSelect: () =>
-        observeAsync(
-          navigateOrDrillPlatform(target),
-          "Opening a platform call-graph target"),
+      label: `Open ${target.typeFullName}.${target.memberName}`,
+      platform: disposition === "lookup",
+      onSelect: () => {
+        if (disposition === "member" && pack && resident) {
+          navigateToRuntimeMember(
+            pack,
+            resident.type,
+            resident.group,
+            resident.overloadIndex,
+            target);
+        } else if (disposition === "lookup") {
+          observeAsync(
+            navigateOrDrillPlatform(target),
+            "Opening a platform call-graph target");
+        } else {
+          observeAsync(
+            startPlatformDrill(target),
+            "Opening a resident platform call-graph target");
+        }
+      },
     };
   }
 
@@ -6596,31 +7046,81 @@ function callGraphNodeBinding(
     resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
       packages,
       target);
-  const disposition = graphTargetNavigationDisposition(candidate, target);
-  if (disposition === "blocked" || disposition === "none") return null;
+  const pack = runtimePackForFramework(
+    runtimePackPackage(),
+    state.package?.activeFramework || "");
+  const runtimeCandidate = (candidate.status === "missing"
+      || candidate.status === "skew") && pack
+    ? resolveRuntimeGraphTargetCandidate(pack, target)
+    : null;
+  const resident = runtimeCandidate?.status === "unique" && pack
+    ? findRuntimeMemberSelection(pack, target, runtimeCandidate)
+    : null;
+  const runtimeResident = runtimeCandidate != null
+    && (runtimeCandidate.status === "unique"
+      || runtimeGraphTargetAssemblyIsResident(pack, target));
+  const disposition = combinedGraphTargetNavigationDisposition(
+    candidate,
+    runtimeCandidate,
+    target,
+    runtimeResident);
+  if (disposition === "blocked") {
+    const reason = runtimeCandidate?.status === "ambiguous"
+        || runtimeCandidate?.status === "skew"
+      ? graphTargetBlockedReason(runtimeCandidate, "runtime")
+      : graphTargetBlockedReason(candidate, "package");
+    return blockedCallGraphNodeBinding(target, reason);
+  }
+  if (disposition === "none") return null;
   const loaded = disposition === "loaded" && candidate.status === "unique"
     ? resolveLoadedGraphTarget(target, candidate)
     : null;
   const platform = disposition === "platform";
   return {
+    label: `Open ${target.typeFullName}.${target.memberName}`,
     platform,
     onSelect: () => {
-      if (loaded?.group) {
-        navigateToMember(
-          loaded.pkg,
-          loaded.type,
-          loaded.group,
-          loaded.overloadIndex,
-          target);
-      } else if (loaded) {
+      if (loaded) {
         observeAsync(
-          openGraphSource(loaded.request, loaded.title),
-          "Loading graph source");
+          navigateToGraphMember(loaded, target),
+          "Opening a graph member");
+      } else if (disposition === "resident") {
+        if (pack && resident) {
+          navigateToRuntimeMember(
+            pack,
+            resident.type,
+            resident.group,
+            resident.overloadIndex,
+            target);
+        } else {
+          observeAsync(
+            startPlatformDrill(target),
+            "Opening a resident platform call-graph target");
+        }
       } else if (platform) {
         observeAsync(
           navigateOrDrillPlatform(target),
           "Opening a platform call-graph target");
       }
+    },
+  };
+}
+
+function blockedCallGraphNodeBinding(
+  target: BrowserCallGraphTarget,
+  reason: string,
+): CallGraphNodeBinding {
+  return {
+    label: `Cannot open ${target.typeFullName}.${target.memberName}: ${reason}`,
+    blocked: true,
+    onSelect: () => {
+      invalidateGraphMemberNavigation();
+      state.memberCallGraphSeq++;
+      state.memberCallGraphExpanding = false;
+      state.platformDrillLoading = false;
+      observeAsync(
+        showPlatformTargetError(target, reason),
+        "Reporting a blocked platform call-graph target");
     },
   };
 }
@@ -6639,7 +7139,7 @@ function platformCrumbTrail() {
 }
 
 function resolveLoadedGraphTarget(
-  target: BrowserCallGraphTarget,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   candidate: {
     status: "unique";
     pkg: AppPackage;
@@ -6670,7 +7170,7 @@ function resolveLoadedGraphTarget(
 
 function findGraphMemberSelection(
   type: BrowserTypeSurface,
-  target: BrowserCallGraphTarget,
+  target: GraphMemberTarget,
 ) {
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, target);
@@ -6682,11 +7182,243 @@ function findGraphMemberSelection(
     : null;
 }
 
-async function drillPlatformNode(node: BrowserCallGraphTarget) {
+async function loadGraphMemberSurface(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+) {
+  return inspectGraphMemberSurface(
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    type.assembly,
+    target.typeDefinitionId ?? "",
+    target.memberName,
+    target.selectorKey,
+    target.metadataToken ?? 0);
+}
+
+function stageGraphMemberSelection(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  surface: BrowserMemberSurface,
+) {
+  let member: AppMemberSurface | undefined = (type.api ?? []).find(candidate =>
+    candidate.stableSelector === surface.stableSelector
+    && candidate.canonicalSignature === surface.canonicalSignature);
+  const isNew = !member;
+  if (!member) {
+    member = { ...surface, graphOnly: true, graphTarget: target };
+  }
+  const stagedType = isNew
+    ? { ...type, api: [...(type.api ?? []), member] }
+    : type;
+  const selection = resolveLoadedGraphTarget(
+    target,
+    { status: "unique", pkg, type: stagedType });
+  if (!selection.group) {
+    throw new Error(
+      `The graph target '${target.memberName}' did not resolve to the projected member.`);
+  }
+  return {
+    isNew,
+    member,
+    selection: { ...selection, group: selection.group }
+  };
+}
+
+function commitGraphMemberSelection(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  staged: ReturnType<typeof stageGraphMemberSelection>,
+) {
+  retainGraphMemberProjection(pkg.types, staged.member);
+  if (staged.isNew) {
+    type.api ??= [];
+    type.api.push(staged.member);
+  }
+  retainGraphOnlyBodyTarget(staged.member, target);
+  const selection = resolveLoadedGraphTarget(
+    target,
+    { status: "unique", pkg, type });
+  if (!selection.group) {
+    throw new Error(
+      `The graph target '${target.memberName}' was lost while committing its projection.`);
+  }
+  return { ...selection, group: selection.group };
+}
+
+async function navigateToGraphMember(
+  loaded: ReturnType<typeof resolveLoadedGraphTarget>,
+  target: BrowserCallGraphTarget,
+) {
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  if (loaded.group) {
+    navigateToMember(
+      loaded.pkg,
+      loaded.type,
+      loaded.group,
+      loaded.overloadIndex,
+      target);
+    return;
+  }
+
+  const seq = ++state.graphMemberNavigationSeq;
+  const owner = captureViewOperation(seq);
+  const packageKey = packageIdentityKey(loaded.pkg);
+  const navigationIsCurrent = () =>
+    ownsViewOperation(owner, state.graphMemberNavigationSeq)
+    && state.packages.some(pkg => packageIdentityKey(pkg) === packageKey);
+  state.graphMemberNavigationTitle = loaded.title;
+  state.graphMemberNavigationError = "";
+  render();
+  try {
+    const surface = await loadGraphMemberSurface(
+      loaded.pkg,
+      loaded.type,
+      target);
+    if (!navigationIsCurrent()) {
+      if (seq === state.graphMemberNavigationSeq) {
+        state.graphMemberNavigationTitle = "";
+        render();
+      }
+      return;
+    }
+    const staged = stageGraphMemberSelection(
+      loaded.pkg,
+      loaded.type,
+      target,
+      surface);
+    const selection = commitGraphMemberSelection(
+      loaded.pkg,
+      loaded.type,
+      target,
+      staged);
+    state.graphMemberNavigationTitle = "";
+    navigateToMember(
+      selection.pkg,
+      selection.type,
+      selection.group,
+      selection.overloadIndex,
+      target);
+  } catch (error) {
+    if (!navigationIsCurrent()) {
+      if (seq === state.graphMemberNavigationSeq) {
+        state.graphMemberNavigationTitle = "";
+        render();
+      }
+      return;
+    }
+    state.graphMemberNavigationTitle = "";
+    state.graphMemberNavigationError =
+      `Could not open ${loaded.title}: ${errorMessage(error)}`;
+    render();
+  }
+}
+
+async function restorePendingGraphMember() {
+  const pending = state.pendingGraphMemberDeepLink;
+  const pkg = state.package;
+  const type = selectedType();
+  if (!pending || !pkg || !type) return;
+  const seq = ++state.graphMemberNavigationSeq;
+  const owner = captureViewOperation(seq);
+  state.graphMemberNavigationTitle =
+    `${type.displayName || type.id}.${pending.target.memberName}`;
+  render();
+  const restorationIsCurrent = () =>
+    ownsViewOperation(owner, state.graphMemberNavigationSeq)
+    && state.pendingGraphMemberDeepLink === pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature());
+  const discardIfOwned = () => {
+    if (state.pendingGraphMemberDeepLink !== pending) return;
+    state.pendingGraphMemberDeepLink = null;
+    state.graphMemberNavigationTitle = "";
+    render();
+  };
+  try {
+    if (type.id !== pending.type) {
+      throw new Error(
+        "The graph member's declaring type is no longer available.");
+    }
+    const surface = await loadGraphMemberSurface(pkg, type, pending.target);
+    if (!restorationIsCurrent()) {
+      discardIfOwned();
+      return;
+    }
+    const staged = stageGraphMemberSelection(
+      pkg,
+      type,
+      pending.target,
+      surface);
+    if (staged.selection.group.key !== pending.member) {
+      throw new Error("The shared member identity does not match the graph target.");
+    }
+    const selection = commitGraphMemberSelection(
+      pkg,
+      type,
+      pending.target,
+      staged);
+    state.pendingGraphMemberDeepLink = null;
+    state.graphMemberNavigationTitle = "";
+    state.selectedMemberKey = selection.group.key;
+    state.selectedOverloadIndex = selection.overloadIndex;
+    state.memberSection = pending.section
+      && isMemberSection(pending.section)
+      && memberSectionIdsFor(
+        selection.group,
+        state.package?.isRuntimePack,
+      true).includes(pending.section)
+      ? pending.section
+      : "overview";
+    state.selectedBodyTarget = pending.target;
+    normalizeCurrentNavEntry();
+    render();
+    observeAsync(loadSelectionData(), "Loading restored graph member data");
+  } catch (error) {
+    if (!restorationIsCurrent()) {
+      discardIfOwned();
+      return;
+    }
+    state.pendingGraphMemberDeepLink = null;
+    state.graphMemberNavigationTitle = "";
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+    state.memberSection = "overview";
+    state.selectedBodyTarget = null;
+    normalizeCurrentNavEntry();
+    appendQueryNotice(
+      `The graph member could not be restored: ${errorMessage(error)}`);
+    render();
+  }
+}
+
+async function drillPlatformNode(
+  node: BrowserCallGraphTarget,
+  navigationIsCurrent: () => boolean = () => true,
+) {
+  if (!node.assembly || !node.memberName || !node.selectorKey) {
+    await showPlatformTargetError(
+      node,
+      "the target does not carry a complete navigable identity");
+    return;
+  }
   return callGraphInspection.drill({
     framework: currentPackage().activeFramework,
     assembly: node.assembly,
-    pack: platformPackForAssembly(node.assembly, node.platformPack),
+    pack: platformPackForGraphAssembly(
+      node.assembly,
+      node.platformPack,
+      runtimePackPackage(),
+      currentPackage().activeFramework) ?? "",
     assemblyVersion: node.assemblyVersion,
     assemblyCulture: node.assemblyCulture,
     assemblyPublicKeyToken: node.assemblyPublicKeyToken,
@@ -6697,10 +7429,23 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
     title:
       `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`,
     errorTarget: `${node.typeFullName}.${node.memberName}`,
+    isCurrent: navigationIsCurrent,
   });
 }
 
+async function startPlatformDrill(node: BrowserCallGraphTarget) {
+  invalidateGraphMemberNavigation();
+  const owner = captureViewOperation(++state.memberCallGraphSeq);
+  const navigationIsCurrent = () =>
+    ownsViewOperation(owner, state.memberCallGraphSeq);
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  await drillPlatformNode(node, navigationIsCurrent);
+}
+
 function popPlatformDrill() {
+  invalidateGraphMemberNavigation();
   observeAsync(
     callGraphInspection.popDrill(),
     "Returning to the previous platform call graph");
@@ -6713,61 +7458,96 @@ function popPlatformDrill() {
 // surface can resolve the target; in-place descent preserves the target's full assembly
 // identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
-  if (state.platformDrillLoading) return;
-  const seq = state.memberCallGraphSeq;
-  const type = selectedType();
-  const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload || state.memberSection !== "call-graph") return;
-  const originSignature = memberRequestSignature(type, overload, true);
-  const ownsNavigation = () =>
-    seq === state.memberCallGraphSeq
-    && state.memberSection === "call-graph"
-    && memberRequestIsCurrent(originSignature, true);
+  invalidateGraphMemberNavigation();
+  const seq = ++state.memberCallGraphSeq;
+  const owner = captureViewOperation(seq);
+  const navigationIsCurrent = () =>
+    ownsViewOperation(owner, state.memberCallGraphSeq);
+  const discardIfStale = (
+    preservedFocus: MemberFocusSnapshot | null = null,
+  ) => {
+    if (navigationIsCurrent()) return false;
+    if (seq === state.memberCallGraphSeq) {
+      state.memberCallGraphExpanding = false;
+      state.platformDrillLoading = false;
+      state.platformDrillError = "";
+      if (preservedFocus) renderPreservingMemberFocus(preservedFocus);
+      else render();
+    }
+    return true;
+  };
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  if (!node.assembly || !callGraphTargetTypeId(node)) {
+    await showPlatformTargetError(
+      node,
+      "the graph target does not carry an exact assembly and type identity");
+    return;
+  }
   const framework = state.package?.activeFramework || "";
-  let pack = runtimePackPackage();
+  let pack = runtimePackForFramework(
+    runtimePackPackage(),
+    framework);
   if (!pack) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
-    const runtimeResult = await loadRuntimePack(
-      framework,
-      ownsNavigation);
-    pack = runtimeResult.packageModel;
-    if (!ownsNavigation()) {
-      if (seq === state.memberCallGraphSeq) {
-        state.platformDrillLoading = false;
-        renderPreservingMemberFocus(preservedFocus);
-      }
-      return;
-    }
-    state.platformDrillLoading = false;
-    if (!pack) {
-      state.platformDrillError = runtimeResult.failureMessage
-        || state.runtimePackError
-        || "Could not load the .NET runtime pack.";
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
-      return;
-    }
-  }
-  let selection = findRuntimeMemberSelection(pack, node);
-  if (!ownsNavigation()) return;
-  if (!selection && node.assembly) {
-    state.platformDrillLoading = true;
-    state.platformDrillError = "";
-    const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForAssembly(node.assembly, node.platformPack);
+      platformPackForGraphAssembly(
+        node.assembly,
+        node.platformPack,
+        runtimePackPackage(),
+        framework);
     const runtimeResult = await loadRuntimePackAssembly(
       framework,
       node.assembly.endsWith(".dll")
         ? node.assembly
         : `${node.assembly}.dll`,
-      targetPack,
-      ownsNavigation);
+      targetPack ?? "",
+      navigationIsCurrent);
     pack = runtimeResult.packageModel;
-    if (!ownsNavigation()) {
+    if (discardIfStale(preservedFocus)) return;
+    state.platformDrillLoading = false;
+    if (!pack) {
+      state.platformDrillError = runtimeResult.failureMessage
+        || state.runtimePackError
+        || `Could not load platform assembly ${node.assembly}.`;
+      renderPreservingMemberFocus(preservedFocus);
+      await renderMermaidCallGraph();
+      return;
+    }
+    recordPlatformRecent(node.assembly, targetPack);
+  }
+  let candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+  let assemblyResident = runtimeGraphTargetAssemblyIsResident(pack, node);
+  if (candidate.status === "ambiguous" || candidate.status === "skew") {
+    await showPlatformTargetError(
+      node,
+      graphTargetBlockedReason(candidate, "runtime"));
+    return;
+  }
+  let selection = findRuntimeMemberSelection(pack, node, candidate);
+  if (discardIfStale()) return;
+  if (candidate.status === "missing" && !assemblyResident && node.assembly) {
+    state.platformDrillLoading = true;
+    state.platformDrillError = "";
+    const preservedFocus = renderPreservingMemberFocus();
+    const targetPack =
+      platformPackForGraphAssembly(
+        node.assembly,
+        node.platformPack,
+        runtimePackPackage(),
+        framework);
+    const runtimeResult = await loadRuntimePackAssembly(
+      framework,
+      node.assembly.endsWith(".dll")
+        ? node.assembly
+        : `${node.assembly}.dll`,
+      targetPack ?? "",
+      navigationIsCurrent);
+    pack = runtimeResult.packageModel;
+    if (!navigationIsCurrent()) {
       if (seq === state.memberCallGraphSeq) {
         state.platformDrillLoading = false;
         renderPreservingMemberFocus(preservedFocus);
@@ -6784,14 +7564,45 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
       return;
     }
     recordPlatformRecent(node.assembly, targetPack);
-    selection = findRuntimeMemberSelection(pack, node);
+    candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+    assemblyResident = runtimeGraphTargetAssemblyIsResident(pack, node);
+    if (candidate.status === "ambiguous" || candidate.status === "skew") {
+      await showPlatformTargetError(
+        node,
+        graphTargetBlockedReason(candidate, "runtime"));
+      return;
+    }
+    selection = findRuntimeMemberSelection(pack, node, candidate);
   }
-  if (!ownsNavigation()) return;
+  if (candidate.status === "resident"
+      || (candidate.status === "missing" && assemblyResident)) {
+    await drillPlatformNode(node, navigationIsCurrent);
+    return;
+  }
+  if (candidate.status !== "unique") {
+    await showPlatformTargetError(
+      node,
+      "the loaded platform assembly does not contain the exact target identity");
+    return;
+  }
+  if (!navigationIsCurrent()) return;
   if (!selection) {
-    await drillPlatformNode(node);
+    await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
   navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex, node);
+}
+
+async function showPlatformTargetError(
+  node: BrowserCallGraphTarget,
+  reason: string,
+) {
+  state.platformDrillLoading = false;
+  state.platformDrillError =
+    `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
+  render();
+  focusPlatformGraphError(document);
+  await renderMermaidCallGraph();
 }
 
 // Enter the resident runtime pack focused on one member's call graph. Mirrors
@@ -6804,12 +7615,16 @@ function navigateToRuntimeMember(
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
 ) {
+  invalidateGraphMemberNavigation();
   activatePackage(pack);
+  const targetLibrary = libraryKey(type);
+  state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    type);
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
-  const targetLibrary = libraryKey(type);
-  state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
   resetMemberFilters();
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
@@ -6841,35 +7656,21 @@ function navigateToRuntimeMember(
 function findRuntimeMemberSelection(
   pack: AppPackage,
   node: BrowserCallGraphTarget,
+  candidate: ReturnType<
+    typeof resolveRuntimeGraphTargetCandidate<AppTypeSurface>
+  > = resolveRuntimeGraphTargetCandidate(pack, node),
 ) {
-  const typeId = callGraphTargetTypeId(node);
-  if (!pack || !typeId) return null;
-  const type = resolvePlatformGraphTargetType(pack, node);
-  if (!type) return null;
+  if (candidate.status !== "unique") return null;
+  const type = candidate.type;
   const groups = memberGroups(type);
-  if (node.metadataToken != null) {
-    for (const group of groups) {
-      const overloadIndex = group.overloads.findIndex(
-        overload => (overload.bodySelectors ?? []).some(body =>
-          body.token === node.metadataToken
-          && body.memberName === node.memberName
-          && body.selectorKey === node.selectorKey));
-      if (overloadIndex >= 0) return { type, group, overloadIndex };
-    }
-  }
-  const matches: Array<{
-    type: BrowserTypeSurface;
-    group: AppMemberGroup;
-    overloadIndex: number;
-  }> = [];
-  for (const group of groups) {
-    for (let i = 0; i < group.overloads.length; i++) {
-      if (group.overloads[i].graphSelectorKey === node.selectorKey) {
-        matches.push({ type, group, overloadIndex: i });
+  const selection = graphMemberSelection(groups, node);
+  return selection
+    ? {
+        type,
+        group: groups[selection.groupIndex],
+        overloadIndex: selection.overloadIndex
       }
-    }
-  }
-  return matches.length === 1 ? matches[0] : null;
+    : null;
 }
 
 function stripArity(name: string) {
@@ -7067,7 +7868,19 @@ function navigateToMember(
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,
 ) {
+  invalidateGraphMemberNavigation();
+  if (overloadIndex != null) {
+    retainGraphOnlyBodyTarget(group.overloads[overloadIndex], bodyTarget);
+  }
   activatePackage(pkg);
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    type);
+  state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
   resetMemberFilters();
@@ -7392,61 +8205,118 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
-  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
+async function runCallGraphDemo(demoId: ProductHomeDemoId) {
+  const retry = () =>
+    observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
+  const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
+  state.errorDetail = "";
+  state.retryAction = null;
   state.loadingMessage = "Loading cross-package call graph demo…";
-  state.loadingSubtitle = "";
+  state.loadingSubtitle =
+    "Resolving the product workspace and anchored member…";
   render();
 
-  const spec = callGraphDemoRunnerSpec(demo);
-  const packages: AppPackage[] = [];
-  for (const packageSpec of spec.packages) {
-    const loaded = await loadPackage(
-      packageSpec.id,
-      packageSpec.version,
-      packageSpec.framework,
-      { retryAction: retry });
-    if (!loaded) {
-      state.retryAction = retry;
-      render();
-      return;
-    }
-    packages.push(loaded);
-  }
-
-  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
-    ?? packages[0];
-  activatePackage(targetPackage);
-  const type = targetPackage.types.find(item => item.id === spec.typeId);
-  const member = type && memberGroups(type).find(item =>
-    item.name === spec.memberName
-    && item.kind === spec.memberKind);
-  const overloadIndex = member?.overloads.findIndex(item =>
-    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
-  if (!type || !member || overloadIndex < 0) {
+  const fail = (error: unknown) => {
     state.loading = false;
-    state.error = "The call graph demo member was not found in the selected package.";
+    state.error = errorMessage(error);
     state.errorTitle = "Call graph demo failed";
+    state.errorDetail = error instanceof Error
+      ? error.stack || error.message
+      : String(error);
     state.retryAction = retry;
+    render();
+  };
+  let result: BrowserHomeDemoRunResult;
+  try {
+    result = await inspectRunHomeDemo(demoId);
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!result.found) {
+    state.loading = false;
+    state.error = `Unknown product home demo '${demoId}'.`;
+    state.errorTitle = "Call graph demo failed";
+    state.retryAction = null;
     render();
     return;
   }
+  if (!result.activation || !result.callGraph) {
+    fail("The engine returned an incomplete product home demo result.");
+    return;
+  }
+  if (result.activation.memberSection !== "call-graph") {
+    fail(
+      `The engine returned unsupported demo section '${result.activation.memberSection}'.`,
+    );
+    return;
+  }
 
-  state.selectedTypeId = type.id;
-  state.atPackageRoot = false;
-  state.lens = "api";
-  state.packageLens = "overview";
-  resetMemberFilters();
-  resetMemberSectionState();
-  state.memberBrowseTypeId = type.id;
-  state.selectedMemberKey = member.key;
-  state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = spec.memberSection;
-  state.loading = false;
-  render();
-  await loadSelectedMemberCallGraph();
+  try {
+    const packages = result.packages.map(createNuGetPackageModel);
+    const activation = result.activation;
+    const targetPackage = packages.find(item =>
+      item.id === activation.focusPackage
+      && item.version === activation.focusVersion
+      && item.activeFramework === activation.focusFramework);
+    const type = targetPackage?.types.find(item =>
+      item.id === activation.typeId);
+    const member = type && memberGroups(type).find(item =>
+      item.name === activation.memberName
+      && item.kind === activation.memberKind);
+    const overloadIndex = member?.overloads.findIndex(item =>
+      item.anchorDigest === activation.memberAnchorDigest) ?? -1;
+    if (!targetPackage || !type || !member || overloadIndex < 0) {
+      throw new Error(
+        "The engine-run demo selection was not present in its returned package surfaces.");
+    }
+
+    for (const packageModel of packages) {
+      retainPackageModel(packageModel);
+      recordRecentPackage(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework);
+    }
+    refreshPackageStats();
+
+    activatePackage(targetPackage, { resetAccessibility: true });
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.libraryScope = null;
+    state.selectedTypeId = type.id;
+    state.atPackageRoot = false;
+    state.lens = "api";
+    state.packageLens = "overview";
+    resetMemberFilters();
+    resetMemberSectionState();
+    state.platformStack = [];
+    state.memberBrowseTypeId = type.id;
+    state.selectedMemberKey = member.key;
+    state.selectedOverloadIndex = overloadIndex;
+    state.memberSection = "call-graph";
+    // This graph is scoped to the product-defined demo workspace, not any
+    // unrelated tabs the user may already have open.
+    state.memberCallGraph = result.callGraph;
+    state.memberCallGraphError = "";
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
+    state.memberCallGraphKey = memberRequestSignature(
+      type,
+      member.overloads[overloadIndex],
+      true);
+    state.loading = false;
+    render();
+    await renderMermaidCallGraph();
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+  }
 }
 
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
@@ -7725,140 +8595,419 @@ function refreshPackageStats() {
 }
 
 
-document.addEventListener("keydown", event => {
-  // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
-  // out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
-  // the ref->def history (Shift+Backspace forward).
-  if (state.explorer?.open) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!state.explorer.overview) explorerShowOverview();
-      else closeExplorer();
-    } else if (event.key === "Backspace") {
-      event.preventDefault();
-      if (event.shiftKey) explorerHistoryForward();
-      else explorerHistoryBack();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+// A same-origin, unmodified `<a href>` click anywhere in the app takes over here instead
+// of loading a new document — this is the single owner of in-app link navigation.
+// `target="_blank"`, cross-origin hrefs, `download`, and modified clicks (new tab/window)
+// keep their native browser behavior; the guard lives in `shouldInterceptLinkClick`.
+function navigateInAppUrl(url: URL) {
+  if (isCreditsPath(url.pathname)) {
+    openCredits();
     return;
   }
-  // Settings is a modal-style page reachable from home too, so handle its Escape before the
-  // home bail below (which otherwise swallows the keystroke on the home page).
-  if (state.settings) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSettings();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+  if (url.pathname === "/" && !url.search && !url.hash) {
+    goHome();
     return;
   }
-  const typing = isTextEntry();
-  // The home page has its own scoped input handling (search box); global workbench
-  // shortcuts assume a loaded package, so stay out of the way here.
-  if (state.home) return;
-  if (state.loading || state.error) {
-    if (isContainedBrowserShortcut(event) || event.key === "/") {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.graphSourceOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeGraphSource();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.docViewerOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDocViewer();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.spotlightOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      openSpotlight("", "commands");
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-      event.preventDefault();
-      openSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
-    event.preventDefault();
+  workspaceLocation.push(url.toString());
+  const loc = parseLocation();
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Navigating");
+}
+
+bindWorkspaceLinkNavigation(document, {
+  currentOrigin: () => location.origin,
+  resolve: href => new URL(href, location.href),
+  navigate: navigateInAppUrl,
+});
+
+const containedShortcutKeys = ["f", "k", "p"] as const;
+const alphabetKeys = "abcdefghijklmnopqrstuvwxyz".split("");
+
+function registerContainedShortcuts(
+  id: string,
+  priority: number,
+  when: () => boolean,
+): void {
+  keybindings.register({
+    id,
+    key: containedShortcutKeys,
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority,
+    when,
+    run: () => true,
+  });
+}
+
+function workspaceKeyboardContextIsActive(): boolean {
+  return !state.explorer?.open
+    && !state.settings
+    && !state.home
+    && !state.loading
+    && !state.error
+    && !state.graphSourceOpen
+    && !state.docViewerOpen
+    && !state.spotlightOpen;
+}
+
+const workspaceModalContextIsAvailable = () =>
+  !state.home && !state.loading && !state.error;
+const graphSourceContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.graphSourceOpen;
+const documentViewerContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.docViewerOpen;
+const spotlightContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.spotlightOpen;
+
+keybindings.register({
+  id: "metadata-explorer.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  when: () => Boolean(state.explorer?.open),
+  run: () => {
+    if (!state.explorer!.overview) explorerShowOverview();
+    else closeExplorer();
+    return true;
+  },
+});
+keybindings.register({
+  id: "metadata-explorer.history",
+  key: "Backspace",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  when: () => Boolean(state.explorer?.open),
+  run: event => {
+    if (event.shiftKey) explorerHistoryForward();
+    else explorerHistoryBack();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "metadata-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  () => Boolean(state.explorer?.open),
+);
+
+keybindings.register({
+  id: "settings.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.settings,
+  run: () => {
+    closeSettings();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "settings.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.settings,
+);
+
+const unavailableWorkspaceContext = () =>
+  !state.home && (state.loading || Boolean(state.error));
+registerContainedShortcuts(
+  "unavailable-workspace.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.unavailableWorkspace,
+  unavailableWorkspaceContext,
+);
+keybindings.register({
+  id: "unavailable-workspace.contain-filter-shortcut",
+  key: "/",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.unavailableWorkspace,
+  when: unavailableWorkspaceContext,
+  run: () => true,
+});
+
+keybindings.register({
+  id: "graph-source.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  when: graphSourceContextIsActive,
+  run: () => {
+    closeGraphSource();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "graph-source.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  graphSourceContextIsActive,
+);
+
+keybindings.register({
+  id: "document-viewer.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.documentViewer,
+  when: documentViewerContextIsActive,
+  run: () => {
+    closeDocViewer();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "document-viewer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.documentViewer,
+  documentViewerContextIsActive,
+);
+
+keybindings.register({
+  id: "spotlight.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    closeSpotlight();
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.open-commands",
+  key: "k",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    openSpotlight("", "commands");
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    openSpotlight();
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.contain-browser-find",
+  key: "f",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => true,
+});
+
+keybindings.register({
+  id: "taste.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.popover,
+  when: () => workspaceKeyboardContextIsActive() && state.tasteOpen,
+  run: () => {
     state.tasteOpen = false;
     render();
-  } else if (event.key === "Escape" && !event.defaultPrevented && !typing
-      && (navMode() === "member" || !state.atPackageRoot)) {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-out-escape",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && (navMode() === "member" || !state.atPackageRoot),
+  run: () => {
     if (navMode() === "member") exitMemberScope();
     else drillOut();
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.open-commands",
+  key: "k",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     openSpotlight("", "commands");
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     openSpotlight();
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.focus-filter",
+  key: "f",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     focusFilter();
-  } else if (event.altKey && event.key === "ArrowLeft") {
-    event.preventDefault();
-    navBack();
-  } else if (event.altKey && event.key === "ArrowRight") {
-    event.preventDefault();
-    navForward();
-  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {
+    return true;
+  },
+});
+
+for (const [key, action] of [
+  ["ArrowLeft", navBack],
+  ["ArrowRight", navForward],
+] as const) {
+  keybindings.register({
+    id: `workspace.history-alt-${key}`,
+    key,
+    modifiers: { alt: true },
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    when: event => workspaceKeyboardContextIsActive()
+      && !event.metaKey
+      && !event.ctrlKey,
+    run: () => {
+      action();
+      return true;
+    },
+  });
+  keybindings.register({
+    id: `workspace.history-shift-${key}`,
+    key,
+    modifiers: { shift: true },
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+    run: () => {
+      action();
+      return true;
+    },
+  });
+}
+
+keybindings.register({
+  id: "workspace.select-lens",
+  key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  allowExtraModifiers: true,
+  preventDefault: false,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey,
+  run: event => {
     const set = activeLenses();
     const index = Number(event.key) - 1;
     if (index < set.length) {
       const sc = scope();
-      if (sc === "package") { state.packageLens = set[index][0]; render(); }
-      else if (sc === "member" && isMemberSection(set[index][0]))
+      if (sc === "package") {
+        state.packageLens = set[index][0];
+        render();
+      } else if (sc === "member" && isMemberSection(set[index][0])) {
         applyMemberSection(set[index][0]);
-      else { state.lens = set[index][0]; render(); }
+      } else {
+        state.lens = set[index][0];
+        render();
+      }
     }
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-    event.preventDefault();
-    stepNav(event.key === "ArrowDown" ? 1 : -1);
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-    event.preventDefault();
-    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen
-      && !isInteractiveElement(
-        event.target instanceof Element ? event.target : null)
-      && event.key === "Enter") {
-    event.preventDefault();
-    drillIn();
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && event.key === "Backspace" && (navMode() === "member" || !state.atPackageRoot)) {
-    event.preventDefault();
-    drillOut();
-  } else if (!typing && event.key === "/") {
-    event.preventDefault();
-    focusFilter();
-  } else if (!typing && !state.spotlightOpen && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !event.defaultPrevented && event.key.length === 1 && /[a-zA-Z]/.test(event.key)) {
-    event.preventDefault();
-    openSpotlight(event.key);
-  }
+    return true;
+  },
 });
+keybindings.register({
+  id: "workspace.navigate-vertical",
+  key: ["ArrowUp", "ArrowDown"],
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey,
+  run: event => {
+    stepNav(event.key === "ArrowDown" ? 1 : -1);
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.navigate-horizontal",
+  key: ["ArrowLeft", "ArrowRight"],
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  run: event => {
+    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !isInteractiveElement(
+      event.target instanceof Element ? event.target : null),
+  run: () => {
+    drillIn();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-out-backspace",
+  key: "Backspace",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && (navMode() === "member" || !state.atPackageRoot),
+  run: () => {
+    drillOut();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.focus-filter-slash",
+  key: "/",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  run: () => {
+    focusFilter();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.seed-spotlight",
+  key: alphabetKeys,
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey,
+  run: event => {
+    openSpotlight(event.key);
+    return true;
+  },
+});
+
+keybindings.attach(document);
 
 document.addEventListener("mousedown", event => {
   if (!state.tasteOpen) return;
@@ -7883,6 +9032,8 @@ function clearNavigationError() {
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
@@ -8001,13 +9152,13 @@ async function applyPlatformLibraryScope(
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
   // is loaded on a cold shared/refreshed link so the right assembly is fetched.
   if (!state.platformIndex) {
-    try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
+    try { state.platformIndex = await loadPlatformIndex(); } catch { /* product acquisition can resolve an unknown pack */ }
   }
   if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
     return undefined;
   return Boolean(await openPlatformLibrary(
     key,
-    platformPackForAssembly(key, libraryPack),
+    platformPackForAssembly(key, libraryPack) ?? "",
     {
       ...(navigationSeq === null ? {} : { navigationSeq }),
       retryAction,

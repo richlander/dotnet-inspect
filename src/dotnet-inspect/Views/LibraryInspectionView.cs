@@ -973,7 +973,7 @@ public class LibraryInspectionView
         Name = SectionNames.ArrayPoolEscapes,
         ShowWhenProperty = nameof(HasResourceTriage))]
     public List<ResourceTriageRow> ResourceTriageSection =>
-        (_data.ResourceTriage ?? [])
+        ResourceTriageSummaries()
             .SelectMany(row => row.Boundaries.Select(boundary =>
                 new ResourceTriageRow(
                     MarkoutInline.Code(row.Member),
@@ -994,6 +994,24 @@ public class LibraryInspectionView
                     row.Stable is null ? null : MarkoutInline.Code(row.Stable),
                     row.Selector is null ? null : MarkoutInline.Code(row.Selector))))
             .ToList();
+
+    private IEnumerable<ResourceTriageSummary> ResourceTriageSummaries()
+    {
+        if (_data.ResourceTriageQueryResult
+            is ResourceTriageResult.Available)
+        {
+            var drillByToken = _data.ResourceTriageDrillMap
+                ?? throw new InvalidOperationException(
+                    "Typed Resource Triage results require CLI drill coordinates.");
+            return _data.ResourceTriageAssessments.Select(
+                assessment =>
+                    LibraryMetadataService.ProjectResourceTriageAssessment(
+                        assessment,
+                        drillByToken));
+        }
+
+        return _data.ResourceTriage ?? [];
+    }
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));

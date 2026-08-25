@@ -453,7 +453,7 @@ public class CommandErrorOwnershipTests
         // it from the severity name and a colon -- which is why the owner is
         // absent from a list of everything that spells one.
         Assert.Equal(
-            ["dotnet-inspect!Program.<<Main>$>g__FormatParseError|0_6(string)"],
+            ["dotnet-inspect!DotnetInspector.CommandLineBuilder.FormatParseError(string)"],
             found.Distinct(StringComparer.Ordinal).OrderBy(f => f, StringComparer.Ordinal));
     }
 

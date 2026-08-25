@@ -181,11 +181,12 @@ export type EncodedBodyTarget = [string | null, string | null, number | null];
 
 export function encodeBodyTarget(target: BodyTarget | null | undefined): EncodedBodyTarget | null {
   if (!target) return null;
-  return [
+  const encoded: EncodedBodyTarget = [
     target.memberName ?? null,
     target.selectorKey ?? null,
     target.metadataToken ?? null,
   ];
+  return encoded.some(value => value != null) ? encoded : null;
 }
 
 export function decodeBodyTarget(value: unknown): BodyTarget | null {

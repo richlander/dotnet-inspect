@@ -160,6 +160,24 @@ export interface BrowserHomeDemoResolved {
   view: BrowserHomeDemoView;
 }
 
+export interface BrowserHomeDemoRunActivation {
+  focusPackage: string;
+  focusVersion: string;
+  focusFramework: string;
+  typeId: string;
+  memberName: string;
+  memberKind: string;
+  memberAnchorDigest: string;
+  memberSection: string;
+}
+
+export interface BrowserHomeDemoRunResult {
+  found: boolean;
+  packages: BrowserPackageSurface[];
+  activation: BrowserHomeDemoRunActivation | null;
+  callGraph: BrowserCallGraph | null;
+}
+
 export interface BrowserHomeDemoView {
   library: string | null;
   type: string | null;
@@ -460,6 +478,7 @@ export declare function loadRuntimePack(targetFramework: string): Promise<string
 export declare function loadRuntimePackAssembly(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
+export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMemberSurface>;
 export declare function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource>;
 export declare function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string): Promise<BrowserCallGraph>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
@@ -485,4 +504,5 @@ export declare function queryTypeProjection(packageId: string, version: string, 
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
+export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;
 export declare function searchTypes(query: string, candidatesJson: string): BrowserTypeSearchHit[];
