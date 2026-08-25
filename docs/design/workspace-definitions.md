@@ -926,7 +926,13 @@ Implementation must add, at minimum:
   non-ASCII metadata names, canonical signatures, lowercase C0 escapes, quotes,
   backslashes, raw U+007F/U+0085/U+2028/U+2029, and a valid supplementary-plane
   scalar such as U+E0074, with negative lone-high- and lone-low-surrogate cases
-  proving rejection rather than U+FFFD substitution;
+  proving rejection rather than U+FFFD substitution —
+  `WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly`,
+  `Decode_UnicodeAndSignatureVector_RoundTripsExactly`,
+  `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
+  `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
+  validation, canonical writer, fixed vectors, and declared bounds; an
+  independent browser implementation consuming the same vectors remains open;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
@@ -1014,6 +1020,13 @@ Definition records and product demos (this slice):
   demo-parity, section binding, CLI lowering, and real section output for the
   two home demos; inspect-web's generated `RunHomeDemo` binding runs the
   member-bound Call Graph preset from its product scenario id;
+- `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
+  base64url packet into an immutable product-owned semantic model. It rejects
+  legacy prototype packets, malformed or non-canonical encoding and JSON,
+  invalid coordinate and context topology, and partial state through typed
+  outcomes. Its fixed .NET vectors cover composed package/platform contexts,
+  independent focus and context indexes, Unicode metadata and canonical
+  signatures, and the pinned scalar-escaping rules; and
 - `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
   already-acquired package descriptors as coordinated surface and
   implementation groups. It owns role-local binding, identity collision
@@ -1025,11 +1038,12 @@ Definition records and product demos (this slice):
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
   `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
   Browser adapter and its unchanged Wasm limits; and
-- **not yet:** minted view-facet ids; `WorkspaceContextLoader` acquisition as
-  the run substrate (CLI still uses package + `--caller-package` encoding, the
-  Browser package path still supplies exact already-acquired descriptors to the
-  product role owner, and platform still uses the resident runtime-pack share
-  encoding).
+- **not yet:** packet-to-definition transposition, minted view-facet ids,
+  packet view/query binding, or CLI and browser use of the codec;
+  `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
+  package + `--caller-package` encoding, the Browser package path still
+  supplies exact already-acquired descriptors to the product role owner, and
+  platform still uses the resident runtime-pack share encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates
