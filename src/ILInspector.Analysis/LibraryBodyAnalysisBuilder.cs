@@ -329,7 +329,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ownerTypeScope,
                 directlySelectedBody))
         {
-            return sourceOwner;
+            return IsMalformedGeneratedLiftedOwner(sourceOwner)
+                ? null
+                : sourceOwner;
         }
 
         MethodIdentity? asyncSource =

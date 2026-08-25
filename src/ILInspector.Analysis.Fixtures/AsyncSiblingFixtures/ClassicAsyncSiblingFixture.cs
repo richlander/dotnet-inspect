@@ -23,6 +23,14 @@ public static class ClassicAsyncSiblingFixture
         return ReadValue(value);
     }
 
+    [CompilerGenerated]
+    public static async Task<int> CompilerGeneratedAsyncOwner(
+        int value)
+    {
+        await Task.Yield();
+        return ReadValue(value);
+    }
+
     public static Action<Task> AwaitTaskInAsyncLambda() =>
         async task => await task;
 

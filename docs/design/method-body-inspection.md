@@ -353,10 +353,9 @@ read-only parallel cache consumption.
 Unscoped declared-source publication retains an authenticated immediate async
 source when ultimate lifted-owner resolution fails; scoped publication and
 ownership-derived recommendations remain fail-closed.
-Async execution-source rejection remains broader than owner-chain rejection:
-ordinary compiler-generated owners retain established attribution, while
-malformed generated-like owner names fail closed and cannot expand scoped
-acquisition.
+Async execution sources and owner chains reject malformed generated-like names
+while ordinary compiler-generated owners, including async owners, retain
+established attribution. Rejected identities cannot expand scoped acquisition.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
 gates that boundary, while
 `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
@@ -366,9 +365,10 @@ multi-hop caller projection for unresolved and recoverable-failure paths;
 `ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
 gate canonical generated-name admission at immediate and intermediate hops.
 `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
+`DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
 `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
 `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
-compatibility, scope admission, and terminal-hop authentication.
+compatibility, async scope admission, and terminal-hop authentication.
 `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
 `ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
 async-owner shapes.

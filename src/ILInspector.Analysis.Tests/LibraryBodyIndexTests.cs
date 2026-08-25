@@ -4832,17 +4832,28 @@ public class LibraryBodyIndexTests
             full.Methods,
             method => method.Name
                 == "<Noise>b__0_0>b__0_1");
+        MethodIdentity malformedOwner = Assert.Single(
+            full.Methods,
+            method => method.Name == "Noise>b__0_0");
 
         Assert.Equal(
             immediateSource,
             full.ResolveDeclaredMethod(moveNext));
+        Assert.Null(
+            full.ResolveDeclaredMethod(immediateSource));
         Assert.Contains(
             full.DirectCalls,
             call => call.EvidenceMethod == moveNext
                 && call.Caller == moveNext
                 && call.Callee.Name == "Read");
+        Assert.Contains(
+            full.DirectCalls,
+            call => call.EvidenceMethod == immediateSource
+                && call.Caller == immediateSource
+                && call.Caller != malformedOwner
+                && call.Callee.Name == "Read");
 
-        LibraryBodyIndex scoped =
+        LibraryBodyIndex stateMachineScoped =
             LibraryBodyIndex.OpenFromPrefetchedImage(
                 "MalformedNestedLiftedOwner.dll",
                 [.. image],
@@ -4850,7 +4861,108 @@ public class LibraryBodyIndexTests
                 bodyTypeScope:
                     type => type.Equals(
                         moveNext.DeclaringType));
-        Assert.Null(scoped.ResolveDeclaredMethod(moveNext));
+        Assert.Null(
+            stateMachineScoped.ResolveDeclaredMethod(moveNext));
+
+        foreach (LibraryBodyIndex ownerScoped in new[]
+        {
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    immediateSource.MetadataToken,
+                }),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        immediateSource.DeclaringType)),
+        })
+        {
+            Assert.Null(
+                ownerScoped.ResolveDeclaredMethod(
+                    immediateSource));
+            Assert.Contains(
+                ownerScoped.DirectCalls,
+                call => call.EvidenceMethod == immediateSource
+                    && call.Caller == immediateSource
+                    && call.Callee.Name == "Read");
+        }
+    }
+
+    [Fact]
+    public void
+        DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .CompilerGeneratedAsyncOwner));
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller == owner
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.EvidenceMethod.DeclaringType.Name.Contains(
+                    nameof(
+                        ClassicAsyncSiblingFixture
+                            .CompilerGeneratedAsyncOwner),
+                    StringComparison.Ordinal)
+                && call.Callee.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture.ReadValue));
+
+        Assert.Equal(
+            owner,
+            full.ResolveDeclaredMethod(
+                expected.EvidenceMethod));
+        Assert.DoesNotContain(
+            full.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                == expected.EvidenceMethod.MetadataToken);
+
+        foreach (LibraryBodyIndex scoped in new[]
+        {
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    owner.MetadataToken,
+                }),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        owner.DeclaringType)),
+        })
+        {
+            Assert.Contains(
+                scoped.DirectCalls,
+                call => call.Caller == owner
+                    && call.EvidenceMethod
+                        == expected.EvidenceMethod
+                    && call.Callee == expected.Callee);
+            Assert.Equal(
+                owner,
+                scoped.ResolveDeclaredMethod(
+                    expected.EvidenceMethod));
+            Assert.DoesNotContain(
+                scoped.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == expected.EvidenceMethod.MetadataToken);
+        }
     }
 
     [Fact]
@@ -5674,6 +5786,15 @@ public class LibraryBodyIndexTests
         int deepOuterLiftedBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(deepOuterLiftedIl),
             maxStack: 1);
+        var liftedReadIl = new BlobBuilder();
+        liftedReadIl.WriteByte((byte)ILOpCode.Call);
+        liftedReadIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(7)));
+        liftedReadIl.WriteByte((byte)ILOpCode.Ret);
+        int liftedReadBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(liftedReadIl),
+            maxStack: 0);
 
         BlobHandle taskSignature = metadata.GetOrAddBlob(
             new byte[]
@@ -5789,7 +5910,9 @@ public class LibraryBodyIndexTests
                     ? metadata.GetOrAddBlob(
                         new byte[] { 0x00 })
                     : taskSignature,
-                AddRetBody(bodyEncoder),
+                malformedNestedLiftedIntermediate
+                    ? liftedReadBody
+                    : AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle read =
             metadata.AddMethodDefinition(
