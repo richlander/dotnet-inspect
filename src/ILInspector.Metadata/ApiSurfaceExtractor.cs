@@ -3709,15 +3709,27 @@ public static class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork)
     {
         HashSet<MethodDefinitionHandle> handles = [];
+        Dictionary<EntityHandle, InterfaceMethodImplOwnership> ownershipByDeclaringType = [];
         foreach (var implementation in implementations)
         {
-            if (TargetsImplementedInterface(
+            EntityHandle declaringType = MethodImplementationDeclarationType(
+                reader,
+                implementation.Declaration);
+            if (!ownershipByDeclaringType.TryGetValue(
+                    declaringType,
+                    out InterfaceMethodImplOwnership ownership))
+            {
+                ownership = TargetsImplementedInterface(
                     reader,
                     typeDef,
-                    implementation.Declaration,
+                    declaringType,
                     currentScope,
                     localTypes,
-                    beforeDecodeWork)
+                    beforeDecodeWork);
+                ownershipByDeclaringType.Add(declaringType, ownership);
+            }
+
+            if (ownership
                 is not InterfaceMethodImplOwnership.ProvenNonInterface)
             {
                 handles.Add(implementation.Body);
@@ -3734,15 +3746,10 @@ public static class ApiSurfaceExtractor
         UnresolvedExternalInheritance,
     }
 
-    private static InterfaceMethodImplOwnership TargetsImplementedInterface(
+    private static EntityHandle MethodImplementationDeclarationType(
         MetadataReader reader,
-        TypeDefinition typeDef,
-        EntityHandle declaration,
-        MetadataTypeScope? currentScope,
-        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> localTypes,
-        Action<int>? beforeDecodeWork)
-    {
-        EntityHandle declaringType = declaration.Kind switch
+        EntityHandle declaration)
+        => declaration.Kind switch
         {
             HandleKind.MethodDefinition => reader
                 .GetMethodDefinition((MethodDefinitionHandle)declaration)
@@ -3752,6 +3759,15 @@ public static class ApiSurfaceExtractor
                 .Parent,
             _ => default,
         };
+
+    private static InterfaceMethodImplOwnership TargetsImplementedInterface(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        EntityHandle declaringType,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> localTypes,
+        Action<int>? beforeDecodeWork)
+    {
         if (declaringType.Kind is not (
                 HandleKind.TypeDefinition
                 or HandleKind.TypeReference
