@@ -80,11 +80,15 @@ of repeated in every row.
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
-| `InertString` fields on API view rows | One rendered semantic API value | Which lossless visual spelling may cross a Markdown, table, TSV, JSONL, or shape sink | Raw type/member identity, lookup text, or correspondence |
+| `InertString` fields on API view rows | One rendered non-C# semantic API value | Which lossless visual spelling may cross a Markdown, table, TSV, JSONL, or shape sink | Raw type/member identity, lookup text, or correspondence |
+| `CSharpPresentationText` fields on API view rows | One rendered C# value plus canonical `InertString` evidence | Which exact, already-safe C# spelling may cross a presentation sink without interpreting or rewriting its escape syntax | Raw type/member identity or a second C# parser |
 | `ApiArtifactJson` write projections | One API document JSON serialization | Whether every decoded JSON string value is visually contained while preserving the established schema | A deserializable identity model; consumers that need raw identity use the ordinary `ApiTypeJsonContext` |
 
 `SemanticTypeOutputContainmentTests` gates the typed view currency, unchanged
 raw identity, decoded JSON values, and schema-neutral benign text.
+`CSharpField_MixedCSharpAndVisualEscapes_PreservesSpellingWithInertEvidence`
+gates the rendered-C# currency against the close case where ordinary C# escapes
+and inert-looking visual escapes occur in one value.
 `PackageFixtureTests.PackageFixtureCatalog_PacksMetadataConfusionPackage` runs
 the repository-owned SRM fixture through Markdown, shape, table, JSONL, and
 document JSON as the real-artifact gate.
@@ -105,10 +109,13 @@ lines and retains the result using the actual `InertString` field codec; API
 views and document JSON import that encoded value instead of decoding or
 encoding it again. Ordinary persistence JSON decodes that known encoded
 currency before the model setter retains it, so serialization round trips do
-not add another layer.
+not add another layer. The reader proves the spelling is canonical by
+re-encoding it before decoding; noncanonical legacy text remains literal.
 `SemanticTypeOutputContainmentTests.DocumentationEncoding_PreservesLiteralEscapeIdentity`,
 `SemanticTypeOutputContainmentTests.DocumentationEncoding_RoundTripsThroughPersistenceJson`,
+`SemanticTypeOutputContainmentTests.DocumentationPersistence_LegacyLiteralEscapeRemainsLiteral`,
 `SemanticTypeOutputContainmentTests.SurfaceDescription_ImportsDocumentationEncodingOnce`,
+`SemanticTypeOutputContainmentTests.SurfaceDescription_TruncatesWithoutSplittingEncodedToken`,
 and the metadata-confusion package gate enforce that single encoding.
 
 #### `DotnetInspector.Queries`

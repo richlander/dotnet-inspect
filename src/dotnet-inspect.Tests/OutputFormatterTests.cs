@@ -1813,13 +1813,13 @@ public class OutputFormatterTests
         Assert.True(TypeView.SignatureDecodeIsEmpty(
         [
             new MemberSignatureRow(
-                ApiViewText.Field("void A()"),
+                ApiViewText.CSharpField("void A()"),
                 "aaaa",
                 ApiViewText.Field("M:A"),
                 null,
                 null),
             new MemberSignatureRow(
-                ApiViewText.Field("void B()"),
+                ApiViewText.CSharpField("void B()"),
                 "bbbb",
                 ApiViewText.Field("M:B"),
                 "",
@@ -1830,13 +1830,13 @@ public class OutputFormatterTests
         Assert.False(TypeView.SignatureDecodeIsEmpty(
         [
             new MemberSignatureRow(
-                ApiViewText.Field("void A()"),
+                ApiViewText.CSharpField("void A()"),
                 "aaaa",
                 ApiViewText.Field("M:A"),
                 null,
                 null),
             new MemberSignatureRow(
-                ApiViewText.Field("void B()"),
+                ApiViewText.CSharpField("void B()"),
                 "bbbb",
                 ApiViewText.Field("M:B"),
                 "degraded",

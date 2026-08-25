@@ -477,17 +477,15 @@ public static class ApiOutputFormatter
         // Type parameter summary. Computed unconditionally because Type Info reports it as an
         // identity fact at any verbosity; only the inline header placement is quiet-only, since
         // at Minimal+ the section replaces the inline line.
-        InertString? typeParamsText = null;
+        CSharpPresentationText? typeParamsText = null;
         if (type.TypeParameters.Count > 0)
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => TypeParameterDescription(
                     type.TypeParameters,
                     tp));
-            typeParamsText = InertString.Join(
-                ", ",
-                TextPolicy.Field,
-                paramDescriptions);
+            typeParamsText = CSharpPresentationText.Create(
+                string.Join(", ", paramDescriptions));
         }
 
         string? typeParamsSummary = typeParamsText?.ToString();
@@ -757,11 +755,11 @@ public static class ApiOutputFormatter
                             .ToString()))
                 .ToList();
 
-            static InertString MemberShapeText(ApiMember member) =>
+            static string MemberShapeText(ApiMember member) =>
                 member.Signature is { } signature
-                    ? ApiViewText.CSharpField(signature)
+                    ? ApiViewText.CSharpField(signature).ToString()
                     : ApiViewText.Field(
-                        OperatorNames.FormatRawDisplayName(member.Name));
+                        OperatorNames.FormatRawDisplayName(member.Name)).ToString();
         }
 
         // A finalizer renders as the C# destructor `~Type()` rather than its raw
@@ -882,20 +880,18 @@ public static class ApiOutputFormatter
     private static string ConstraintSummary(IReadOnlyList<TypeParameter> typeParameters, TypeParameter typeParameter)
         => CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name));
 
-    private static InertString TypeParameterDescription(
+    private static string TypeParameterDescription(
         IReadOnlyList<TypeParameter> typeParameters,
         TypeParameter typeParameter)
     {
-        InertString name =
-            ApiViewText.Field(RawTypeParameterDisplayName(typeParameter));
+        string name =
+            ApiViewText.Field(RawTypeParameterDisplayName(typeParameter)).ToString();
         if (typeParameter.Constraints.Count == 0)
             return name;
 
-        InertString constraints = ApiViewText.CSharpField(
-            ConstraintSummary(typeParameters, typeParameter));
-        return InertString.Format(
-            TextPolicy.Field,
-            $"{name} : {constraints}");
+        string constraints = ApiViewText.CSharpField(
+            ConstraintSummary(typeParameters, typeParameter)).ToString();
+        return $"{name} : {constraints}";
     }
 
     private static InertString Ellipsize(
@@ -1488,7 +1484,12 @@ public static class ApiOutputFormatter
             var overloadView = new ConstructorOverloadView
             {
                 Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
-                Signature = new CodeSection("csharp", CSharpIdentifier.ContainRenderedText($"new {type.Name}{ConstructorCall(type, ctor)}"))
+                Signature = new CodeSection(
+                    "csharp",
+                    ApiViewText.CSharpField(
+                        CSharpIdentifier.ContainRenderedText(
+                            $"new {type.Name}{ConstructorCall(type, ctor)}"))
+                        .ToString())
             };
 
             if (paramInfo.Count > 0)
@@ -3324,21 +3325,25 @@ public static class ApiOutputFormatter
             .ThenBy(t => t.FullName)
             .Select(t =>
             {
-                string? desc = null;
+                InertString? descriptionText = null;
                 if (showDescription)
                 {
-                    desc = t.Documentation.Summary;
-                    if (desc != null)
+                    string? description = t.Documentation.Summary;
+                    if (description != null)
                     {
-                        desc = desc.ReplaceLineEndings(" ");
-                        if (desc.Length > 80) desc = desc[..77] + "...";
+                        descriptionText = ApiViewText.EncodedField(
+                            description.ReplaceLineEndings(" "));
+                        if (descriptionText.Value.Length > 80)
+                            descriptionText = Ellipsize(
+                                descriptionText.Value,
+                                80);
                     }
                 }
                 return new ApiSurfaceTableRow(
                     t.Kind,
                     FormatGenericFullName(t),
                     t.Members.Count.ToString(),
-                    ApiViewText.OptionalEncodedField(desc));
+                    descriptionText);
             })
             .ToList();
 

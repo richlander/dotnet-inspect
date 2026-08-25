@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using DotnetInspector.Models;
+using DotnetInspector.Output;
 using InertText;
 
 namespace DotnetInspector.Tests;
@@ -613,6 +614,11 @@ public class MarkoutRowContainmentTests
         if (type == typeof(InertString))
         {
             return new InertString(TextPolicy.Field, Hostile);
+        }
+
+        if (type == typeof(CSharpPresentationText))
+        {
+            return ApiPresentationText.CSharpField(Hostile);
         }
 
         if (type == typeof(List<PackageSourceLinkIssueText>))

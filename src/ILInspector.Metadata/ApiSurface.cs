@@ -84,7 +84,9 @@ public class DocComment
 /// </summary>
 /// <remarks>
 /// <c>SemanticTypeOutputContainmentTests.DocumentationEncoding_RoundTripsThroughPersistenceJson</c>
-/// gates the non-vacuity of this persistence boundary.
+/// gates the non-vacuity of this persistence boundary. Only a canonical field
+/// spelling is decoded; <c>DocumentationPersistence_LegacyLiteralEscapeRemainsLiteral</c>
+/// gates compatibility with untreated legacy persistence.
 /// </remarks>
 public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
 {
@@ -97,13 +99,14 @@ public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
             throw new JsonException("Encoded documentation must be a string.");
 
         string encoded = reader.GetString()!;
-        if (!VisualEncoder.TryDecode(encoded, out string? untreated))
-        {
-            throw new JsonException(
-                "Documentation is not a valid inert-text encoding.");
-        }
+        if (VisualEncoder.TryDecode(encoded, out string? untreated)
+            && string.Equals(
+                new InertString(TextPolicy.Field, untreated).ToString(),
+                encoded,
+                StringComparison.Ordinal))
+            return untreated;
 
-        return untreated;
+        return encoded;
     }
 
     public override void Write(

@@ -5,6 +5,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Views;
 using CSharpText;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -151,6 +152,20 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void CSharpField_MixedCSharpAndVisualEscapes_PreservesSpellingWithInertEvidence()
+    {
+        const string safeCSharp = """string M() => "\v\n\"\\\u202E";""";
+        string rendered = safeCSharp + '\u202E';
+
+        CSharpPresentationText contained = ApiViewText.CSharpField(rendered);
+
+        Assert.Equal(safeCSharp + @"\u202E", contained.ToString());
+        Assert.Equal(
+            new InertString(TextPolicy.Field, rendered),
+            contained.Evidence);
+    }
+
+    [Fact]
     public void DocumentationEncoding_PreservesLiteralEscapeIdentity()
     {
         var comment = new DocComment
@@ -190,6 +205,21 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void DocumentationPersistence_LegacyLiteralEscapeRemainsLiteral()
+    {
+        const string json =
+            """{"documentation":{"summary":"literal \\u0041"}}""";
+
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(
+            @"literal \\u0041",
+            restored.Documentation.Summary);
+    }
+
+    [Fact]
     public void SurfaceDescription_ImportsDocumentationEncodingOnce()
     {
         var type = new ApiType
@@ -211,6 +241,30 @@ public sealed class SemanticTypeOutputContainmentTests
         Assert.Equal(
             @"before\u202Eafter literal \\u0041",
             row.DescriptionText!.Value.ToString());
+    }
+
+    [Fact]
+    public void SurfaceDescription_TruncatesWithoutSplittingEncodedToken()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Docs",
+            Name = "Widget",
+            Kind = "class",
+            Documentation = new DocComment
+            {
+                Summary =
+                    "\u202E" + new string('a', 70) + "\u202Etail",
+            },
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildSurfaceTableView(
+            new ApiSurface { Types = [type] },
+            new ApiOptions { ShowDocs = true });
+
+        Assert.Equal(
+            @"\u202E" + new string('a', 70) + "...",
+            Assert.Single(view.RowsWithDescription!).Description);
     }
 
     [Fact]

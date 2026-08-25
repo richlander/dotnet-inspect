@@ -37,6 +37,10 @@ internal static class MarkoutInline
             TextPolicy.Field,
             $"<code>{EscapeXmlText(value.ToString())}</code>");
 
+    public static CSharpPresentationText CodeText(CSharpPresentationText value)
+        => CSharpPresentationText.Create(
+            $"<code>{EscapeXmlText(value.ToString())}</code>");
+
     private static string EscapeXmlText(string value)
         => value
             .Replace("&", "&amp;", StringComparison.Ordinal)

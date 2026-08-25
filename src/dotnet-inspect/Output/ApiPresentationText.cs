@@ -6,7 +6,37 @@ namespace DotnetInspector.Output;
 
 internal static class ApiPresentationText
 {
-    public static InertString CSharpField(string value)
+    public static CSharpPresentationText CSharpField(string value) =>
+        CSharpPresentationText.Create(value);
+
+    public static InertString EncodedField(string value) =>
+        InertString.FromEncoded(TextPolicy.Field, value);
+}
+
+/// <summary>
+/// Carries exact, contained rendered-C# spelling alongside canonical inert evidence.
+/// </summary>
+/// <remarks>
+/// <c>CSharpField_MixedCSharpAndVisualEscapes_PreservesSpellingWithInertEvidence</c>
+/// gates the distinction between C# escape syntax and the canonical evidence codec.
+/// </remarks>
+public readonly struct CSharpPresentationText
+{
+    private readonly string? _text;
+
+    private CSharpPresentationText(string text, InertString evidence)
+    {
+        _text = text;
+        Evidence = evidence;
+    }
+
+    /// <summary>Gets the exact contained C# spelling for presentation.</summary>
+    public string Text => _text ?? string.Empty;
+
+    /// <summary>Gets canonical evidence for the untreated rendered value.</summary>
+    public InertString Evidence { get; }
+
+    internal static CSharpPresentationText Create(string value)
     {
         var builder = new StringBuilder(value.Length);
         ReadOnlySpan<char> remaining = value;
@@ -28,11 +58,10 @@ internal static class ApiPresentationText
             remaining = remaining[consumed..];
         }
 
-        return InertString.FromEncoded(
-            TextPolicy.Field,
-            builder.ToString());
+        return new CSharpPresentationText(
+            builder.ToString(),
+            new InertString(TextPolicy.Field, value));
     }
 
-    public static InertString EncodedField(string value) =>
-        InertString.FromEncoded(TextPolicy.Field, value);
+    public override string ToString() => Text;
 }
