@@ -26,10 +26,9 @@ const escapeHtml = (value: unknown) => String(value)
   .replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
 
-const FACETS: readonly QueryFacetTerm[] = [
-  { key: "tfm-out-of-support", label: "out-of-support only", tier: "nuspec" },
-  { key: "union-usage", label: "uses C# union", tier: "promoted" },
-];
+const NUSPEC_FACET: QueryFacetTerm = { key: "tfm-out-of-support", label: "out-of-support only", tier: "nuspec" };
+const PROMOTED_FACET: QueryFacetTerm = { key: "union-usage", label: "uses C# union", tier: "promoted" };
+const FACETS: readonly QueryFacetTerm[] = [NUSPEC_FACET, PROMOTED_FACET];
 
 function row(packageId: string): QueryResultRow {
   return {
@@ -91,7 +90,7 @@ test("a packageId cannot break out of the row's HTML attribute context via a quo
 
 test("a streaming result renders rows, tiers, facets, and the streaming footer", () => {
   const state: PackageQueryState = {
-    request: withFacet(createQueryRequest("Microsoft.*", "Microsoft."), FACETS[0]),
+    request: withFacet(createQueryRequest("Microsoft.*", "Microsoft."), NUSPEC_FACET),
     outcome: appendRows(emptyOutcome(), [row("Microsoft.Bcl.AsyncInterfaces")]),
     selected: new Set(),
   };
