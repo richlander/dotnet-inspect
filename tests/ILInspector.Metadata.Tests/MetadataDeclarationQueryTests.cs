@@ -536,6 +536,339 @@ public sealed class MetadataDeclarationQueryTests
                 methodHandle));
     }
 
+    /// <summary>
+    /// The all-<c>TypeDef</c> control for
+    /// <see cref="SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry"/>:
+    /// the same compiler-produced covariant-return shape whose returned type
+    /// reaches the declared return through direct <c>TypeDef</c> base rows,
+    /// which authenticates both before and after constructed-generic ancestry
+    /// exists.
+    /// </summary>
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesDirectCovariantReturnThroughTypeDefAncestry()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.CovariantReturnDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+        var dog = Reader.GetTypeDefinition(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures.CovariantDog)));
+
+        Assert.Equal(HandleKind.TypeDefinition, dog.BaseType.Kind);
+        Assert.Empty(dog.GetInterfaceImplementations());
+        Assert.Equal(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures.CovariantAnimal)),
+            (TypeDefinitionHandle)dog.BaseType);
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures.CovariantReturnBase)),
+            slot.DeclaringType);
+    }
+
+    /// <summary>
+    /// Covariant-return ancestry is a metadata walk, not a <c>TypeDef</c>
+    /// walk. <c>Dog : Middle&lt;int&gt; : Animal</c> reaches its declared
+    /// return only through a constructed generic step, and the all-<c>TypeDef</c>
+    /// control for the same authentication is
+    /// <see cref="SameAssemblyOverrideSlot_AuthenticatesDirectCovariantReturnThroughTypeDefAncestry"/>.
+    /// </summary>
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ConstructedAncestryCovariantReturnDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+        var method = Reader.GetMethodDefinition(methodHandle);
+        var implementation = Assert.Single(
+            derived.GetMethodImplementations()
+                .Select(Reader.GetMethodImplementation),
+            candidate => candidate.MethodBody == methodHandle);
+
+        // The shape this gate exists for: the compiler emits the covariant
+        // return as NewSlot plus a MethodImpl, and writes the returned type's
+        // own base as a TypeSpec, so its ancestry is invisible to a TypeDef
+        // walk.
+        Assert.True((method.Attributes & MethodAttributes.NewSlot) != 0);
+        Assert.Equal(
+            HandleKind.MethodDefinition,
+            implementation.MethodDeclaration.Kind);
+        Assert.Equal(
+            HandleKind.TypeSpecification,
+            Reader.GetTypeDefinition(
+                GetTypeDefinitionHandle(
+                    typeof(MetadataDeclarationQueryFixtures
+                        .CovariantDogThroughConstructedMiddle)))
+                .BaseType.Kind);
+
+        var declaration =
+            MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.True(declaration.IsOverride);
+        Assert.Equal(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures
+                    .ConstructedAncestryCovariantReturnBase)),
+            slot.DeclaringType);
+        Assert.Equal(
+            (MethodDefinitionHandle)implementation.MethodDeclaration,
+            slot.Method);
+    }
+
+    /// <summary>
+    /// The same walk carries interface ancestry, and carries each step's exact
+    /// arguments into it: <c>Middle&lt;TValue&gt;</c> implements
+    /// <c>ICovariantContract&lt;TValue&gt;</c> through a <c>TypeSpec</c>, so
+    /// only substituting <c>int</c> proves the declared
+    /// <c>ICovariantContract&lt;int&gt;</c> return.
+    /// </summary>
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesCovariantInterfaceReturnThroughConstructedGenericAncestry()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ConstructedAncestryCovariantReturnDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Contract");
+        var middle = Reader.GetTypeDefinition(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures
+                    .CovariantConstructedMiddle<>)));
+
+        Assert.Equal(
+            HandleKind.TypeSpecification,
+            Reader.GetInterfaceImplementation(
+                Assert.Single(middle.GetInterfaceImplementations()))
+                .Interface.Kind);
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures
+                    .ConstructedAncestryCovariantReturnBase)),
+            slot.DeclaringType);
+    }
+
+    /// <summary>
+    /// The non-vacuity control for
+    /// <see cref="SameAssemblyOverrideSlot_DeclinesConstructedGenericAncestryWithDifferentArgument"/>:
+    /// the two images differ only in the argument the returned type's
+    /// constructed base carries.
+    /// </summary>
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesConstructedGenericAncestryWithMatchingArgument()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericAncestryImage(
+                ConstructedGenericAncestryShape.MatchingArgument));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            "Base",
+            reader.GetString(
+                reader.GetTypeDefinition(slot.DeclaringType).Name));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesConstructedGenericAncestryWithDifferentArgument()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericAncestryImage(
+                ConstructedGenericAncestryShape.DifferentArgument));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        // Dog : Middle<Animal> is not a Middle<Dog>; ancestry may not erase
+        // the instantiation to the definition it instantiates.
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_CyclicConstructedAncestryFailsClosed()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericAncestryImage(
+                ConstructedGenericAncestryShape.Cyclic));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_ExpandingConstructedAncestryFailsClosedWithinBudget()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericAncestryImage(
+                ConstructedGenericAncestryShape.Expanding));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        // Middle<T> : Middle<Middle<T>> never repeats an instantiation, so
+        // only the node cap and the comparison budget can answer at all.
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var slot = MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            reader,
+            derivedHandle,
+            methodHandle);
+        elapsed.Stop();
+
+        Assert.Null(slot);
+        Assert.True(
+            elapsed.Elapsed < TimeSpan.FromSeconds(30),
+            $"Bounded ancestry traversal took {elapsed.Elapsed}.");
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsValidOnlyExplicitConstraintSet()
+    {
+        using var stream = new MemoryStream(
+            BuildDegradedConstraintSetImage(
+                DegradedConstraintSetShape.ValidOnly));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.Equal(
+            "Base",
+            reader.GetString(
+                reader.GetTypeDefinition(slot.DeclaringType).Name));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesDegradedOnlyConstraint()
+    {
+        using var stream = new MemoryStream(
+            BuildDegradedConstraintSetImage(
+                DegradedConstraintSetShape.DegradedOnly));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        AssertDegradedConstraintIsUndecodable(reader);
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    /// <summary>
+    /// Malformed current-image constraint evidence is sticky across the whole
+    /// constraint set, so a valid constraint that would otherwise authenticate
+    /// cannot rescue it, in either metadata order. The valid constraint alone
+    /// authenticates in
+    /// <see cref="SameAssemblyOverrideSlot_AllowsValidOnlyExplicitConstraintSet"/>.
+    /// </summary>
+    [Theory]
+    [InlineData(DegradedConstraintSetShape.DegradedFirst)]
+    [InlineData(DegradedConstraintSetShape.ValidFirst)]
+    public void SameAssemblyOverrideSlot_DeclinesMixedDegradedAndValidConstraintSet(
+        DegradedConstraintSetShape shape)
+    {
+        using var stream = new MemoryStream(
+            BuildDegradedConstraintSetImage(shape));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        AssertDegradedConstraintIsUndecodable(reader);
+        Assert.Equal(
+            2,
+            reader.GetGenericParameter(
+                reader.GetTypeDefinition(derivedHandle)
+                    .GetGenericParameters()
+                    .Single())
+                .GetConstraints()
+                .Count);
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    /// <summary>
+    /// Proves the degraded constraint really reaches the fail-closed path
+    /// rather than being declined for some unrelated reason: its
+    /// <c>TypeSpec</c> is over-deep, so the shared signature guard refuses to
+    /// decode it and the constraint can only decode as degraded.
+    /// </summary>
+    static void AssertDegradedConstraintIsUndecodable(MetadataReader reader)
+    {
+        TypeSpecificationHandle constraintSpec = Assert.Single(
+            reader.GetGenericParameter(
+                reader.TypeDefinitions
+                    .Select(reader.GetTypeDefinition)
+                    .Single(type =>
+                        reader.GetString(type.Name) == "Derived")
+                    .GetGenericParameters()
+                    .Single())
+                .GetConstraints()
+                .Select(handle =>
+                    reader.GetGenericParameterConstraint(handle).Type)
+                .Where(type => type.Kind == HandleKind.TypeSpecification)
+                .Select(type => (TypeSpecificationHandle)type));
+
+        Assert.False(
+            SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                reader.GetTypeSpecification(constraintSpec).Signature,
+                SignatureBlobGuard.Kind.TypeSpecification));
+    }
+
     [Fact]
     public void SameAssemblyOverrideSlot_WideGenericParameterDagFailsClosedWithinBudget()
     {
@@ -1675,6 +2008,331 @@ public sealed class MetadataDeclarationQueryTests
     {
         Chain,
         Dag,
+    }
+
+    enum ConstructedGenericAncestryShape
+    {
+        MatchingArgument,
+        DifferentArgument,
+        Cyclic,
+        Expanding,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> whose <c>Dog Value()</c> carries a class
+    /// <c>MethodImpl</c> onto a base slot, where the only ancestry evidence for
+    /// the covariant return runs through <c>Dog</c>'s own constructed generic
+    /// base. The shape controls that base and the declared return, so a
+    /// definition-only ancestry answer and an instantiation-exact one differ:
+    /// <see cref="ConstructedGenericAncestryShape.MatchingArgument"/> declares
+    /// <c>Middle&lt;Dog&gt;</c> against <c>Dog : Middle&lt;Dog&gt;</c> and
+    /// <see cref="ConstructedGenericAncestryShape.DifferentArgument"/> declares
+    /// the same return against <c>Dog : Middle&lt;Animal&gt;</c>. The remaining
+    /// shapes declare an unreachable <c>Animal</c> return over a cyclic and an
+    /// endlessly expanding base chain.
+    /// </summary>
+    static byte[] BuildConstructedGenericAncestryImage(
+        ConstructedGenericAncestryShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("ConstructedGenericAncestry");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        // TypeSpec rows have to name types whose definitions are added later,
+        // so the row numbers are fixed up front and checked on the way out.
+        TypeDefinitionHandle animal =
+            MetadataTokens.TypeDefinitionHandle(2);
+        TypeDefinitionHandle middle =
+            MetadataTokens.TypeDefinitionHandle(3);
+        TypeDefinitionHandle dog =
+            MetadataTokens.TypeDefinitionHandle(4);
+
+        EntityHandle middleBase = shape switch
+        {
+            ConstructedGenericAncestryShape.Cyclic => dog,
+            ConstructedGenericAncestryShape.Expanding =>
+                AddSyntheticNestedSelfInstantiationTypeSpec(
+                    metadata,
+                    middle),
+            _ => objectType,
+        };
+        EntityHandle dogBase = AddSyntheticConstructedTypeSpec(
+            metadata,
+            middle,
+            shape == ConstructedGenericAncestryShape.DifferentArgument
+                ? animal
+                : dog);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        Assert.Equal(
+            animal,
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(
+            middle,
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Middle`1"),
+                middleBase,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(
+            dog,
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                dogBase,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1)));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        metadata.AddGenericParameter(
+            middle,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        BlobHandle declaredReturn = shape
+            is ConstructedGenericAncestryShape.MatchingArgument
+            or ConstructedGenericAncestryShape.DifferentArgument
+            ? AddSyntheticGenericReturnSignature(metadata, middle, dog)
+            : AddSyntheticMethodSignature(metadata, animal);
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                declaredReturn,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMethodSignature(metadata, dog),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    /// <summary>
+    /// The shapes of one generic parameter's constraint set: a valid explicit
+    /// constraint that proves the covariant return, an over-deep
+    /// <c>TypeSpec</c> constraint the shared signature guard refuses to decode,
+    /// and both together in either metadata order.
+    /// </summary>
+    public enum DegradedConstraintSetShape
+    {
+        ValidOnly,
+        DegradedOnly,
+        DegradedFirst,
+        ValidFirst,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived&lt;T&gt; : Base</c> whose <c>T Value()</c> carries a
+    /// class <c>MethodImpl</c> onto <c>Animal Value()</c>, with <c>T</c>
+    /// constrained by the requested mix of a valid <c>Dog</c> constraint and an
+    /// undecodable over-deep <c>TypeSpec</c> constraint.
+    /// </summary>
+    static byte[] BuildDegradedConstraintSetImage(
+        DegradedConstraintSetShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("DegradedConstraintSet");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                animal,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                derivedType,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+        foreach (bool degraded in ConstraintOrder(shape))
+        {
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                degraded
+                    ? AddSyntheticOverDeepArrayTypeSpec(
+                        metadata,
+                        animal,
+                        depth: SignatureBlobGuard.DefaultMaxDepth + 64)
+                    : dog);
+        }
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMethodSignature(metadata, animal),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericParameterReturnSignature(metadata),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    static IEnumerable<bool> ConstraintOrder(
+        DegradedConstraintSetShape shape)
+        => shape switch
+        {
+            DegradedConstraintSetShape.ValidOnly => [false],
+            DegradedConstraintSetShape.DegradedOnly => [true],
+            DegradedConstraintSetShape.DegradedFirst => [true, false],
+            _ => [false, true],
+        };
+
+    /// <summary>
+    /// A <c>TypeSpec</c> nesting <paramref name="depth"/> SZ arrays around
+    /// <paramref name="elementType"/>, which exceeds
+    /// <see cref="SignatureBlobGuard.DefaultMaxDepth"/> so every guarded decode
+    /// of it degrades.
+    /// </summary>
+    static TypeSpecificationHandle AddSyntheticOverDeepArrayTypeSpec(
+        MetadataBuilder metadata,
+        EntityHandle elementType,
+        int depth)
+    {
+        var blob = new BlobBuilder();
+        SignatureTypeEncoder encoder =
+            new BlobEncoder(blob).TypeSpecificationSignature();
+        for (int index = 0; index < depth; index++)
+            encoder = encoder.SZArray();
+        encoder.Type(elementType, isValueType: false);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(blob));
+    }
+
+    /// <summary>
+    /// A <c>TypeSpec</c> for <c>Definition&lt;Definition&lt;!0&gt;&gt;</c>,
+    /// which as a base row makes every ancestry step produce a new
+    /// instantiation that no visited set can ever repeat.
+    /// </summary>
+    static TypeSpecificationHandle
+        AddSyntheticNestedSelfInstantiationTypeSpec(
+            MetadataBuilder metadata,
+            EntityHandle definition)
+    {
+        var blob = new BlobBuilder();
+        new BlobEncoder(blob)
+            .TypeSpecificationSignature()
+            .GenericInstantiation(
+                definition,
+                genericArgumentCount: 1,
+                isValueType: false)
+            .AddArgument()
+            .GenericInstantiation(
+                definition,
+                genericArgumentCount: 1,
+                isValueType: false)
+            .AddArgument()
+            .GenericTypeParameter(0);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(blob));
     }
 
     /// <summary>
@@ -3951,6 +4609,44 @@ public class MetadataDeclarationQueryFixtures
         : ConstructedGenericSubstitutionBase<string>
     {
         public override string Describe(string value) => value;
+    }
+
+    public interface ICovariantContract<TValue>
+    {
+    }
+
+    public class CovariantConstructedMiddle<TValue>
+        : CovariantAnimal, ICovariantContract<TValue>
+    {
+    }
+
+    /// <summary>
+    /// Roslyn writes this base as a <c>TypeSpec</c>, so every path from this
+    /// type to <see cref="CovariantAnimal"/> and to
+    /// <c>ICovariantContract&lt;int&gt;</c> runs through a constructed generic
+    /// step. An ancestry walk restricted to <c>TypeDef</c> rows sees neither.
+    /// </summary>
+    public class CovariantDogThroughConstructedMiddle
+        : CovariantConstructedMiddle<int>
+    {
+    }
+
+    public class ConstructedAncestryCovariantReturnBase
+    {
+        public virtual CovariantAnimal Value() => new();
+
+        public virtual ICovariantContract<int> Contract() =>
+            new CovariantConstructedMiddle<int>();
+    }
+
+    public class ConstructedAncestryCovariantReturnDerived
+        : ConstructedAncestryCovariantReturnBase
+    {
+        public override CovariantDogThroughConstructedMiddle Value() =>
+            new();
+
+        public override CovariantDogThroughConstructedMiddle Contract() =>
+            new();
     }
 
     public class SameImageObjectSlotBase

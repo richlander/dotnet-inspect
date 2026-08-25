@@ -1503,7 +1503,13 @@ public static class MetadataDeclarationQuery
             return true;
         }
 
-        return IsSameOrDerivedOrImplements(reader, methodReturnHandle, candidateReturnHandle);
+        return IsSameOrDerivedOrImplements(
+            reader,
+            method.ReturnTypeNode,
+            methodReturnHandle,
+            candidate.ReturnTypeNode,
+            candidateReturnHandle,
+            budget);
     }
 
     enum OverrideCompatibility
@@ -1803,8 +1809,11 @@ public static class MetadataDeclarationQuery
 
         return IsSameOrDerivedOrImplements(
                 reader,
+                method,
                 methodHandle,
-                candidateHandle)
+                candidate,
+                candidateHandle,
+                budget)
             ? OverrideCompatibility.Compatible
             : OverrideCompatibility.Incompatible;
     }
@@ -1883,25 +1892,25 @@ public static class MetadataDeclarationQuery
 
         try
         {
-            bool hasUnknownConstraintCompatibility = false;
             GenericParameter parameter =
                 reader.GetGenericParameter(parameterHandle);
-            foreach (GenericParameterConstraintHandle constraintHandle
-                in parameter.GetConstraints())
-            {
-                if (!budget.TryCharge())
-                    return OverrideCompatibility.Incompatible;
-
-                GenericParameterConstraint constraint =
-                    reader.GetGenericParameterConstraint(
-                        constraintHandle);
-                TypeNode constraintType = DecodeConstraintType(
+            if (!TryDecodeConstraintSet(
                     reader,
-                    constraint.Type,
-                    methodContext);
-                if (constraintType.IsDegraded)
-                    continue;
+                    parameter,
+                    methodContext,
+                    budget,
+                    out List<TypeNode> constraintTypes))
+            {
+                return OverrideCompatibility.Incompatible;
+            }
 
+            bool candidateHasUnavailableDefinition =
+                HasUnavailableOrAmbiguousExactLocalDefinition(
+                    reader,
+                    candidate);
+            bool hasUnknownConstraintCompatibility = false;
+            foreach (TypeNode constraintType in constraintTypes)
+            {
                 if (constraintType is GenericParameterNode
                     constrainedParameter)
                 {
@@ -1933,15 +1942,8 @@ public static class MetadataDeclarationQuery
                 {
                     return OverrideCompatibility.Compatible;
                 }
-                if (HasUnavailableOrAmbiguousExactLocalDefinition(
-                        reader,
-                        constraintType)
-                    || HasUnavailableOrAmbiguousExactLocalDefinition(
-                        reader,
-                        candidate))
-                {
+                if (candidateHasUnavailableDefinition)
                     continue;
-                }
 
                 bool candidateHasGenericShape =
                     HasGenericShape(candidate);
@@ -1967,8 +1969,8 @@ public static class MetadataDeclarationQuery
                         == OverrideCompatibility.Incompatible
                     || candidateHasGenericShape)
                 {
-                    // Definition-only ancestry cannot prove a conversion to a
-                    // constructed or raw generic target without preserving arguments.
+                    // A constructed or raw generic target needs the argument
+                    // correspondence the structured comparison above decides.
                     continue;
                 }
 
@@ -1976,8 +1978,11 @@ public static class MetadataDeclarationQuery
                     && hasCandidateDefinition
                     && IsSameOrDerivedOrImplements(
                         reader,
+                        constraintType,
                         constraintDefinition,
-                        candidateDefinition))
+                        candidate,
+                        candidateDefinition,
+                        budget))
                 {
                     return OverrideCompatibility.Compatible;
                 }
@@ -1998,6 +2003,57 @@ public static class MetadataDeclarationQuery
         {
             visited.Remove(parameterHandle);
         }
+    }
+
+    /// <summary>
+    /// Decodes every constraint on one generic parameter before any of them
+    /// may authenticate a conversion.
+    ///
+    /// The constraint set is existential among constraints this image fully
+    /// decodes, so degraded evidence has to be decided for the whole set
+    /// first: skipping a degraded constraint and then accepting a later valid
+    /// one would let metadata order decide whether malformed current-image
+    /// evidence is fail-closed. A degraded decode, a constraint whose
+    /// current-image definition does not resolve uniquely, and an exhausted
+    /// comparison budget therefore refuse the whole set. Gated by
+    /// <c>SameAssemblyOverrideSlot_DeclinesMixedDegradedAndValidConstraintSet</c>,
+    /// which runs both metadata orders, and
+    /// <c>SameAssemblyOverrideSlot_DeclinesDegradedOnlyConstraint</c>, whose
+    /// non-vacuity control is
+    /// <c>SameAssemblyOverrideSlot_AllowsValidOnlyExplicitConstraintSet</c>.
+    /// </summary>
+    static bool TryDecodeConstraintSet(
+        MetadataReader reader,
+        GenericParameter parameter,
+        OverrideTypeContext methodContext,
+        OverrideCompatibilityBudget budget,
+        out List<TypeNode> constraintTypes)
+    {
+        constraintTypes = [];
+        foreach (GenericParameterConstraintHandle constraintHandle
+            in parameter.GetConstraints())
+        {
+            if (!budget.TryCharge())
+                return false;
+
+            GenericParameterConstraint constraint =
+                reader.GetGenericParameterConstraint(constraintHandle);
+            TypeNode constraintType = DecodeConstraintType(
+                reader,
+                constraint.Type,
+                methodContext);
+            if (constraintType.IsDegraded
+                || HasUnavailableOrAmbiguousExactLocalDefinition(
+                    reader,
+                    constraintType))
+            {
+                return false;
+            }
+
+            constraintTypes.Add(constraintType);
+        }
+
+        return true;
     }
 
     static OverrideTypeIdentity TypeIdentity(
@@ -2384,55 +2440,197 @@ public static class MetadataDeclarationQuery
         return !handle.IsNil;
     }
 
+    /// <summary>
+    /// True when the implementation type is the declaration type, or derives
+    /// from or implements it, proved from same-image base and interface rows.
+    ///
+    /// The walk is a metadata walk, not a <c>TypeDef</c> walk. A compiler
+    /// writes <c>Dog : Middle&lt;int&gt;</c> and <c>Middle&lt;T&gt; :
+    /// IContract&lt;T&gt;</c> as <c>TypeSpec</c> rows, so a walk restricted to
+    /// <c>TypeDef</c> ancestors stops at the first constructed step and cannot
+    /// see the ancestor a covariant return actually reaches. Every step
+    /// carries its exact generic arguments, substituted into the next row, and
+    /// a match requires both the exact definition token and the exact
+    /// instantiation: <c>Dog : Middle&lt;int&gt;</c> never satisfies a
+    /// declaration returning <c>Middle&lt;string&gt;</c>. Variance is not
+    /// applied here; a variance-bearing pair with corresponding definitions is
+    /// decided by <see cref="CompareStructuredReturnTypes"/> before this
+    /// predicate is consulted.
+    ///
+    /// Fails closed. A supertype outside this image, an unrecorded
+    /// instantiation, a degraded or undecodable row, a cycle, more than
+    /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/> distinct
+    /// ancestors, and an exhausted comparison budget all decline rather than
+    /// authenticate. Gated by
+    /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry</c>,
+    /// <c>SameAssemblyOverrideSlot_DeclinesConstructedGenericAncestryWithDifferentArgument</c>,
+    /// and
+    /// <c>SameAssemblyOverrideSlot_CyclicConstructedAncestryFailsClosed</c>.
+    /// </summary>
     static bool IsSameOrDerivedOrImplements(
         MetadataReader reader,
-        TypeDefinitionHandle methodReturnHandle,
-        TypeDefinitionHandle candidateReturnHandle)
+        TypeNode implementationType,
+        TypeDefinitionHandle implementationHandle,
+        TypeNode declarationType,
+        TypeDefinitionHandle declarationHandle,
+        OverrideCompatibilityBudget budget)
     {
-        var pending = new Queue<TypeDefinitionHandle>();
-        var visited = new HashSet<TypeDefinitionHandle>();
-        pending.Enqueue(methodReturnHandle);
+        if (!TryGetExactInstantiation(
+                reader,
+                implementationType,
+                implementationHandle,
+                out ImmutableArray<TypeNode>? implementationArguments)
+            || !TryGetExactInstantiation(
+                reader,
+                declarationType,
+                declarationHandle,
+                out ImmutableArray<TypeNode>? declarationArguments))
+        {
+            return false;
+        }
+
+        var pending = new Queue<OverrideBaseInstantiation>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var supertypes = new List<OverrideBaseInstantiation>();
+        pending.Enqueue(
+            new OverrideBaseInstantiation(
+                implementationHandle,
+                implementationArguments));
         while (pending.Count != 0)
         {
-            var currentHandle = pending.Dequeue();
-            if (!visited.Add(currentHandle))
-                continue;
-            if (currentHandle == candidateReturnHandle)
-                return true;
-
-            var current = reader.GetTypeDefinition(currentHandle);
-            if (TryResolveSameAssemblyTypeDefinition(
-                    current.BaseType,
-                    out var baseHandle))
-                pending.Enqueue(baseHandle);
-
-            foreach (var implementationHandle in current.GetInterfaceImplementations())
+            if (!budget.TryCharge()
+                || visited.Count
+                    >= MetadataSafetyPolicy.MaxRelationshipNodes)
             {
-                var interfaceImplementation = reader.GetInterfaceImplementation(implementationHandle);
-                if (TryResolveSameAssemblyTypeDefinition(
-                        interfaceImplementation.Interface,
-                        out var interfaceHandle))
-                {
-                    pending.Enqueue(interfaceHandle);
-                }
+                return false;
             }
+
+            OverrideBaseInstantiation current = pending.Dequeue();
+            if (!visited.Add(InstantiationKey(current)))
+                continue;
+
+            if (current.Definition == declarationHandle
+                && InstantiationsCorrespond(
+                    reader,
+                    current.TypeArguments,
+                    declarationArguments,
+                    budget))
+            {
+                return true;
+            }
+
+            supertypes.Clear();
+            OverrideBaseChain.AddDirectSameAssemblySupertypes(
+                reader,
+                current,
+                supertypes);
+            foreach (OverrideBaseInstantiation supertype in supertypes)
+                pending.Enqueue(supertype);
         }
 
         return false;
     }
 
-    static bool TryResolveSameAssemblyTypeDefinition(
-        EntityHandle handle,
-        out TypeDefinitionHandle resolvedHandle)
+    /// <summary>
+    /// The exact instantiation a named or constructed node carries for the
+    /// definition it resolved to. A constructed node must supply exactly the
+    /// definition's arity, and a non-generic definition must carry no
+    /// arguments. A raw generic name with no recorded arguments, an arity
+    /// disagreement, and an unreadable row all fail closed, because ancestry
+    /// is only ever proved instantiation-exactly.
+    /// </summary>
+    static bool TryGetExactInstantiation(
+        MetadataReader reader,
+        TypeNode type,
+        TypeDefinitionHandle handle,
+        out ImmutableArray<TypeNode>? arguments)
     {
-        if (handle.Kind == HandleKind.TypeDefinition)
+        arguments = null;
+        int arity;
+        try
         {
-            resolvedHandle = (TypeDefinitionHandle)handle;
+            arity = reader
+                .GetTypeDefinition(handle)
+                .GetGenericParameters()
+                .Count;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return false;
+        }
+
+        if (type is GenericTypeNode generic)
+        {
+            if (arity == 0
+                || generic.Arguments.Length != arity)
+            {
+                return false;
+            }
+
+            arguments = generic.Arguments;
             return true;
         }
 
-        resolvedHandle = default;
-        return false;
+        return arity == 0;
+    }
+
+    static bool InstantiationsCorrespond(
+        MetadataReader reader,
+        ImmutableArray<TypeNode>? left,
+        ImmutableArray<TypeNode>? right,
+        OverrideCompatibilityBudget budget)
+    {
+        if (left is not { } leftArguments)
+            return right is null;
+
+        if (right is not { } rightArguments
+            || leftArguments.Length != rightArguments.Length)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < leftArguments.Length; index++)
+        {
+            if (!budget.TryCharge()
+                || !TypeNodesCorrespond(
+                    reader,
+                    leftArguments[index],
+                    rightArguments[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Identifies one ancestry step by its exact definition token and the
+    /// exact structural identity of every argument, so a diamond is visited
+    /// once while two different instantiations of the same definition stay
+    /// distinct. A self-referential base that keeps producing new
+    /// instantiations is bounded by the caller's node cap and comparison
+    /// budget rather than by this set.
+    /// </summary>
+    static string InstantiationKey(OverrideBaseInstantiation type)
+    {
+        var builder = new StringBuilder();
+        builder.Append(
+            MetadataTokens.GetToken(type.Definition)
+                .ToString(CultureInfo.InvariantCulture));
+        if (type.TypeArguments is { } arguments)
+        {
+            foreach (TypeNode argument in arguments)
+            {
+                builder.Append('|');
+                builder.Append(argument.StructuralIdentity());
+            }
+        }
+
+        return builder.ToString();
     }
 
     public static MetadataPropertyDeclaration GetProperty(

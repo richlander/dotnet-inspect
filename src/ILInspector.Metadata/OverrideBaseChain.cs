@@ -20,11 +20,12 @@ internal readonly record struct OverrideBaseInstantiation(
     ImmutableArray<TypeNode>? TypeArguments);
 
 /// <summary>
-/// Bounded same-image base-class traversal used by override-slot
+/// Bounded same-image base-class and interface traversal used by override-slot
 /// authentication. A compiler encodes <c>Derived&lt;T&gt; : Base&lt;T&gt;</c>
 /// and <c>Derived : Base&lt;string&gt;</c> as a <c>TypeSpec</c> base, so a walk
 /// that only follows <c>TypeDef</c> bases stops at the first constructed
-/// generic base and cannot see the slot the derived type actually overrides.
+/// generic base and cannot see the slot the derived type actually overrides,
+/// nor the ancestor a covariant return actually reaches.
 /// Every step here keeps the exact <c>TypeDef</c> identity and the exact
 /// generic arguments; no step matches a rendered name.
 /// </summary>
@@ -175,8 +176,121 @@ internal static class OverrideBaseChain
     }
 
     /// <summary>
-    /// Decodes a constructed-generic base <c>TypeSpec</c> written in
-    /// <paramref name="declaringType"/>'s generic scope into the same-image
+    /// Appends the direct same-image supertypes of one instantiated type --
+    /// its base class and every interface it implements -- to
+    /// <paramref name="supertypes"/>. Each result keeps the exact generic
+    /// arguments that instantiate it, rewritten through
+    /// <paramref name="type"/>'s own arguments, so the whole set is expressed
+    /// in the scope of the type the caller started from.
+    ///
+    /// Fails closed by omission. A supertype that leaves this image, a
+    /// <c>TypeDef</c> row naming a generic definition whose arguments the row
+    /// cannot carry, a <c>TypeSpec</c> that is not a generic instantiation of
+    /// a same-image definition, and any undecodable, degraded, or over-budget
+    /// row are all left out, so no caller can prove ancestry through evidence
+    /// this image does not carry. Gated by
+    /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry</c>,
+    /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantInterfaceReturnThroughConstructedGenericAncestry</c>,
+    /// and
+    /// <c>SameAssemblyOverrideSlot_DeclinesConstructedGenericAncestryWithDifferentArgument</c>.
+    /// </summary>
+    internal static void AddDirectSameAssemblySupertypes(
+        MetadataReader reader,
+        OverrideBaseInstantiation type,
+        List<OverrideBaseInstantiation> supertypes)
+    {
+        TypeDefinition definition;
+        EntityHandle baseHandle;
+        try
+        {
+            definition = reader.GetTypeDefinition(type.Definition);
+            baseHandle = definition.BaseType;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return;
+        }
+
+        if (TryReadSupertype(
+                reader,
+                definition,
+                type.TypeArguments,
+                baseHandle,
+                out OverrideBaseInstantiation baseType))
+        {
+            supertypes.Add(baseType);
+        }
+
+        try
+        {
+            foreach (InterfaceImplementationHandle implementationHandle
+                in definition.GetInterfaceImplementations())
+            {
+                EntityHandle interfaceHandle = reader
+                    .GetInterfaceImplementation(implementationHandle)
+                    .Interface;
+                if (TryReadSupertype(
+                        reader,
+                        definition,
+                        type.TypeArguments,
+                        interfaceHandle,
+                        out OverrideBaseInstantiation implemented))
+                {
+                    supertypes.Add(implemented);
+                }
+            }
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+        }
+    }
+
+    static bool TryReadSupertype(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        ImmutableArray<TypeNode>? substitution,
+        EntityHandle handle,
+        out OverrideBaseInstantiation supertype)
+    {
+        supertype = default;
+        if (handle.IsNil)
+            return false;
+
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            var definition = (TypeDefinitionHandle)handle;
+            if (!IsNonGenericDefinition(reader, definition))
+                return false;
+
+            supertype = new OverrideBaseInstantiation(definition, null);
+            return true;
+        }
+
+        if (handle.Kind != HandleKind.TypeSpecification
+            || !TryReadConstructedBase(
+                reader,
+                (TypeSpecificationHandle)handle,
+                declaringType,
+                substitution,
+                out TypeDefinitionHandle instantiated,
+                out ImmutableArray<TypeNode> arguments))
+        {
+            return false;
+        }
+
+        supertype = new OverrideBaseInstantiation(instantiated, arguments);
+        return true;
+    }
+
+    /// <summary>
+    /// Decodes a constructed-generic base or interface <c>TypeSpec</c> written
+    /// in <paramref name="declaringType"/>'s generic scope into the same-image
     /// definition it instantiates and the exact arguments, rewritten through
     /// <paramref name="substitution"/> so the result is expressed in the
     /// original derived type's scope.

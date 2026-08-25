@@ -173,6 +173,7 @@ the authenticated base slot.
 | Constructed local generics | One exact local generic definition resolves uniquely; arity and every argument correspond under its declared variance | Aggregate argument result |
 | Constructed external generics | Definition identities correspond, no current-image dependency is missing, and local variance metadata is unavailable | `Unknown` for compiler validation |
 | Local named types | Both exact definitions resolve uniquely | `Compatible` only when the implementation is the same as or derives from or implements the declaration |
+| Local named ancestry through constructed bases or interfaces | Every step is a same-image `TypeDef` or a constructed `TypeSpec` over a definition in this image, with substituted arguments carried forward | `Compatible` only on an exact definition-token and exact-instantiation match within the shared budget |
 | External named types | Exact scopes authenticate but hierarchy is unavailable | `Unknown`, unless same-name/different-scope evidence disproves correspondence |
 | Generic implementation parameter | The generic-parameter rules below establish equality or conversion | Rule result |
 | Generic declaration parameter only | No covariant conversion can be proved | `Incompatible` |
@@ -182,6 +183,22 @@ Invariant generic arguments require exact structural correspondence. Covariant
 and contravariant arguments recurse in their declared direction. A local
 same-spelled generic definition never supplies variance for an external
 definition.
+
+Local named ancestry is a metadata walk on the same terms as slot
+authentication, not a `TypeDef` walk. `Dog : Middle<int>` and
+`Middle<T> : Animal` reach `Animal` through a constructed `TypeSpec` base, and a
+covariant return declared as an interface reaches it through a constructed
+`TypeSpec` interface row, so the ancestry search reads same-image `TypeDef` and
+constructed-`TypeSpec` base and interface rows alike and substitutes each step's
+exact arguments into the next. A step matches only on an exact definition token
+*and* an exact instantiation: `Middle<int>` never answers for `Middle<string>`,
+and a raw definition never answers for a constructed one. Variance is not
+applied here — corresponding definitions are already decided by the constructed
+local generic row above, and this search is the different-definition fallback.
+A `TypeSpec` that is not a generic instantiation of a definition in this image,
+an arity that disagrees with the definition, a degraded decode, an unreadable
+row, and an ancestry that outruns the shared relationship budget or node cap all
+decline. No step matches a rendered name.
 
 ## Generic-parameter evidence
 
@@ -210,6 +227,15 @@ non-generic or differently shaped candidate remains `Incompatible`.
 
 Generic-parameter traversal tracks active handles. A cycle, malformed
 constraint, degraded decode, or exhausted relationship budget fails closed.
+
+Degradation is a property of the whole constraint set, not of one constraint.
+Every constraint on a parameter is decoded before any of them may yield
+`Compatible`, so a constraint that decodes degraded or whose exact local
+definition is unavailable or ambiguous makes the parameter `Incompatible` even
+when a sibling constraint would have proved the conversion. Skipping the
+degraded row and accepting the sibling would let metadata order decide whether
+malformed current-image evidence is fatal. Among fully decoded constraints the
+rule stays existential: any one of them may establish the conversion.
 
 ## Constructor authentication
 
@@ -325,6 +351,11 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_AuthenticatesSyntheticConstructedGenericMethodImpl`
 - `SameAssemblyOverrideSlot_DeclinesConstructedGenericMethodImplWithMismatchedInstantiation`
 - `SameAssemblyOverrideSlot_DeclinesConstructedGenericMethodImplRootedInExternalDefinition`
+- `SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry`
+- `SameAssemblyOverrideSlot_AuthenticatesCovariantInterfaceReturnThroughConstructedGenericAncestry`
+- `SameAssemblyOverrideSlot_AuthenticatesDirectCovariantReturnThroughTypeDefAncestry`
+- `SameAssemblyOverrideSlot_AuthenticatesConstructedGenericAncestryWithMatchingArgument`
+- `SameAssemblyOverrideSlot_DeclinesConstructedGenericAncestryWithDifferentArgument`
 - `AuthenticatedObjectSlotOverride_AcceptsSameImageChainToObject`
 - `AuthenticatedObjectSlotOverride_DeclinesOverrideOfExternalBase`
 - `AuthenticatedObjectSlotOverride_DeclinesNewSlotObjectShapedVirtual`
@@ -338,6 +369,8 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_WideGenericParameterDagFailsClosedWithinBudget`
 - `SameAssemblyOverrideSlot_DeepGenericParameterChainFailsClosed`
 - `SameAssemblyOverrideSlot_DeepGenericParameterChainDoesNotCrashProcess`
+- `SameAssemblyOverrideSlot_CyclicConstructedAncestryFailsClosed`
+- `SameAssemblyOverrideSlot_ExpandingConstructedAncestryFailsClosedWithinBudget`
 
 ### Wrappers, arrays, and local definition trust
 
@@ -366,6 +399,9 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_UsesExactNestedGenericVarianceDefinition`
 - `SameAssemblyOverrideSlot_AllowsCompilerProducedExternalGenericCovariance`
 - `SameAssemblyOverrideSlot_DoesNotUseLocalVarianceForExternalGeneric`
+- `SameAssemblyOverrideSlot_AllowsValidOnlyExplicitConstraintSet`
+- `SameAssemblyOverrideSlot_DeclinesDegradedOnlyConstraint`
+- `SameAssemblyOverrideSlot_DeclinesMixedDegradedAndValidConstraintSet`
 - `CompileBackTargets_PreservesExternalGenericCovariantMethodImpl`
 
 ### Constructor planning
