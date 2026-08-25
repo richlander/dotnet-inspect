@@ -143,6 +143,47 @@ test("starting a new run() aborts the previous generation's abortSignal, not jus
   assert.ok(firstAborted, "starting a newer run() should abort the superseded generation's signal");
 });
 
+test("each run() receives its own distinct abortSignal even when onUpdate() reentrantly starts another run()", async () => {
+  const state = initialQueryState();
+  const signals: AbortSignal[] = [];
+  let triggeredReentrant = false;
+  let releaseSlow!: () => void;
+  const slowGate = new Promise<void>(resolve => { releaseSlow = resolve; });
+
+  const slowThenFast: PackageQueryDataSource = {
+    async run(request, onPage, _onFailure, abortSignal) {
+      signals.push(abortSignal);
+      if (request.scopeQuery === "slow") {
+        await slowGate;
+        return { kind: "cancelled" };
+      }
+      onPage([row("fresh")]);
+      return { kind: "exhausted" };
+    },
+  };
+
+  // onUpdate() is caller-supplied and may synchronously start another run()
+  // in direct response to the request/outcome reset the first run() performs
+  // — before that first run() has passed its own signal to the source. If
+  // the controller reads its mutable `abortController` field late (at the
+  // `source.run()` call site) rather than capturing it up front, the
+  // reentrant run() reassigning that field mid-flight would silently hand
+  // the first run someone else's signal instead of its own.
+  const controller = createPackageQueryController(state, slowThenFast, () => {
+    if (!triggeredReentrant && state.request?.scopeQuery === "slow") {
+      triggeredReentrant = true;
+      void controller.run(createQueryRequest("fast", "fast"));
+    }
+  });
+
+  const slowRun = controller.run(createQueryRequest("slow", "slow"));
+  releaseSlow();
+  await slowRun;
+
+  assert.equal(signals.length, 2);
+  assert.notEqual(signals[0], signals[1], "the slow run must keep its own signal, not the reentrant run's");
+});
+
 test("a superseded run's late pages never land in the newer outcome", async () => {
   const state = initialQueryState();
   let releaseFirst!: () => void;

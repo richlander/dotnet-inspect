@@ -165,11 +165,19 @@ export function createPackageQueryController(
   return {
     async run(request: QueryRequest) {
       abortController.abort();
-      abortController = new AbortController();
+      const runController = new AbortController();
+      abortController = runController;
       const requestGeneration = ++generation;
       state.request = request;
       state.outcome = emptyOutcome();
       state.selected = new Set();
+      // Capture this run's own signal before onUpdate() runs: onUpdate() is
+      // caller-supplied and may reentrantly call run() again synchronously
+      // (e.g. a state-change handler that immediately kicks off a new
+      // query), which would reassign the closure's `abortController` before
+      // `source.run()` below gets a chance to read it — silently handing
+      // this run the *next* run's signal instead of its own.
+      const signal = runController.signal;
       onUpdate();
 
       let completion: TerminalQueryCompletion;
@@ -186,7 +194,7 @@ export function createPackageQueryController(
             state.outcome = appendFailure(state.outcome, failure);
             onUpdate();
           },
-          abortController.signal,
+          signal,
         );
       } catch (error) {
         // An unhandled rejection here (as opposed to a page-level onFailure
