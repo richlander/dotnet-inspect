@@ -118,13 +118,18 @@ modal over one package:
 
 ## Sharing and URL shape
 
-`QueryRequest` is the shareable unit, following the same
-`encodeWorkspaceShareState`/`WorkspaceUrlState` convention as package tabs: a
-`QueryUrlState` serializes scope + predicate + selected facets, so a query tab
-round-trips through a URL the way a package tab already does. A resolved
-`QueryOutcome` is never encoded into the URL — it is always re-run, because
-nuget.org state moves and a stale cached result list would misrepresent a live
-feed as a snapshot.
+`QueryRequest` is the shareable unit, and it is the same content as the
+`queryPreset` record described in
+[Saving queries and results](#saving-queries-and-results) — the URL is one of
+that record's two destinations (the other being local storage), not a
+separate encoding. Following the
+`encodeWorkspaceShareState`/`WorkspaceUrlState` convention already used for
+package tabs, a query tab's URL carries a terse projection of the preset
+(scope + facet references + `requestedLimit`), so a query tab round-trips
+through a URL the way a package tab already does. A resolved `QueryOutcome` is
+never encoded into the URL — it is always re-run, because nuget.org state
+moves and a stale cached result list would misrepresent a live feed as a
+snapshot.
 
 ## Two-tier evaluation, made visible
 
@@ -189,43 +194,78 @@ over the *same* `QueryOutcome`, not a different query. Adopt that shape:
 Some of these queries are expensive to run at scale, and re-running "the same
 query, but bigger" today means re-fetching everything from scratch. A saved
 query should let "first 1,000" reuse the work already done for "first 500"
-rather than reissue it.
+rather than reissue it. **Saving is local-storage-only in this proposal — no
+server, no account, no sync.** A saved entry lives in the browser's own
+storage (or, for the CLI, a file on disk); it is exported/shared only as an
+explicit, separate action, never implicitly uploaded anywhere.
 
-- **Save the request, and separately save the outcome, keyed together.** A
-  saved entry is `{ request, outcome, savedAt }`. Saving is an explicit user
-  action (a "Save" affordance next to Cancel in the query bar), not automatic
-  — an unsaved query's outcome is still disposable, matching the existing rule
-  that only `QueryRequest` is durable by default (see
-  [Sharing](#sharing-and-url-shape)); saving is what promotes a specific
-  outcome to durable too.
-- **A monotonically-extended request replays from the saved prefix.** If a
-  saved entry's request is a strict prefix of a new request under the same
-  scope and facets — same predicate, larger `requestedLimit`, same relevance
-  ordering — the source resumes streaming from where the saved outcome left
-  off instead of restarting at row 1. The UI reflects this plainly: reopening
-  "first 1,000" after saving "first 500" shows the prior 500 rows instantly,
-  then streams only the delta, with a visible marker between "from the saved
-  run" and "newly streamed."
+### Two artifacts, not one blob
+
+The thing that's portable/shareable and the thing that's a local cache are
+different in kind, so they are saved as two separate artifacts rather than one
+`{ request, outcome }` record:
+
+- **The preset — a `queryPreset` record.** `docs/design/workspace-definitions.md`
+  already establishes the target shape for this class of problem: a family of
+  declarative JSON definition records (workspace, view, navigation, and
+  **query** presets) with long, readable field names, a required `kind`
+  discriminator, and a terse base64url URL projection — not a bespoke
+  encoding per feature, and explicitly not a query language ("portable
+  type/member shapes are the selector vocabulary, not the container"). A saved
+  query here is that same `queryPreset` record: `{ kind: "queryPreset",
+  version, scope, facets: FacetRef[], requestedLimit }`, where each `FacetRef`
+  is a reference into the fixed, named facet vocabulary (see
+  [v1 non-goals](#v1-non-goals)), never free text. This is small, content-only,
+  and exactly what [Sharing](#sharing-and-url-shape) already treats as the
+  durable, shareable unit — saving a preset to local storage and putting one
+  in the URL are the same serialization, just two destinations.
+- **The outcome cache — local only, keyed by the preset's signature.** Rows,
+  evidence, and completion state are large, mutable, and fully re-derivable
+  from the preset, so they never travel with it. They are cached locally,
+  keyed by a stable signature of the normalized preset (the same idea as the
+  existing `workspaceViewSignature` pattern), so two different UI entry points
+  that resolve to the same preset share one cache entry instead of each
+  keeping a private copy.
+
+This split is also what makes extension cheap to reason about: bumping
+`requestedLimit` in a preset changes its signature, and the cache lookup for
+the *previous* signature is exactly the prefix available to resume from — the
+preset never needs to "contain" its own history.
+
+- **A monotonically-extended request replays from the cached prefix.** If a
+  local cache entry exists for a preset that is a strict prefix of a new one
+  — same scope and facets, larger `requestedLimit`, same relevance ordering —
+  the source resumes streaming from where that cached prefix left off instead
+  of restarting at row 1. The UI reflects this plainly: opening "first 1,000"
+  after a cached "first 500" shows the prior 500 rows instantly, then streams
+  only the delta, with a visible marker between "from cache" and "newly
+  streamed."
 - **Extension is only valid when the ordering is stable.** Relevance-ranked
   search results are not guaranteed stable between calls, so a resumed stream
-  must revalidate the saved prefix's row identities against the first page of
+  must revalidate the cached prefix's row identities against the first page of
   the new call (cheap: compare ids) and fall back to a full rerun, visibly
   labeled, if the prefix no longer matches. Silently trusting stale order
   would violate the same honesty rule the bounded/exhaustive footer exists to
   uphold.
-- **A saved entry is a first-class shareable/testable artifact**, not just a
-  browser cache. This is the same shape the `--package-prefix` CLI canaries in
-  #4551 already want for regression coverage: a saved `{ request, outcome }`
-  pair is a fixture — replaying it offline (no network) is exactly what a
-  deterministic test needs, and export/import of a saved entry as a small JSON
-  file is the natural bridge between "a user saved an interesting funnel in
-  the browser" and "a CI fixture pins that funnel's expected shape."
-- **Saved entries are named and listed**, not just a single "last query"
-  slot — a small sidebar list (name, scope summary, row count, saved-at),
-  reusing the same list-row idiom as the result rows themselves.
-- **Staleness is surfaced, never hidden.** A saved outcome always shows its
-  `savedAt` time and an explicit "Refresh" action; it is never silently
+- **A preset is a testable artifact without being a network artifact.** A
+  preset alone is enough to build a `--package-prefix` CLI regression fixture
+  from #4551 (the CLI's native form of a preset is just its equivalent flags,
+  or a `--query <file>` load, mirroring the reserved `--workspace <file>`
+  spelling in `workspace-definitions.md`); pairing it with its locally cached
+  outcome gives a fully offline, no-network replay for a deterministic test,
+  without the outcome ever needing to leave the machine that produced it.
+- **Saved presets are named and listed**, not just a single "last query"
+  slot — a small local sidebar list (name, scope summary, cached row count,
+  last-run time), reusing the same list-row idiom as the result rows
+  themselves.
+- **Staleness is surfaced, never hidden.** A cached outcome always shows its
+  last-run time and an explicit "Refresh" action; it is never silently
   presented as current.
+- **No new encoding invented here.** The exact `queryPreset` codec/versioning
+  is deferred to whatever lands for the shared definition-record family
+  (`workspace-definitions.md`, tracked alongside #4647's CLI `-W` replay work)
+  rather than this proposal inventing a fifth ad hoc scheme to sit next to
+  workspace/view/navigation presets.
 
 ## v1 non-goals
 
@@ -236,11 +276,10 @@ rather than reissue it.
   a new request, keeping displayed counts honest.
 - No unbounded "Deepen" — IL-tier escalation always operates on an explicit,
   size-bounded selection.
-- No automatic persistence of `QueryOutcome`. The live URL still round-trips
-  only `QueryRequest` (see [Sharing](#sharing-and-url-shape)); an outcome
-  becomes durable only via the explicit Save action in
-  [Saving queries and results](#saving-queries-and-results), and only for the
-  request that produced it.
+- No server-side, account, or sync persistence — saving is local-storage-only
+  (browser storage or a CLI file), and only the `queryPreset` is ever shared;
+  its cached outcome never leaves the machine that produced it. See
+  [Saving queries and results](#saving-queries-and-results).
 - No chart type beyond bar and pie in v1, and no free-form aggregation axis —
   see [Visualization](#visualization).
 
