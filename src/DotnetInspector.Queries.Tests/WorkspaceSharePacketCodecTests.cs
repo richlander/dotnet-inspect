@@ -173,6 +173,10 @@ public sealed class WorkspaceSharePacketCodecTests
         AssertFailure(
             EncodeBytes([0x7B, 0x22, 0x66, 0x22, 0x3A, 0xC3, 0x28, 0x7D]),
             WorkspaceSharePacketFailureKind.InvalidJson);
+        AssertFailure(
+            "eyJmIjoxLCJ0IjpbWyJQIixudWxsLCJuZXQxMC4wIixudWxsXV0sImciOltbMF1d"
+            + "LCJhIjowLCJ4IjowLCKAIjoxfQ",
+            WorkspaceSharePacketFailureKind.InvalidJson);
     }
 
     [Theory]
@@ -184,6 +188,10 @@ public sealed class WorkspaceSharePacketCodecTests
     [InlineData("""[[":Custom","1.0.0","net10.0",null]]""")]
     [InlineData("""[[":PlatformX","1.0.0","net10.0",null]]""")]
     [InlineData("""[[":Platform@10.0.0",null,"net10.0",null]]""")]
+    [InlineData("""[[":Platform:",null,"net10.0",null]]""")]
+    [InlineData("""[[":Platform+",null,"net10.0",null]]""")]
+    [InlineData("""[[":Platform:+Extensions",null,"net10.0",null]]""")]
+    [InlineData("""[[":Platform+Extensions:",null,"net10.0",null]]""")]
     [InlineData("""[[":Platform++Extensions",null,"net10.0",null]]""")]
     [InlineData("""[["P",null,"net10.0",null],["p",null,"net10.0",null]]""")]
     public void Decode_RejectsInvalidOrDuplicateTabTuples(string tabs)
@@ -343,6 +351,18 @@ public sealed class WorkspaceSharePacketCodecTests
             EncodeJson(
                 """{"f":1,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":"\uDC00"}"""),
             WorkspaceSharePacketFailureKind.InvalidShape);
+        AssertFailure(
+            "eyJcdUQ4MDAiOjAsImYiOjEsInQiOltbIlAiLG51bGwsIm5ldDEwLjAiLG51bGxdXSwi"
+            + "ZyI6W1swXV0sImEiOjAsIngiOjB9",
+            WorkspaceSharePacketFailureKind.InvalidJson);
+
+        WorkspaceSharePacketException exception = AssertFailure(
+            EncodeJson(
+                """{"f":1,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"\u001b[2J\nspoof":1}"""),
+            WorkspaceSharePacketFailureKind.InvalidShape);
+        Assert.Equal(
+            "Workspace share state contains an unknown property.",
+            exception.Message);
 
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
@@ -366,7 +386,7 @@ public sealed class WorkspaceSharePacketCodecTests
     private static string PacketJson(string tabs, string contexts) =>
         $$"""{"f":1,"t":{{tabs}},"g":{{contexts}},"a":0,"x":0}""";
 
-    private static void AssertFailure(
+    private static WorkspaceSharePacketException AssertFailure(
         string encoded,
         WorkspaceSharePacketFailureKind expected)
     {
@@ -375,6 +395,7 @@ public sealed class WorkspaceSharePacketCodecTests
                 encoded,
                 TestContext.Current.CancellationToken));
         Assert.Equal(expected, exception.Kind);
+        return exception;
     }
 
     private static string EncodeJson(string json) =>

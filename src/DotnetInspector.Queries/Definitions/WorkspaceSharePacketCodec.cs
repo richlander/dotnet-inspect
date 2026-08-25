@@ -58,6 +58,7 @@ public static class WorkspaceSharePacketCodec
                 $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
         }
 
+        ValidateUtf8(utf8Json);
         ValidateJsonBudget(utf8Json);
 
         JsonDocument document;
@@ -70,6 +71,13 @@ public static class WorkspaceSharePacketCodec
             throw Failure(
                 WorkspaceSharePacketFailureKind.InvalidJson,
                 "Workspace share state is not valid duplicate-free JSON.",
+                ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.InvalidJson,
+                "Workspace share state contains invalid JSON property text.",
                 ex);
         }
 
@@ -204,19 +212,43 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
+    private static void ValidateUtf8(ReadOnlySpan<byte> utf8Json)
+    {
+        try
+        {
+            _ = s_utf8Strict.GetCharCount(utf8Json);
+        }
+        catch (DecoderFallbackException ex)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.InvalidJson,
+                "Workspace share state is not valid UTF-8 JSON.",
+                ex);
+        }
+    }
+
     private static WorkspaceSharePacket Bind(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
             throw InvalidShape("Workspace share state must be one JSON object.");
 
-        foreach (JsonProperty property in root.EnumerateObject())
+        try
         {
-            if (property.Name is not ("f" or "t" or "g" or "a" or "x"
-                or "v" or "y" or "m" or "s" or "c" or "l"))
+            foreach (JsonProperty property in root.EnumerateObject())
             {
-                throw InvalidShape(
-                    $"Workspace share state must not set '{property.Name}'.");
+                if (property.Name is not ("f" or "t" or "g" or "a" or "x"
+                    or "v" or "y" or "m" or "s" or "c" or "l"))
+                {
+                    throw InvalidShape(
+                        "Workspace share state contains an unknown property.");
+                }
             }
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw InvalidShape(
+                "Workspace share state contains an invalid property name.",
+                ex);
         }
 
         JsonElement format = Required(root, "f");
@@ -548,26 +580,19 @@ public static class WorkspaceSharePacketCodec
             return false;
 
         ReadOnlySpan<char> remaining = value.AsSpan(1);
-        while (!remaining.IsEmpty)
+        while (true)
         {
-            int overlay = remaining.IndexOf('+');
-            ReadOnlySpan<char> path = overlay < 0 ? remaining : remaining[..overlay];
-            if (path.IsEmpty)
+            int separator = remaining.IndexOfAny(':', '+');
+            ReadOnlySpan<char> segment = separator < 0
+                ? remaining
+                : remaining[..separator];
+            if (!IsGroupName(segment))
                 return false;
+            if (separator < 0)
+                return true;
 
-            while (!path.IsEmpty)
-            {
-                int separator = path.IndexOf(':');
-                ReadOnlySpan<char> segment = separator < 0 ? path : path[..separator];
-                if (!IsGroupName(segment))
-                    return false;
-                path = separator < 0 ? [] : path[(separator + 1)..];
-            }
-
-            remaining = overlay < 0 ? [] : remaining[(overlay + 1)..];
+            remaining = remaining[(separator + 1)..];
         }
-
-        return true;
     }
 
     private static bool HasPlatformBase(string value)
