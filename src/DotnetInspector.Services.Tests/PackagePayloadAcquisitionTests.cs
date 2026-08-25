@@ -591,6 +591,7 @@ public sealed class PackagePayloadAcquisitionTests
             File.WriteAllText(
                 Path.Combine(globalDir, ".nupkg.metadata"),
                 $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            WriteNuspec(globalDir, PackageId);
             File.WriteAllBytes(
                 Path.Combine(globalDir, $"{PackageId.ToLowerInvariant()}.{Version.ToLowerInvariant()}.nupkg"),
                 [1]);
@@ -692,6 +693,7 @@ public sealed class PackagePayloadAcquisitionTests
             File.WriteAllText(
                 Path.Combine(globalDir, ".nupkg.metadata"),
                 """{"source":"https://feed.test/v3/index.json?sig=rotating#transport"}""");
+            WriteNuspec(globalDir, PackageId);
 
             CachedPackage? cached =
                 NuGetCache.TryGetGlobalPackageContent(
@@ -709,6 +711,217 @@ public sealed class PackagePayloadAcquisitionTests
                 Directory.Delete(cacheRoot, recursive: true);
             if (Directory.Exists(globalRoot))
                 Directory.Delete(globalRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GlobalPackageIdentityMismatch_IsIgnored()
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            File.WriteAllText(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            WriteNuspec(
+                globalDir,
+                PackageId,
+                declaredId: "another.package");
+
+            Assert.Null(
+                NuGetCache.TryGetGlobalPackageContent(
+                    globalRoot,
+                    PackageId.ToLowerInvariant(),
+                    Version.ToLowerInvariant(),
+                    [sourceKey]));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        """
+        <!DOCTYPE package [<!ENTITY id "sample.package">]>
+        <package><metadata><id>&id;</id></metadata></package>
+        """)]
+    [InlineData("<package><metadata><id>sample.package</id></metadata>")]
+    public void GlobalPackageMalformedIdentity_IsIgnored(string nuspec)
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            File.WriteAllText(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            File.WriteAllText(
+                Path.Combine(
+                    globalDir,
+                    $"{PackageId.ToLowerInvariant()}.nuspec"),
+                nuspec);
+
+            Assert.Null(
+                NuGetCache.TryGetGlobalPackageContent(
+                    globalRoot,
+                    PackageId.ToLowerInvariant(),
+                    Version.ToLowerInvariant(),
+                    [sourceKey]));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GlobalPackageOversizeIdentity_IsIgnored()
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            File.WriteAllText(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            File.WriteAllBytes(
+                Path.Combine(
+                    globalDir,
+                    $"{PackageId.ToLowerInvariant()}.nuspec"),
+                new byte[DotnetInspector.Packages.PackageExtractor.MaxNuspecBytes + 1]);
+
+            Assert.Null(
+                NuGetCache.TryGetGlobalPackageContent(
+                    globalRoot,
+                    PackageId.ToLowerInvariant(),
+                    Version.ToLowerInvariant(),
+                    [sourceKey]));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PackageCache_UnicodeIdsUseDistinctFixedWidthComponents()
+    {
+        string composed =
+            NuGetCache.GetPackageCacheIdComponent("\u00C5");
+        string decomposed =
+            NuGetCache.GetPackageCacheIdComponent("A\u030A");
+        string longId = string.Concat(
+            Enumerable.Repeat("日", 100));
+
+        Assert.StartsWith("u-", composed);
+        Assert.Equal(34, composed.Length);
+        Assert.NotEqual(composed, decomposed);
+        Assert.Equal(
+            34,
+            NuGetCache.GetPackageCacheIdComponent(longId).Length);
+        Assert.Equal(
+            "system.text.json",
+            NuGetCache.GetPackageCacheIdComponent("System.Text.Json"));
+    }
+
+    [Fact]
+    public void PackageCache_UnicodeCoordinatesCommitToDistinctSlots()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string composed = "\u00C5";
+            string decomposed = "A\u030A";
+            var paths = new List<string>();
+            foreach (string packageId in new[] { composed, decomposed })
+            {
+                string staging = Path.Combine(
+                    stagingRoot,
+                    NuGetCache.GetPackageCacheIdComponent(packageId));
+                Directory.CreateDirectory(staging);
+                string nupkg = Path.Combine(staging, "package.nupkg");
+                File.WriteAllBytes(
+                    nupkg,
+                    TestPackageArchive.Create(
+                        "lib/net10.0/Sample.dll",
+                        $"{packageId}.nuspec"));
+                string extracted = Path.Combine(staging, "extracted");
+                ZipFile.ExtractToDirectory(nupkg, extracted);
+                paths.Add(
+                    NuGetCache.CommitPackage(
+                        extracted,
+                        nupkg,
+                        packageId,
+                        Version,
+                        sourceKey).ExtractPath);
+            }
+
+            Assert.NotEqual(paths[0], paths[1]);
+            Assert.NotNull(
+                NuGetCache.TryGetCachedPackage(
+                    composed,
+                    Version,
+                    [sourceKey]));
+            Assert.NotNull(
+                NuGetCache.TryGetCachedPackage(
+                    decomposed,
+                    Version,
+                    [sourceKey]));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
         }
     }
 
@@ -1013,6 +1226,7 @@ public sealed class PackagePayloadAcquisitionTests
             File.WriteAllText(
                 Path.Combine(globalDir, ".nupkg.metadata"),
                 $$"""{"source":"{{Primary.Url}}"}""");
+            WriteNuspec(globalDir, PackageId);
             File.WriteAllBytes(
                 Path.Combine(
                     globalDir,
@@ -1661,6 +1875,22 @@ public sealed class PackagePayloadAcquisitionTests
         Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-payload-admission-{Guid.NewGuid():N}");
+
+    static void WriteNuspec(
+        string directory,
+        string packageId,
+        string? declaredId = null) =>
+        File.WriteAllText(
+            Path.Combine(
+                directory,
+                $"{packageId.ToLowerInvariant()}.nuspec"),
+            $$"""
+            <package>
+              <metadata>
+                <id>{{declaredId ?? packageId}}</id>
+              </metadata>
+            </package>
+            """);
 
     [Fact]
     public async Task InadmissibleCacheEntry_DoesNotMaskAnotherProducer()

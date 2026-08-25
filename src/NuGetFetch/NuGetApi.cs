@@ -179,7 +179,7 @@ public static class NuGetApi
         }
     }
 
-    private static bool IsPackageBaseAddressType(string type) =>
+    internal static bool IsPackageBaseAddressType(string type) =>
         type.Equals(
             "PackageBaseAddress",
             StringComparison.OrdinalIgnoreCase)

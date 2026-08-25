@@ -100,6 +100,9 @@ coordinate, so semantically equivalent spellings share cache and listing
 identity and malformed pins fail before source discovery. A timeout while
 consuming a returned package stream remains a typed source timeout rather than
 being reported as payload-policy rejection.
+Package-ID validation precedes wildcard and range discovery as well as exact
+acquisition, so every selector shape returns the same clean coordinate
+diagnostic without opening a source client.
 Service-index, version-index, and exact-package
 requests use the
 source-owned bounded transient retry policy within one operation deadline;
@@ -110,6 +113,8 @@ absence and authentication failures are not retried.
 `PackageVersionTests.ExactPin_InvalidPackageId_ReturnsCleanDiagnostic`,
 `PackageVersionTests.Versions_NonCanonicalPinUsesCanonicalCoordinate`,
 `PackageVersionTests.Versions_InvalidPinReturnsCoordinateDiagnostic`,
+`PackageVersionTests.Versions_RangeInvalidPackageIdReturnsCleanDiagnostic`,
+`PackageExtractorOfflineTests.ExtractPackageAsync_WildcardInvalidPackageId_ReturnsTypedError`,
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_ExcludesUnlistedVersion`,
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_PartialListingFailsClosed`,
 `PackagePayloadAcquisitionTests.PackageStreamTimeoutRemainsATypedSourceFailure`,

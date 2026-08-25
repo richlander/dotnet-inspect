@@ -297,6 +297,14 @@ public class PackageCommand
 
             if (isRange)
             {
+                if (PackageCoordinateResolver.Validate(
+                        new PackageCoordinate(range!.PackageId))
+                    is { } invalidRange)
+                {
+                    CommandError.Write(invalidRange.Message);
+                    return 1;
+                }
+
                 try
                 {
                     if (options.IncludeUnlisted)

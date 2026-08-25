@@ -257,9 +257,13 @@ for an authorized producer:
 
 A source-bound app-cache slot may answer only when its producer is in that set.
 A `global-packages` entry may answer only when `.nupkg.metadata.source` resolves
-to a source in that set. Missing, ambiguous, or mismatched provenance is a cache
-miss. The payload is then requested from an authorized producer and cached
-under that producer's identity.
+to a source in that set and its bounded, hardened nuspec declares the requested
+package ID. Missing, ambiguous, or mismatched provenance or package identity is
+a cache miss. The payload is then requested from an authorized producer and
+cached under that producer's identity. Product-owned cache paths retain readable
+ASCII package IDs; non-ASCII IDs use a fixed-width digest component so valid
+Unicode coordinates cannot exceed filesystem component limits or alias through
+filesystem normalization.
 
 When payload sources must be queried, configured local-folder feeds are
 considered before HTTP feeds, matching NuGet's documented source tiers. No
@@ -531,7 +535,10 @@ retain an explicitly injected transport. Typed failures are projected into the
 existing feed-failure diagnostics during this compatibility migration. The
 typed v3 resource owner retries transient service-index, version-index, and
 exact-package requests within one bounded operation deadline; package-layer
-aggregation does not add another retry loop.
+aggregation does not add another retry loop. The adapter derives the typed
+request deadline and four-request operation ceiling from the selected host
+transport, preserving the configured `--http-timeout` contract across ordinary
+and signed-alias sources.
 Configured HTTP base sources are normalized to `/v3/index.json` for typed
 service-index requests while retaining signed query bytes; producer identity
 continues to describe the configured endpoint path. Service-index `@type`
@@ -540,7 +547,8 @@ observation, including malformed array entries, against the 4,096-observation
 limit and checks cancellation during traversal. Malformed optional or unrelated
 resources are ignored for compatibility, while any malformed
 `PackageBaseAddress` declaration fails the source closed. Every usable
-`PackageBaseAddress` sibling is validated before selection.
+`PackageBaseAddress` sibling is validated before selection; unrelated types
+that merely share its text prefix are not package endpoints.
 Package IDs use NuGetFetch's Unicode-aware NuGet package-ID grammar; the
 package layer reuses that predicate rather than narrowing it to ASCII.
 NuGet.org registration enrichment remains a separate package-layer capability;
@@ -550,9 +558,15 @@ request, and exact payload attempts retain typed producer identity through
 admission and commit.
 `PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`,
 `PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
+`PackageSourceClientTests.V3UnrelatedPackageBaseAddressPrefixIsIgnored`,
 `PackageSourceClientTests.V3ServiceIndexVersionAndPackageRetryTransientResponses`,
 `PackageSourceClientTests.V3TransientRetriesAreBounded`,
 `HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`,
+`HttpClientFactoryTests.PackageSourceClientProvider_DerivesConfiguredDeadlines`,
+`PackagePayloadAcquisitionTests.GlobalPackageIdentityMismatch_IsIgnored`,
+`PackagePayloadAcquisitionTests.GlobalPackageMalformedIdentity_IsIgnored`,
+`PackagePayloadAcquisitionTests.GlobalPackageOversizeIdentity_IsIgnored`,
+`PackagePayloadAcquisitionTests.PackageCache_UnicodeCoordinatesCommitToDistinctSlots`,
 `SourcePrecedenceTests`, `VersionCacheTests`,
 `PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`, and
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`

@@ -216,6 +216,29 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Theory]
+    [InlineData(7, 28)]
+    [InlineData(60, 240)]
+    public void PackageSourceClientProvider_DerivesConfiguredDeadlines(
+        int requestSeconds,
+        int operationSeconds)
+    {
+        using var client = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(requestSeconds),
+        };
+
+        NuGetFetch.NuGetFetchOptions options =
+            PackageSourceClientProvider.FetchOptionsFor(client);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(requestSeconds),
+            options.RequestTimeout);
+        Assert.Equal(
+            TimeSpan.FromSeconds(operationSeconds),
+            options.OperationTimeout);
+    }
+
+    [Theory]
     [InlineData(HttpStatusCode.Unauthorized)]
     [InlineData(HttpStatusCode.Forbidden)]
     [InlineData(HttpStatusCode.InternalServerError)]

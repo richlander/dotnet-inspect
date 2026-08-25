@@ -242,12 +242,19 @@ public static class PackageExtractor
     {
         var (packageName, parsedVersion) = ParsePackageReference(packageSource);
         var version = explicitVersion ?? parsedVersion;
+        bool hasPackageSelector = version is not null;
 
         // @latest is a special tag: resolve to newest version via network
         if (string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase))
         {
             version = null;
             forceLatest = true;
+        }
+        if (hasPackageSelector &&
+            PackageCoordinateResolver.Validate(
+                new PackageCoordinate(packageName)) is { } invalidPackage)
+        {
+            return PackageExtractionOutcome.Error(invalidPackage.Message);
         }
 
         // Resolve NuGet sources

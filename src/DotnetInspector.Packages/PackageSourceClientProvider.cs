@@ -21,18 +21,34 @@ internal static class PackageSourceClientProvider
 
         if (source is RoutedPackageSource route)
         {
+            List<IPackageSourceClient> transports = [];
+            TimeSpan operationTimeout = TimeSpan.MaxValue;
+            foreach (PackageSource transport in route.Transports)
+            {
+                HttpClient routeTransport =
+                    SelectTransport(transport, client);
+                NuGetFetchOptions options =
+                    FetchOptionsFor(routeTransport);
+                transports.Add(
+                    PackageSourceClientFactory.Create(
+                        transport,
+                        routeTransport,
+                        options));
+                if (options.OperationTimeout < operationTimeout)
+                    operationTimeout = options.OperationTimeout;
+            }
+
             return new FailoverPackageSourceClient(
-                [
-                    .. route.Transports.Select(transport =>
-                        PackageSourceClientFactory.Create(
-                            transport,
-                            SelectTransport(transport, client))),
-                ]);
+                transports,
+                operationTimeout);
         }
 
+        HttpClient selectedTransport =
+            SelectTransport(source, client);
         return PackageSourceClientFactory.Create(
             source,
-            SelectTransport(source, client));
+            selectedTransport,
+            FetchOptionsFor(selectedTransport));
     }
 
     internal static HttpClient SelectTransport(
@@ -41,6 +57,14 @@ internal static class PackageSourceClientProvider
         ReferenceEquals(client, HttpClientFactory.Shared)
             ? HttpClientFactory.GetPackageSourceClient(source.Url)
             : client;
+
+    internal static NuGetFetchOptions FetchOptionsFor(HttpClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        return client.Timeout == Timeout.InfiniteTimeSpan
+            ? new NuGetFetchOptions()
+            : NuGetFetchOptions.FromRequestTimeout(client.Timeout);
+    }
 
     internal static string ProducerKey(PackageSource source)
     {

@@ -223,6 +223,8 @@ public static class NuGetCache
 
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
+        string appCacheIdComponent =
+            GetPackageCacheIdComponent(normalizedName);
         var cacheKey = $"{normalizedName}@{normalizedVersion}";
         bool any = false;
 
@@ -239,7 +241,7 @@ public static class NuGetCache
             {
                 var appPackageDir = Path.Combine(
                     appCachePath,
-                    normalizedName,
+                    appCacheIdComponent,
                     normalizedVersion,
                     sourceKey);
                 // Marker match alone is enough to surface the slot. Layout and
@@ -312,13 +314,16 @@ public static class NuGetCache
             globalPackagesPath,
             packageName,
             version);
-        // Do not require a full valid layout here: admission decides whether a
-        // retained nupkg or extracted tree is usable. A damaged global-packages
-        // slot must still surface so offline errors are not "not found".
+        // Admission decides whether the archive or extracted tree is usable,
+        // but producer and declared package identity must match before the
+        // foreign slot can become a candidate.
         if (!Directory.Exists(packageDirectory)
             || !TryReadGlobalPackageSourceKey(
                 packageDirectory,
                 out string? producerKey)
+            || !GlobalPackageIdentityMatches(
+                packageDirectory,
+                packageName)
             || !(allowedSourceKeys?.Contains(producerKey) ?? false))
         {
             return null;
@@ -415,6 +420,62 @@ public static class NuGetCache
         }
     }
 
+    private static bool GlobalPackageIdentityMatches(
+        string packageDirectory,
+        string packageName)
+    {
+        string nuspecPath = Path.Combine(
+            packageDirectory,
+            $"{packageName}.nuspec");
+        try
+        {
+            var info = new FileInfo(nuspecPath);
+            if (!info.Exists
+                || info.Length <= 0
+                || info.Length > PackageExtractor.MaxNuspecBytes)
+            {
+                return false;
+            }
+
+            using FileStream stream = new(
+                nuspecPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+            System.Xml.Linq.XDocument document =
+                HardenedXml.LoadXDocument(
+                    stream,
+                    PackageExtractor.MaxNuspecBytes);
+            System.Xml.Linq.XElement? metadata = document.Root?
+                .Elements()
+                .SingleOrDefault(
+                    element => element.Name.LocalName.Equals(
+                        "metadata",
+                        StringComparison.Ordinal));
+            List<System.Xml.Linq.XElement> ids = metadata?
+                .Elements()
+                .Where(
+                    element => element.Name.LocalName.Equals(
+                        "id",
+                        StringComparison.Ordinal))
+                .Take(2)
+                .ToList()
+                ?? [];
+            return ids.Count == 1
+                && ids[0].Value.Trim().Equals(
+                    packageName,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is
+            IOException
+            or UnauthorizedAccessException
+            or System.Xml.XmlException
+            or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Gets the final path for a package in the transactional content cache.
     /// </summary>
@@ -425,6 +486,8 @@ public static class NuGetCache
     /// another feed is entitled to or fail to commit a package it downloaded
     /// successfully. The cost is duplicated bytes when two feeds carry the same
     /// package, which is cheaper than either alternative.
+    /// Non-ASCII package IDs use a fixed-width digest component to avoid
+    /// filesystem normalization aliases and byte-length limits.
     /// </remarks>
     public static string GetPackageCachePath(string packageName, string version, string sourceKey)
     {
@@ -435,9 +498,20 @@ public static class NuGetCache
         var appCachePath = GetPackageContentCachePath();
         return Path.Combine(
             appCachePath,
-            packageName.ToLowerInvariant(),
+            GetPackageCacheIdComponent(packageName),
             version.ToLowerInvariant(),
             sourceKey);
+    }
+
+    internal static string GetPackageCacheIdComponent(string packageName)
+    {
+        string normalized = packageName.ToLowerInvariant();
+        if (normalized.All(char.IsAscii))
+            return normalized;
+
+        byte[] digest = SHA256.HashData(
+            Encoding.UTF8.GetBytes(normalized));
+        return $"u-{Convert.ToHexStringLower(digest.AsSpan(0, 16))}";
     }
 
     /// <summary>
@@ -704,7 +778,9 @@ public static class NuGetCache
         try
         {
             AddVersions(
-                Path.Combine(GetPackageContentCachePath(), normalizedName),
+                Path.Combine(
+                    GetPackageContentCachePath(),
+                    GetPackageCacheIdComponent(normalizedName)),
                 (dir, version) =>
                 {
                     foreach (var sourceKey in allowedSourceKeys ?? [])

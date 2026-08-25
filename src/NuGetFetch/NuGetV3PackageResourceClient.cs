@@ -231,9 +231,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         foreach (ServiceResource resource in resources)
         {
             if (resource.Type is null
-                || !resource.Type.StartsWith(
-                    "PackageBaseAddress",
-                    StringComparison.OrdinalIgnoreCase))
+                || !NuGetApi.IsPackageBaseAddressType(resource.Type))
             {
                 continue;
             }

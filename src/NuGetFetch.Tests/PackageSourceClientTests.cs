@@ -445,6 +445,43 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task V3UnrelatedPackageBaseAddressPrefixIsIgnored()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "not a url",
+                      "@type": "PackageBaseAddressBackup"
+                    },
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [Versions] = """{"versions":["1.0.0"]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageVersionResult result = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Single(result.Candidates);
+        Assert.Equal([ServiceIndex, Versions], handler.Requested);
+    }
+
+    [Fact]
     public async Task V3VersionIgnoresMalformedOptionalServiceResources()
     {
         var handler = new RecordingHandler

@@ -87,6 +87,27 @@ public sealed class PackageExtractorOfflineTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("bad package")]
+    [InlineData("bad+package")]
+    public async Task ExtractPackageAsync_WildcardInvalidPackageId_ReturnsTypedError(
+        string packageName)
+    {
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                Core.HttpClientFactory.Shared,
+                $"{packageName}@1.0.*");
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            outcome.ErrorMessage);
+        Assert.DoesNotContain(
+            "ArgumentException",
+            outcome.ErrorMessage,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PackageDependencyTree_OfflineUncachedVersion_ReportsCacheMiss()
     {

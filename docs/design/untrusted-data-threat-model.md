@@ -595,8 +595,17 @@ and
 Package identifiers and versions used as cache path components pass
 `NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
 traversal (`..`), separators, volume qualifiers (`:`), null characters, and
-otherwise rooted values before any cache path is built. Store keys (PDB cache
-keys and package entry paths) resolve through the shared `StorePath.ResolveUnderRoot` guard: it splits
+otherwise rooted values before any cache path is built. Non-ASCII package IDs
+use a fixed-width digest in product-owned cache paths, preventing byte-length
+overflow and filesystem-normalization aliases while preserving the typed ID in
+the commit marker. NuGet global-cache entries additionally admit only when
+their bounded, hardened nuspec declares the requested ID.
+`PackagePayloadAcquisitionTests.PackageCache_UnicodeCoordinatesCommitToDistinctSlots`
+and `GlobalPackageIdentityMismatch_IsIgnored`,
+`GlobalPackageMalformedIdentity_IsIgnored`, and
+`GlobalPackageOversizeIdentity_IsIgnored` gate these properties.
+Store keys (PDB cache keys and package entry paths) resolve through the shared
+`StorePath.ResolveUnderRoot` guard: it splits
 on `/`, rejects any segment that is empty, `.`, `..`, separator-bearing,
 volume-qualified (`:`), null-character-bearing, or otherwise rooted, then
 verifies the composed absolute path stays under the store root with a final

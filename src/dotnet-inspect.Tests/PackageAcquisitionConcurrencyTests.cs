@@ -1019,7 +1019,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Directory.CreateDirectory(packageDirectory);
         File.WriteAllText(
             Path.Combine(packageDirectory, $"{packageName}.nuspec"),
-            "<package />");
+            $"<package><metadata><id>{packageName}</id></metadata></package>");
         File.WriteAllText(
             Path.Combine(packageDirectory, ".nupkg.metadata"),
             $$"""{"source":"{{PrivateFeed}}"}""");
@@ -1765,7 +1765,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Directory.CreateDirectory(path);
         File.WriteAllText(
             Path.Combine(path, $"{packageName.ToLowerInvariant()}.nuspec"),
-            "<package />");
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageName}}</id>
+              </metadata>
+            </package>
+            """);
         string payloadPath = Path.Combine(path, "payload");
         Directory.CreateDirectory(payloadPath);
         for (int i = 0; i < payloadCount; i++)

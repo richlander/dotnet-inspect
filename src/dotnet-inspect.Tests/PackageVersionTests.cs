@@ -196,6 +196,24 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task Versions_RangeInvalidPackageIdReturnsCleanDiagnostic()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "bad package@1.0.0..2.0.0", "--versions"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("Stack Trace", error);
+    }
+
+    [Fact]
     public async Task Type_WithRange_RequiresAnExplicitAddress()
     {
         var root = CommandLineBuilder.CreateRootCommand();
