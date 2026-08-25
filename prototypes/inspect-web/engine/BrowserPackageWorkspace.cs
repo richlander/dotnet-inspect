@@ -285,19 +285,14 @@ internal static class BrowserPackageWorkspace
             PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
                 throw new InvalidOperationException(
                     $"{package.PackageId} {package.Version} declares an empty compile group for "
-                    + $"{selection.TargetFramework}, so it ships no API surface for that "
-                    + "framework. Available frameworks: "
-                    + string.Join(", ", selection.AvailableTargetFrameworks)
-                    + "."),
+                    + "the selected framework, so it ships no API surface for that framework."),
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
                 throw new InvalidOperationException(
-                    $"Framework '{targetFramework}' is not present. Available frameworks: "
-                    + string.Join(", ", selection.AvailableTargetFrameworks)
-                    + "."),
+                    $"Framework '{targetFramework}' is not present in "
+                    + $"{package.PackageId} {package.Version}."),
             PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
                 throw new InvalidOperationException(
-                    selection.Message
-                    ?? "The package has an invalid implementation-asset layout."),
+                    "The package has an invalid implementation-asset layout."),
             PackageCompileAssetSelectionStatus.Selected when selection.IsSelected =>
                 new BrowserPackageCoordinate(package, assemblyContext),
             _ => throw new InvalidOperationException(
@@ -1402,7 +1397,8 @@ internal sealed class BrowserPackage
     internal Stream OpenEntry(string path, long maxExpandedBytes)
         => Content.TryOpenEntry(path, maxExpandedBytes, out Stream? stream)
             ? stream
-            : throw new InvalidOperationException($"'{path}' was not found in {PackageId} {Version}.");
+            : throw new InvalidOperationException(
+                $"The requested package entry was not found in {PackageId} {Version}.");
 
     internal byte[] Read(string path, long maxExpandedBytes)
     {
@@ -1537,7 +1533,7 @@ internal sealed class BrowserPackageCoordinate
             ?? Selection.Assets.FirstOrDefault(asset => MatchesAssembly(asset, assemblyIdOrName))
             ?? throw new InvalidOperationException(
                 $"'{assemblyIdOrName}' is not a selected compile assembly of "
-                + $"{PackageId} {Version} for {Framework}.");
+                + $"{PackageId} {Version}.");
     }
 
     /// <summary>
@@ -1553,8 +1549,8 @@ internal sealed class BrowserPackageCoordinate
 
         return Selection.FindImplementationAsset(selected)
             ?? throw new InvalidOperationException(
-                $"{PackageId} {Version} ships {selected.AssemblyName} for {Framework} as a "
-                + "reference assembly only, so it carries no method bodies.");
+                $"The requested compile assembly in {PackageId} {Version} is a reference "
+                + "assembly only, so it carries no method bodies.");
     }
 
     internal static bool MatchesAssembly(PackageCompileAsset asset, string name) =>

@@ -50,6 +50,10 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
+        Assert.Contains("T:ILInspector.Metadata.ExtensionMethodScanner", banned);
+        Assert.Contains("T:ILInspector.Metadata.MethodClassificationScanner", banned);
+        Assert.Contains("T:ILInspector.Metadata.ResourceScanner", banned);
+        Assert.Contains("T:ILInspector.Metadata.TypeHierarchyScanner", banned);
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
         Assert.Contains("T:ILInspector.Metadata.IAssemblyReferenceResolver", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReferenceBindingPolicy", banned);
@@ -158,6 +162,37 @@ public sealed class BrowserEngineLayeringTests
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipantAsync",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EveryPublicMetadataStreamOwnerIsBanned()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        Type[] streamOwners =
+        [
+            .. typeof(ILInspector.Metadata.AssemblyInspectionSession).Assembly
+                .GetExportedTypes()
+                .Where(type => type
+                    .GetMembers(
+                        BindingFlags.Public
+                        | BindingFlags.Instance
+                        | BindingFlags.Static
+                        | BindingFlags.DeclaredOnly)
+                    .OfType<MethodBase>()
+                    .Any(method => method
+                        .GetParameters()
+                        .Any(parameter =>
+                            typeof(Stream).IsAssignableFrom(parameter.ParameterType))))
+                .OrderBy(type => type.FullName, StringComparer.Ordinal),
+        ];
+
+        Assert.NotEmpty(streamOwners);
+        foreach (Type owner in streamOwners)
+        {
+            Assert.Contains(
+                $"T:{owner.FullName}",
+                banned);
+        }
     }
 
     [Fact]

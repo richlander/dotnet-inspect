@@ -1145,6 +1145,103 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageFrameworkFailure_DoesNotEmitArtifactFramework()
+    {
+        const char bidi = '\u202E';
+        const string packageId = "Bidi.Framework.Failure";
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                Package(
+                    [0x01],
+                    $"lib/net8.0{bidi}/{packageId}.dll"),
+                fromCache: false));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.ResolveAsync(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain(bidi, failure.Message);
+        Assert.DoesNotContain($"net8.0{bidi}", failure.Message, StringComparison.Ordinal);
+
+        var selectedPackage = new BrowserPackage(
+            "Bidi.Selected.Framework",
+            "1.0.0",
+            Package(
+                [0x01],
+                $"lib/net8.0{bidi}/Selected.dll"),
+            fromCache: false);
+        var selectedContext = new PackageAssemblyContextSelection(
+            selectedPackage.Content,
+            selectedPackage.PackageId,
+            selectedPackage.Version);
+        var coordinate =
+            new BrowserPackageCoordinate(selectedPackage, selectedContext);
+
+        InvalidOperationException compileFailure =
+            Assert.Throws<InvalidOperationException>(
+                () => coordinate.CompileAsset("Missing.dll"));
+
+        Assert.DoesNotContain(bidi, compileFailure.Message);
+    }
+
+    [Fact]
+    public void ReferenceOnlyFailures_DoNotEmitArtifactAssemblyNames()
+    {
+        const char bidi = '\u202E';
+        string assemblyName = $"Bidi.Reference{bidi}.dll";
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Bidi.ReferenceOnly",
+            Package(
+                image,
+                $"ref/net11.0/{assemblyName}"));
+
+        InvalidOperationException coordinateFailure =
+            Assert.Throws<InvalidOperationException>(
+                () => coordinate.ImplementationAsset(assemblyName));
+
+        Assert.Contains("reference assembly only", coordinateFailure.Message);
+        Assert.DoesNotContain(bidi, coordinateFailure.Message);
+
+        using BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        InvalidOperationException scopeFailure =
+            Assert.Throws<InvalidOperationException>(
+                () => scope.ImplementationParticipant(
+                    Assert.Single(scope.SurfaceParticipants)));
+
+        Assert.Contains("reference assembly only", scopeFailure.Message);
+        Assert.DoesNotContain(bidi, scopeFailure.Message);
+    }
+
+    [Fact]
+    public void MissingPackageEntryFailure_DoesNotEmitArtifactPath()
+    {
+        const char bidi = '\u202E';
+        var package = new BrowserPackage(
+            "Bidi.Missing.Entry",
+            "1.0.0",
+            Package([0x01], "lib/net11.0/Present.dll"),
+            fromCache: false);
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => package.OpenEntry(
+                    $"lib/net11.0/Missing{bidi}.dll",
+                    1_024));
+
+        Assert.DoesNotContain(bidi, failure.Message);
+    }
+
+    [Fact]
     public void SourceFailures_PreserveTypedDetailAndCause()
     {
         var cause = new IOException("symbol service failed");

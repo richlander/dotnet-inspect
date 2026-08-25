@@ -108,8 +108,8 @@ public static partial class InspectionEngine
             && !projected.IsTruncated)
         {
             throw new InvalidOperationException(
-                $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
-                + $"{coordinate.Framework} produced an API surface. "
+                $"No assembly of {coordinate.PackageId} {coordinate.Version} "
+                + "produced an API surface. "
                 + (projected.InspectionError
                     ?? "The workspace reported no failure."));
         }

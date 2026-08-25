@@ -166,8 +166,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         return Coordinates.FirstOrDefault(
                 candidate => candidate.Key.Equals(requested.Key, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"{requested.PackageId} {requested.Version} {requested.Framework} is not part of "
-                + "this workspace.");
+                $"{requested.PackageId} {requested.Version} is not part of this workspace.");
     }
 
     /// <summary>The participant for one coordinate's assembly, or a visible failure.</summary>
@@ -196,9 +195,8 @@ internal sealed class BrowserInspectionScope : IDisposable
             _realization.ImplementationParticipant(surfaceParticipant.Realized)
             ?? throw new InvalidOperationException(
                 $"{surfaceParticipant.Coordinate.PackageId} "
-                + $"{surfaceParticipant.Coordinate.Version} ships "
-                + $"{surfaceParticipant.Asset.AssemblyName} for "
-                + $"{surfaceParticipant.Coordinate.Framework} as a reference assembly only.");
+                + $"{surfaceParticipant.Coordinate.Version} contains a reference assembly only "
+                + "for this participant.");
         return Implementation.FindParticipant(implementation.Participant);
     }
 
@@ -316,8 +314,8 @@ internal sealed class BrowserWorkspaceRole
                 candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)
                 && candidate.Asset.Path.Equals(asset.Path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"{asset.Path} is not a participant in the {coordinate.PackageId} "
-                + $"{coordinate.Version} {coordinate.Framework} workspace role.");
+                $"The requested participant is not part of the {coordinate.PackageId} "
+                + $"{coordinate.Version} workspace role.");
     }
 
     public BrowserWorkspaceParticipant FindParticipant(
