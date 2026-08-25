@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Text;
 using DotnetInspector.Packages;
 using NuGet.Versioning;
 
@@ -188,6 +190,13 @@ public static class WorkspaceSharePacketTransposer
         ScenarioDefinition scenario = definitions.Scenario;
 
         WorkspaceSharePacketProjectionResult? failure =
+            ValidateDefinitionSet(
+                definitions,
+                cancellationToken);
+        if (failure is not null)
+            return failure;
+
+        failure =
             ValidateRecordEnvelope(workspace, navigation, view, scenario);
         if (failure is not null)
             return failure;
@@ -488,6 +497,18 @@ public static class WorkspaceSharePacketTransposer
                     candidate => SameSource(candidate, sources[sourceIndex]));
             }
 
+            for (int previousIndex = 0;
+                previousIndex < contextIndex;
+                previousIndex++)
+            {
+                if (packetContexts[previousIndex].TabIndexes.SequenceEqual(indexes))
+                {
+                    return NonProjectable(
+                        $"workspace.contexts[{contextIndex}]",
+                        "Packet v1 cannot preserve distinct contexts with identical source composition.");
+                }
+            }
+
             packetContexts[contextIndex] = new WorkspaceShareContext(indexes);
         }
 
@@ -555,6 +576,623 @@ public static class WorkspaceSharePacketTransposer
                 : InvalidDefinition("$", ex.Message);
         }
     }
+
+    private static WorkspaceSharePacketProjectionResult? ValidateDefinitionSet(
+        WorkspaceSharePacketDefinitionSet definitions,
+        CancellationToken cancellationToken)
+    {
+        (InspectionDefinitionRecord Record, string Path)[] records =
+        [
+            (definitions.Workspace, "workspace"),
+            (definitions.Navigation, "navigation"),
+            (definitions.View, "view"),
+            (definitions.Scenario, "scenario"),
+        ];
+        foreach ((InspectionDefinitionRecord record, string path) in records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                _ = InspectionDefinitionJson.Serialize(record);
+            }
+            catch (InspectionDefinitionException ex)
+            {
+                return InvalidDefinition(path, ex.Message);
+            }
+        }
+
+        WorkspaceDefinition workspace = definitions.Workspace;
+        NavigationDefinition navigation = definitions.Navigation;
+        ScenarioDefinition scenario = definitions.Scenario;
+        if (scenario.Input is not null)
+        {
+            return InvalidDefinition(
+                "scenario.input",
+                "Packet scenarios must reference the supplied workspace.");
+        }
+        if (!string.Equals(scenario.Workspace, workspace.Id, StringComparison.Ordinal))
+        {
+            return InvalidDefinition(
+                "scenario.workspace",
+                "Scenario must reference the supplied workspace.");
+        }
+        if (!string.Equals(
+            scenario.Navigation,
+            navigation.Id,
+            StringComparison.Ordinal))
+        {
+            return InvalidDefinition(
+                "scenario.navigation",
+                "Scenario must reference the supplied navigation.");
+        }
+        if (!string.Equals(
+            scenario.View,
+            definitions.View.Id,
+            StringComparison.Ordinal))
+        {
+            return InvalidDefinition(
+                "scenario.view",
+                "Scenario must reference the supplied view.");
+        }
+        if (scenario.Context is not null
+            && workspace.Contexts.All(context => !string.Equals(
+                context.Name,
+                scenario.Context,
+                StringComparison.Ordinal)))
+        {
+            return InvalidDefinition(
+                "scenario.context",
+                "Scenario context must name one workspace context.");
+        }
+        if (scenario.Context is null && workspace.Contexts.Count != 1)
+        {
+            return InvalidDefinition(
+                "scenario.context",
+                "A scenario over multiple workspace contexts must select one context.");
+        }
+
+        WorkspaceSharePacketProjectionResult? failure =
+            ValidateCatalogGroups(
+                workspace.Groups,
+                "workspace.groups",
+                cancellationToken);
+        if (failure is not null)
+            return failure;
+
+        var allSources = new List<AuthoredSourceIdentity>();
+        for (int contextIndex = 0;
+            contextIndex < workspace.Contexts.Count;
+            contextIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            WorkspaceContextDefinition context = workspace.Contexts[contextIndex];
+            string path = $"workspace.contexts[{contextIndex}]";
+            if (!TryNormalizeFramework(context.Framework, out string? framework))
+            {
+                return InvalidDefinition(
+                    path + ".framework",
+                    "A context framework must be valid acquisition-target text.");
+            }
+            if (!TryNormalizeRuntimeIdentifier(
+                context.RuntimeIdentifier,
+                out string? runtimeIdentifier))
+            {
+                return InvalidDefinition(
+                    path + ".runtimeIdentifier",
+                    "A context runtime identifier must use canonical lowercase target text.");
+            }
+
+            var memberTargets =
+                new (DefinitionMemberCoordinate Coordinate, string? Framework, string? RuntimeIdentifier)[context.Members.Count];
+            for (int memberIndex = 0;
+                memberIndex < context.Members.Count;
+                memberIndex++)
+            {
+                DefinitionMemberCoordinate member = context.Members[memberIndex];
+                string memberPath = $"{path}.members[{memberIndex}]";
+                failure = ValidateCoordinate(member, memberPath);
+                if (failure is not null)
+                    return failure;
+
+                GetCoordinateTargets(
+                    member,
+                    out string? memberFramework,
+                    out string? memberRuntimeIdentifier);
+                framework = MergeContextTarget(
+                    framework,
+                    memberFramework,
+                    path + ".framework",
+                    out failure);
+                if (failure is not null)
+                    return failure;
+                runtimeIdentifier = MergeContextTarget(
+                    runtimeIdentifier,
+                    memberRuntimeIdentifier,
+                    path + ".runtimeIdentifier",
+                    out failure);
+                if (failure is not null)
+                    return failure;
+
+                memberTargets[memberIndex] = (
+                    member,
+                    memberFramework,
+                    memberRuntimeIdentifier);
+            }
+
+            var sources = new List<AuthoredSourceIdentity>();
+            if (context.Subscribe is not null)
+            {
+                if (!TryParseSubscription(
+                    context.Subscribe,
+                    path + ".subscribe",
+                    out ParsedGroupSubscription parsed,
+                    out failure))
+                {
+                    return failure;
+                }
+
+                sources.Add(AuthoredSourceIdentity.ForGroup(
+                    parsed.CanonicalSubscription,
+                    framework,
+                    runtimeIdentifier));
+            }
+
+            for (int memberIndex = 0;
+                memberIndex < memberTargets.Length;
+                memberIndex++)
+            {
+                var member = memberTargets[memberIndex];
+                if (!MatchesOrInherits(member.Framework, framework)
+                    || !MatchesOrInherits(
+                        member.RuntimeIdentifier,
+                        runtimeIdentifier))
+                {
+                    return InvalidDefinition(
+                        $"{path}.members[{memberIndex}]",
+                        "Every member in a packet context must have one effective framework and runtime identifier.");
+                }
+
+                sources.Add(CreateAuthoredSource(
+                    member.Coordinate,
+                    framework,
+                    runtimeIdentifier));
+            }
+
+            var contextSourceSet = new HashSet<AuthoredSourceIdentity>();
+            for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
+            {
+                AuthoredSourceIdentity source = sources[sourceIndex];
+                if (!contextSourceSet.Add(source))
+                {
+                    return InvalidDefinition(
+                        $"{path}.members[{sourceIndex}]",
+                        "A workspace context must not repeat one source.");
+                }
+                if (!allSources.Contains(source))
+                    allSources.Add(source);
+            }
+        }
+
+        var selectors = new List<(AuthoredSourceIdentity Selector, string Path)>(
+            navigation.Tabs.Count);
+        var tabIds = new HashSet<string>(StringComparer.Ordinal);
+        for (int tabIndex = 0; tabIndex < navigation.Tabs.Count; tabIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            NavigationTabDefinition tab = navigation.Tabs[tabIndex];
+            string path = $"navigation.tabs[{tabIndex}]";
+            if (!tabIds.Add(tab.Id))
+                return InvalidDefinition(path + ".id", "Navigation tab ids must be unique.");
+            if (!TryNormalizeFramework(tab.Framework, out string? tabFramework))
+            {
+                return InvalidDefinition(
+                    path + ".framework",
+                    "A navigation framework must be valid acquisition-target text.");
+            }
+            if (!TryNormalizeRuntimeIdentifier(
+                tab.RuntimeIdentifier,
+                out string? tabRuntimeIdentifier))
+            {
+                return InvalidDefinition(
+                    path + ".runtimeIdentifier",
+                    "A navigation runtime identifier must use canonical lowercase target text.");
+            }
+
+            if (tab.Subscribe is not null)
+            {
+                if (!TryParseSubscription(
+                    tab.Subscribe,
+                    path + ".subscribe",
+                    out ParsedGroupSubscription parsed,
+                    out failure))
+                {
+                    return failure;
+                }
+                selectors.Add((
+                    AuthoredSourceIdentity.ForGroup(
+                        parsed.CanonicalSubscription,
+                        tabFramework,
+                        tabRuntimeIdentifier),
+                    path));
+
+                continue;
+            }
+
+            DefinitionMemberCoordinate coordinate = tab.Coordinate!;
+            failure = ValidateCoordinate(coordinate, path + ".coordinate");
+            if (failure is not null)
+                return failure;
+            GetCoordinateTargets(
+                coordinate,
+                out string? framework,
+                out string? runtimeIdentifier);
+            selectors.Add((
+                CreateAuthoredSource(
+                    coordinate,
+                    framework,
+                    runtimeIdentifier),
+                path));
+        }
+
+        int focusMatches = navigation.Tabs.Count(tab => string.Equals(
+            tab.Id,
+            navigation.Focus,
+            StringComparison.Ordinal));
+        if (focusMatches != 1)
+        {
+            return InvalidDefinition(
+                "navigation.focus",
+                "Navigation focus must name exactly one tab.");
+        }
+
+        var matchedSources = new List<AuthoredSourceIdentity>();
+        foreach ((AuthoredSourceIdentity selector, string path) in selectors)
+        {
+            AuthoredSourceIdentity[] matches =
+                FindAuthoredMatches(selector, allSources);
+            if (matches.Length != 1)
+            {
+                return InvalidDefinition(
+                    path,
+                    matches.Length == 0
+                        ? "The navigation source does not match a workspace context source."
+                        : "The navigation source is ambiguous across effective context targets.");
+            }
+            if (matchedSources.Contains(matches[0]))
+            {
+                return InvalidDefinition(
+                    path,
+                    "Navigation contains a duplicate packet source tuple.");
+            }
+
+            matchedSources.Add(matches[0]);
+        }
+
+        return matchedSources.Count == allSources.Count
+            ? null
+            : InvalidDefinition(
+                "navigation.tabs",
+                "Every workspace context source must have one navigation tab.");
+    }
+
+    private static WorkspaceSharePacketProjectionResult? ValidateCatalogGroups(
+        IReadOnlyList<CatalogGroupDefinition> groups,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (int groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CatalogGroupDefinition group = groups[groupIndex];
+            string groupPath = $"{path}[{groupIndex}]";
+            if (!WorkspaceSharePacketCodec.IsGroupName(group.Name.AsSpan()))
+            {
+                return InvalidDefinition(
+                    groupPath + ".name",
+                    "A catalog group name is not valid group grammar.");
+            }
+            if (!names.Add(group.Name))
+            {
+                return InvalidDefinition(
+                    groupPath + ".name",
+                    "Sibling catalog group names must be unique.");
+            }
+
+            for (int memberIndex = 0;
+                memberIndex < group.Members.Count;
+                memberIndex++)
+            {
+                WorkspaceSharePacketProjectionResult? failure =
+                    ValidateCoordinate(
+                        group.Members[memberIndex],
+                        $"{groupPath}.members[{memberIndex}]");
+                if (failure is not null)
+                    return failure;
+            }
+
+            WorkspaceSharePacketProjectionResult? childFailure =
+                ValidateCatalogGroups(
+                    group.Children,
+                    groupPath + ".children",
+                    cancellationToken);
+            if (childFailure is not null)
+                return childFailure;
+        }
+
+        return null;
+    }
+
+    private static WorkspaceSharePacketProjectionResult? ValidateCoordinate(
+        DefinitionMemberCoordinate coordinate,
+        string path)
+    {
+        switch (coordinate)
+        {
+            case DefinitionMemberCoordinate.PackageCoordinate package:
+                if (!PackageCoordinateResolver.IsCanonicalPackageId(package.Id))
+                {
+                    return InvalidDefinition(
+                        path + ".id",
+                        "A package coordinate must use a valid NuGet package id.");
+                }
+                if (!TryNormalizeVersion(package.Version, out _))
+                {
+                    return InvalidDefinition(
+                        path + ".version",
+                        "A package coordinate must use one exact NuGet version without build metadata.");
+                }
+                if (!TryNormalizeFramework(package.Framework, out _))
+                {
+                    return InvalidDefinition(
+                        path + ".framework",
+                        "A package framework must be valid acquisition-target text.");
+                }
+                if (!TryNormalizeRuntimeIdentifier(
+                    package.RuntimeIdentifier,
+                    out _))
+                {
+                    return InvalidDefinition(
+                        path + ".runtimeIdentifier",
+                        "A package runtime identifier must use canonical lowercase target text.");
+                }
+                break;
+            case DefinitionMemberCoordinate.PlatformCoordinate platform:
+                if (!RealizedMemberCoordinate.IsCanonicalPlatformFamily(
+                    platform.Family))
+                {
+                    return InvalidDefinition(
+                        path + ".family",
+                        "A platform family must be 'runtime' or 'aspnetcore'.");
+                }
+                if (!TryNormalizeVersion(platform.Version, out _))
+                {
+                    return InvalidDefinition(
+                        path + ".version",
+                        "A platform coordinate must use one exact version without build metadata.");
+                }
+                if (!TryNormalizeFramework(platform.Framework, out _))
+                {
+                    return InvalidDefinition(
+                        path + ".framework",
+                        "A platform framework must be valid acquisition-target text.");
+                }
+                if (platform.Assembly is not null
+                    && !RealizedMemberCoordinate.IsAssemblySimpleName(
+                        platform.Assembly))
+                {
+                    return InvalidDefinition(
+                        path + ".assembly",
+                        "A platform assembly must be an assembly simple name.");
+                }
+                break;
+            case DefinitionMemberCoordinate.ProjectCoordinate project:
+                if (!TryNormalizeFramework(project.Framework, out _))
+                {
+                    return InvalidDefinition(
+                        path + ".framework",
+                        "A project framework must be valid acquisition-target text.");
+                }
+                if (!TryNormalizeRuntimeIdentifier(
+                    project.RuntimeIdentifier,
+                    out _))
+                {
+                    return InvalidDefinition(
+                        path + ".runtimeIdentifier",
+                        "A project runtime identifier must use canonical lowercase target text.");
+                }
+                break;
+            case DefinitionMemberCoordinate.DirectoryCoordinate directory:
+                if (!TryNormalizeFramework(directory.Framework, out _))
+                {
+                    return InvalidDefinition(
+                        path + ".framework",
+                        "A directory framework must be valid acquisition-target text.");
+                }
+                if (!TryNormalizeRuntimeIdentifier(
+                    directory.RuntimeIdentifier,
+                    out _))
+                {
+                    return InvalidDefinition(
+                        path + ".runtimeIdentifier",
+                        "A directory runtime identifier must use canonical lowercase target text.");
+                }
+                break;
+            case DefinitionMemberCoordinate.EmbeddedCoordinate embedded:
+                if (!RealizedMemberCoordinate.IsCanonicalContentRef(
+                    embedded.ContentRef))
+                {
+                    return InvalidDefinition(
+                        path + ".contentRef",
+                        "An embedded content reference must use canonical bundle-relative syntax.");
+                }
+                if (!RealizedMemberCoordinate.IsCanonicalDigest(
+                    embedded.Digest))
+                {
+                    return InvalidDefinition(
+                        path + ".digest",
+                        "An embedded digest must be canonical lowercase hexadecimal SHA-256.");
+                }
+                if (!RealizedMemberCoordinate.IsAssemblySimpleName(
+                    embedded.DeclaredName))
+                {
+                    return InvalidDefinition(
+                        path + ".declaredName",
+                        "An embedded declared name must be an assembly simple name.");
+                }
+                break;
+            case DefinitionMemberCoordinate.LocalCoordinate:
+                break;
+            default:
+                return InvalidDefinition(
+                    path,
+                    "The coordinate kind is not a known definition coordinate.");
+        }
+
+        return null;
+    }
+
+    private static void GetCoordinateTargets(
+        DefinitionMemberCoordinate coordinate,
+        out string? framework,
+        out string? runtimeIdentifier)
+    {
+        string? declaredFramework;
+        string? declaredRuntimeIdentifier;
+        switch (coordinate)
+        {
+            case DefinitionMemberCoordinate.PackageCoordinate package:
+                declaredFramework = package.Framework;
+                declaredRuntimeIdentifier = package.RuntimeIdentifier;
+                break;
+            case DefinitionMemberCoordinate.PlatformCoordinate platform:
+                declaredFramework = platform.Framework;
+                declaredRuntimeIdentifier = null;
+                break;
+            case DefinitionMemberCoordinate.ProjectCoordinate project:
+                declaredFramework = project.Framework;
+                declaredRuntimeIdentifier = project.RuntimeIdentifier;
+                break;
+            case DefinitionMemberCoordinate.DirectoryCoordinate directory:
+                declaredFramework = directory.Framework;
+                declaredRuntimeIdentifier = directory.RuntimeIdentifier;
+                break;
+            default:
+                declaredFramework = null;
+                declaredRuntimeIdentifier = null;
+                break;
+        }
+
+        _ = TryNormalizeFramework(declaredFramework, out framework);
+        _ = TryNormalizeRuntimeIdentifier(
+            declaredRuntimeIdentifier,
+            out runtimeIdentifier);
+    }
+
+    private static AuthoredSourceIdentity CreateAuthoredSource(
+        DefinitionMemberCoordinate coordinate,
+        string? framework,
+        string? runtimeIdentifier)
+    {
+        switch (coordinate)
+        {
+            case DefinitionMemberCoordinate.PackageCoordinate package:
+                _ = TryNormalizeVersion(package.Version, out string? packageVersion);
+                return new AuthoredSourceIdentity(
+                    "package",
+                    package.Id.ToLowerInvariant(),
+                    packageVersion,
+                    null,
+                    null,
+                    framework,
+                    runtimeIdentifier);
+            case DefinitionMemberCoordinate.PlatformCoordinate platform:
+                _ = TryNormalizeVersion(platform.Version, out string? platformVersion);
+                return new AuthoredSourceIdentity(
+                    "platform",
+                    platform.Family,
+                    platform.Assembly,
+                    platformVersion,
+                    null,
+                    framework,
+                    runtimeIdentifier);
+            case DefinitionMemberCoordinate.EmbeddedCoordinate embedded:
+                return new AuthoredSourceIdentity(
+                    "embedded",
+                    embedded.ContentRef,
+                    embedded.Digest,
+                    embedded.DeclaredName,
+                    null,
+                    framework,
+                    runtimeIdentifier);
+            case DefinitionMemberCoordinate.ProjectCoordinate project:
+                return new AuthoredSourceIdentity(
+                    "project",
+                    project.Path,
+                    null,
+                    null,
+                    null,
+                    framework,
+                    runtimeIdentifier);
+            case DefinitionMemberCoordinate.LocalCoordinate local:
+                return new AuthoredSourceIdentity(
+                    "local",
+                    local.Path,
+                    null,
+                    null,
+                    null,
+                    framework,
+                    runtimeIdentifier);
+            case DefinitionMemberCoordinate.DirectoryCoordinate directory:
+                return new AuthoredSourceIdentity(
+                    "directory",
+                    directory.Path,
+                    null,
+                    null,
+                    null,
+                    framework,
+                    runtimeIdentifier);
+            default:
+                throw new UnreachableException();
+        }
+    }
+
+    private static AuthoredSourceIdentity[] FindAuthoredMatches(
+        AuthoredSourceIdentity selector,
+        IReadOnlyList<AuthoredSourceIdentity> sources)
+    {
+        AuthoredSourceIdentity[] candidates = sources
+            .Where(candidate =>
+                SameAuthoredSourceCore(candidate, selector)
+                && MatchesOrInherits(
+                    selector.Framework,
+                    candidate.Framework)
+                && MatchesOrInherits(
+                    selector.RuntimeIdentifier,
+                    candidate.RuntimeIdentifier))
+            .ToArray();
+        AuthoredSourceIdentity[] exactTargets = candidates
+            .Where(candidate =>
+                string.Equals(
+                    candidate.Framework,
+                    selector.Framework,
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    candidate.RuntimeIdentifier,
+                    selector.RuntimeIdentifier,
+                    StringComparison.Ordinal))
+            .ToArray();
+        return exactTargets.Length == 0 ? candidates : exactTargets;
+    }
+
+    private static bool SameAuthoredSourceCore(
+        AuthoredSourceIdentity left,
+        AuthoredSourceIdentity right) =>
+        string.Equals(left.Kind, right.Kind, StringComparison.Ordinal)
+        && string.Equals(left.Primary, right.Primary, StringComparison.Ordinal)
+        && string.Equals(left.Secondary, right.Secondary, StringComparison.Ordinal)
+        && string.Equals(left.Tertiary, right.Tertiary, StringComparison.Ordinal)
+        && string.Equals(left.Quaternary, right.Quaternary, StringComparison.Ordinal);
 
     private static WorkspaceSharePacketProjectionResult? ValidateRecordEnvelope(
         WorkspaceDefinition workspace,
@@ -687,30 +1325,21 @@ public static class WorkspaceSharePacketTransposer
         out string? pin,
         out WorkspaceSharePacketProjectionResult? failure)
     {
-        expression = subscription;
+        expression = "";
         pin = null;
-        failure = null;
-
-        if (subscription.Length < 2 || subscription[0] != ':')
+        if (!TryParseSubscription(
+            subscription,
+            path,
+            out ParsedGroupSubscription parsed,
+            out failure))
         {
-            failure = InvalidDefinition(
-                path,
-                "A group subscription must begin with ':'.");
             return false;
         }
 
-        int pinSeparator = subscription.IndexOf('@');
-        if (pinSeparator < 0)
-        {
-            if (WorkspaceSharePacketCodec.IsGroupExpression(subscription))
-                return true;
-
-            failure = InvalidDefinition(
-                path,
-                "The subscription is not a valid group expression.");
-            return false;
-        }
-        if (subscription.IndexOf('@', pinSeparator + 1) >= 0)
+        expression = parsed.Expression;
+        if (parsed.Pins.Count == 0)
+            return true;
+        if (parsed.Pins.Count > 1)
         {
             failure = NonProjectable(
                 path,
@@ -718,16 +1347,20 @@ public static class WorkspaceSharePacketTransposer
             return false;
         }
 
-        int baseEnd = subscription.AsSpan(1).IndexOfAny(':', '+', '@');
-        baseEnd = baseEnd < 0 ? subscription.Length : baseEnd + 1;
-        if (pinSeparator != baseEnd)
+        NormalizedGroupPin groupPin = parsed.Pins[0];
+        if (groupPin.SegmentIndex != 0)
         {
             failure = NonProjectable(
                 path,
                 "Packet v1 can preserve only a pin on the base group segment.");
             return false;
         }
-        if (!subscription.AsSpan(1, baseEnd - 1).SequenceEqual("Platform"))
+
+        int baseEnd = expression.AsSpan(1).IndexOfAny(':', '+');
+        ReadOnlySpan<char> baseName = baseEnd < 0
+            ? expression.AsSpan(1)
+            : expression.AsSpan(1, baseEnd);
+        if (!baseName.SequenceEqual("Platform"))
         {
             failure = NonProjectable(
                 path,
@@ -735,30 +1368,21 @@ public static class WorkspaceSharePacketTransposer
             return false;
         }
 
-        int pinEndOffset = subscription.AsSpan(pinSeparator + 1).IndexOfAny(':', '+');
-        int pinEnd = pinEndOffset < 0
-            ? subscription.Length
-            : pinSeparator + 1 + pinEndOffset;
-        if (pinEnd == pinSeparator + 1)
-        {
-            failure = InvalidDefinition(path, "A group pin must not be empty.");
-            return false;
-        }
+        pin = groupPin.Version;
+        return true;
+    }
 
-        if (!TryNormalizeVersion(
-            subscription[(pinSeparator + 1)..pinEnd],
-            out pin))
-        {
-            failure = InvalidDefinition(
-                path,
-                "A group pin must be one exact NuGet version without build metadata.");
-            return false;
-        }
-
-        expression = string.Concat(
-            subscription.AsSpan(0, pinSeparator),
-            subscription.AsSpan(pinEnd));
-        if (!WorkspaceSharePacketCodec.IsGroupExpression(expression))
+    private static bool TryParseSubscription(
+        string subscription,
+        string path,
+        out ParsedGroupSubscription parsed,
+        out WorkspaceSharePacketProjectionResult? failure)
+    {
+        parsed = default!;
+        failure = null;
+        if (!WorkspaceSharePacketCodec.TryParseGroupExpression(
+            subscription,
+            out IReadOnlyList<GroupExpressionPin> pins))
         {
             failure = InvalidDefinition(
                 path,
@@ -766,6 +1390,45 @@ public static class WorkspaceSharePacketTransposer
             return false;
         }
 
+        var normalizedPins = new NormalizedGroupPin[pins.Count];
+        var expression = new StringBuilder(subscription.Length);
+        var canonical = new StringBuilder(subscription.Length);
+        int cursor = 0;
+        for (int index = 0; index < pins.Count; index++)
+        {
+            GroupExpressionPin syntax = pins[index];
+            string versionText = subscription.Substring(
+                syntax.ValueStart,
+                syntax.ValueLength);
+            if (!TryNormalizeVersion(versionText, out string? version))
+            {
+                failure = InvalidDefinition(
+                    path,
+                    "A group pin must be one exact NuGet version without build metadata.");
+                return false;
+            }
+
+            expression.Append(
+                subscription.AsSpan(
+                    cursor,
+                    syntax.SeparatorIndex - cursor));
+            canonical.Append(
+                subscription.AsSpan(
+                    cursor,
+                    syntax.ValueStart - cursor));
+            canonical.Append(version);
+            cursor = syntax.ValueStart + syntax.ValueLength;
+            normalizedPins[index] = new NormalizedGroupPin(
+                syntax.SegmentIndex,
+                version!);
+        }
+
+        expression.Append(subscription.AsSpan(cursor));
+        canonical.Append(subscription.AsSpan(cursor));
+        parsed = new ParsedGroupSubscription(
+            expression.ToString(),
+            canonical.ToString(),
+            new ReadOnlyCollection<NormalizedGroupPin>(normalizedPins));
         return true;
     }
 
@@ -832,6 +1495,38 @@ public static class WorkspaceSharePacketTransposer
         string? Version,
         string? Framework,
         string? RuntimeIdentifier);
+
+    private sealed record ParsedGroupSubscription(
+        string Expression,
+        string CanonicalSubscription,
+        IReadOnlyList<NormalizedGroupPin> Pins);
+
+    private sealed record NormalizedGroupPin(
+        int SegmentIndex,
+        string Version);
+
+    private sealed record AuthoredSourceIdentity(
+        string Kind,
+        string Primary,
+        string? Secondary,
+        string? Tertiary,
+        string? Quaternary,
+        string? Framework,
+        string? RuntimeIdentifier)
+    {
+        public static AuthoredSourceIdentity ForGroup(
+            string subscription,
+            string? framework,
+            string? runtimeIdentifier) =>
+            new(
+                "group",
+                subscription,
+                null,
+                null,
+                null,
+                framework,
+                runtimeIdentifier);
+    }
 
     private sealed record SourceTuple(
         WorkspaceShareSourceKind Kind,

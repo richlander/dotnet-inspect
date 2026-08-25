@@ -723,12 +723,18 @@ set may exceed the packet — per-overlay pins, query presets, multiple
 scenarios, or more than the packet's bounded tables — and the transposition
 layer refuses those as `NonProjectable` rather than silently flattening them.
 Malformed or internally inconsistent record composition is instead
-`InvalidDefinitionSet`. Reverse projection normalizes exact NuGet versions,
-frameworks, and the supported Platform base pin before comparing or emitting
-them; runtime identifiers remain ordinal because they address case-sensitive
-runtime asset paths. When an unqualified and a target-qualified copy of one
-source coexist, an explicitly unqualified packet tuple maps to the unqualified
-record source rather than inheriting the qualified source's target.
+`InvalidDefinitionSet`. Reverse projection validates the complete portable
+workspace, navigation, view, and scenario record set — including text,
+coordinates, group grammar and pins, peer references, topology, and source
+relationships — before evaluating packet capacity or representability. It then
+normalizes exact NuGet versions, frameworks, and the supported Platform base
+pin before comparing or emitting them; runtime identifiers remain ordinal
+because they address case-sensitive runtime asset paths. When an unqualified
+and a target-qualified copy of one source coexist, an explicitly unqualified
+packet tuple maps to the unqualified record source rather than inheriting the
+qualified source's target. Distinct valid contexts with identical source
+composition are `NonProjectable`, because v1 forbids duplicate context-index
+arrays and the transposer must not collapse their identities.
 
 - **A format discriminator and strict validation are required.** The
   redesigned packet is the first supported wire contract; today's unversioned
@@ -930,8 +936,15 @@ Implementation must add, at minimum:
   `Transpose_PreservesExplicitNullTargetsBesideQualifiedTargets`,
   `ToPacket_NormalizesEquivalentVersionsAndFrameworks`,
   `ToPacket_NormalizesPlatformBasePin`,
-  `ToPacket_ClassifiesPacketCapacityAsNonProjectable`, and the neighboring
-  `ToPacket_Rejects*` tests gate those properties;
+  `ToPacket_ValidatesWholeDefinitionSetBeforeProjectability`,
+  `ToPacket_RejectsMalformedPortableTextBeforeProjectability`,
+  `ToPacket_ValidatesRelationshipsBeforeProjectability`,
+  `ToPacket_ValidatesDocumentLocalGroupsBeforeRefusal`,
+  `ToPacket_ValidatesRicherCoordinatesBeforeRefusal`,
+  `ToPacket_ValidatesRicherCoordinateRelationshipsBeforeRefusal`,
+  `ToPacket_ClassifiesPacketCapacityAsNonProjectable`,
+  `ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable`, and the
+  neighboring `ToPacket_Rejects*` tests gate those properties;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -1053,7 +1066,8 @@ Definition records and product demos (this slice):
   pins, selection, section, and ascending-ordinal multi-library scope. It
   normalizes equivalent framework and exact-version spellings, preserves
   explicit null targets beside qualified copies, distinguishes malformed
-  definition sets from valid state outside v1, and returns a typed projection
+  definition sets from valid state outside v1, validates the whole portable
+  definition set before making that distinction, and returns a typed projection
   outcome rather than flattening either. The transposer validates forward input
   and reverse output through `WorkspaceSharePacketCodec`; it does not resolve
   groups, acquire artifacts, bind a query, or execute the scenario; and

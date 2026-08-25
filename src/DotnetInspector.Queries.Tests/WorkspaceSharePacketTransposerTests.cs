@@ -358,8 +358,9 @@ public sealed class WorkspaceSharePacketTransposerTests
 
     [Theory]
     [InlineData(":Custom@1.0.0")]
-    [InlineData(":Platform+:Custom@1.0.0")]
-    [InlineData(":Platform@10.0.10+:Custom@1.0.0")]
+    [InlineData(":Platform:AspNetCore@10.0.10")]
+    [InlineData(":Platform@10.0.10:AspNetCore@10.0.10")]
+    [InlineData(":Platform@10.0.10+Custom@1.0.0")]
     public void ToPacket_RejectsNonV1GroupPins(string subscribe)
     {
         WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
@@ -386,6 +387,16 @@ public sealed class WorkspaceSharePacketTransposerTests
     [InlineData("Platform")]
     [InlineData("Newtonsoft.Json")]
     [InlineData(":Platform+")]
+    [InlineData("::Platform@1.0.0")]
+    [InlineData(":Platform:@1.0.0")]
+    [InlineData(":Platform+@1.0.0")]
+    [InlineData(":@1.0.0")]
+    [InlineData(":Pl$tform@1.0.0")]
+    [InlineData(":Platform+:Custom@1.0.0")]
+    [InlineData(":Platform@10.0.10+:Custom@1.0.0")]
+    [InlineData(":Platform@1.0@2.0")]
+    [InlineData(":Custom@latest")]
+    [InlineData(":Platform:Child@latest")]
     public void ToPacket_RejectsInvalidGroupExpressionsWithoutChangingSourceKind(
         string subscribe)
     {
@@ -579,6 +590,343 @@ public sealed class WorkspaceSharePacketTransposerTests
             WorkspaceSharePacketProjectionFailureKind.NonProjectable,
             projection.Failure?.Kind);
         Assert.Equal("workspace.contexts", projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ValidatesWholeDefinitionSetBeforeProjectability()
+    {
+        WorkspaceContextDefinition[] contexts = Enumerable.Range(0, 25)
+            .Select(index => Context(
+                $"c{index}",
+                "net10.0",
+                PackageCoordinate(
+                    index == 24 ? "P!" : $"P{index}",
+                    "1.0.0")))
+            .ToArray();
+        WorkspaceSharePacketDefinitionSet oversized = CreateDefinitions(
+            new WorkspaceDefinition(1, "ws", contexts),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate(
+                            "P0",
+                            "1.0.0",
+                            "net10.0")),
+                ],
+                "p"));
+
+        WorkspaceSharePacketProjectionResult invalidCoordinate =
+            Project(oversized);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            invalidCoordinate.Failure?.Kind);
+        Assert.Equal(
+            "workspace.contexts[24].members[0].id",
+            invalidCoordinate.Failure?.Path);
+
+        var titledWorkspace = new WorkspaceDefinition(
+            1,
+            "ws",
+            [Context("c", "net10.0", PackageCoordinate("P", "1.0.0"))],
+            title: "Title");
+        var navigation = new NavigationDefinition(
+            1,
+            "nav",
+            [
+                new NavigationTabDefinition(
+                    "p",
+                    coordinate: PackageCoordinate("P", "1.0.0", "net10.0")),
+            ],
+            "p");
+        var view = new ViewDefinition(1, "view");
+        var brokenReference = new WorkspaceSharePacketDefinitionSet(
+            titledWorkspace,
+            navigation,
+            view,
+            new ScenarioDefinition(
+                1,
+                "scenario",
+                workspace: "missing",
+                context: "c",
+                view: "view",
+                navigation: "nav"));
+
+        WorkspaceSharePacketProjectionResult invalidReference =
+            Project(brokenReference);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            invalidReference.Failure?.Kind);
+        Assert.Equal("scenario.workspace", invalidReference.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_RejectsMalformedPortableTextBeforeProjectability()
+    {
+        string malformed = new(['\uD800']);
+        var workspace = new WorkspaceDefinition(
+            1,
+            "ws",
+            [Context(malformed, "net10.0", PackageCoordinate("P", "1.0.0"))],
+            title: "Title");
+        var navigation = new NavigationDefinition(
+            1,
+            "nav",
+            [
+                new NavigationTabDefinition(
+                    "p",
+                    coordinate: PackageCoordinate("P", "1.0.0", "net10.0")),
+            ],
+            "p");
+        var view = new ViewDefinition(1, "view");
+        var definitions = new WorkspaceSharePacketDefinitionSet(
+            workspace,
+            navigation,
+            view,
+            new ScenarioDefinition(
+                1,
+                "scenario",
+                workspace: "ws",
+                context: malformed,
+                view: "view",
+                navigation: "nav"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal("workspace", projection.Failure?.Path);
+        Assert.Contains("UTF-16", projection.Failure?.Message);
+    }
+
+    [Fact]
+    public void ToPacket_ValidatesRelationshipsBeforeProjectability()
+    {
+        const string workspaceSubscribe = ":Custom@1.0.0";
+        const string navigationSubscribe = ":Other@1.0.0";
+        var workspace = new WorkspaceDefinition(
+            1,
+            "ws",
+            [
+                new WorkspaceContextDefinition(
+                    "c",
+                    "net10.0",
+                    subscribe: workspaceSubscribe),
+            ],
+            title: "Title");
+        var navigation = new NavigationDefinition(
+            1,
+            "nav",
+            [
+                new NavigationTabDefinition(
+                    "g",
+                    subscribe: navigationSubscribe,
+                    framework: "net10.0"),
+            ],
+            "g");
+
+        WorkspaceSharePacketProjectionResult projection = Project(
+            CreateDefinitions(workspace, navigation));
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal("navigation.tabs[0]", projection.Failure?.Path);
+        Assert.Contains("does not match", projection.Failure?.Message);
+    }
+
+    [Fact]
+    public void ToPacket_ValidatesDocumentLocalGroupsBeforeRefusal()
+    {
+        var workspace = new WorkspaceDefinition(
+            1,
+            "ws",
+            [Context("c", "net10.0", PackageCoordinate("P", "1.0.0"))],
+            groups: [new CatalogGroupDefinition("bad$name")]);
+        var navigation = new NavigationDefinition(
+            1,
+            "nav",
+            [
+                new NavigationTabDefinition(
+                    "p",
+                    coordinate: PackageCoordinate("P", "1.0.0", "net10.0")),
+            ],
+            "p");
+
+        WorkspaceSharePacketProjectionResult projection = Project(
+            CreateDefinitions(workspace, navigation));
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal("workspace.groups[0].name", projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ValidatesRicherCoordinatesBeforeRefusal()
+    {
+        var invalidPlatform =
+            new DefinitionMemberCoordinate.PlatformCoordinate(
+                "not-a-family",
+                Framework: "net10.0");
+        WorkspaceSharePacketProjectionResult platformProjection = Project(
+            CreateDefinitions(
+                new WorkspaceDefinition(
+                    1,
+                    "ws",
+                    [
+                        new WorkspaceContextDefinition(
+                            "c",
+                            "net10.0",
+                            members: [invalidPlatform]),
+                    ]),
+                new NavigationDefinition(
+                    1,
+                    "nav",
+                    [
+                        new NavigationTabDefinition(
+                            "p",
+                            coordinate: invalidPlatform),
+                    ],
+                    "p")));
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            platformProjection.Failure?.Kind);
+        Assert.Equal(
+            "workspace.contexts[0].members[0].family",
+            platformProjection.Failure?.Path);
+
+        var invalidEmbedded =
+            new DefinitionMemberCoordinate.EmbeddedCoordinate(
+                "../payload.dll",
+                new string('0', 64),
+                "Payload");
+        WorkspaceSharePacketProjectionResult embeddedProjection = Project(
+            CreateDefinitions(
+                new WorkspaceDefinition(
+                    1,
+                    "ws",
+                    [
+                        new WorkspaceContextDefinition(
+                            "c",
+                            members: [invalidEmbedded]),
+                    ]),
+                new NavigationDefinition(
+                    1,
+                    "nav",
+                    [
+                        new NavigationTabDefinition(
+                            "e",
+                            coordinate: invalidEmbedded),
+                    ],
+                    "e")));
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            embeddedProjection.Failure?.Kind);
+        Assert.Equal(
+            "workspace.contexts[0].members[0].contentRef",
+            embeddedProjection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ValidatesRicherCoordinateRelationshipsBeforeRefusal()
+    {
+        var runtime = new DefinitionMemberCoordinate.PlatformCoordinate(
+            "runtime",
+            "System.Runtime",
+            "10.0.0",
+            "net10.0");
+        var aspNetCore = new DefinitionMemberCoordinate.PlatformCoordinate(
+            "aspnetcore",
+            "System.Runtime",
+            "10.0.0",
+            "net10.0");
+        var workspace = new WorkspaceDefinition(
+            1,
+            "ws",
+            [
+                new WorkspaceContextDefinition(
+                    "c",
+                    "net10.0",
+                    members: [runtime]),
+            ]);
+
+        WorkspaceSharePacketProjectionResult mismatch = Project(
+            CreateDefinitions(
+                workspace,
+                new NavigationDefinition(
+                    1,
+                    "nav",
+                    [
+                        new NavigationTabDefinition(
+                            "p",
+                            coordinate: aspNetCore),
+                    ],
+                    "p")));
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            mismatch.Failure?.Kind);
+        Assert.Equal("navigation.tabs[0]", mismatch.Failure?.Path);
+
+        WorkspaceSharePacketProjectionResult matching = Project(
+            CreateDefinitions(
+                workspace,
+                new NavigationDefinition(
+                    1,
+                    "nav",
+                    [
+                        new NavigationTabDefinition(
+                            "p",
+                            coordinate: runtime),
+                    ],
+                    "p")));
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            matching.Failure?.Kind);
+        Assert.Equal(
+            "workspace.contexts[0].members[0]",
+            matching.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [
+                    Context("a", "net10.0", PackageCoordinate("P", "1.0.0")),
+                    Context("b", "net10.0", PackageCoordinate("P", "1.0.0")),
+                ]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate(
+                            "P",
+                            "1.0.0",
+                            "net10.0")),
+                ],
+                "p"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("workspace.contexts[1]", projection.Failure?.Path);
     }
 
     [Fact]
