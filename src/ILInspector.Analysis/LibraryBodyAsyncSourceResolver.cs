@@ -413,22 +413,28 @@ internal sealed class LibraryBodyAsyncSourceResolver
     MethodIdentity ValidateGeneratedIntermediate(
         MethodIdentity source)
     {
-        EntityHandle handle = MetadataTokens.EntityHandle(
-            source.MetadataToken);
-        if (handle.Kind == HandleKind.MethodDefinition
-            && !CompilerGeneratedNames
-                .IsLocalFunctionOrLambda(source.Name)
-            && _primaryMetadataResolver
-                .HasCompilerGeneratedAttribute(
-                    _reader.GetMethodDefinition(
-                        (MethodDefinitionHandle)handle)
-                        .GetCustomAttributes()))
+        if (HasNoncanonicalCompilerGeneratedName(source))
         {
             throw new BadImageFormatException(
                 "The generated state-machine source name is invalid.");
         }
 
         return source;
+    }
+
+    internal bool HasNoncanonicalCompilerGeneratedName(
+        MethodIdentity source)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(
+            source.MetadataToken);
+        return handle.Kind == HandleKind.MethodDefinition
+            && !CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(source.Name)
+            && _primaryMetadataResolver
+                .HasCompilerGeneratedAttribute(
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle)
+                        .GetCustomAttributes());
     }
 
     internal void Prewarm()

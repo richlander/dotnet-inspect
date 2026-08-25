@@ -329,7 +329,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ownerTypeScope,
                 directlySelectedBody))
         {
-            return sourceOwner;
+            return IsNoncanonicalGeneratedOwner(sourceOwner)
+                ? null
+                : sourceOwner;
         }
 
         MethodIdentity? asyncSource =
@@ -366,7 +368,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         asyncSource.MetadataToken)
                         == true))
         {
-            return sourceOwner;
+            return IsNoncanonicalGeneratedOwner(sourceOwner)
+                ? null
+                : sourceOwner;
         }
 
         return TryResolveUltimateLiftedOwner(
@@ -488,12 +492,29 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ultimateOwner = null;
                 return false;
             }
+            if (IsNoncanonicalGeneratedOwner(sourceOwner))
+            {
+                ultimateOwner = null;
+                return false;
+            }
             current = sourceOwner;
+        }
+
+        if (IsNoncanonicalGeneratedOwner(current))
+        {
+            ultimateOwner = null;
+            return false;
         }
 
         ultimateOwner = current;
         return true;
     }
+
+    bool IsNoncanonicalGeneratedOwner(
+        MethodIdentity? source) =>
+        source is not null
+        && _asyncSourceResolver
+            .HasNoncanonicalCompilerGeneratedName(source);
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,

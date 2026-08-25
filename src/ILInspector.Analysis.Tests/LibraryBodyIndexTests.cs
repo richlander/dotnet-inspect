@@ -4814,11 +4814,52 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                malformedNestedLiftedIntermediate: true);
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+        MethodIdentity immediateSource = Assert.Single(
+            full.Methods,
+            method => method.Name
+                == "<Noise>b__0_0>b__0_1");
+
+        Assert.Equal(
+            immediateSource,
+            full.ResolveDeclaredMethod(moveNext));
+        Assert.Contains(
+            full.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == moveNext
+                && call.Callee.Name == "Read");
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        moveNext.DeclaringType));
+        Assert.Null(scoped.ResolveDeclaredMethod(moveNext));
+    }
+
+    [Fact]
+    public void
         DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller()
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
-                nestedUnresolvedLiftedSource: true);
+                deepNestedLiftedSource: true);
         using var stream = new MemoryStream(image);
         using var peReader = new PEReader(stream);
         MetadataReader reader = peReader.GetMetadataReader();
@@ -5347,6 +5388,8 @@ public class LibraryBodyIndexTests
         bool malformedTopLevelEntryPoint = false,
         bool nestedUnresolvedLiftedSource = false,
         bool malformedGeneratedLiftedSource = false,
+        bool malformedNestedLiftedIntermediate = false,
+        bool deepNestedLiftedSource = false,
         bool crossKindDuplicate = false,
         bool crossKindIteratorFirst = false,
         bool crossKindSynchronousIterator = false,
@@ -5498,6 +5541,16 @@ public class LibraryBodyIndexTests
         int outerLiftedBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(outerLiftedIl),
             maxStack: 1);
+        var deepOuterLiftedIl = new BlobBuilder();
+        deepOuterLiftedIl.WriteByte((byte)ILOpCode.Call);
+        deepOuterLiftedIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(5)));
+        deepOuterLiftedIl.WriteByte((byte)ILOpCode.Pop);
+        deepOuterLiftedIl.WriteByte((byte)ILOpCode.Ret);
+        int deepOuterLiftedBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(deepOuterLiftedIl),
+            maxStack: 1);
 
         BlobHandle taskSignature = metadata.GetOrAddBlob(
             new byte[]
@@ -5570,7 +5623,11 @@ public class LibraryBodyIndexTests
                         ? MethodImplAttributes.Async
                         : 0),
                 metadata.GetOrAddString(
-                    nestedUnresolvedLiftedSource
+                    malformedNestedLiftedIntermediate
+                        ? "Noise>b__0_0"
+                    : deepNestedLiftedSource
+                        ? "<<Outer>b__0_0>b__0_1"
+                    : nestedUnresolvedLiftedSource
                         ? "<Outer>b__0_0"
                         : forgedStateMachineOwnerEvidence
                         ? "<AnalyzeAsync>g__Local|0_0"
@@ -5580,6 +5637,8 @@ public class LibraryBodyIndexTests
                         : "CompetingAsync"),
                 taskSignature,
                 nestedUnresolvedLiftedSource
+                    || malformedNestedLiftedIntermediate
+                    || deepNestedLiftedSource
                     ? outerLiftedBody
                     : AddRetBody(bodyEncoder),
                 MetadataTokens.ParameterHandle(1));
@@ -5589,7 +5648,11 @@ public class LibraryBodyIndexTests
                     | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(
-                    nestedUnresolvedLiftedSource
+                    malformedNestedLiftedIntermediate
+                        ? "<Noise>b__0_0>b__0_1"
+                    : deepNestedLiftedSource
+                        ? "<<<Outer>b__0_0>b__0_1>b__0_2"
+                    : nestedUnresolvedLiftedSource
                         ? "<<Outer>b__0_0>b__0_1"
                         : malformedGeneratedLiftedSource
                             ? "Noise>b__0_0"
@@ -5618,9 +5681,14 @@ public class LibraryBodyIndexTests
             MethodAttributes.Public
                 | MethodAttributes.Static,
             MethodImplAttributes.IL,
-            metadata.GetOrAddString("ReadAsync"),
+            metadata.GetOrAddString(
+                deepNestedLiftedSource
+                    ? "<Outer>b__0_0"
+                    : "ReadAsync"),
             taskSignature,
-            AddRetBody(bodyEncoder),
+            deepNestedLiftedSource
+                ? deepOuterLiftedBody
+                : AddRetBody(bodyEncoder),
             MetadataTokens.ParameterHandle(1));
 
         var moveNextIl = new BlobBuilder();
@@ -5816,6 +5884,14 @@ public class LibraryBodyIndexTests
         {
             metadata.AddCustomAttribute(
                 analyze,
+                generatedAttributeConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
+        if (malformedNestedLiftedIntermediate)
+        {
+            metadata.AddCustomAttribute(
+                competing,
                 generatedAttributeConstructor,
                 metadata.GetOrAddBlob(
                     new byte[] { 0x01, 0x00, 0x00, 0x00 }));

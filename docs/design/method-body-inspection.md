@@ -358,8 +358,9 @@ gates that boundary, while
 `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
 `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
 multi-hop caller projection for unresolved and recoverable-failure paths;
-`ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` gates canonical
-generated-name admission.
+`ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
+`ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
+gate canonical generated-name admission at immediate and intermediate hops.
 `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
 `ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
 async-owner shapes.

@@ -896,8 +896,9 @@ Research overlay bridge, and the application layer:
   `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
   `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
   multi-hop caller projection for unresolved and recoverable-failure paths;
-  `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` gates the
-  malformed-name close case.
+  `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
+  `ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
+  gate malformed immediate and intermediate names.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
