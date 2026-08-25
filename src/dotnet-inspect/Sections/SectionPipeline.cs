@@ -23,7 +23,6 @@ public sealed record SectionEntry<TModel>
     public SectionCapabilities Capabilities { get; init; }
     public SectionSizeClass SizeClass { get; init; }
     public SectionCost Cost { get; init; }
-    public required string? ScannerKey { get; init; }
     public ImmutableArray<InspectionQueryDefinition> Queries { get; init; } = [];
     public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
@@ -59,7 +58,6 @@ public sealed class SectionPipeline<TModel>
     private readonly List<SectionCategory> _categories = [];
     private bool _curatedCatalog;
     private bool _computedPoles = true;
-    private Func<string, SectionCost>? _scannerCost;
     private Func<InspectionQueryDefinition, InspectionCost>? _queryCost;
 
     public const string AllCategory = "@All";
@@ -79,26 +77,6 @@ public sealed class SectionPipeline<TModel>
         return this;
     }
 
-    /// <summary>
-    /// Binds this pipeline to the scanner registry's declared costs, so a section registered
-    /// afterwards inherits the cost of the scanner it names (see <see cref="Add(SectionEntry{TModel})"/>).
-    ///
-    /// Throws if sections are already registered rather than retroactively raising them. Silent
-    /// order-dependence is what this change is removing, not something to reintroduce one layer up:
-    /// a call placed after the first <c>Add</c> would leave earlier sections under-declared, which
-    /// looks exactly like the defect being fixed.
-    /// </summary>
-    public SectionPipeline<TModel> UseScannerCosts(Func<string, SectionCost> costOf)
-    {
-        if (_entries.Count > 0)
-            throw new InvalidOperationException(
-                "UseScannerCosts must be called before any section is registered; " +
-                $"{_entries.Count} section(s) are already registered and would keep their " +
-                "declared cost.");
-
-        _scannerCost = costOf;
-        return this;
-    }
     /// <summary>
     /// Binds this pipeline to the typed query registry's prerequisite-aware costs. A section
     /// backed by multiple queries inherits the maximum cost among their prerequisite closures.
@@ -212,7 +190,6 @@ public sealed class SectionPipeline<TModel>
             Capabilities = TDescriptor.Capabilities,
             SizeClass = TDescriptor.SizeClass,
             Cost = TDescriptor.Cost,
-            ScannerKey = TDescriptor.ScannerKey,
             Queries = [.. queries],
             HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
@@ -242,19 +219,6 @@ public sealed class SectionPipeline<TModel>
             throw new InvalidOperationException(
                 $"{entry.Name} sets ProbeEffectiveness=false and must be explicit-only or " +
                 "provide a structural applicability predicate.");
-
-        // A section cannot be cheaper than the scanner it depends on. Raising here rather than
-        // asking each descriptor to restate its scanner's cost is the point: the same body-index
-        // work was previously spelled three different ways across eleven descriptors, and every
-        // new section was one more chance to under-declare it. A descriptor may still raise its
-        // own cost above the scanner's -- a cheap scan feeding an enormous rendering is a real
-        // case -- but it can no longer lower it.
-        if (_scannerCost is { } costOf && entry.ScannerKey is { } scannerKey)
-        {
-            var scanner = costOf(scannerKey);
-            if (scanner > entry.Cost)
-                entry = entry with { Cost = scanner };
-        }
 
         if (_queryCost is { } queryCostOf)
         {
@@ -331,21 +295,6 @@ public sealed class SectionPipeline<TModel>
         .ToList();
 
     /// <summary>
-    /// Every distinct non-null <see cref="SectionEntry{TModel}.ScannerKey"/> declared by a
-    /// registered section, independent of verbosity or selection. This is the demand side of the
-    /// section-to-scanner binding; the supply side is
-    /// <see cref="ScannerRegistry.RegisteredKeys"/>. The two must agree exactly — a key declared
-    /// here but not registered is a section whose data silently never gets collected, and a key
-    /// registered but not declared here is a scanner nothing can ask for. Gate for the library
-    /// pipeline: <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c>.
-    /// Other pipelines declare no scanner keys today, so nothing gates them.
-    /// </summary>
-    public IReadOnlySet<string> DeclaredScannerKeys => _entries
-        .Select(e => e.ScannerKey)
-        .Where(key => key != null)
-        .ToHashSet(StringComparer.Ordinal)!;
-
-    /// <summary>
     /// Every typed query declared by a registered section, independent of selection.
     /// Query identity is the instance, not its diagnostic name.
     /// </summary>
@@ -354,28 +303,15 @@ public sealed class SectionPipeline<TModel>
         .ToHashSet();
 
     /// <summary>
-    /// Section names paired with the scanner key each declares, for sections that declare one.
-    /// Exposed so a test can derive the sections affected by a scanner property — for example
-    /// "which sections depend on a scanner that declares prerequisites" — from the registration
-    /// rather than restating a literal list that would drift.
-    /// </summary>
-    public IEnumerable<(string Name, string ScannerKey)> ScannerBoundSections => _entries
-        .Where(e => e.ScannerKey != null)
-        .Select(e => (e.Name, e.ScannerKey!));
-
-    /// <summary>
     /// Section names paired with the typed query each declares, for sections that declare one.
     /// </summary>
     public IEnumerable<(string Name, InspectionQueryDefinition Query)> QueryBoundSections => _entries
         .SelectMany(e => e.Queries.Select(query => (e.Name, Query: query)));
 
     /// <summary>
-    /// Section names paired with the <b>effective</b> cost the verbosity ladder consults — after
-    /// <see cref="UseScannerCosts"/> has raised each entry to the cost of the scanner behind it.
-    /// This is the cost axis that actually decides auto-rendering, and it is not the same as
-    /// <c>registry.CostOf(section.ScannerKey)</c>: the raise is one-way, so a descriptor may
-    /// declare a higher cost than its scanner and move itself off the ladder independently.
-    /// Exposed so a gate can pin the decision input rather than one of its two sources.
+    /// Section names paired with the <b>effective</b> cost the verbosity ladder consults after
+    /// typed query costs raise their bound sections. A descriptor may still declare a higher cost
+    /// than its producer and move itself off the ladder independently.
     /// </summary>
     public IEnumerable<(string Name, SectionCost Cost)> SectionCosts => _entries
         .Select(e => (e.Name, e.Cost));
@@ -588,8 +524,7 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>
     /// Returns the structural candidate set before producer-backed effectiveness is known.
-    /// Commands use this to plan prerequisites for sections whose data is not produced by a
-    /// registered scanner.
+    /// Commands use this to plan typed query prerequisites before production.
     /// </summary>
     public HashSet<string> GetCandidateSections(Verbosity verbosity,
         HashSet<string>? include = null, bool fixedOverview = false)
@@ -833,60 +768,6 @@ public sealed class SectionPipeline<TModel>
         if (entry.Info)
             return Verbosity.Minimal;
         return Verbosity.Normal;
-    }
-
-    /// <summary>
-    /// Returns the set of scanner keys needed to satisfy all requested sections.
-    /// Sections with a null scanner key are always collected and not included.
-    /// </summary>
-    /// <param name="trace">
-    /// When supplied, records which section demanded which scanner. This is the demand side of the
-    /// pipeline and the only place the section-to-scanner attribution exists — downstream, the
-    /// registry sees a set of keys with no memory of who asked for them.
-    /// </param>
-    /// <param name="commandDemand">
-    /// Scanners the caller needs for reasons no section expresses, each paired with the reason.
-    /// They belong here rather than being added to the returned set afterwards: this method is the
-    /// one place that knows the full requested set, so anything added later is a scanner the trace
-    /// cannot attribute and will misreport as prerequisite expansion.
-    /// </param>
-    /// <param name="excludeUnbounded">
-    /// Keeps explicitly included unbounded sections from demanding their scanners. Effective
-    /// discovery uses this because <c>-S</c> narrows the discovered rows but must not turn
-    /// discovery into execution of the selected section.
-    /// </param>
-    public HashSet<string> GetRequiredScanners(Verbosity verbosity,
-        HashSet<string>? include = null, bool fixedOverview = false,
-        InspectionTrace? trace = null,
-        IReadOnlyList<(string Reason, string Scanner)>? commandDemand = null,
-        bool excludeUnbounded = false)
-    {
-        HashSet<string> scanners = [];
-        for (int i = 0; i < _entries.Count; i++)
-        {
-            var entry = _entries[i];
-            if (entry.ScannerKey == null)
-                continue;
-            if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
-                continue;
-            if (IsRequested(entry, i, verbosity, include, fixedOverview))
-            {
-                scanners.Add(entry.ScannerKey);
-                trace?.RecordDemand(entry.Name, entry.ScannerKey);
-            }
-        }
-
-        if (commandDemand is not null)
-        {
-            foreach (var (reason, scanner) in commandDemand)
-            {
-                scanners.Add(scanner);
-                trace?.RecordCommandDemand(reason, scanner);
-            }
-        }
-
-        trace?.RecordRequested(scanners);
-        return scanners;
     }
 
     /// <summary>

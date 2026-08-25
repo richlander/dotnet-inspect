@@ -52,7 +52,6 @@ public sealed class CapabilitySectionRegistry<TModel, TContext>
                 Info = section.Info,
                 ProbeEffectiveness = section.Plan.CanExecute(CapabilityExecutionModes.Probe),
                 Capabilities = SectionCapabilities.None,
-                ScannerKey = null,
                 HasExplicitApplicability = true,
                 IsApplicable = section.IsApplicable,
                 CanRender = section.CanRender,
