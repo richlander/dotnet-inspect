@@ -2483,7 +2483,12 @@ public class ApiOutputFormatterTests
                         new(
                             0x06000003,
                             0x06000004,
-                            2),
+                            2)
+                        {
+                            ModuleVersionId =
+                                new Guid(
+                                    "01020304-0506-0708-090a-0b0c0d0e0f10"),
+                        },
                     ],
                     HasRuntimeJsExport = true,
                     RuntimeJsExportAttributeCount = 2,
@@ -2527,6 +2532,11 @@ public class ApiOutputFormatterTests
             json,
             StringComparison.Ordinal);
         Assert.Contains(
+            "\"module_version_id\": "
+                + "\"01020304-0506-0708-090a-0b0c0d0e0f10\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "\"has_malformed_runtime_js_export_attribute\": true",
             json,
             StringComparison.Ordinal);
@@ -2555,7 +2565,12 @@ public class ApiOutputFormatterTests
             new RuntimeJsExportWrapperCandidate(
                 0x06000003,
                 0x06000004,
-                2),
+                2)
+            {
+                ModuleVersionId =
+                    new Guid(
+                        "01020304-0506-0708-090a-0b0c0d0e0f10"),
+            },
             Assert.Single(
                 evidence.RuntimeJsExportWrapperCandidates!));
         Assert.True(restored.HasSystemTextJsonSourceGenerationMarker);

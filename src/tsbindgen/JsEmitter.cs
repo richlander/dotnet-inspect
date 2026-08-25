@@ -55,7 +55,7 @@ static class JsEmitter
         // its own origin (for MSDL-proxied source requests) before any other export is used, so
         // this generator calls it here rather than leaving every caller to remember to.
         JsExportFunction? configureHost = functions.FirstOrDefault(
-            f => string.Equals(f.Name, "ConfigureHost", StringComparison.Ordinal));
+            IsConfigureHostBootstrap);
         if (configureHost is not null)
         {
             sb.Append("  ").Append(CamelCase.FromPascalCase(configureHost.Name))
@@ -73,6 +73,20 @@ static class JsEmitter
 
         return sb.ToString();
     }
+
+    static bool IsConfigureHostBootstrap(
+        JsExportFunction function) =>
+        string.Equals(
+            function.Name,
+            "ConfigureHost",
+            StringComparison.Ordinal)
+        && function.ReturnType == "void"
+        && function.Parameters is
+        [
+            {
+                Type: "string",
+            },
+        ];
 
     static void EmitFunction(StringBuilder sb, JsExportFunction function)
     {

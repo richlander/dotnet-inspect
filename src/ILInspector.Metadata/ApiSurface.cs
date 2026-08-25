@@ -735,7 +735,15 @@ public sealed record FilteredRuntimeJsExportFact(
 public sealed record RuntimeJsExportWrapperCandidate(
     int WrapperMethodToken,
     int RegistrationMethodToken,
-    int RegistrationCount);
+    int RegistrationCount)
+{
+    /// <summary>
+    /// Module identity that owns both MethodDef tokens. Null preserves older
+    /// serialized surfaces but cannot authenticate runtime publication.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ModuleVersionId { get; init; }
+}
 
 public class ApiType
 {

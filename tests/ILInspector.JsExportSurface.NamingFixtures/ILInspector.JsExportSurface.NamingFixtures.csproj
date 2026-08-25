@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
     <Description>Compiler-produced System.Text.Json nested-root naming fixtures for tsbindgen.</Description>

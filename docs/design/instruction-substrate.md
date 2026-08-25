@@ -82,6 +82,16 @@ or otherwise unresolved flows stay `Unknown`.
 `ClassifiesSingleLocalUseAsCallArgument` gate the projection and its conservative
 boundary.
 
+`DirectCall.FirstArgumentStringLiteral` is a separate narrow projection for
+call authentication. It is populated only when the first declared argument is
+a direct `ldstr`, or every reaching definition of an unaddressed local carries
+the same proven literal. Missing user strings, raw values, address-taken locals,
+cycles, and different merged literals remain null; Analysis does not evaluate
+general expressions or guess from display text.
+`MethodCallAnalysisTests.CollectsFirstArgumentStringLiteral` and
+`DoesNotGuessFirstArgumentStringLiteralAcrossMerge` gate the positive and
+fail-closed boundaries.
+
 For consumers that must prove a complete result envelope rather than one
 successful call-result path, Analysis also exposes `MethodResultSink`: every
 physical `ret` and each single-argument call has either all directly proven

@@ -365,6 +365,17 @@ public sealed record DirectCall(
         CallArgumentSources.Empty;
 
     /// <summary>
+    /// The first declared argument when Analysis proves that every reaching
+    /// path supplies the same <c>ldstr</c> literal. Null means absent,
+    /// non-literal, ambiguous, or incomplete.
+    /// </summary>
+    /// <remarks>
+    /// <c>MethodCallAnalysisTests.CollectsFirstArgumentStringLiteral</c> gates
+    /// direct and local-carried literals plus the ambiguous boundary.
+    /// </remarks>
+    public string? FirstArgumentStringLiteral { get; init; }
+
+    /// <summary>
     /// Direct-call provenance for an instance call's receiver when Analysis can
     /// interpret the body evaluation stack. Null for static calls and when
     /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is not

@@ -443,6 +443,54 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("void", "string", true)]
+    [InlineData("void", "number", false)]
+    [InlineData("System.Threading.Tasks.Task", "string", false)]
+    public void JsEmitter_BootstrapsOnlySupportedConfigureHostSignature(
+        string returnType,
+        string parameterType,
+        bool expectedBootstrap)
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Fixture",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "ConfigureHost",
+                    ReturnType = returnType,
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "value",
+                            Type = parameterType,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string js = JsEmitter.Emit(surface);
+
+        Assert.Equal(
+            expectedBootstrap,
+            js.Contains(
+                "configureHostExport(window.location.origin);",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            "function configureHost(value)",
+            js,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
     {

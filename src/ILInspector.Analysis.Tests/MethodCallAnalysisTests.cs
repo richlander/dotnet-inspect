@@ -9,6 +9,8 @@ public sealed class MethodCallAnalysisTests
     const int FirstToken = 0x0A000001;
     const int SecondToken = 0x0A000002;
     const int SignatureToken = 0x11000001;
+    const int FirstUserStringToken = 0x70000001;
+    const int SecondUserStringToken = 0x70000002;
 
     static readonly TypeRef s_void =
         TypeRef.CoreLib("System", "Void");
@@ -305,6 +307,88 @@ public sealed class MethodCallAnalysisTests
         var item = Assert.Single(evidence);
         Assert.Equal("Unsafe call", item.Reason);
         Assert.Equal(0, item.ILOffset);
+    }
+
+    [Fact]
+    public void CollectsFirstArgumentStringLiteral()
+    {
+        var userStrings = new Dictionary<int, string>
+        {
+            [FirstUserStringToken] = "direct",
+            [SecondUserStringToken] = "local",
+        };
+        byte[] il =
+        [
+            0x72, 0x01, 0x00, 0x00, 0x70,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x72, 0x02, 0x00, 0x00, 0x70,
+            0x0A,
+            0x06,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks =
+            ImmutableArray.CreateBuilder<MethodResultSink>();
+
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(
+                stringParameterFirst: true,
+                userStrings: userStrings),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+
+        Assert.Equal(
+            ["direct", "local"],
+            calls.Select(call =>
+                call.FirstArgumentStringLiteral));
+    }
+
+    [Fact]
+    public void DoesNotGuessFirstArgumentStringLiteralAcrossMerge()
+    {
+        var userStrings = new Dictionary<int, string>
+        {
+            [FirstUserStringToken] = "left",
+            [SecondUserStringToken] = "right",
+        };
+        byte[] il =
+        [
+            0x16,
+            0x2D, 0x08,
+            0x72, 0x01, 0x00, 0x00, 0x70,
+            0x0A,
+            0x2B, 0x06,
+            0x72, 0x02, 0x00, 0x00, 0x70,
+            0x0A,
+            0x06,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks =
+            ImmutableArray.CreateBuilder<MethodResultSink>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(
+                stringParameterFirst: true,
+                userStrings: userStrings),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+
+        Assert.Null(
+            Assert.Single(calls)
+                .FirstArgumentStringLiteral);
     }
 
     [Fact]
@@ -606,7 +690,9 @@ public sealed class MethodCallAnalysisTests
         bool throwOnIndirectCall = false,
         bool returningFirst = false,
         bool instanceSecond = false,
-        List<string>? events = null)
+        List<string>? events = null,
+        bool stringParameterFirst = false,
+        IReadOnlyDictionary<int, string>? userStrings = null)
         : IMethodCallResolver
     {
         public MemberRef ResolveMember(int token)
@@ -621,12 +707,14 @@ public sealed class MethodCallAnalysisTests
                     "Fixtures",
                     "Target"),
                 "Target",
-                unsafeMember
-                    ? [TypeRef.Pointer(
-                        TypeRef.CoreLib(
-                            "System",
-                            "Int32"))]
-                    : [],
+                stringParameterFirst && token == FirstToken
+                    ? [TypeRef.CoreLib("System", "String")]
+                    : unsafeMember
+                        ? [TypeRef.Pointer(
+                            TypeRef.CoreLib(
+                                "System",
+                                "Int32"))]
+                        : [],
                 returningFirst && token == FirstToken
                     ? TypeRef.CoreLib("System", "String")
                     : s_void,
@@ -662,5 +750,13 @@ public sealed class MethodCallAnalysisTests
                 _ => operandToken,
             };
         }
+
+        public string? ResolveUserString(int token) =>
+            userStrings is not null
+                && userStrings.TryGetValue(
+                    token,
+                    out string? value)
+                    ? value
+                    : null;
     }
 }

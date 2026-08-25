@@ -114,13 +114,17 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
-                if (member.HasRuntimeJsExportWrapperCandidate == false
-                    || member.HasRuntimeJsExportWrapperCandidate == true
-                        && bodyIndex is not null
-                        && !HasAuthenticatedRuntimeJsExportWrapper(
-                            bodyIndex,
-                            member,
-                            incompleteBodyTokens))
+                if (bodyIndex is null
+                        ? member.HasRuntimeJsExportWrapperCandidate
+                            == false
+                        : member.HasRuntimeJsExportWrapperCandidate
+                                != true
+                            || !HasAuthenticatedRuntimeJsExportWrapper(
+                                bodyIndex,
+                                surface.AssemblyIdentity,
+                                type,
+                                member,
+                                incompleteBodyTokens))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -817,12 +821,20 @@ public static class JsExportSurfaceBuilder
 
     static bool HasAuthenticatedRuntimeJsExportWrapper(
         LibraryBodyIndex bodyIndex,
+        ApiAssemblyIdentity? assemblyIdentity,
+        ApiType declaringType,
         ApiMember export,
         IReadOnlySet<int> incompleteBodyTokens)
     {
         if (export.MetadataToken is not { } exportToken
             || export.RuntimeJsExportWrapperCandidates is not
                 { Count: > 0 } candidates)
+            return false;
+        string? runtimeBindingName = RuntimeBindingName(
+            assemblyIdentity,
+            declaringType,
+            export.Name);
+        if (runtimeBindingName is null)
             return false;
 
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
@@ -837,9 +849,12 @@ public static class JsExportSurfaceBuilder
                     candidate.WrapperMethodToken
                         == wrapper.MetadataToken);
             if (candidate is null
+                || candidate.ModuleVersionId
+                    != wrapper.ModuleVersionId
                 || !IsAuthenticatedRuntimeRegistration(
                     callsByEvidenceMethod,
                     candidate,
+                    runtimeBindingName,
                     incompleteBodyTokens)
                 || !IsGeneratedRuntimeWrapper(wrapper, export.Name))
                 continue;
@@ -885,9 +900,11 @@ public static class JsExportSurfaceBuilder
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
             callsByEvidenceMethod,
         RuntimeJsExportWrapperCandidate candidate,
+        string runtimeBindingName,
         IReadOnlySet<int> incompleteBodyTokens)
     {
         if (candidate.RegistrationCount <= 0
+            || candidate.ModuleVersionId is not { } moduleVersionId
             || incompleteBodyTokens.Contains(
                 candidate.RegistrationMethodToken)
             || !callsByEvidenceMethod.TryGetValue(
@@ -897,10 +914,46 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        return registrationCalls.Count(call =>
-            call.Kind == CallKind.Call
-            && IsRuntimeBindManagedFunction(call.Callee))
-            == candidate.RegistrationCount;
+        return registrationCalls.All(call =>
+                call.EvidenceMethod.ModuleVersionId
+                    == moduleVersionId)
+            && registrationCalls.Count(call =>
+                call.Kind == CallKind.Call
+                && IsRuntimeBindManagedFunction(call.Callee))
+                == candidate.RegistrationCount
+            && registrationCalls.Count(call =>
+                call.Kind == CallKind.Call
+                && IsRuntimeBindManagedFunction(call.Callee)
+                && string.Equals(
+                    call.FirstArgumentStringLiteral,
+                    runtimeBindingName,
+                    StringComparison.Ordinal))
+                == 1;
+    }
+
+    static string? RuntimeBindingName(
+        ApiAssemblyIdentity? assemblyIdentity,
+        ApiType declaringType,
+        string exportName)
+    {
+        if (assemblyIdentity is null
+            || declaringType.DefinitionName is not
+                { Segments.Length: > 0 } definitionName)
+        {
+            return null;
+        }
+
+        string typeName = string.Join(
+            '/',
+            definitionName.Segments.Select(
+                MetadataNameArity.StripFromSegment));
+        if (!string.IsNullOrEmpty(definitionName.Namespace))
+        {
+            typeName =
+                $"{definitionName.Namespace}.{typeName}";
+        }
+
+        return $"[{assemblyIdentity.Name}]{typeName}:{exportName}";
     }
 
     static bool IsRuntimeBindManagedFunction(MemberRef method) =>

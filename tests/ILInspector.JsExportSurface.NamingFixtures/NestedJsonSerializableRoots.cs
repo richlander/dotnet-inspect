@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -20,18 +21,19 @@ public sealed class NestedJsonSerializableRootCollisionContainer
 }
 
 /// <summary>
-/// Compiler-produced serializer use for the collision gate. The test supplies
-/// its JS-export marker separately so this fixture remains isolated from the
-/// test host's command fixture assembly.
+/// Compiler-produced serializer use and JS export for the collision gate.
 /// </summary>
-public static class NestedJsonSerializableRootCollisionSerializer
+#pragma warning disable CA1416 // Compiler-produced browser export evidence.
+public static partial class NestedJsonSerializableRootCollisionSerializer
 {
+    [JSExport]
     public static string Serialize() =>
         JsonSerializer.Serialize(
             new NestedJsonSerializableRootCollision("collision"),
             NestedJsonSerializableRootCollisionContext.Default
                 .NestedJsonSerializableRootCollision);
 }
+#pragma warning restore CA1416
 
 #pragma warning disable SYSLIB1031 // The collision is the source-generator boundary under test.
 [JsonSerializable(typeof(NestedJsonSerializableRootCollision))]

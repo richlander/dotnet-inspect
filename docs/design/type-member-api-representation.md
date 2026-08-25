@@ -115,16 +115,25 @@ export's overload group. Another type's registration or a handwritten row
 outside that container cannot be borrowed.
 `RuntimeJsExportWrapperCandidates` retains the exact wrapper MethodDef token,
 unique registration MethodDef token, and total decoded registration count
-rather than asking a Boolean to carry provenance. The candidate is deliberately
-not publication provenance:
+rather than asking a Boolean to carry provenance. Each candidate also retains
+the owning module MVID, so MethodDef tokens from a separately read image cannot
+be combined with Analysis evidence from another module. The candidate is
+deliberately not publication provenance:
 `ILInspector.JsExportSurface` authenticates the Analysis-owned
 registration body and wrapper-to-stub-to-export MethodDef call chain, including
-an exact count of trusted `BindManagedFunction` calls and complete body analysis
-for the registration, wrapper, and stub, before publishing a runtime binding.
+an exact count of trusted `BindManagedFunction` calls, exactly one call whose
+proven first string-literal argument is the export's structured runtime binding
+name, equal module identities throughout, and complete body analysis for the
+registration, wrapper, and stub, before publishing a runtime binding.
 This separates Metadata's declaration fact from body evidence and rejects
 diagnosed chains, prefix siblings, or handwritten wrapper names. Null remains
-the compatibility shape for older or hand-composed surfaces.
+the compatibility shape for older or hand-composed surfaces only through the
+declaration-only `Build(surface)` seam; a body-backed build requires exact
+non-null provenance.
 `Build_RejectsRegistrationBodyCountMismatch` and
+`Build_RejectsDuplicatedRuntimeBindingTarget`,
+`Build_RejectsRuntimeWrapperFromDifferentModule`,
+`Build_WithBodiesRejectsLegacyNullWrapperProvenance`, and
 `ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence` gate the exact evidence
 and persistence boundary. Authentic `[JSExport]` rows on MethodDefs
 that have no declarable `ApiMember` remain `FilteredRuntimeJsExportFact`

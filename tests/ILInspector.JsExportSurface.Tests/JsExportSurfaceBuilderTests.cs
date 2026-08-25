@@ -568,6 +568,165 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_WithBodiesRejectsLegacyNullWrapperProvenance()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        export.HasRuntimeJsExportWrapperCandidate = null;
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(extracted).Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsRuntimeWrapperFromDifferentModule()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate candidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        export.RuntimeJsExportWrapperCandidates =
+        [
+            candidate with
+            {
+                ModuleVersionId = Guid.NewGuid(),
+            },
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDuplicatedRuntimeBindingTarget()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate candidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+        Assert.True(candidate.RegistrationCount > 1);
+        string target = Assert.Single(
+            bodyIndex.DirectCalls
+                .Where(call =>
+                    call.EvidenceMethod.MetadataToken
+                        == candidate.RegistrationMethodToken
+                    && call.FirstArgumentStringLiteral?.EndsWith(
+                        $":{export.Name}",
+                        StringComparison.Ordinal)
+                        == true)
+                .Select(call =>
+                    call.FirstArgumentStringLiteral!)
+                .Distinct());
+        ImmutableArray<DirectCall> duplicatedCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                    == candidate.RegistrationMethodToken
+                    && call.FirstArgumentStringLiteral is not null
+                    ? call with
+                    {
+                        FirstArgumentStringLiteral = target,
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex reconstructedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: bodyIndex.DirectCalls,
+                resultSinks: bodyIndex.ResultSinks);
+        LibraryBodyIndex duplicatedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: duplicatedCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                reconstructedIndex).Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    duplicatedIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_DoesNotCreditPrefixSiblingWrapper()
     {
         string path =
@@ -874,9 +1033,24 @@ public sealed class JsExportSurfaceBuilderTests
     public void Build_RejectsOnlyExportScopedBodyDiagnostics(
         bool sourceAttributed)
     {
-        const int exportToken = 0x06000001;
-        const int diagnosticToken = 0x06000002;
-        ApiSurface apiSurface = ExportSurface(exportToken);
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        int exportToken = Assert.IsType<int>(
+            export.MetadataToken);
+        const int diagnosticToken = 0x0600FFFF;
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        apiSurface.Types = [exports];
+        LibraryBodyIndex authenticIndex =
+            OpenWireContractBodyIndex(path);
         var diagnostic = new AnalysisDiagnostic(
             diagnosticToken,
             "Exports.Failed",
@@ -884,9 +1058,11 @@ public sealed class JsExportSurfaceBuilderTests
             SourceMethodToken:
                 sourceAttributed ? exportToken : null);
         LibraryBodyIndex bodyIndex = LibraryBodyIndex.FromEvidence(
+            authenticIndex.Methods,
             [],
-            [],
-            diagnostics: [diagnostic]);
+            diagnostics: [diagnostic],
+            directCalls: authenticIndex.DirectCalls,
+            resultSinks: authenticIndex.ResultSinks);
 
         if (sourceAttributed)
         {
@@ -1192,7 +1368,8 @@ public sealed class JsExportSurfaceBuilderTests
                 .Members,
             member => member.Name
                 == nameof(NestedJsonSerializableRootCollisionSerializer.Serialize));
-        serializer.HasRuntimeJsExport = true;
+        Assert.True(serializer.HasRuntimeJsExport);
+        SelectOnlyRuntimeJsExport(apiSurface, serializer);
         LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
@@ -1915,7 +2092,8 @@ public sealed class JsExportSurfaceBuilderTests
                 type => type.Name == nameof(ArrayRootNamingFixtureExports))
                 .Members,
             member => member.Name == serializerName);
-        serializer.HasRuntimeJsExport = true;
+        Assert.True(serializer.HasRuntimeJsExport);
+        SelectOnlyRuntimeJsExport(apiSurface, serializer);
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
@@ -1962,7 +2140,8 @@ public sealed class JsExportSurfaceBuilderTests
             member =>
                 member.Name
                 == nameof(ArrayRootNamingFixtureExports.SerializeIntMatrix));
-        serializer.HasRuntimeJsExport = true;
+        Assert.True(serializer.HasRuntimeJsExport);
+        SelectOnlyRuntimeJsExport(apiSurface, serializer);
 
         ILInspector.JsExportSurface.JsExportSurface surface =
             JsExportSurfaceBuilder.Build(
@@ -2433,6 +2612,21 @@ public sealed class JsExportSurfaceBuilderTests
                 },
             ],
         };
+
+    static void SelectOnlyRuntimeJsExport(
+        ApiSurface surface,
+        ApiMember selected)
+    {
+        foreach (ApiType type in surface.Types)
+        {
+            type.Members =
+            [
+                .. type.Members.Where(member =>
+                    member.HasRuntimeJsExport != true
+                    || ReferenceEquals(member, selected)),
+            ];
+        }
+    }
 
     static int ReplaceAscii(
         byte[] image,

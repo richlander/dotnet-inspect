@@ -16,6 +16,8 @@ internal interface IMethodCallResolver
     MemberRef ResolveIndirectCall(int signatureToken);
 
     int DefinitionToken(int operandToken);
+
+    string? ResolveUserString(int token);
 }
 
 /// <summary>
@@ -139,7 +141,8 @@ internal static class MethodCallAnalysis
             var sources = new StackValueSourceResolver(
                 context,
                 callsByOffset,
-                reaching);
+                reaching,
+                resolver);
             CollectArgumentSources(calls, sources);
             CollectResultSinks(
                 context,
@@ -340,6 +343,13 @@ internal static class MethodCallAnalysis
             {
                 ArgumentSources = new(
                     arguments.MoveToImmutable()),
+                FirstArgumentStringLiteral =
+                    call.Callee.ParameterTypes.Length == 0
+                        ? null
+                        : sources.CallArgumentStringLiteral(
+                            call.ILOffset,
+                            call.Callee.ParameterTypes.Length,
+                            argumentIndex: 0),
                 ReceiverSource = receiver,
             };
         }
@@ -353,16 +363,19 @@ internal static class MethodCallAnalysis
     {
         readonly MethodBodyAnalysisContext _context;
         readonly IReadOnlyDictionary<int, DirectCall> _callsByOffset;
+        readonly IMethodCallResolver _resolver;
         readonly TypedStackResult _stack;
         ReachingDefinitionsResult? _reaching;
 
         internal StackValueSourceResolver(
             MethodBodyAnalysisContext context,
             IReadOnlyDictionary<int, DirectCall> callsByOffset,
-            ReachingDefinitionsResult? reaching)
+            ReachingDefinitionsResult? reaching,
+            IMethodCallResolver resolver)
         {
             _context = context;
             _callsByOffset = callsByOffset;
+            _resolver = resolver;
             _reaching = reaching;
             _stack = context.Instructions.InterpretStack(
                 !context.Method.ReturnType.Equals(
@@ -401,6 +414,22 @@ internal static class MethodCallAnalysis
             return stackIndex < 0 || stackIndex >= stack.Length
                 ? SourceSet.Incomplete
                 : Resolve(stack[stackIndex].ProducerOffset, []);
+        }
+
+        internal string? CallArgumentStringLiteral(
+            int callOffset,
+            int parameterCount,
+            int argumentIndex)
+        {
+            ImmutableArray<StackValue> stack =
+                _stack.StackBeforeOffset(callOffset);
+            int stackIndex =
+                stack.Length - parameterCount + argumentIndex;
+            return stackIndex < 0 || stackIndex >= stack.Length
+                ? null
+                : ResolveStringLiteral(
+                    stack[stackIndex].ProducerOffset,
+                    []);
         }
 
         SourceSet SourceAt(
@@ -491,6 +520,99 @@ internal static class MethodCallAnalysis
                 }
 
                 return new([.. sourceOffsets], IsComplete: true);
+            }
+            finally
+            {
+                resolving.Remove(producerOffset);
+            }
+        }
+
+        string? ResolveStringLiteral(
+            int producerOffset,
+            HashSet<int> resolving)
+        {
+            if (producerOffset == StackValue.NoProducer
+                || !resolving.Add(producerOffset))
+            {
+                return null;
+            }
+
+            try
+            {
+                DecodedInstruction? producer =
+                    _context.InstructionAt(producerOffset);
+                if (producer is not { } instruction)
+                    return null;
+                if (instruction.OpCode == ILOpCode.Ldstr)
+                {
+                    return _resolver.ResolveUserString(
+                        MethodInstructionFacts.OperandInt32(
+                            instruction));
+                }
+                if (!MethodInstructionFacts.TryReadLocalSlot(
+                        instruction,
+                        out LocalSlotAccess access)
+                    || access.IsStore
+                    || access.IsArgument)
+                {
+                    return null;
+                }
+
+                ReachingDefinitionsResult reaching =
+                    _reaching ??=
+                        ILInspector.Analysis.ReachingDefinitions
+                            .Analyze(
+                                _context.Instructions,
+                                _context.Method.ParameterTypes.Length
+                                    + (_context.Method.IsStatic
+                                        ? 0
+                                        : 1));
+                if (!reaching.IsComplete
+                    || reaching.Uses.Any(candidate =>
+                        !candidate.IsArgument
+                        && candidate.Slot == access.Slot
+                        && candidate.Address))
+                {
+                    return null;
+                }
+
+                LocalUse? use =
+                    reaching.Uses.FirstOrDefault(candidate =>
+                        !candidate.IsArgument
+                        && candidate.Slot == access.Slot
+                        && candidate.Offset == instruction.Offset);
+                if (use is null
+                    || use.Address
+                    || use.ReachingDefinitions.IsEmpty)
+                {
+                    return null;
+                }
+
+                string? literal = null;
+                foreach (LocalDefinition definition
+                    in use.ReachingDefinitions)
+                {
+                    ImmutableArray<StackValue> stack =
+                        _stack.StackBeforeOffset(
+                            definition.Offset);
+                    if (stack.IsEmpty)
+                        return null;
+                    string? candidate = ResolveStringLiteral(
+                        stack[^1].ProducerOffset,
+                        resolving);
+                    if (candidate is null
+                        || literal is not null
+                            && !string.Equals(
+                                literal,
+                                candidate,
+                                StringComparison.Ordinal))
+                    {
+                        return null;
+                    }
+                    literal = candidate;
+                }
+
+                return literal;
             }
             finally
             {

@@ -50,6 +50,13 @@ and `Build_ProjectsNestedRuntimeDeclaringTypePath` gate the compiled namespaced
 top-level and nested paths, while the inspect-web generated-artifact check
 remains the global-namespace consumer canary.
 
+The inspect-web bootstrap convention automatically invokes only an exact
+`static void ConfigureHost(string)` export with `window.location.origin`.
+Same-name overloads with a different parameter or return type remain ordinary
+generated wrappers and are never invoked implicitly.
+`DtsEmitterTests.JsEmitter_BootstrapsOnlySupportedConfigureHostSignature` gates
+the positive and close-negative signatures.
+
 System.Text.Json serializes an exact CLR `byte[]` (`System.Byte[]`) DTO member
 as one Base64 JSON string, so those JSON-wire declarations map to TypeScript
 `string`. Direct `[JSExport]` parameters and returns instead retain JS
@@ -541,12 +548,15 @@ publication.
 Metadata also retains only an exact `__Wrapper_<name>_<digits>` MethodDef token
 backed by an authentic SDK `DynamicDependency` registration on one generated
 registration MethodDef, never treating that declaration fact as body
-provenance. Analysis authenticates the registration token as a body containing
-exactly the retained number of trusted `BindManagedFunction` calls and then
-authenticates the generated wrapper-to-local-stub-to-exact-export MethodDef
-call chain before tsbindgen emits declarations or JavaScript. A prefix sibling,
-a borrowed registration, and a handwritten candidate therefore fail before
-publication.
+provenance. Metadata records the candidate module MVID. Analysis authenticates
+the registration token as a body containing exactly the retained number of
+trusted `BindManagedFunction` calls, with exactly one proven first
+string-literal argument matching each export's structured runtime binding
+name, and then authenticates the same-module generated
+wrapper-to-local-stub-to-exact-export MethodDef call chain before tsbindgen
+emits declarations or JavaScript. A prefix sibling, duplicated binding target,
+mixed-image body, borrowed registration, handwritten candidate, or legacy-null
+candidate in a body-backed build therefore fails before publication.
 `JsExportSurfaceBuilderTests.Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`,
 `Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
 `ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`

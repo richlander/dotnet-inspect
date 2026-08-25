@@ -395,6 +395,29 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public int DefinitionToken(int operandToken)
             => owner.PeelToDefinitionToken(operandToken);
+
+        public string? ResolveUserString(int token)
+        {
+            if ((token & unchecked((int)0xFF000000))
+                    != 0x70000000)
+            {
+                return null;
+            }
+
+            try
+            {
+                return owner._reader.GetUserString(
+                    MetadataTokens.UserStringHandle(
+                        token & 0x00FFFFFF));
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentException
+                    or InvalidOperationException)
+            {
+                return null;
+            }
+        }
     }
 
     // A value-type `newobj` whose operand is an unresolvable external TypeRef is still

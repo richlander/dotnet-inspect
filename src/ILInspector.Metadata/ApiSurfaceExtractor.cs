@@ -466,6 +466,8 @@ public static class ApiSurfaceExtractor
 
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        Guid moduleVersionId = reader.GetGuid(
+            reader.GetModuleDefinition().Mvid);
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
         budget?.AdmitMetadataRows(reader);
@@ -1194,7 +1196,11 @@ public static class ApiSurfaceExtractor
                                         registration
                                             .RegistrationMethodToken,
                                         registration
-                                            .RegistrationCount)))
+                                            .RegistrationCount)
+                                    {
+                                        ModuleVersionId =
+                                            moduleVersionId,
+                                    }))
                         .Distinct()
                         .ToList()
                     ?? [];

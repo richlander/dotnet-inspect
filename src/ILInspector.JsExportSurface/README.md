@@ -20,7 +20,9 @@
   MethodDef. A registration for another declaring type, or a handwritten
   registration elsewhere, cannot be borrowed. Analysis then authenticates the
   exact registration token as a body containing the retained number of trusted
-  `BindManagedFunction` calls, plus a complete
+  `BindManagedFunction` calls, exactly one trusted call whose proven first
+  string-literal argument equals the export's structured runtime binding name,
+  equal metadata/body module MVIDs, plus a complete
   wrapper-to-stub-to-export MethodDef call chain. A diagnosed registration,
   wrapper, or stub body, prefix sibling, or handwritten candidate cannot
   publish another export.
@@ -41,7 +43,9 @@ consumer such as [`tsbindgen`](../tsbindgen).
 The single-argument `Build(surface)` overload is a declaration-only
 compatibility seam for metadata-focused tests and hand-composed surfaces. It
 does not establish runtime publication; the product path always supplies
-Analysis body evidence.
+Analysis body evidence. The body-backed overload requires exact non-null
+wrapper candidates; legacy null provenance is accepted only by the
+declaration-only seam.
 
 Serializer-context getters authenticate registered roots only when their
 context carries the authentic
@@ -66,6 +70,9 @@ calls the other.
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
 `Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
 `Build_RejectsRegistrationBodyCountMismatch`,
+`Build_RejectsDuplicatedRuntimeBindingTarget`,
+`Build_RejectsRuntimeWrapperFromDifferentModule`,
+`Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Build_ProjectsRuntimeQualifiedDeclaringTypePath`,
