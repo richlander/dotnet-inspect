@@ -42,20 +42,22 @@ family.
   cross-checks their exactness against the richer semantic projections for
   members present on both sides. A disagreement is retained as a per-member
   `Failed` diagnostic; it does not abort healthy members in the same diff.
-- `DotnetInspector.ResearchQueries` owns the authorized asynchronous operation.
-  It mints the aggregate plan/result budget ledger before question sealing or
-  endpoint realization/participant pairing, lends its narrow lease to the
-  budgeted product-owned stages, opens or borrows inspection sessions, projects
-  every requested mechanism, enforces authored-source budgets, completes the
+- `DotnetInspector.ResearchQueries` owns the authorized planned and direct
+  operations. Each mints the aggregate plan/result budget ledger before any
+  question, endpoint, pairing, or producer work, then lends only
+  operation-stamped owner-local facets to the product-owned stages. The planned async operation opens or
+  borrows inspection sessions, enforces authored-source budgets, completes the
   comparison, and releases leases before returning a typed final query outcome.
+  The synchronous direct operation retains the caller's live designation only
+  for its lexical invocation and returns one inert typed member result.
 - The assembly/package `diff` CLI owns selection and presentation only. It
   supplies endpoint/target requests and capabilities, then renders the
   completed result or typed query failure. It never opens readers around
   Research, projects a mechanism, or enriches a finalized comparison. The direct
   `match --implementation` path already owns one live source while resolving
   its two exact selectors; it may create an invocation-scoped direct
-  designation and render the product-issued direct result, but it does not
-  fabricate an assembly-wide result.
+  designation and pass it to the Queries-owned direct operation, but it does
+  not invoke a Research producer or fabricate an assembly-wide result.
 
 ### Structural body comparison
 
@@ -249,6 +251,11 @@ BodyEvidenceTargetSelectionRequest
                          MetadataMethodAddress + relationship roles)
   Intent                 derived: Explicit | Enumerative
 
+BodyEvidenceSelectionQuestionInput
+  Id                     opaque user/host question identity
+  Selection              product-owned typed selection input
+  EndpointSlots          non-empty declared subset of the pairing plan
+
 BodyEvidenceSelectionQuestion
   Id                     opaque user/host question identity
   Selection              exact immutable BodyEvidenceTargetSelectionRequest
@@ -345,6 +352,45 @@ BodyEvidenceNativePayloadSnapshot<T>
   Mechanism               exact catalog mechanism id
   Value                   catalog-declared closed immutable typed DTO
 
+BodyEvidencePlanBudgetLeaseSet
+  Operation               exact owning operation id
+  Endpoint                planned-only IComparisonEndpointBudgetLease
+  Projection              planned/direct IBodyEvidenceProjectionBudgetLease
+
+BodyEvidenceOperationStageDescriptor
+  Id                     Admission | QuestionSealing |
+                         EndpointRealization | ParticipantPairing |
+                         PlanExpansion | ProducerPreflight | Projection |
+                         Completion | Cleanup
+  AppliesTo              Planned | Direct | Both
+  Owners                 exact operation-kind -> ResearchQueries |
+                         EndpointOwner | AcquisitionCoordinator | Research map
+  BudgetAuthorities      exact operation-kind -> Ledger | EndpointFacet |
+                         ProjectionFacet | None map
+  Dimensions             exact closed stage-authorized budget dimensions
+
+BodyEvidenceOperationStageCatalog
+  Entries                 exact descriptor set in required execution order
+  Planned                 exact applicable ordered stage-id set
+  Direct                  exact applicable ordered stage-id set
+
+BodyEvidenceProducerWorkEstimate
+  InputUnits              checked conservative raw-body/metadata input units
+  WorkUnits               checked conservative producer operations
+  PeakScratchBytes        checked maximum live producer-owned scratch
+
+BodyEvidenceProducerWorkPlan
+  Entries                 every producer-eligible
+                         (work-item id, mechanism id) -> exact estimate
+  InputUnits              checked complete entry sum
+  WorkUnits               checked complete entry sum
+
+BodyEvidenceProducerWorkReservation
+  Mechanism               exact catalog mechanism id
+  WorkItem                exact current work-item id
+  Estimate                exact charged estimate
+  Lifetime                current callback through native-result release
+
 BodyEvidenceComparedDisposition<T>
   Verdict                 Exact | Different
   Authority               Producer | SessionBodyPresence
@@ -370,7 +416,13 @@ DirectMemberComparisonInput
   Pairing                 DirectMemberPairingDesignation
   Before                  exact MetadataMethodAddress + relationship role
   After                   exact MetadataMethodAddress + relationship role
-  Lowering                direct factory mints one internal correlation/scope
+  Lowering                direct operation mints one internal correlation/scope
+
+DirectImplementationComparisonOperation
+  Input                   DirectMemberComparisonInput
+  Mechanisms              closed Research-owned synchronous set
+  Budget                  BodyEvidencePlanBudget + authorized override
+  Execute                 one Queries-owned synchronous lexical operation
 
 ImplementationMemberDiffResult
   RequestKey              requested DesignatedMemberPairKey
@@ -407,13 +459,35 @@ live-backed snapshot.
 
 Producer-native comparison objects are callback-local values, not ledger or
 completed-result payloads. Each mechanism catalog entry declares one typed
-snapshot DTO and an internal lowering operation. Before a producer disposition
-enters its ledger, projection invokes that lowering, measures and charges the
-snapshot against the active plan-budget lease, retains only
-`BodyEvidenceNativePayloadSnapshot<T>`, and releases the native object. At most
-the current callback's native result exists outside an inert snapshot;
-`Complete` receives only already-lowered, budgeted ledgers and performs no
-first-time payload lowering.
+snapshot DTO, one internal lowering operation, and one conservative typed work
+estimator. The estimator uses only already admitted bounded metadata/body size
+facts; it cannot decode, canonicalize, decompile, diff, or otherwise perform
+the work it estimates. The estimate includes every producer-owned decode and
+canonicalization allocation implied by those raw facts. After plan sealing and
+before invoking any producer, the session computes the complete
+`BodyEvidenceProducerWorkPlan` for every producer-eligible work-item/mechanism
+pair. It validates exact set equality with the planned producer population and
+atomically charges the checked aggregate input/work totals. Unknown,
+overflowing, omitted, duplicate, or rejected estimates fail before the first
+callback begins; the plan also rejects any entry whose peak scratch exceeds the
+operation cap. Projection then uses the current operation-stamped projection
+facet to obtain one
+`BodyEvidenceProducerWorkReservation` for the entry's peak scratch immediately
+before invoking that producer. Concurrent execution waits for scratch capacity
+or propagates cancellation; ordinary reservation contention does not become
+budget exhaustion or alter dispositions.
+
+The sealed work plan owns the cumulative input/work charges. Each reservation
+holds its peak-scratch bytes against the operation's live total through callback
+completion, typed lowering, and native-result release. Before a producer
+disposition enters its ledger, projection invokes the catalog lowering,
+measures and charges the snapshot, retains only
+`BodyEvidenceNativePayloadSnapshot<T>`, and releases the native object. A
+`finally` path releases the peak-scratch reservation after success, producer
+failure, lowering failure, or cancellation; cumulative input/work charges are
+never replenished. At most the current reserved callback's native result exists
+outside an inert snapshot. `Complete` receives only already-lowered, budgeted
+ledgers and performs no first-time payload lowering.
 
 The catalog, not a host or producer callback, closes the permitted payload-type
 set. Snapshot DTOs are immutable value-only evidence: they may contain typed
@@ -434,14 +508,19 @@ payload snapshots, and the total presentation map.
 
 ### Target attempts and work-item totality
 
-Before acquisition, the host seals a non-empty
-`BodyEvidenceSelectionQuestion` set against the endpoint-pairing plan. Each
-question owns one exact immutable `BodyEvidenceTargetSelectionRequest` and a
-non-empty set of endpoint slot ids. The request is a closed product-owned typed
-union: explicit member selectors, enumerative typed filters/`All`, or the
-internal direct pairing/address/role selection. `Intent` is derived from that
-arm rather than restated by the host. The CLI/host adapter seals its complete
-typed requests inside the question set; no parallel selector list exists.
+Before acquisition, the host declares a non-empty
+`BodyEvidenceSelectionQuestionInput` set against the endpoint-pairing plan. The
+host remains authoritative for question identity, typed selection input, and
+endpoint scope, but cannot construct an immutable question. The query-owned
+sealer requires the current concrete ledger, charges every input and retained
+payload, and only then copies the complete set into immutable
+`BodyEvidenceSelectionQuestion` values. Each sealed question owns one exact
+immutable `BodyEvidenceTargetSelectionRequest` and a non-empty set of endpoint
+slot ids. The request is a closed product-owned typed union: explicit member
+selectors, enumerative typed filters/`All`, or the internal direct
+pairing/address/role selection. `Intent` is derived from that arm rather than
+restated by the host. No parallel selector or pre-sealed host question list
+exists.
 The union of every question's endpoint-slot set must equal the pairing plan's
 slot set. Several questions may name one slot, but no plan slot may be named by
 zero questions. Validation rejects an unknown or uncovered slot and an
@@ -501,9 +580,10 @@ question's endpoint-slot set. This mechanical expansion admits no host-chosen
 “applicable subset”: an admitted pairing and a failed slot are equally
 impossible to omit. Exact question/correlation equality rejects a question or
 selection request that disappears or changes before query input. For a
-well-behaved non-CLI host, the pre-acquisition question set is that host's
-authoritative declaration. The product does not attempt to recover a question
-the host never declared.
+well-behaved non-CLI host, the pre-acquisition question-input set is that host's
+authoritative declaration. The query-sealed questions must be its exact
+budgeted immutable copy. The product does not attempt to recover an input the
+host never declared.
 
 The coordinator mints a distinct scope for every
 `(CorrelationId, ParticipantDomain.Key)` entry. This preserves question-local
@@ -696,8 +776,8 @@ relationship role. It therefore supports original-to-emitted comparisons and
 `match --implementation` comparisons between arbitrary methods while retaining
 both exact side-local identities. Endpoint, selector, and assembly-wide paths
 cannot mint this key or use the direct designation as correspondence evidence.
-Direct construction mints one real opaque selection correlation with
-one sealed question whose selection request is
+The Queries-owned direct operation charges and mints one real opaque selection
+correlation with one sealed question whose selection request is
 `Direct(pairing id + exact before/after addresses/roles)` and whose derived
 intent is `Explicit`, one internal endpoint slot, that slot's
 acquisition-owned one-outcome admitted pairing receipt, one admitted
@@ -705,7 +785,7 @@ participant domain/scope, one single-participant `SameSelection` role manifest
 per side, and one exact request and attempt per side. The caller neither
 supplies nor observes the role manifests, outcome receipt, question,
 correlation, or scope. If both attempts resolve,
-the direct factory maps them to the designated-pair key. If either fails, that
+the internal Research session maps them to the designated-pair key. If either fails, that
 attempt maps to `ResolutionFailedKey` and the resolved opposite attempt maps to
 its per-attempt `CounterpartUnavailableKey` using the internally minted scope
 id. `AttemptMap` totality and address/role validation therefore remain
@@ -877,9 +957,29 @@ untrusted MethodDef inventories into scopes, target requests, attempts, work
 items, per-mechanism dispositions, native snapshots, and presentation values
 before Source becomes eligible. Queries therefore owns one non-optional
 `BodyEvidencePlanBudget` and mutable `BodyEvidencePlanBudgetLedger` for the
-entire query lease. It exposes only an `IBodyEvidencePlanBudgetLease` to the
-question-set sealer, acquisition-owned pairing coordinator, plan builder, and
-projectors:
+entire planned or direct operation. The ledger mints one
+applicable `BodyEvidencePlanBudgetLeaseSet`: a planned
+`IComparisonEndpointBudgetLease` declared with endpoint/coordinator contracts
+in core Queries, and a planned/direct `IBodyEvidenceProjectionBudgetLease`
+declared with the internal Research session. ResearchQueries uses the ledger directly for
+plan-slot preflight, question sealing, and plan construction; it lends only the
+owner-local facet to endpoint realizers/coordinator or Research projectors.
+Every facet carries the same unforgeable operation id and can reserve only its
+declared dimensions. Neither owning subsystem references ResearchQueries or
+the other subsystem's lease contract.
+
+`BodyEvidenceOperationStageCatalog` is the single source of truth for the
+operation boundary rather than a documentation-only checklist. The planned
+pipeline contains every catalog stage. The direct pipeline omits only
+`EndpointRealization`; its internally authorized designation still passes
+through admission, question sealing, participant lowering, plan expansion,
+producer preflight, projection, completion, and cleanup. Stage descriptors
+assign orchestration, facet, and budget dimensions, not pairing or mechanism
+semantics. Source-architecture and set-equality gates derive the expected
+planned/direct stage registrations, lease-facet adapters, budget methods, and
+boundary fixtures from this catalog. A missing or extra implementation stage,
+an unowned dimension, or a stage reordered across its prerequisite fails the
+gate.
 
 | Dimension | Default | Accounting |
 | --- | ---: | --- |
@@ -891,40 +991,72 @@ projectors:
 | Target requests and attempts | 65,536 | One charge when each request/attempt identity is minted |
 | Work items | 65,536 | Every healthy, absent, ambiguous, or failed work-item identity |
 | Ledger dispositions | 262,144 | Requested mechanism/work-item product, preflighted before projection |
-| Retained request/receipt characters | 8,388,608 | Every selector, filter, structural identity, opaque textual id, and proof string copied into questions or receipts |
+| Producer input units | 4,194,304 | Complete catalog-declared raw-body/metadata input population, preflighted before producer decode |
+| Producer work units | 64,000,000 | Catalog-declared conservative operations; ordered matching charges checked matrix cells |
+| Live producer scratch bytes | 256 MiB | Scoped conservative reservation held through native-result release |
+| Retained request/receipt characters | 8,388,608 | Every selector, filter, structural identity, opaque id, proof, and diagnostic string copied into plan input, endpoint outcome, or receipt |
 | Retained snapshot bytes | 256 MiB | Immutable native byte/value arrays plus checked UTF-16 string storage |
 | Retained presentation characters | 8,388,608 | Every inert label, detail, and diagnostic character retained by the result |
 
 Entry limits bound object overhead; byte/character limits bound variable-sized
 payloads. Each retained copy is charged in its own owning dimension; reusing
 one host string does not make two retained question/receipt or presentation
-copies free. Existing per-artifact metadata, body-decode, and workspace-
-retention limits remain active and do not substitute for this aggregate query
-budget.
+copies free. Producer input/work units are cumulative; live scratch is a
+scoped concurrent reservation, so serial execution releases capacity but never
+restores consumed work. Existing per-artifact metadata, body-decode, and
+workspace-retention limits remain active and do not substitute for this
+aggregate operation budget.
 Hosts may lower any default. Raising one requires an invocation-scoped
 `BodyEvidencePlanBudgetOverrideCapability` minted by the composition root from
 an explicit user/host gesture; `InspectionCost`, an exhaustive selector, and a
 Source budget override are not that grant. Browser/Wasm hosts may choose lower
 defaults without changing result semantics.
 
-The query mints the ledger before sealing questions or requesting endpoint
-realization and participant pairing. Question-set sealing requires the lease
-and incrementally charges the question, every selection-request entry, and
-every variable-sized selector/filter/identity payload before copying it into
-the immutable request.
+The planned query receives the already sealed endpoint-pairing plan and mints
+the ledger before sealing questions or requesting endpoint realization. It
+first preflights and charges the plan's exact endpoint-slot count and every
+query-owned copy of its variable request/coordinate identity; failure starts no
+acquisition. Question-set sealing then requires the lease and incrementally
+charges the question, every selection-request entry, and every variable-sized
+selector/filter/identity payload before copying it into the immutable request.
 A single explicit question that matches nothing is therefore still bounded.
-The acquisition-owned coordinator receives the same lease and reserves the
-checked complete realized-manifest entry sum before materializing qualified
-keys, candidate/affected payloads, input maps, or outcomes.
+
+Every endpoint realizer receives the non-optional endpoint facet. As the
+source-specific acquisition discovers its complete selected inventory, the
+workspace admission budget continues to bound download, archive, artifact, and
+retained-byte work. Before the endpoint owner materializes one role binding,
+participant-manifest entry, endpoint-outcome payload, or query-owned copy of a
+variable identity/proof/diagnostic, it reserves and charges the corresponding
+participant-input count and retained character storage. It returns its outcome
+with an internal query-owned budget receipt. Overflow or exhaustion produces
+one fixed-size outer
+`ImplementationComparisonQueryOutcome.Failed(Acquisition,
+PlanBudgetExceeded)` with no artifact-derived text and discards every staged
+manifest, outcome, or receipt. The pairing coordinator requires the same
+endpoint facet and the complete budget-receipt set. Before qualifying keys or
+allocating candidate/affected payloads, input maps, or pairing outcomes, it
+checks that the receipt counts equal the exact realized-manifest union and that
+receipt character charges equal the independently measured query-owned outcome
+payloads. It validates rather than double-charging participant entries or
+characters already retained by endpoint realization.
 
 Later known counts are preflighted before their next phase: correlation scopes
 before selection, and requests, attempts, work items, and the mechanism product
-before projection. Each producer result is typed-lowered, measured, and charged
-before its inert disposition enters a ledger; the native object is then
-released. Presentation characters reserve and charge before retention. Source
-evidence that survives its own acquisition budget also charges this final-
-result budget before ledger retention. Checked arithmetic rejects overflow. A
-charge that would exceed the limit stops the planned query as
+before projection. Each mechanism catalog entry maps its producer's already
+bounded input facts to checked `InputUnits`, `WorkUnits`, and
+`PeakScratchBytes`. The session seals the complete producer-work plan and
+atomically charges its input/work totals before the first producer callback.
+For IL/Finding ordered matching, the work estimate includes the checked
+`(oldCount + 1) * (newCount + 1)` cell product and scratch includes the complete
+matrix and producer-owned arrays. A catalog entry without a finite conservative
+estimator cannot run. Projection acquires each entry's live-scratch reservation
+before its callback. Each producer result is then typed-lowered, measured, and
+charged before its inert disposition enters a ledger; the native object and
+scratch reservation are released before another callback runs. Presentation
+characters reserve and charge before retention. Source evidence that survives
+its own acquisition budget also charges this final-result budget before ledger
+retention. Checked arithmetic rejects overflow. A charge that would exceed the
+limit stops the planned query as
 `ImplementationComparisonQueryOutcome.Failed(Planning | Projection |
 Completion, PlanBudgetExceeded)` with dimension, limit, observed/requested
 charge, and no partial plan or completed result. It never truncates an
@@ -932,15 +1064,22 @@ inventory, shortens a correlation, drops a work item/disposition, or publishes
 a partially retained receipt. Staged inert dispositions from a failed planned
 projection are discarded; no native result remains accumulated behind them.
 
-Direct comparison uses the same ledger; an overrun stamps
+`DirectImplementationComparisonOperation` is the sole direct executor. It
+mints the same concrete ledger in `DotnetInspector.ResearchQueries`, charges
+one internal endpoint slot and two qualified designation inputs, seals its one
+internal question/domain/scope/work-item population, and lends the projection
+facet to the internal Research session and producer projectors. A direct overrun
+stamps
 `Failed(PlanBudgetExceeded)` into every requested direct ledger, retains only
 the fixed-size typed budget diagnostic, and returns one complete `Unavailable`
 result with no request, native, or presentation payload from the failed
 projection beyond its already validated inert request identity. The fixed
 budget-failure envelope contains no artifact-derived text. A one-item direct
-population therefore does not create a budget bypass.
+population therefore does not create a budget bypass. `ILInspector.Research`
+can accept only its operation-stamped internal projection facet; it cannot mint,
+accept from a caller, replenish, or substitute the concrete ledger.
 
-### Query-owned asynchronous lifetime
+### Query-owned operation lifetimes
 
 `ImplementationComparisonQuery` is one
 `InspectionQueryRegistry.AddAsync` operation. Begin, synchronous projections,
@@ -964,6 +1103,16 @@ ImplementationComparisonQueryFailure
   Primary                typed query diagnostic
   Cleanup                zero or more typed cleanup diagnostics
 ```
+
+`DirectImplementationComparisonOperation.Execute` is a synchronous
+ResearchQueries operation over caller-owned live sources. It mints its ledger
+before direct lowering, retains the designation and sources only through the
+lexical call, and returns one inert `ImplementationMemberDiffResult`.
+`ILInspector.Research` exposes only the internal lease-requiring direct session
+used by this operation; it has no public direct executor. Direct operations do
+not enter `InspectionQueryRegistry` and cannot request Source, but their budget,
+producer-work, lowering, completion, and failure contracts are identical to
+the synchronous portion of the planned query.
 
 Owned resources and lease claims are released after success, failure, or
 cancellation.
@@ -1322,14 +1471,16 @@ Use `ImplementationComparisonQuery` for assembly-, package-, project-,
 platform-, directory-, or workspace-scoped implementation comparison. The host
 supplies the acquisition-owned sealed endpoint plan, typed pre-acquisition
 question inputs, mechanism set, capabilities, and plan/Source budgets. The
-query mints its plan-budget ledger first and seals the questions through that
-lease before asking endpoint owners to realize the plan. It then asks the
-acquisition-owned comparison coordinator to produce the complete
+query mints its plan-budget ledger first, charges the complete endpoint-slot
+population, and seals the questions against that ledger before asking endpoint
+owners to realize the plan under its endpoint facet. It then asks the
+acquisition-owned comparison coordinator to validate the endpoint budget
+receipts and produce the complete
 `ComparisonEndpointPairingSlotOutcomeSet` from those endpoint outcomes through
-the same lease. Finally, it derives participant domains by exhaustive typed
-lowering, followed by the exact non-empty correlation expansion, pre-minted
-scopes, their terminal or side-local outcomes, and admitted scopes' exact or
-carried target requests.
+that same endpoint facet. Finally, it derives participant domains by exhaustive
+typed lowering, followed by the exact non-empty correlation expansion,
+pre-minted scopes, their terminal or side-local outcomes, and admitted scopes'
+exact or carried target requests.
 Every admitted side binding already contains the workspace-issued
 selection/body role outcome. The query consumes it; it does not ask the host,
 adapter, Metadata, or Research to reconstruct same-side role correspondence.
@@ -1346,31 +1497,34 @@ identity may differ because the designation is explicit comparison authority,
 not inferred correspondence. It accepts no paths, handles, tokens, or display
 identity. The designation cannot outlive either source.
 
-`ImplementationDiff.CompareMembers` accepts only
-`DirectMemberComparisonInput`: that designation, exact old/new
-`MetadataMethodAddress` values, and a relationship role for each side. It
-validates both
-addresses against the designated participant bindings, completes one
-synchronous work-item session by lowering the wrapped pairing into one
-`DesignatedMemberPairKey` work item, and returns
-`ImplementationMemberDiffResult` before either source can expire. It accepts
-only Research-owned synchronous mechanisms and cannot feed an assembly-wide
-Implementation Diff. The completed direct result retains only inert subjects,
-ledgers, native-payload snapshots, outcomes, absence reasons, and diagnostics;
-it does not retain the designation, pairing, participant binding, either
-source, or producer-native object. The current handle-only overload is removed.
+The caller passes that designation, exact old/new `MetadataMethodAddress`
+values, a relationship role for each side, the Research-owned synchronous
+mechanism set, and its budget to
+`DirectImplementationComparisonOperation.Execute`. The Queries-owned operation
+mints the ledger, validates both addresses against the designated participant
+bindings, and asks the internal lease-requiring Research session to lower the
+wrapped pairing into one `DesignatedMemberPairKey` work item. It returns
+`ImplementationMemberDiffResult` before either source can expire and cannot
+feed an assembly-wide Implementation Diff. The completed direct result retains
+only inert subjects, ledgers, native-payload snapshots, outcomes, absence
+reasons, and diagnostics; it does not retain the designation, pairing,
+participant binding, either source, producer-native object, or budget lease.
+Public `ImplementationDiff.CompareMembers` and the current handle-only overload
+are removed.
 
 `match --implementation` retains its command-owned selector source only long
-enough to designate and compare the two exact methods. It passes the direct
-result to a formatter overload for `ImplementationMemberDiffResult`; it never
+enough to designate the two exact methods and invoke the direct Queries
+operation. It passes the returned result to a formatter overload for
+`ImplementationMemberDiffResult`; it never invokes Research directly,
 constructs `ImplementationDiffMember`, `ImplementationDiffResult`, or a
 placeholder `ResearchComparison`, and the direct result retains both selected
 subjects when their signatures differ. It renders retained direct diagnostics
 and exits nonzero when `HasFailures` is true.
 
-ReturnToSender and round-trip tools use the same designation/input path for
-original-to-emitted or emitted-to-emitted methods, including differently named
-assemblies. Every caller switches exhaustively on the total direct outcome;
+ReturnToSender and round-trip tools use the same designation plus Queries-owned
+operation for original-to-emitted or emitted-to-emitted methods, including
+differently named assemblies. Every caller switches exhaustively on the total
+direct outcome;
 `IsExact`, when retained as a convenience, is exactly
 `Outcome == Exact`. Authored rebuild maps `Unavailable` to `ContextFailed`;
 round-trip and scope comparison map it to their typed unavailable state. A
@@ -1525,7 +1679,9 @@ The section binds `ImplementationComparisonQuery`. During migration, its
 current input still carries retained assembly descriptors, reference resolvers,
 and body indexes; the query opens those descriptors for the offline C# and IL
 producers. The target input replaces that reader-opening shape with the sealed
-endpoint outcomes, pairings, and target requests above. The CLI adapter's
+endpoint plan and typed question inputs above. Endpoint outcomes, budget
+receipts, pairings, and target requests are internal staged results of the
+query-owned operation, never host-supplied target input. The CLI adapter's
 current path-backed descriptors are an acquisition boundary, not part of the
 target query contract.
 With `--pdb-source`, the query acquires eligible members' endpoint PDB and
@@ -1549,7 +1705,7 @@ not invoke or reconstruct the C# and IL producers independently.
 | `PackageAssemblyContextRoles` nullable surface lookup | Extend this product-owned same-side role authority to issue one sealed `AssemblyParticipantRoleManifest` directly from its complete role sets and exact correspondence input, with `SameSelection`, `Implementation`, or typed `ReferenceOnly` bindings before cross-version pairing; the nullable compatibility lookup is not a comparison input |
 | `AssemblyResolutionProvenance` pattern matching in Research | Opaque adapter-/host-issued `ArtifactParticipantPairing.Id` plus side-local binding |
 | Package/project/directory occurrence index | Logical participant slots; duplicate slots fail ambiguous |
-| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | A pre-acquisition question set whose entries each embed one exact immutable product-owned typed selection request and non-empty endpoint-slot scope; intent derives from the request arm. Pairing then seals admitted, endpoint-absent, and terminal participant domains (including distinct ambiguous/failed pairing outcomes), and the non-empty correlation manifest expands each question's slots to exactly those domain/scope entries, followed by independent terminal or `Selected` / proven `Absent` / `Failed` scope outcomes and a completed receipt retaining exact inert snapshots of the requests, questions, domain keys/payloads, manifest, scopes, and proofs without retaining live pairings or participants |
+| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | Typed pre-acquisition question inputs declared by the host, then charged and sealed only by the Queries-owned operation into questions that each embed one exact immutable product-owned typed selection request and non-empty endpoint-slot scope; intent derives from the request arm. Pairing then seals admitted, endpoint-absent, and terminal participant domains (including distinct ambiguous/failed pairing outcomes), and the non-empty correlation manifest expands each question's slots to exactly those domain/scope entries, followed by independent terminal or `Selected` / proven `Absent` / `Failed` scope outcomes and a completed receipt retaining exact inert snapshots of the requests, questions, domain keys/payloads, manifest, scopes, and proofs without retaining live pairings or participants |
 | `CSharpBodyDiff` raw-key/occurrence index | Scope-local participant pairing plus `MemberBodyCorrespondenceKey` and role |
 | Correspondence collision rejected or selected by occurrence | `CorrespondenceAmbiguousKey` retaining every colliding side-local attempt, plus per-attempt counterpart-unavailable work items |
 | Scope-free `CorrespondedKey` and cross-scope aliases | Scope-local corresponded keys, collision buckets, aliases, and taint; independent scopes remain independent proof domains |
@@ -1568,16 +1724,17 @@ not invoke or reconstruct the C# and IL producers independently.
 | `ImplementationDiffMechanism` / `AllAvailable` | Retire in favor of the closed mechanism catalog; no context-free host-owned mechanism set |
 | Public `ImplementationDiffResult` / `ImplementationDiffMember` constructors, `SourceComparison` init, and record copying | Sealed non-record results with internal constructors, get-only immutable state, and no post-completion enrichment |
 | `ImplementationDiffResult.Members` and planned `ResearchComparison.BySubject()` | Work-item-keyed result projection and the producer/session `BodyEvidenceResearchChange` union; any producer-subject view retains its work-item id |
-| `ImplementationDiff.CompareMembers` handle-only pairing and shared `ImplementationMemberDiffResult.Subject` | `DesignateMemberPair` plus `DirectMemberComparisonInput`; exact addresses and per-side roles lower to one `DesignatedMemberPairKey`, including explicitly designated cross-identity assemblies, and the result retains both side-local subjects |
-| `MatchCommand.BuildImplementationDiffView` direct result construction and unconditional zero exit | Invocation-scoped direct designation plus a formatter overload for product-issued `ImplementationMemberDiffResult`; retained direct failure returns nonzero |
+| `ImplementationDiff.CompareMembers` handle-only pairing and shared `ImplementationMemberDiffResult.Subject` | `DesignateMemberPair` plus Queries-owned `DirectImplementationComparisonOperation.Execute`; its `DirectMemberComparisonInput`, exact addresses, and per-side roles lower under the operation-stamped projection facet to one `DesignatedMemberPairKey`, including explicitly designated cross-identity assemblies, and the result retains both side-local subjects |
+| `MatchCommand.BuildImplementationDiffView` direct result construction and unconditional zero exit | Invocation-scoped direct designation passed to the Queries-owned direct operation plus a formatter overload for its product-issued `ImplementationMemberDiffResult`; retained direct failure returns nonzero |
 | Direct `IsExact`/empty-row inference | Exhaustive `Exact \| Different \| NotApplicable \| Unavailable` handling; all-absent results retain reasons and never masquerade as exact, changed, or failed |
-| ReturnToSender and round-trip `CompareMembers` calls | Product-issued direct designations over original/emitted or emitted/emitted sources; differing assembly identities remain valid, failed ledgers map to context-failed/unavailable, and all-absent ledgers map to typed not-applicable rather than semantic difference |
+| ReturnToSender and round-trip `CompareMembers` calls | Product-issued direct designations passed through the Queries-owned direct operation over original/emitted or emitted/emitted sources; differing assembly identities remain valid, failed ledgers map to context-failed/unavailable, and all-absent ledgers map to typed not-applicable rather than semantic difference |
 | `CompareMembersWithPdbSource` | Remove; async acquisition belongs to `ImplementationComparisonQuery` |
 | `WithPdbSourceComparisons` | Remove; finalized results accept no new ledger |
 | CLI changed-row PDB-source enrichment | Dependency-gated Source projection inside one query lifetime |
 | CLI API-only failure exit | Include assembly and direct result `HasFailures` in every selected output path |
 | Query/cleanup failure without result currency | `ImplementationComparisonQueryOutcome.Failed` with primary and cleanup diagnostics, no partial result, typed output, and nonzero exit |
-| Unbounded enumerative planning and retained result growth | Query-owned `BodyEvidencePlanBudgetLedger` minted before question sealing/pairing and used for immediate native lowering; planned exhaustion returns one typed outer failure, while direct exhaustion returns one complete `Unavailable` result |
+| Ad hoc planned/direct lifecycle sequencing | Catalog-declared operation stages with exact per-kind order, owner, facet, authorized-dimension, implementation-registration, and boundary-fixture set equality |
+| Unbounded endpoint, planning, producer, and retained-result work | Queries-owned `BodyEvidencePlanBudgetLedger` minted before endpoint-slot/question/endpoint realization, shared by planned and direct operations, and used for endpoint manifests, producer input/work/scratch preflight, and immediate native lowering; planned exhaustion returns one typed outer failure, while direct exhaustion returns one complete `Unavailable` result |
 | Unified-line-only CLI rows | Ledger-first same-schema evidence/diagnostic records; after native filtering, every producer/session `Compared(Different)` with no visible line gets its own typed fallback, while presentation-safe failed partial evidence may accompany but never replace its diagnostic; semantic row windows count evidence but never count or suppress mandatory ledger/query diagnostics |
 | Unqualified `options.Columns` / `options.Fields` forwarding | `ImplementationDiffSectionDescriptor.IntegrityColumns` drives both schema declaration and the effective Markout projection: user projection narrows ordinary evidence, while a row population with mandatory diagnostics retains the discriminator, failure identity/context, reason, and evidence columns in every table-derived structured mode |
 
@@ -1592,14 +1749,16 @@ The target lifecycle is unverified until these gates exist:
 | Selection-correlation totality | CLI/host + Queries over explicit/enumerative questions spanning one/multiple endpoint slots and admitted pairings, two-sided endpoint absence, single/mixed/two-sided endpoint failure, all-failed and mixed admitted/failed endpoint populations, all-ambiguous and mixed admitted/ambiguous participant-pairing outcomes, one question over multiple slots with colliding slot-local terminal ids, multiple questions over one ambiguous slot, zero-result filters, reordered inputs, omitted/substituted/mixed/reparented questions/requests/scopes/domains, inert receipt lowering, and direct lowering | A question does not embed its exact immutable typed selection request; a request is omitted, rekeyed, substituted, or disagrees with its derived intent; the pre-acquisition question ids or endpoint-slot scopes differ from the sealed question set; a question names no slot or an unknown slot; the union of question slot sets differs from the pairing-plan slot set; an endpoint slot expands to no domain or a sealed domain enters no correlation; any `Admitted(Paired \| BeforeOnly \| AfterOnly)`, `Ambiguous`, or `Failed` participant outcome lacks exactly one matching admitted/terminal participant domain; terminal participant domain keys omit the endpoint-slot id or collide when different slots reuse one local outcome id; pairing outcomes differ from the sealed slot-owned admitted/endpoint-absent/failed participant-domain set; a failed endpoint domain loses any requested outcome key, absent-arm proof, terminal payload/diagnostic, or realized tainted-input summary; a question lacks exactly one correlation; a correlation changes its question/selection/derived intent/slot scope, lacks the exact domain expansion of those slots, omits an endpoint-absent, ambiguous, or failed domain, or duplicates a domain; scopes are not bijective with required `(correlation, domain)` pairs; a scope is missing, extra, belongs to multiple correlations, disagrees on correlation/domain, or is omitted before selection; a terminal domain fabricates a participant/side inventory/request; a terminal pairing domain loses its exact slot/outcome id/kind/payload/reason/diagnostic or lacks a question-local participant-failed work item; receipt domain keys differ from the live domain set or an admitted/terminal snapshot loses, substitutes, or wrong-sides an input binding; query input, plan, and receipt request/question/domain-key/manifest/scope sets differ; a selected or failed correlated scope still yields no-match; a correlation made entirely of endpoint-absent/admitted-two-sided-absent scopes does not yield typed no-match; an all-ambiguous or all-failed correlation cannot complete with retained failures; an enumerative terminal failure becomes silent; an enumerative proven-empty correlation invents evidence; or direct lowering lacks its one internal slot outcome/request/question/admitted-domain/scope |
 | Body-target attempt totality | Research + Queries over same/distinct/reference-only selection/body roles, AssemblyRef-version-only drift, accessor roles, signature drift, same-scope and split-across-scope correspondence-key collisions, multi-participant selectors, overlapping selectors, endpoint/two-sided participant absence, selection/resolution failure, incomplete `All`, bodyless methods, and participant ambiguity/failure | An admitted scope side is not exactly `Selected`, proven `Absent`, or `Failed`; an endpoint-absent or participant-failed scope has side outcomes or target requests; an endpoint-absent scope invents a work item or loses either proof; an ambiguous/failed participant domain lacks exactly one question-local terminal work item and complete failure ledgers or invokes selection/resolution/producers; the completed participant-domain/scope outcome set differs from the sealed manifest/query input or plan; a two-sided absent admitted scope disappears, invents a work item, or is inferred from an empty work-item set; selected request ids differ from their requests; a failed/incomplete/ambiguous census becomes absence or a shortened selected set; a target request is not already scope/side/participant/role-generation scoped; selection enumerates the implementation role or body resolution uses the selection surface when a distinct implementation was designated; a reference-only binding invokes Metadata, becomes `Absent`/`Bodyless`/semantic add-remove, or lacks one unavailable attempt and complete failure ledgers; an exact target omits or bypasses relationship-role validation; one strict target is fanned across versions/participants; a selection failure invokes body resolution; one request lacks exactly one attempt; one attempt maps to zero/multiple work items; a same-scope collision lacks one side-scoped ambiguity work item keyed by the authoritative `CorrespondenceAmbiguousKey` and retaining all colliding attempts; a split-across-scope collision creates ambiguity, duplicate-key rejection, or cross-scope aliasing; a dependent opposite attempt lacks its own counterpart-unavailable item; a work item lacks attempts or question-local failure identity; correlation ids authorize matching; `AttemptMap`, aliases, and discriminated keys differ; remove/add shares one request/key/attempt; bodyless becomes a resolution failure; or aliases weaken exact/strict/correspondence validation |
 | Counterpart and body-presence disposition | Research C#/IL/body-signal tests over bodyful/bodyful, resolved bodyless/bodyful and bodyful/bodyless, proven-one-sided bodyful/bodyless, failed selector, failed body-key resolution, correspondence ambiguity, ambiguous/failed participant pairing, failed endpoint, and bodyless/bodyless scopes | Two bodyful sides bypass the producer; producer authority lacks one native exact/different verdict or carries body-presence evidence; a resolved or proven-one-sided exactly-one-bodyful item lacks a session-authoritative `Compared(Different, BodyAdded \| BodyRemoved)` value or exactly one matching `BodyEvidenceResearchChange` session arm; optional single-side display evidence supplies another verdict; a missing-body native result becomes `Failed(ComparisonUnavailable)`; a failed/incomplete/ambiguous counterpart or terminal participant domain produces semantic pair/add/remove or Source eligibility instead of its typed terminal failure; an attempt appears in both failure items; a failure-free unambiguous matched coordinate is tainted; no bodyful side is not `Absent(NoBody)`; or bodyless becomes a target failure |
-| Planned population ownership | Source-architecture, completed-result type-closure, and non-vacuity mutations | A plan/session/projector escapes Research/Queries; a producer enumerates or filters its own population; a completed-result constructor or retained field can carry a live pairing, role manifest/binding, participant, source, reader, group, workspace/session, plan, callback, lease, producer-native object, or content-opening authority; a public constructor, `init`, or record copy fabricates/mutates a planned result; or removing, adding, or duplicating one disposition does not reject completion |
+| Planned population ownership | Source-architecture, completed-result type-closure, and non-vacuity mutations | A plan/session/projector escapes Research/Queries; a producer enumerates or filters its own population; Research exposes a public planned/direct executor, concrete budget ledger, or caller-provided budget authority; a completed-result constructor or retained field can carry a live pairing, role manifest/binding, participant, source, reader, group, workspace/session, plan, callback, lease, producer-native object, or content-opening authority; a public constructor, `init`, or record copy fabricates/mutates a planned result; or removing, adding, or duplicating one disposition does not reject completion |
 | Completed payload inertness | Source-architecture + mechanism-catalog payload-type set equality + NativeAOT/Browser-compatible lowering inventory + success/failure/partial-evidence post-disposal fixtures | A mechanism lacks one catalog-declared typed snapshot DTO/lowering; a host or producer can add an unregistered payload type; a snapshot DTO field/type closure can reference a reader, source, participant, role object, workspace/session, callback, lease, stream, `ContentRef`, or other opening/selection authority; lowering references `System.Reflection`, dynamic loading/code generation, or a runtime payload-graph walker instead of its catalog-declared typed operation; the lowering closure introduces a NativeAOT trim warning or a Browser/Wasm-incompatible dependency; a producer-native object enters a ledger, survives beyond its callback, accumulates while later work runs, or reaches `Complete`; lowering/charging is deferred until completion; failed partial evidence skips immediate snapshotting; a snapshot loses typed native evidence needed by a ledger/change; or full result enumeration after disposal touches producer state |
 | Mechanism dependency totality | Research + Queries with empty selection, Source-only selection, C#-only change, IL-only change, both exact, proven one-sided change, failed/ambiguous counterpart, native comparison unavailable, Finding inspection/cross-validation failure, and presentation-filter mutations | An empty set or Source without a requested local mechanism is accepted; a known required dependency is absent; Source omits a requested local prerequisite; a failed prerequisite, counterpart, correspondence, native comparison, Finding inspection, or cross-validation performs I/O; a proven one-sided change becomes `NotEligible`; no-change performs I/O; or presentation affects eligibility |
-| Synchronous mechanism ownership | Research API and harness tests over `ResearchChangeMechanism` and `ImplementationDiffMechanism` | Either default/context-free `AllAvailable` includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; a retired assembly overload remains; or a host runner does not declare its complete set |
-| Async query lifetime | Queries + CLI with revoked authorization, borrowed sessions, completion validation failure, success-plus-cleanup failure, primary-plus-cleanup failure, cancellation with successful/failing cleanup, post-disposal full-result enumeration, and single-threaded awaited reentrancy | Begin/question sealing/endpoint realization/participant pairing/project/complete escape one current lease; the assembly/package CLI opens a reader/session around Research; direct `match` use escapes its selector source/designation lifetime; a borrowed session is disposed; an owned lease leaks on success, failure, or cancellation; a completed result reaches disposed participant/group/source/reader state or cannot enumerate every receipt/ledger/native/change/presentation value after cleanup; a failed query lacks the typed outer arm or exposes a partial/completed result; cleanup replaces a non-cancellation primary failure or loses its diagnostic; successful cancellation cleanup returns an outcome instead of propagating cancellation; failed cancellation cleanup does not supersede cancellation with `Failed(Cleanup)` and every typed cleanup diagnostic; `ImplementationDiffResult.HasFailures` absorbs query failure; or Browser/Wasm requires threads/blocking |
-| Planned population budget | Queries + acquisition-coordinator boundary tests at one below/equal/one above every default, count multiplication, integer overflow, direct/planned, native/Browser, and raised-limit authorization | The budget ledger is minted after question sealing or participant pairing; either stage can run without its non-optional lease; a realized manifest union is qualified or partitioned before its checked complete reservation; any endpoint-slot/input/question/selection-request entry/request-or-receipt character/correlation-scope/target-request/attempt/work-item/disposition/snapshot/presentation path bypasses the same query ledger; a zero-match question retains uncharged selectors/filter operands; a producer-native object is retained or another callback runs before its current payload is lowered, measured, charged, and released; a host raises a default without `BodyEvidencePlanBudgetOverrideCapability`; an exhaustive selector, Source override, per-artifact limit, or `InspectionCost` is accepted as that grant; overflow wraps; exhaustion truncates a census, correlation, ledger, snapshot, or output; a partial pairing/plan/result escapes; or failure omits phase/dimension/limit/charge |
+| Synchronous mechanism ownership | Research API, Queries-owned direct-operation, and harness tests over `ResearchChangeMechanism` and `ImplementationDiffMechanism` | Either default/context-free `AllAvailable` includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; a retired assembly/direct overload remains; a caller bypasses `DirectImplementationComparisonOperation` to invoke a Research producer; or a host runner does not declare its complete set |
+| Operation lifetime | Queries + CLI with revoked authorization, borrowed sessions, direct designation expiry, completion validation failure, success-plus-cleanup failure, primary-plus-cleanup failure, cancellation with successful/failing cleanup, post-disposal full-result enumeration, and single-threaded awaited reentrancy | Begin/slot preflight/question sealing/endpoint realization/participant pairing/project/complete escape one current planned lease; a direct operation escapes one current direct lease or its designation/source lifetime; the assembly/package CLI opens a reader/session around Research; direct `match`, ReturnToSender, or round-trip use invokes Research without the Queries-owned operation; a borrowed session is disposed; an owned lease or scratch reservation leaks on success, failure, or cancellation; a completed result reaches disposed participant/group/source/reader state or cannot enumerate every receipt/ledger/native/change/presentation value after cleanup; a failed query lacks the typed outer arm or exposes a partial/completed result; cleanup replaces a non-cancellation primary failure or loses its diagnostic; successful cancellation cleanup returns an outcome instead of propagating cancellation; failed cancellation cleanup does not supersede cancellation with `Failed(Cleanup)` and every typed cleanup diagnostic; `ImplementationDiffResult.HasFailures` absorbs query failure; or Browser/Wasm requires threads/blocking |
+| Operation-stage inventory | Catalog-derived source-architecture/set-equality tests + planned/direct order and stage-removal non-vacuity mutations | The descriptor catalog, planned pipeline, direct pipeline, owner registrations, lease-facet adapters, allowed stage/dimension edge set, budget methods, or boundary-fixture sets differ; a planned stage is omitted/duplicated/reordered; direct omits a stage other than endpoint realization; a stage has no exact per-kind owner or budget authority; a dimension is authorized by no stage or a stage charges an undeclared dimension; a host/harness registers a stage; removing endpoint realization, direct admission, producer preflight, completion, or cleanup remains green; or stage metadata is inferred from display text/reflection rather than the closed typed catalog |
+| Planned population budget | Queries + endpoint-realizer + acquisition-coordinator boundary tests at one below/equal/one above every default, count multiplication, integer overflow, direct/planned, native/Browser, and raised-limit authorization | The budget ledger is minted after endpoint-slot preflight, question sealing, endpoint realization, or participant pairing; a crossing stage can run without its owner-local operation-stamped facet; endpoint/projection facets name different operation ids, expose foreign dimensions, or are backed by different ledgers; endpoint slots are not charged before acquisition; a host seals immutable questions; a question input is copied before its entry/variable payload charge; an endpoint materializes a role binding, manifest entry, outcome payload, or query-owned variable copy before reservation; endpoint budget receipts differ from the realized manifest union or independently measured retained outcome characters; a realized union is qualified or partitioned before that equality is validated; any endpoint-slot/input/question/selection-request entry/request-or-receipt character/correlation-scope/target-request/attempt/work-item/disposition/snapshot/presentation path bypasses the same ledger; a zero-match question retains uncharged selectors/filter operands; planned/direct operations mint different concrete ledger types or Research/callers can mint, replenish, or substitute one; a host raises a default without `BodyEvidencePlanBudgetOverrideCapability`; an exhaustive selector, Source override, per-artifact limit, or `InspectionCost` is accepted as that grant; overflow wraps; exhaustion truncates a census, correlation, endpoint outcome, ledger, snapshot, or output; a partial manifest/pairing/plan/result escapes; or failure omits phase/dimension/limit/charge |
+| Producer work budget | Mechanism-catalog estimator set equality + planned/direct exact-boundary fixtures + IL/Finding ordered-match canaries + cancellation/failure allocation instrumentation | A mechanism lacks one compile-time typed conservative estimator; the complete `(work item, mechanism)` estimate-key set differs from the producer-eligible population; aggregate input/work totals and every single-entry peak are not preflighted before the first callback; an estimator decodes/canonicalizes/decompiles/diffs or uses unadmitted content; input/work/scratch arithmetic wraps; ordered matching omits its full checked cell product, matrix, or producer-owned arrays; a producer starts without the current operation-stamped projection facet or before its live-scratch reservation succeeds; ordinary concurrent scratch contention becomes exhaustion instead of bounded waiting; actual catalog-declared scratch can exceed its reservation; failure/cancellation leaks live scratch, replenishes cumulative work, or starts another callback before native-result release; a snapshot charge substitutes for producer-work preflight; an unestimable producer runs; planned exhaustion returns partial success; direct exhaustion is not one complete `Unavailable` result; scheduling changes which items are successful; or estimator/lowering code introduces reflection, trim warnings, or a Browser/Wasm-incompatible dependency |
 | Authored-source budget | Queries boundary tests at one below/equal/one above every default, cached/uncached, retry/redirect, embedded/external PDB, shared documents, native/Browser transport-visible operations, varied scheduling, and raised-limit authorization | Any query-time PDB/source path lacks the same non-optional ledger lease; any operation/byte/decoded-text/retention/concurrency path bypasses accounting; a host raises a default without an invocation-scoped `AuthoredSourceBudgetOverrideCapability`; static `InspectionCost` is accepted as that grant; per-item/redirect limits replace the aggregate; exhaustion publishes any eligible success or scheduling changes an eligible item's disposition kind; or failure omits dimension/limit/charge |
-| Direct-member pairing authority | Research, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, wrong-side direct keys, and designation lifetime expiry | `CompareMembers` accepts raw sources/handles instead of `DirectMemberComparisonInput`; designation creates a parallel pairing id rather than wrapping one direct-slot `ArtifactParticipantPairing`; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own internal selection scope; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one `DesignatedMemberPairKey`; an endpoint path can mint that key; a direct input key's side disagrees with its binding arm; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; the completed direct result retains the designation, participant, or source; feeds assembly-wide comparison; or bypasses address/role validation |
+| Direct-member pairing authority | ResearchQueries operation, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, wrong-side direct keys, and designation lifetime expiry | A public `ImplementationDiff.CompareMembers` remains or accepts raw sources/handles; a caller bypasses the Queries-owned direct operation; designation creates a parallel pairing id rather than wrapping one direct-slot `ArtifactParticipantPairing`; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own internally charged slot/question/domain/scope/work item; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one `DesignatedMemberPairKey`; an endpoint path can mint that key; a direct input key's side disagrees with its binding arm; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; the completed direct result retains the designation, participant, source, or lease; feeds assembly-wide comparison; or bypasses address/role validation |
 | Finding cross-validation totality | Research + Queries over semantic success plus Finding acquisition failure, semantic/Finding disagreement, duplicate generic diagnostics, partial IL payload, and Source requested | The final mechanism ledger remains `Compared`; the same work item/mechanism has both `Compared` and `Failed` outcomes; `HasFailures` is false; partial payload supplies a semantic verdict or Source eligibility; Source performs I/O; the selected CLI exits zero; or the failed row is missing/duplicated |
 | Direct-consumer outcome totality | Research + `match --implementation` + authored rebuild + round-trip/scope tests with failed C#, IL, address, role, and subject projection; two-body native-unavailable results; resolved bodyless/bodyful transitions; all-body-dependent mechanisms absent; API-exact/body-absent and API-different/body-absent ledgers; and mixed exact/absent ledgers | `Compared` lacks exactly one exact-or-different verdict; two-body native unavailable is not `Failed(ComparisonUnavailable)`; missing-body native unavailable becomes failure; subject projection failure invokes a producer, lacks complete failed ledgers/diagnostics, leaves `HasFailures` false, or yields `Exact`/`Different`; reduction does not follow `Unavailable` then `Different` then `Exact` then `NotApplicable` precedence; bodylessness overrides an applicable API verdict; a direct result lacks ledger-derived `HasFailures`, typed diagnostics, or retained absence reasons; `match` exits zero for failure or nonzero for not-applicable; authored rebuild reports `IlDifferent` for failed/not-applicable evidence; round-trip reports `Changed`/`Exact` for either; or a consumer drops the diagnostic/absence reason instead of mapping it to nonzero/context-failed/unavailable or typed not-applicable |
 | Ledger output visibility | CLI text/Markdown/table/TSV/JSON/JSONL over producer-lined evidence, multiple producer changes, producer-different Body Signals/no-line evidence, session body-presence evidence with no adapter and with every optional line filtered, producer exact/no-line controls, presentation-safe failed partial IL evidence, pre-producer single/multi-outcome endpoint/participant/selection/target/correspondence failure, native comparison unavailable, Source missing mapping, Source not eligible, query/cleanup failure, changed/native-line filtering, row windows including `--jsonl --rows 1`, and `Member`-/empty-field-only projections over ledger and query failures | A completed or failed query cannot use the one schema; a producer `Compared(Different)` has an empty/incomplete/duplicate change set or any retained producer change with no post-filter line lacks exactly one native typed fallback; a session `Compared(Different)` with no post-filter line lacks exactly one body-presence fallback; `Compared(Exact)` emits a fallback; optional lines losing a filter erase a difference; a failed disposition lacks one mandatory diagnostic, a failed endpoint slot omits any terminal request's diagnostic/outcome/absent-arm context, partial evidence supplies a verdict/replaces that diagnostic, or presentation-safe partial evidence has no defined ordinary row; Source `MissingMapping` is hidden or `NotEligible` is forced visible; structured output loses `recordKind`, disposition, typed producer/body-presence change, partial-evidence classification, or typed reason; a query diagnostic fabricates a ledger disposition; evidence does not count toward the semantic row window; diagnostic records count against or are suppressed by that window; the integrity descriptor and section schema differ; a user projection removes any required integrity column when diagnostics exist or changes successful diagnostic-free projection; JSONL emits a second table/ad hoc object; or ordering is nondeterministic |
@@ -1630,8 +1789,9 @@ The target lifecycle is unverified until these gates exist:
   one-sided change.
 - `ImplementationDiff.CompareMembers` receives two live readers and handles but
   has no typed pairing designation, exact MVID-scoped address/role contract, or
-  designated-pair work-item key. `match --implementation` also fabricates an
-  assembly-wide result to render its arbitrary direct pair.
+  designated-pair work-item key, and executes below the Queries-owned budget
+  operation. `match --implementation` also fabricates an assembly-wide result
+  to render its arbitrary direct pair.
 - Direct results expose no ledger-derived failure summary; `match`, authored
   rebuild, and round-trip callers can convert failed evidence into zero exit or
   semantic `Changed`/`IlDifferent`.
@@ -1641,6 +1801,9 @@ The target lifecycle is unverified until these gates exist:
 - Assembly comparison filters and joins C#, IL, body-signal, retained Finding,
   and Source evidence through presentation-shaped subject identities and
   independently constructed populations.
+- C# and IL producers have no query-owned pre-invocation work/scratch
+  reservation. `IlBodyDiff` can allocate its quadratic LCS matrix for one item
+  before any aggregate operation charge.
 - The CLI derives PDB-source targets from already-rendered changed members
   and owns the async acquisition loop outside one Queries-owned operation.
 - Source acquisition has per-item protections but no aggregate eligible-item,

@@ -14,8 +14,8 @@ planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
 `ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
 [Implementation Diff](implementation-diff.md) owns the structured comparison
-operation that budget-authorizes acquisition-owned participant pairing and
-then consumes its endpoint manifests and opaque pairings.
+operation that budget-authorizes acquisition-owned endpoint realization and
+participant pairing, then consumes their manifests and opaque pairings.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -431,6 +431,15 @@ ComparisonEndpointOutcomeSet
   Requests               sealed declared ComparisonEndpointKey set
   Outcomes               sealed map, exactly one outcome per request key
 
+ComparisonEndpointBudgetReceipt
+  Endpoint               exact originating ComparisonEndpointKey
+  ParticipantInputs      exact charged manifest-entry count
+  RetainedCharacters     exact charged query-owned payload characters
+
+ComparisonEndpointBudgetReceiptSet
+  Endpoints               exact declared request-key set
+  Receipts                exactly one internal receipt per endpoint outcome
+
 AssemblyParticipantRoleBinding
   Authority              exact AssemblyParticipantRoleManifest.Id
   Selection              exact participant used for API/member selection
@@ -512,6 +521,10 @@ ComparisonEndpointPairingSlotOutcomeSet
 ```
 
 The host seals the endpoint-pairing plan and request-key set before acquisition.
+For Implementation Diff, the active Queries operation first charges that
+plan's complete slot population against its concrete operation ledger;
+rejection starts no endpoint acquisition. The host cannot charge, replenish, or
+substitute that budget authority.
 Every request appears in exactly one pairing-slot arm, and the arm must equal
 `ComparisonEndpointKey.Side`: a `Before` key cannot occupy an `After` arm or
 vice versa. Arm/key-side agreement is validated while sealing the plan, before
@@ -530,10 +543,30 @@ becomes an empty manifest or disappears because another endpoint succeeded.
 
 The endpoint owner seals its manifest from the complete selected artifact
 inventory that acquisition admitted and the workspace projected into assembly
-participants. Before that seal, the workspace role owner issues one sealed
-`AssemblyParticipantRoleManifest`. Its binding keys equal its complete
-selection-role set. Every `Implementation` binding names a member of the
-complete implementation-role set with equivalent assembly identity;
+participants. For Implementation Diff, endpoint realization requires the same
+non-optional `IComparisonEndpointBudgetLease` facet issued by the query. The
+independent workspace admission budget continues to bound source download,
+archive expansion, artifact count/bytes, and retained content. As selected
+participants are discovered, the endpoint owner uses already admitted
+inventory facts to reserve the complete participant-entry count before
+materializing role bindings or manifest entries. It also charges every
+query-owned copy of a variable identity, proof, or diagnostic before
+constructing the endpoint outcome payload. Successful or ordinary typed
+endpoint failure returns one outcome and one exact internal
+`ComparisonEndpointBudgetReceipt`; a non-realized endpoint charges zero
+participant inputs. Lease exhaustion instead returns one fixed-size outer
+query budget failure with no artifact-derived text and discards every staged
+manifest, endpoint outcome, and receipt. It never publishes a partial outcome
+or receipt set.
+
+The endpoint owner derives the exact participant-entry count from the
+workspace role generation's already retained set cardinalities, without asking
+the role owner to construct comparison bindings. Only after that count is
+reserved does the workspace role owner issue one sealed
+`AssemblyParticipantRoleManifest`; it need not reference a Queries budget
+contract. Its binding keys equal its complete selection-role set. Every
+`Implementation` binding names a member of the complete implementation-role set
+with equivalent assembly identity;
 `SameSelection` names the exact same participant in an explicitly shared role;
 and `ReferenceOnly` proves that the complete role generation contains no
 selected implementation correspondence for that selection participant.
@@ -590,21 +623,29 @@ requires the planned key's endpoint side to match the pairing binding's
 `Before`/`After` arm; a qualified key cannot legitimize a wrong-arm request.
 
 For Implementation Diff, the comparison coordinator also requires the
-non-optional `IBodyEvidencePlanBudgetLease` issued by the active query
-operation. The coordinator remains the pairing-rule owner; the lease grants
-only checked reservation and charging against that query's aggregate budget.
-The narrow lease contract is declared with the coordinator in core Queries;
-the ResearchQueries operation supplies its concrete ledger. Acquisition takes
-no Research plan/result type and gains no mechanism or presentation authority.
-Before qualifying one input or allocating an outcome partition, the
-coordinator computes the exact checked sum of manifest entries from every
-realized request arm and reserves that complete qualified-input population.
-An overflow or rejected reservation returns one typed planning-budget failure
-without constructing qualified keys, candidate/affected payloads, `InputMap`,
-participant outcomes, or a partial slot-outcome set.
+non-optional `IComparisonEndpointBudgetLease` and complete
+`ComparisonEndpointBudgetReceiptSet` issued by the active query operation. The
+coordinator remains the pairing-rule owner; the lease grants only checked
+validation and charging against that query's aggregate budget. The narrow
+lease contract is declared with the endpoint/coordinator contracts in core
+Queries; the ResearchQueries operation supplies a facet backed by its concrete
+ledger and stamped with that operation's id.
+Acquisition takes no Research plan/result type and gains no mechanism or
+presentation authority. Before qualifying one input or allocating an outcome
+partition, the coordinator computes the exact checked manifest-entry sum from
+every realized request arm and requires it to equal the receipt set's complete
+participant-input charge. It independently measures every query-owned variable
+payload retained by the outcome set and requires the exact checked character
+sum to equal the receipts' `RetainedCharacters`. It also requires exact
+endpoint-key equality among the plan requests, outcomes, and receipts. It does
+not double-charge entries or characters already retained by endpoint
+realization. A missing, extra, rekeyed, undercharged, or overcharged receipt
+returns one typed planning-budget failure without constructing qualified keys,
+candidate/affected payloads, `InputMap`, participant outcomes, or a partial
+slot-outcome set.
 
-The comparison coordinator accepts only that lease, a sealed pairing plan, and
-endpoint outcome set and emits one sealed
+The comparison coordinator accepts only that endpoint facet, its exact budget
+receipt set, a sealed pairing plan, and endpoint outcome set, and emits one sealed
 `ComparisonEndpointPairingSlotOutcomeSet`. A slot whose two sides are explicit
 `Absent(proof)` becomes `EndpointAbsent` and retains both proofs. For a slot
 whose requested sides realize, the coordinator forms the exact union of the
@@ -677,13 +718,14 @@ shortening one.
 The owner that understands an endpoint coordinate also owns the logical
 participant slots it realizes **across versions**. The workspace role owner
 separately and exclusively owns same-side selection-to-body correspondence.
-`ImplementationComparisonQuery` begins the budget-owning operation, seals its
-questions, asks endpoint owners to realize the plan, and passes its scoped
-lease to the acquisition-owned comparison coordinator. It then receives and
-lowers the complete sealed slot-outcome set without reconstructing either
-provenance or roles. Healthy producer and Research paths receive only admitted
-opaque
-`ArtifactParticipantPairing.Id` values plus validated side-local role bindings.
+`ImplementationComparisonQuery` begins the budget-owning operation, charges
+the sealed plan slots, seals its questions, and asks endpoint owners to realize
+the plan under its scoped endpoint facet. It passes that same facet plus the
+exact endpoint budget receipts to the acquisition-owned comparison coordinator,
+then receives and lowers the complete sealed slot-outcome set without
+reconstructing either provenance or roles. Healthy producer and Research paths
+receive only admitted opaque `ArtifactParticipantPairing.Id` values plus
+validated side-local role bindings.
 Terminal outcome payloads remain query/session failure evidence and reach
 presentation only through typed failure ledgers and diagnostics; producers
 never receive them. No downstream layer inspects package, project, platform,
@@ -749,15 +791,19 @@ already-open participants as a pair and returns a typed
 invocation-scoped designation id. The designation wraps one direct-slot
 admitted `ArtifactParticipantPairing` and retains that pairing's opaque id,
 exact live participant bindings, both MVIDs, and a lifetime bounded by the
-supplied sources. The direct factory also mints the corresponding internal
-one-slot/one-admitted-outcome receipt over the two designated participant-input
-keys used by query lowering. It qualifies those keys by designation id and
-side before sealing, so they remain distinct even when both selections use one
-live source. For each side it mints a single-participant role manifest whose
-selection and implementation roles share that participant, so each direct
-binding has `Body = SameSelection`; the caller cannot substitute a terminal or
-`ReferenceOnly` arm. The designation does not create a parallel pairing
-identity and contains no path, handle, token, or display identity.
+supplied sources. It does not mint an endpoint slot, outcome receipt, role
+manifest, question, or work item.
+
+The Queries-owned direct operation first charges its one slot and two inputs,
+then mints the internal one-slot/one-admitted-outcome receipt over the two
+designated participant-input keys used by lowering. It qualifies those keys by
+designation id and side before sealing, so they remain distinct even when both
+selections use one live source. For each side the operation mints a
+single-participant role manifest whose selection and implementation roles share
+that participant, so each direct binding has `Body = SameSelection`; the caller
+cannot substitute a terminal or `ReferenceOnly` arm. The designation does not
+create a parallel pairing identity and contains no path, handle, token, or
+display identity.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path
@@ -1146,9 +1192,10 @@ The migration is intentionally incremental:
 6. **Adapt package acquisition.** Reuse current package stores, source policy,
    package admission, and TFM selection behind a package artifact adapter.
 7. **Add comparison endpoint realization.** Have each selected endpoint produce
-   one typed outcome and every successful outcome seal a complete 1:N
-   participant manifest. Validate comparison pairing against the before/after
-   manifest union and retain non-realized endpoints as failures.
+   one typed outcome under the Queries-owned endpoint-budget facet and every
+   successful outcome reserve then seal a complete 1:N participant manifest.
+   Validate its exact budget receipt and comparison pairing against the
+   before/after manifest union, and retain non-realized endpoints as failures.
 8. **Move package correspondence.** Have the package adapter mint typed
    realization proofs and move package graph construction out of core assembly
    Queries while preserving the full host's graph wire contract.
@@ -1223,6 +1270,12 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonEndpointOutcome_RejectsRekeyedOrCrossSideResult`
 - `ComparisonEndpointPairingPlan_UsesEveryRequestExactlyOnce`
 - `ComparisonEndpointPairingPlan_RequiresArmSideAgreement`
+- `ComparisonEndpointPlan_BudgetsSlotsBeforeRealization`
+- `ComparisonEndpointRealization_RequiresEndpointBudgetLease`
+- `ComparisonEndpointRealization_BudgetsManifestBeforeMaterialization`
+- `ComparisonEndpointBudgetReceiptSet_EqualsOutcomeSet`
+- `ComparisonEndpointBudgetReceipt_ChargesEveryRetainedPayload`
+- `ComparisonEndpointBudgeting_DoesNotEnterWorkspaceRoleOwner`
 - `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
 - `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
 - `ComparisonEndpointFailure_RetainsEveryRequestedOutcome`
@@ -1240,8 +1293,8 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonPlannedPairingOutcomeSet_InputsEqualManifestUnion`
 - `ComparisonParticipantPairingOutcome_PayloadMatchesInputPartition`
 - `ComparisonParticipantPairingBinding_RequiresInputKeySideAgreement`
-- `ComparisonParticipantPairing_RequiresPlanBudgetLease`
-- `ComparisonParticipantPairing_BudgetsManifestUnionBeforeMaterialization`
+- `ComparisonParticipantPairing_RequiresEndpointBudgetLease`
+- `ComparisonParticipantPairing_ConsumesExactBudgetedManifestUnion`
 - `ComparisonParticipantPairingTerminal_RetainsCompleteTypedPayload`
 - `ComparisonParticipantPairingTerminal_HasNoAdmittedBinding`
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`

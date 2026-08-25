@@ -30,7 +30,7 @@ Four experiences render member bodies, and today each carries its own stack:
 | Skeleton source | `CSharpTypePrinter.Print` | declarations, no bodies |
 | Full source | `MemberBodyProducer.Project` | full C# bodies |
 | Merged IL + C# | `ResearchViews.RenderMixedCore` | C# spine, IL beneath |
-| Implementation diff | `ImplementationDiff.CompareMembers` | per-member C#/IL/source diff |
+| Implementation diff | `DirectImplementationComparisonOperation.Execute` | per-member C#/IL/source diff |
 
 They already agree on the bottom: every C# or IL body path calls
 `IrImporter.Import(MetadataSource, …) → IrFunction` and then projects it. But

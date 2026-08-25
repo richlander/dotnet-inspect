@@ -133,10 +133,18 @@ The target
 replaces that transitional split. Workspace role owners seal exact same-side
 selection/body role manifests; endpoint owners consume those bindings when
 sealing cross-version participant manifests, without adapter, Metadata, or
-Research reconstruction. The host supplies typed target requests; one
-ResearchQueries operation owns participant pairing consumption, total
-mechanism projection, bounded authored Source acquisition, completion, and
-cleanup. The CLI receives only the completed result.
+Research reconstruction. The host supplies a sealed endpoint plan and typed
+question inputs. One ResearchQueries operation mints the aggregate budget,
+charges endpoint slots, seals questions, and lends owner-local
+operation-stamped facets: the core-Queries endpoint lease to endpoint
+realization/pairing and the Research projection lease to its internal session.
+The owning subsystems reference neither ResearchQueries nor each other's
+contract. That operation then owns total mechanism projection, bounded producer
+work, bounded authored Source acquisition, completion, and cleanup. A separate
+synchronous ResearchQueries direct operation mints the same concrete ledger
+before invoking its internal Research session; `match`, ReturnToSender, and
+round-trip callers cannot invoke Research comparison directly. The CLI receives
+only completed inert results.
 
 `AssemblyContextSourceQuery` accepts one participant, an exact typed target,
 and explicit host capabilities for symbol and source acquisition. It opens the
