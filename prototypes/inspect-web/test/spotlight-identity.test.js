@@ -1964,7 +1964,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
 
 test("document viewer ownership reaches every root focus, render, and keyboard site", () => {
   const predicate = /isDocViewerOpen\(state\.docViewer\)/g;
-  assert.equal(appSource.match(predicate)?.length, 5);
+  assert.equal(appSource.match(predicate)?.length, 6);
 
   const focusOwner =
     appSource.match(/function focusTypeList\([\s\S]*?\n}\n\nfunction openSpotlight/)?.[0]
@@ -1978,7 +1978,10 @@ test("document viewer ownership reaches every root focus, render, and keyboard s
     /function workbenchModalOwnsFocus\(\)[\s\S]*isDocViewerOpen\(state\.docViewer\);/);
   assert.match(
     appSource,
-    /document\.addEventListener\("keydown"[\s\S]*if \(isDocViewerOpen\(state\.docViewer\)\)/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!isDocViewerOpen\(state\.docViewer\)/);
+  assert.match(
+    appSource,
+    /const documentViewerContextIsActive = \(\) =>[\s\S]*isDocViewerOpen\(state\.docViewer\)[\s\S]*id: "document-viewer\.dismiss"[\s\S]*when: documentViewerContextIsActive/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
