@@ -15,6 +15,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 using NuGetFetch;
 
 namespace InspectWeb.Engine.Tests;
@@ -23,6 +24,43 @@ namespace InspectWeb.Engine.Tests;
 public sealed class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
+
+    [Fact]
+    public void BrowserSource_ProvenanceSerializesAsAnEncodedString()
+    {
+        var source = new BrowserSource(
+            "pdb",
+            new InertString(TextPolicy.Field, "repo\u202Egpj"),
+            null,
+            null,
+            "text");
+
+        string json = JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+
+        Assert.Equal(
+            """{"provider":"pdb","provenance":"repo\\u202Egpj","url":null,"pdbSourceLimitation":null,"text":"text"}""",
+            json);
+    }
+
+    [Fact]
+    public void BrowserAnnotatedSource_ProvenanceSerializesAsAnEncodedString()
+    {
+        using JsonDocument document = JsonDocument.Parse("{}");
+        var source = new BrowserAnnotatedSource(
+            document.RootElement,
+            new InertString(TextPolicy.Field, "repo\u202Egpj"),
+            null);
+
+        string json = JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserAnnotatedSource);
+
+        Assert.Equal(
+            """{"document":{},"provenance":"repo\\u202Egpj","contextLimitation":null}""",
+            json);
+    }
 
     [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()

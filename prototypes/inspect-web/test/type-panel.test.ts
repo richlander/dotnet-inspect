@@ -19,6 +19,7 @@ import type {
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -855,7 +856,13 @@ test("type PDB source renders the provenance and copy action once loaded", () =>
     sourceState: {
       typeSourceKey: "sig",
       typeSourceLoading: false,
-      typeSource: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
+      typeSource: {
+        provider: "pdb",
+        provenance: inertStringFixture("SourceLink"),
+        url: "https://example.test",
+        pdbSourceLimitation: null,
+        text: "class JsonSerializer {}",
+      },
       typeSourceError: null,
     },
     escapeHtml,
@@ -877,7 +884,8 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
       typeSourceLoading: false,
       typeSource: {
         provider: "decompiled",
-        provenance: "decompiled from IL",
+        provenance: inertStringFixture("decompiled from IL"),
+        url: null,
         pdbSourceLimitation: "<checksum mismatch>",
         text: "class JsonSerializer {}",
       },

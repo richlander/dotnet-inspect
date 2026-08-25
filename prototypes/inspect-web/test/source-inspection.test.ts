@@ -7,12 +7,13 @@ import {
   type SourceInspectionState,
 } from "../src/source-inspection.ts";
 import type { BrowserSource } from "../src/inspect-web-engine.d.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 
 function source(text: string): BrowserSource {
   return {
     provider: "pdb",
-    provenance: "SourceLink",
+    provenance: inertStringFixture("SourceLink"),
     url: "https://example.test/source.cs",
     pdbSourceLimitation: null,
     text,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace InspectWeb.Engine;
 
@@ -406,12 +407,12 @@ public sealed record BrowserDependencyCoordinateMatch(
 /// </param>
 public sealed record BrowserAnnotatedSource(
     JsonElement Document,
-    string Provenance,
+    InertString Provenance,
     string? ContextLimitation);
 
 public sealed record BrowserSource(
     string Provider,
-    string Provenance,
+    InertString Provenance,
     string? Url,
     string? PdbSourceLimitation,
     string Text);

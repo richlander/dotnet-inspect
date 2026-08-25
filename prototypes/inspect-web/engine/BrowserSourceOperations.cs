@@ -8,6 +8,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using InertText;
 
 using InspectWeb.Engine;
 
@@ -351,25 +352,44 @@ public static partial class InspectionEngine
                 "Unknown available type source result."),
         };
 
-    static string PdbSourceProvenance(
+    static InertString PdbSourceProvenance(
         AssemblyPdbSourceProvenance provenance)
     {
         if (provenance.RepositoryUrl is { Length: > 0 } repository
             && provenance.Revision is { Length: > 0 } revision)
         {
-            return $"PDB-checksum-verified source fetched through SourceLink from {repository} at {revision}";
+            return new InertString(
+                TextPolicy.Field,
+                $"PDB-checksum-verified source fetched through SourceLink from {repository} at {revision}");
         }
         if (provenance.RepositoryUrl is { Length: > 0 } repositoryOnly)
-            return $"PDB-checksum-verified source fetched through SourceLink from {repositoryOnly}";
+        {
+            return new InertString(
+                TextPolicy.Field,
+                $"PDB-checksum-verified source fetched through SourceLink from {repositoryOnly}");
+        }
         if (provenance.Revision is { Length: > 0 } revisionOnly)
-            return $"PDB-checksum-verified source fetched through SourceLink at {revisionOnly}";
-        return "PDB-checksum-verified source fetched through SourceLink";
+        {
+            return new InertString(
+                TextPolicy.Field,
+                $"PDB-checksum-verified source fetched through SourceLink at {revisionOnly}");
+        }
+        return new InertString(
+            TextPolicy.Field,
+            "PDB-checksum-verified source fetched through SourceLink");
     }
 
-    static string DecompiledProvenance(
+    static InertString DecompiledProvenance(
         BrowserWorkspaceParticipant participant) =>
-        $"dotnet-inspect from {participant.Coordinate.PackageId} "
-        + $"{participant.Coordinate.Version} {participant.Asset.Path}";
+        PackageProvenance("dotnet-inspect from", participant);
+
+    static InertString PackageProvenance(
+        string prefix,
+        BrowserWorkspaceParticipant participant) =>
+        new(
+            TextPolicy.Field,
+            $"{prefix} {participant.Coordinate.PackageId} "
+            + $"{participant.Coordinate.Version} {participant.Asset.Path}");
 
     static string? PdbSourceLimitation(
         ILInspector.Findings.FindingInspection<string> inspection) =>

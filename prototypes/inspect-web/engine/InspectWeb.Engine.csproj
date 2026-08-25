@@ -37,6 +37,7 @@
     <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="..\..\..\src\InertText\InertText.csproj" />
     <Content Include="..\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <Content Include="..\dist\manifest.json" Link="wwwroot\manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
