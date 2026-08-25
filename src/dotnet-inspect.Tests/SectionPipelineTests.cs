@@ -1,3 +1,4 @@
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.Findings;
 using ILInspector.Research;
@@ -30,7 +31,6 @@ public class SectionPipelineTests
     {
         public static string Name => "Always";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => true;
     }
 
@@ -38,7 +38,6 @@ public class SectionPipelineTests
     {
         public static string Name => "Detailed";
         public static bool IsExpensive => true;
-        public static string? ScannerKey => "DetailedScanner";
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
@@ -46,7 +45,6 @@ public class SectionPipelineTests
     {
         public static string Name => "Query-backed";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => true;
     }
 
@@ -54,7 +52,6 @@ public class SectionPipelineTests
     {
         public static string Name => "Normal";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => "NormalScanner";
         public static bool CanRender(TestModel model) => model.Name != null;
     }
 
@@ -62,7 +59,6 @@ public class SectionPipelineTests
     {
         public static string Name => "Structural";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
@@ -72,7 +68,6 @@ public class SectionPipelineTests
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
@@ -104,7 +99,6 @@ public class SectionPipelineTests
                 Info = true,
                 ProbeEffectiveness = true,
                 Capabilities = SectionCapabilities.None,
-                ScannerKey = null,
                 HasExplicitApplicability = true,
                 IsApplicable = model => model.Name != null,
                 CanRender = model => model.Count > 0,
@@ -128,7 +122,6 @@ public class SectionPipelineTests
                 Info = false,
                 ProbeEffectiveness = false,
                 Capabilities = SectionCapabilities.None,
-                ScannerKey = null,
                 HasExplicitApplicability = true,
                 IsApplicable = model => model.Name != null,
                 CanRender = model => model.Count > 0,
@@ -476,7 +469,6 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        var detailedScanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
         var detailedQueries = pipeline.GetRequiredQueries(Verbosity.Detailed);
 
         Assert.DoesNotContain(MetadataImageQuery.Definition, detailedQueries);
@@ -486,7 +478,7 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationOpportunitiesQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerBodyShapes, detailedScanners);
+        Assert.DoesNotContain(BodyShapesQuery.Definition, detailedQueries);
         Assert.DoesNotContain(ResourceTriageQuery.Definition, detailedQueries);
         Assert.DoesNotContain(
             OptimizationOpportunitiesQuery.Definition,
@@ -495,13 +487,12 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_ExplicitDomainOrDirectSelectionStillRequestsItsScanners()
+    public void LibraryPipeline_ExplicitDomainOrDirectSelectionStillRequestsItsQueries()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var performance = pipeline.GetCategoryMap()[SectionCategoryNames.Performance]
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, performance);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, performance);
 
         Assert.Contains(ResourceTriageQuery.Definition, queries);
@@ -513,8 +504,8 @@ public class SectionPipelineTests
             queries);
 
         Assert.Contains(
-            LibrarySections.ScannerBodyShapes,
-            pipeline.GetRequiredScanners(
+            BodyShapesQuery.Definition,
+            pipeline.GetRequiredQueries(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
@@ -610,6 +601,91 @@ public class SectionPipelineTests
         Assert.Equal(error.Reason, projected.Reason);
         Assert.Empty(inspection.ResourceTriageAssessments);
         Assert.Null(inspection.ResourceTriage);
+    }
+
+    [Fact]
+    public void BodyShapesQuery_CompleteEmptyJsonRemainsDistinctFromNoMetadata()
+    {
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyBodyShapesResult(
+            inspection,
+            new Output.VerboseLogger(false),
+            new BodyShapesResult.Available(new BodyShapeSearchResult([], [], 0)));
+
+        string completeJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using (JsonDocument document = JsonDocument.Parse(completeJson))
+        {
+            JsonElement bodyShapes =
+                document.RootElement.GetProperty("body_shapes");
+            Assert.Equal(JsonValueKind.Array, bodyShapes.ValueKind);
+            Assert.Equal(0, bodyShapes.GetArrayLength());
+        }
+
+        LibraryMetadataService.ApplyBodyShapesResult(
+            inspection,
+            new Output.VerboseLogger(false),
+            new BodyShapesResult.NoMetadata());
+
+        string noMetadataJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using JsonDocument noMetadataDocument =
+            JsonDocument.Parse(noMetadataJson);
+        Assert.False(
+            noMetadataDocument.RootElement.TryGetProperty(
+                "body_shapes",
+                out _));
+        Assert.Null(inspection.BodyShapeSearchResult);
+    }
+
+    [Fact]
+    public void BodyShapesQuery_FailureProjectsToInspectionFailures()
+    {
+        var inspection = new LibraryInspection();
+        var error = new IOException("decompilation failed");
+
+        LibraryMetadataService.ApplyBodyShapesResult(
+            inspection,
+            new Output.VerboseLogger(false),
+            new BodyShapesResult.Failed(error));
+
+        var failed = Assert.IsType<BodyShapesResult.Failed>(
+            inspection.BodyShapesQueryResult);
+        Assert.Same(error, failed.Error);
+        LibraryInspectionFailureJson projected =
+            Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.BodyShapes, projected.Section);
+        Assert.Equal(BodyShapesQuery.Definition.Name, projected.Finding);
+        Assert.Equal(error.Message, projected.Reason);
+        Assert.Null(inspection.BodyShapeSearchResult);
+    }
+
+    [Fact]
+    public void BodyShapesQuery_TypedAbsenceOverridesCompatibilityProjection()
+    {
+        var compatibility = new BodyShapeSearchResult([], [], 0);
+        var inspection = new LibraryInspection
+        {
+            BodyShapeSearchResult = compatibility,
+            BodyShapesQueryResult = new BodyShapesResult.NoMetadata(),
+        };
+
+        string json = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+
+        Assert.DoesNotContain("\"body_shapes\"", json, StringComparison.Ordinal);
+        Assert.Null(new LibraryInspectionView(inspection).BodyShapesSection);
+        Assert.False(LibrarySections.BodyShapes.CanRender(inspection));
+
+        inspection.BodyShapesQueryResult = null;
+
+        Assert.Same(compatibility, inspection.EffectiveBodyShapeSearchResult);
+        Assert.NotNull(new LibraryInspectionView(inspection).BodyShapesSection);
+        Assert.True(LibrarySections.BodyShapes.CanRender(inspection));
     }
 
     [Fact]
@@ -1217,57 +1293,8 @@ public class SectionPipelineTests
         Assert.Equal(Verbosity.Detailed, verbosity);
     }
 
-    // ===== Scanner tests =====
-
     [Fact]
-    public void GetRequiredScanners_MinimalVerbosity_ReturnsPrimaryScanners()
-    {
-        var pipeline = CreateTestPipeline();
-
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal);
-
-        // NormalSection (index 1) is within primary threshold, has ScannerKey
-        Assert.Single(scanners);
-        Assert.Contains("NormalScanner", scanners);
-    }
-
-    [Fact]
-    public void GetRequiredScanners_NormalVerbosity_ReturnsNormalScanner()
-    {
-        var pipeline = CreateTestPipeline();
-
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Normal);
-
-        Assert.Single(scanners);
-        Assert.Contains("NormalScanner", scanners);
-    }
-
-    [Fact]
-    public void GetRequiredScanners_DetailedVerbosity_ReturnsBothScanners()
-    {
-        var pipeline = CreateTestPipeline();
-
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
-
-        Assert.Equal(2, scanners.Count);
-        Assert.Contains("NormalScanner", scanners);
-        Assert.Contains("DetailedScanner", scanners);
-    }
-
-    [Fact]
-    public void GetRequiredScanners_IncludeOverridesVerbosity()
-    {
-        var pipeline = CreateTestPipeline();
-        var include = new HashSet<string> { "Detailed" };
-
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
-
-        Assert.Single(scanners);
-        Assert.Contains("DetailedScanner", scanners);
-    }
-
-    [Fact]
-    public void GetRequiredScanners_ExcludeUnbounded_PreservesTypedBoundedSelection()
+    public void GetRequiredQueries_ExcludeUnbounded_PreservesTypedBoundedSelection()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string>
@@ -1276,14 +1303,6 @@ public class SectionPipelineTests
             LibrarySections.PInvokeMethods.Name,
         };
 
-        var renderScanners = pipeline.GetRequiredScanners(Verbosity.Detailed, include);
-        var discoveryScanners = pipeline.GetRequiredScanners(
-            Verbosity.Detailed,
-            include,
-            excludeUnbounded: true);
-
-        Assert.Empty(renderScanners);
-        Assert.Empty(discoveryScanners);
         Assert.Equal(
             [
                 ClassifiedMethodsQuery.Definition,
@@ -1299,25 +1318,11 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void GetRequiredScanners_NullScannerKeyExcluded()
-    {
-        var pipeline = CreateTestPipeline();
-        var include = new HashSet<string> { "Always" };
-
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
-
-        Assert.Empty(scanners);
-    }
-
-    [Fact]
     public void LibraryPipeline_UnsafeMembers_UsesTypedQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Unsafe Members", "P/Invoke Methods" };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
-
-        Assert.Empty(scanners);
         Assert.Equal(
             [
                 ClassifiedMethodsQuery.Definition,
@@ -1358,7 +1363,6 @@ public class SectionPipelineTests
                 IsExpensive = false,
                 ExplicitOnly = false,
                 Cost = SectionCost.Unbounded,
-                ScannerKey = null,
                 HasExplicitApplicability = true,
                 IsApplicable = static _ => true,
                 CanRender = static _ => true,
@@ -1595,10 +1599,8 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Custom Attributes" };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Empty(scanners);
         Assert.Equal([CustomAttributesQuery.Definition], queries);
     }
 
@@ -1608,10 +1610,8 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Resources" };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Empty(scanners);
         Assert.Equal([ResourcesQuery.Definition], queries);
     }
 
@@ -1621,10 +1621,8 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Type Forwarders" };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Empty(scanners);
         Assert.Equal([TypeForwardersQuery.Definition], queries);
     }
 
@@ -1634,10 +1632,8 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Union Types" };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Empty(scanners);
         Assert.Equal([UnionTypesQuery.Definition], queries);
     }
 
@@ -1647,10 +1643,8 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Switches" };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Empty(scanners);
         Assert.Equal([SwitchesQuery.Definition], queries);
     }
 
@@ -1663,10 +1657,8 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { section };
 
-        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Empty(scanners);
         Assert.Equal([ClassifiedMethodsQuery.Definition], queries);
     }
 
@@ -1676,7 +1668,6 @@ public class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { SectionNames.Signals };
 
-        Assert.Empty(pipeline.GetRequiredScanners(Verbosity.Minimal, include));
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
@@ -1687,70 +1678,12 @@ public class SectionPipelineTests
                 .OrderBy(query => query.Name, StringComparer.Ordinal));
     }
 
-    // ===== Scanner registry tests =====
-
-    [Fact]
-    public void ScannerRegistry_RunsOnlyRequestedScanners()
-    {
-        var ran = new HashSet<string>();
-        var registry = new ScannerRegistry()
-            .Add("A", SectionCost.NetworkFree, _ => ran.Add("A"))
-            .Add("B", SectionCost.NetworkFree, _ => ran.Add("B"))
-            .Add("C", SectionCost.NetworkFree, _ => ran.Add("C"));
-
-        registry.RunScanners(["A", "C"], new ScannerContext
-        {
-            AssemblyPath = "test.dll",
-            Model = new LibraryInspection(),
-            Logger = new DotnetInspector.Output.VerboseLogger(false),
-        });
-
-        Assert.Equal(2, ran.Count);
-        Assert.Contains("A", ran);
-        Assert.Contains("C", ran);
-        Assert.DoesNotContain("B", ran);
-    }
-
-    [Fact]
-    public void ScannerRegistry_EmptySet_RunsNothing()
-    {
-        var ran = false;
-        var registry = new ScannerRegistry()
-            .Add("A", SectionCost.NetworkFree, _ => ran = true);
-
-        registry.RunScanners([], new ScannerContext
-        {
-            AssemblyPath = "test.dll",
-            Model = new LibraryInspection(),
-            Logger = new DotnetInspector.Output.VerboseLogger(false),
-        });
-
-        Assert.False(ran);
-    }
-
-    [Fact]
-    public void LibraryScannerRegistry_RegistrationMatchesDeclaration()
-    {
-        // Set equality, not containment, so both failure directions are caught: a section
-        // declaring a key nobody registered (its data silently never collected) and a registered
-        // scanner no section asks for (dead code). Derived from the pipeline and the registry
-        // rather than restated as a literal list, so adding a section or a scanner cannot drift
-        // past this test.
-        var catalog = LibrarySections.CreateCatalog();
-        var registry = catalog.ScannerRegistry;
-        var pipeline = catalog.Pipeline;
-
-        Assert.Equal(
-            pipeline.DeclaredScannerKeys.OrderBy(k => k, StringComparer.Ordinal),
-            registry.RegisteredKeys.OrderBy(k => k, StringComparer.Ordinal));
-    }
-
     [Fact]
     public void LibraryQueryRegistry_RegistrationMatchesDeclaration()
     {
         LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        HashSet<InspectionQueryDefinition> scannerContextQueries =
+        HashSet<InspectionQueryDefinition> perAssemblyQueries =
         [
             .. pipeline.DeclaredQueries.Where(
                 catalog.QueryRegistry.RegisteredQueries.Contains),
@@ -1767,7 +1700,7 @@ public class SectionPipelineTests
         ];
         scannerContextQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
-            catalog.QueryRegistry.ExpandRequired(scannerContextQueries);
+            catalog.QueryRegistry.ExpandRequired(perAssemblyQueries);
         closure.UnionWith(
             catalog.GroupQueryRegistry.ExpandRequired(groupQueries));
         HashSet<InspectionQueryDefinition> registered =
@@ -1786,7 +1719,7 @@ public class SectionPipelineTests
             pipeline.DeclaredQueries.Union(commandQueries).OrderBy(
                 query => query.Name,
                 StringComparer.Ordinal),
-            scannerContextQueries.Union(groupQueries).OrderBy(
+            perAssemblyQueries.Union(groupQueries).OrderBy(
                 query => query.Name,
                 StringComparer.Ordinal));
         Assert.Equal(
@@ -1795,6 +1728,7 @@ public class SectionPipelineTests
                 AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
+                BodyShapesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -1811,6 +1745,10 @@ public class SectionPipelineTests
                 UnsafeEvidenceQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+        Assert.Equal(
+            [OptimizationOpportunitiesQuery.Definition],
+            catalog.QueryRegistry.OptionalDependenciesOf(
+                BodyShapesQuery.Definition));
     }
 
     [Fact]
@@ -2781,7 +2719,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(AssemblyInspectionSession).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -2798,7 +2736,7 @@ public class SectionPipelineTests
         Assert.Contains(
             forwarders.Forwarders,
             forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -2807,7 +2745,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -2821,7 +2759,7 @@ public class SectionPipelineTests
             results.Get(TypeForwardersQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -2849,7 +2787,7 @@ public class SectionPipelineTests
             Assert.NotEmpty(canarySession.TypeForwarders());
         }
 
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = reopenCanary,
             Model = new LibraryInspection(),
@@ -2865,7 +2803,7 @@ public class SectionPipelineTests
             results.Get(TypeForwardersQuery.Definition));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -2923,7 +2861,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(SampleDiscoveredUnion).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -2940,7 +2878,7 @@ public class SectionPipelineTests
         Assert.Contains(
             unions.Unions,
             union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -2949,7 +2887,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -2963,7 +2901,7 @@ public class SectionPipelineTests
             results.Get(UnionTypesQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -2993,7 +2931,7 @@ public class SectionPipelineTests
                 union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
         }
 
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = reopenCanary,
             Model = new LibraryInspection(),
@@ -3009,7 +2947,7 @@ public class SectionPipelineTests
             results.Get(UnionTypesQuery.Definition));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3058,7 +2996,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(SampleUnsafeClass).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3075,7 +3013,7 @@ public class SectionPipelineTests
         Assert.Contains(
             methods.Methods,
             method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod));
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3084,7 +3022,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3098,7 +3036,7 @@ public class SectionPipelineTests
             results.Get(ClassifiedMethodsQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3130,7 +3068,7 @@ public class SectionPipelineTests
                 method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod));
         }
 
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = reopenCanary,
             Model = new LibraryInspection(),
@@ -3146,7 +3084,7 @@ public class SectionPipelineTests
             results.Get(ClassifiedMethodsQuery.Definition));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3192,7 +3130,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(MethodClassificationScannerTests).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3207,7 +3145,7 @@ public class SectionPipelineTests
             results.Get(AuditMetadataQuery.Definition));
 
         Assert.True(metadata.Metadata.PInvokeMethodCount >= 2);
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3216,7 +3154,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3230,7 +3168,7 @@ public class SectionPipelineTests
             results.Get(AuditMetadataQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3261,7 +3199,7 @@ public class SectionPipelineTests
             Assert.True(canary.Metadata.PInvokeMethodCount >= 2);
         }
 
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = reopenCanary,
             Model = new LibraryInspection(),
@@ -3277,7 +3215,7 @@ public class SectionPipelineTests
             results.Get(AuditMetadataQuery.Definition));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3350,7 +3288,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(DotnetInspector.Fixtures.AppContextSwitchFixture).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3367,7 +3305,7 @@ public class SectionPipelineTests
         Assert.Contains(
             switches.Switches,
             item => item.Switch == "DotnetInspector.Fixtures.AppContextOnly");
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3376,7 +3314,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3390,7 +3328,7 @@ public class SectionPipelineTests
             results.Get(SwitchesQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3423,7 +3361,7 @@ public class SectionPipelineTests
                 item => item.Switch == "DotnetInspector.Fixtures.AppContextOnly");
         }
 
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = reopenCanary,
             Model = new LibraryInspection(),
@@ -3439,7 +3377,7 @@ public class SectionPipelineTests
             results.Get(SwitchesQuery.Definition));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3487,7 +3425,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(LibraryInspection).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3504,7 +3442,7 @@ public class SectionPipelineTests
         Assert.Contains(
             resources.Resources,
             resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3513,7 +3451,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3527,7 +3465,7 @@ public class SectionPipelineTests
             results.Get(ResourcesQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3549,7 +3487,7 @@ public class SectionPipelineTests
     {
         using var metadataContext = PdbContext.Open(
             typeof(LibraryInspection).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(AssemblyInspectionSession).Assembly.Location,
             Model = new LibraryInspection(),
@@ -3565,7 +3503,7 @@ public class SectionPipelineTests
             results.Get(ResourcesQuery.Definition));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3613,7 +3551,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(AssemblyInspectionSession).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3630,7 +3568,7 @@ public class SectionPipelineTests
         Assert.Contains(
             customAttributes.Attributes,
             attribute => attribute.Name == "InternalsVisibleTo");
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3639,7 +3577,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3653,7 +3591,7 @@ public class SectionPipelineTests
             results.Get(CustomAttributesQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3700,7 +3638,7 @@ public class SectionPipelineTests
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
             typeof(SectionPipelineTests).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3717,7 +3655,7 @@ public class SectionPipelineTests
         Assert.Contains(
             extensionMethods.Methods,
             method => method.MethodName == "ToUpperCase");
-        Assert.Equal(1, context.SharedScanCount);
+        Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3726,7 +3664,7 @@ public class SectionPipelineTests
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
             Model = new LibraryInspection(),
@@ -3740,7 +3678,7 @@ public class SectionPipelineTests
             results.Get(ExtensionMethodsQuery.Definition));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
-        Assert.Equal(0, context.SharedScanCount);
+        Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
@@ -3853,7 +3791,6 @@ public class SectionPipelineTests
                 IsExpensive = false,
                 SizeClass = SectionSizeClass.Terse,
                 Cost = SectionCost.NetworkFree,
-                ScannerKey = null,
                 Queries = [bounded],
                 IsApplicable = _ => true,
                 CanRender = _ => true,
@@ -3864,7 +3801,6 @@ public class SectionPipelineTests
                 IsExpensive = false,
                 SizeClass = SectionSizeClass.Terse,
                 Cost = SectionCost.NetworkFree,
-                ScannerKey = null,
                 Queries = [unbounded],
                 IsApplicable = _ => true,
                 CanRender = _ => true,
@@ -3941,6 +3877,90 @@ public class SectionPipelineTests
 
         Assert.Equal(["prerequisite", "query"], order);
         Assert.Equal(2, results.Get(query));
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_OptionalDependencyRunsOnlyWhenIndependentlyRequested()
+    {
+        var optional = new InspectionQuery<int>("optional", InspectionCost.Unbounded);
+        var consumer = new InspectionQuery<int>("consumer", InspectionCost.NetworkFree);
+        List<string> order = [];
+        var registry = new InspectionQueryRegistry<object?>()
+            .AddWithOptional(
+                consumer,
+                (_, results) =>
+                {
+                    order.Add("consumer");
+                    return results.TryGet(optional, out int value) ? value : 0;
+                },
+                [optional])
+            .Add(optional, _ =>
+            {
+                order.Add("optional");
+                return 42;
+            });
+
+        InspectionQueryResults withoutOptional = registry.Run([consumer], null);
+
+        Assert.Equal(0, withoutOptional.Get(consumer));
+        Assert.Equal(["consumer"], order);
+        Assert.Equal([consumer], registry.ExpandRequired([consumer]));
+        Assert.Equal(InspectionCost.NetworkFree, registry.CostOf(consumer));
+
+        order.Clear();
+        InspectionQueryResults withOptional = registry.Run(
+            [consumer, optional],
+            null);
+
+        Assert.Equal(42, withOptional.Get(consumer));
+        Assert.Equal(["optional", "consumer"], order);
+        Assert.Equal([optional], registry.OptionalDependenciesOf(consumer));
+    }
+
+    [Fact]
+    public async Task TypedQueryRegistry_RunAsync_OrdersActiveOptionalDependency()
+    {
+        var optional = new InspectionQuery<int>("optional", InspectionCost.NetworkFree);
+        var consumer = new InspectionQuery<int>("consumer", InspectionCost.NetworkFree);
+        List<string> order = [];
+        var registry = new InspectionQueryRegistry<object?>()
+            .AddAsyncWithOptional(
+                consumer,
+                (_, results, cancellationToken) =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    order.Add("consumer");
+                    return ValueTask.FromResult(results.Get(optional));
+                },
+                [optional])
+            .Add(optional, _ =>
+            {
+                order.Add("optional");
+                return 42;
+            });
+
+        InspectionQueryResults results = await registry.RunAsync(
+            [consumer, optional],
+            context: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(42, results.Get(consumer));
+        Assert.Equal(["optional", "consumer"], order);
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_RejectsActiveOptionalDependencyCycle()
+    {
+        var first = new InspectionQuery<int>("first", InspectionCost.NetworkFree);
+        var second = new InspectionQuery<int>("second", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .AddWithOptional(first, (_, _) => 1, [second])
+            .AddWithOptional(second, (_, _) => 2, [first]);
+
+        InspectionQueryException exception = Assert.Throws<InspectionQueryException>(
+            () => registry.Run([first, second], context: null));
+
+        Assert.Contains("active dependency cycle", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4067,7 +4087,7 @@ public class SectionPipelineTests
             });
 
         var refused = Assert.Throws<QueryCostDeclarationException>(
-            () => cheapRegistry.Run([cheap], NullScannerContext()));
+            () => cheapRegistry.Run([cheap], NullQueryContext()));
         Assert.Contains("Query 'cheap'", refused.Message, StringComparison.Ordinal);
         Assert.Contains("body index", refused.Message, StringComparison.Ordinal);
         Assert.Contains("NetworkFree", refused.Message, StringComparison.Ordinal);
@@ -4090,7 +4110,7 @@ public class SectionPipelineTests
                 unboundedPrerequisite);
 
         var allowed = Assert.Throws<InvalidOperationException>(
-            () => declaredRegistry.Run([transitivelyUnbounded], NullScannerContext()));
+            () => declaredRegistry.Run([transitivelyUnbounded], NullQueryContext()));
         Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("transitively unbounded", allowed.Message, StringComparison.Ordinal);
     }
@@ -4107,7 +4127,7 @@ public class SectionPipelineTests
             });
 
         var refused = Assert.Throws<QueryCostDeclarationException>(
-            () => cheapRegistry.Run([cheap], NullScannerContext()));
+            () => cheapRegistry.Run([cheap], NullQueryContext()));
         Assert.Contains("drill map", refused.Message, StringComparison.Ordinal);
 
         var declared = new InspectionQuery<int>("declared", InspectionCost.Unbounded);
@@ -4119,7 +4139,7 @@ public class SectionPipelineTests
             });
 
         var allowed = Assert.Throws<InvalidOperationException>(
-            () => declaredRegistry.Run([declared], NullScannerContext()));
+            () => declaredRegistry.Run([declared], NullQueryContext()));
         Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
     }
 
@@ -4129,7 +4149,7 @@ public class SectionPipelineTests
         var query = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
         var registry = LibrarySections.CreateQueryRegistry()
             .Add(query, _ => 1);
-        var context = NullScannerContext();
+        var context = NullQueryContext();
 
         registry.Run([query], context);
 
@@ -4173,213 +4193,6 @@ public class SectionPipelineTests
             section => Assert.True(LibraryCommand.FailureAffectsSection(
                 failure.Section,
                 section)));
-    }
-
-    // ===== Scanner prerequisite tests =====
-
-    [Fact]
-    public void RunScanners_RunsPrerequisitesFirstAndEachScannerOnce()
-    {
-        // The property that replaced the fan-out: a scanner declares what it reads, and the
-        // registry runs that prerequisite before it and exactly once for the whole run, however
-        // many other scanners also require it. Without this, deduping is impossible and a
-        // scanner has to defensively re-scan.
-        List<string> order = [];
-        var registry = new ScannerRegistry()
-            .Add("leaf", SectionCost.NetworkFree, _ => order.Add("leaf"))
-            .Add("mid", SectionCost.NetworkFree, _ => order.Add("mid"), "leaf")
-            .Add("top", SectionCost.NetworkFree, _ => order.Add("top"), "mid", "leaf");
-
-        registry.RunScanners(["top"], NullScannerContext());
-
-        Assert.Equal(["leaf", "mid", "top"], order);
-    }
-
-    [Fact]
-    public void RunScanners_SharedPrerequisiteRunsOnceAcrossRequestedScanners()
-    {
-        List<string> order = [];
-        var registry = new ScannerRegistry()
-            .Add("leaf", SectionCost.NetworkFree, _ => order.Add("leaf"))
-            .Add("a", SectionCost.NetworkFree, _ => order.Add("a"), "leaf")
-            .Add("b", SectionCost.NetworkFree, _ => order.Add("b"), "leaf");
-
-        registry.RunScanners(["a", "b"], NullScannerContext());
-
-        Assert.Equal(["leaf", "a", "b"], order);
-    }
-
-    [Fact]
-    public void AddBundle_RunsItsPrerequisitesAndNoWorkOfItsOwn()
-    {
-        // A bundle exists only because ISectionDescriptor.ScannerKey names a single key, so a
-        // section fed by several scanners needs one key that stands for all of them.
-        List<string> order = [];
-        var registry = new ScannerRegistry()
-            .Add("a", SectionCost.NetworkFree, _ => order.Add("a"))
-            .Add("b", SectionCost.NetworkFree, _ => order.Add("b"))
-            .AddBundle("bundle", "a", "b");
-
-        registry.RunScanners(["bundle"], NullScannerContext());
-
-        Assert.Equal(["a", "b"], order);
-    }
-
-    [Fact]
-    public void ExpandRequired_IncludesTransitivePrerequisites()
-    {
-        // Callers that reason about the work a run will do — body-analysis feature selection in
-        // particular — must see prerequisites, or they narrow away work the run still performs.
-        var registry = new ScannerRegistry()
-            .Add("leaf", SectionCost.NetworkFree, _ => { })
-            .Add("mid", SectionCost.NetworkFree, _ => { }, "leaf")
-            .Add("top", SectionCost.NetworkFree, _ => { }, "mid");
-
-        Assert.Equal(
-            ["leaf", "mid", "top"],
-            registry.ExpandRequired(["top"]).OrderBy(k => k, StringComparer.Ordinal));
-    }
-
-    [Fact]
-    public void ExpandRequired_ThrowsOnUnregisteredPrerequisite()
-    {
-        // A prerequisite naming a scanner that does not exist is a typo or a stale rename, and it
-        // silently drops a dependency: the scanner runs without the data it declared it needs and
-        // produces output that looks correct. Requested keys are different -- callers derive those
-        // from descriptors across registries and an unknown one is skipped on purpose -- so only
-        // the prerequisite edge is validated here.
-        var registry = new ScannerRegistry()
-            .Add("a", SectionCost.NetworkFree, _ => { }, "typo");
-
-        var expand = Assert.Throws<InvalidOperationException>(
-            () => registry.ExpandRequired(["a"]));
-        Assert.Contains("typo", expand.Message, StringComparison.Ordinal);
-
-        // RunScanners is reachable without expanding first, so it enforces the same rule.
-        var run = Assert.Throws<InvalidOperationException>(
-            () => registry.RunScanners(["a"], NullScannerContext()));
-        Assert.Contains("typo", run.Message, StringComparison.Ordinal);
-
-        // Non-vacuity: an unregistered key that was merely REQUESTED must still be skipped, or
-        // this test would be passing for the wrong reason.
-        var ran = false;
-        var tolerant = new ScannerRegistry().Add("a", SectionCost.NetworkFree, _ => ran = true);
-        tolerant.RunScanners(["a", "not-registered"], NullScannerContext());
-        Assert.True(ran);
-    }
-
-    [Fact]
-    public void RunScanners_ThrowsOnPrerequisiteCycle()
-    {
-        var registry = new ScannerRegistry()
-            .Add("a", SectionCost.NetworkFree, _ => { }, "b")
-            .Add("b", SectionCost.NetworkFree, _ => { }, "a");
-
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => registry.RunScanners(["a"], NullScannerContext()));
-        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void ExpandRequired_ThrowsOnPrerequisiteCycle()
-    {
-        // Regression: ExpandRequired used to short-circuit on an already-added key, so a cycle
-        // terminated quietly and returned a plausible closure. That made the acyclicity half of
-        // LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic vacuous.
-        var registry = new ScannerRegistry()
-            .Add("a", SectionCost.NetworkFree, _ => { }, "b")
-            .Add("b", SectionCost.NetworkFree, _ => { }, "a");
-
-        var ex = Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired(["a"]));
-        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void ExpandRequired_AllowsDiamondPrerequisites()
-    {
-        // A shared prerequisite reached by two paths is not a cycle. Guards against a cycle check
-        // that keys off "already seen" rather than "currently being visited".
-        var registry = new ScannerRegistry()
-            .Add("d", SectionCost.NetworkFree, _ => { })
-            .Add("b", SectionCost.NetworkFree, _ => { }, "d")
-            .Add("c", SectionCost.NetworkFree, _ => { }, "d")
-            .Add("a", SectionCost.NetworkFree, _ => { }, "b", "c");
-
-        Assert.Equal(
-            ["a", "b", "c", "d"],
-            registry.ExpandRequired(["a"]).OrderBy(k => k, StringComparer.Ordinal));
-    }
-
-    // ===== Scanner cost tests =====
-
-    [Fact]
-    public void Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost()
-    {
-        // The registry cannot see that a scanner touches the body index, because ctx.BodyIndex is
-        // a lazily-invoked method group -- which is how four scanners came to declare NetworkFree
-        // while doing whole-assembly IL work. So the declaration is enforced where the cost is
-        // incurred, not where it is registered.
-        var cheap = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, ctx => ctx.BodyIndex());
-
-        var ex = Assert.Throws<ScannerCostDeclarationException>(
-            () => cheap.RunScanners(["cheap"], NullScannerContext()));
-        Assert.Contains("body index", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("NetworkFree", ex.Message, StringComparison.Ordinal);
-
-        // Non-vacuity: a scanner that DID declare Unbounded must get past the declaration check.
-        // Without this the gate would also pass if BodyIndex threw unconditionally. The declared
-        // scanner still fails, but on the missing metadata context -- a different error, proving
-        // the cost check let it through.
-        var declared = new ScannerRegistry()
-            .Add("declared", SectionCost.Unbounded, ctx => ctx.BodyIndex());
-
-        var allowed = Assert.Throws<InvalidOperationException>(
-            () => declared.RunScanners(["declared"], NullScannerContext()));
-        Assert.DoesNotContain("Unbounded", allowed.Message, StringComparison.Ordinal);
-        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Scanner_CannotTakeTheDrillMapWithoutDeclaringItsCost()
-    {
-        var cheap = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, ctx => ctx.DrillMap());
-
-        var ex = Assert.Throws<ScannerCostDeclarationException>(
-            () => cheap.RunScanners(["cheap"], NullScannerContext()));
-        Assert.Contains("drill map", ex.Message, StringComparison.Ordinal);
-
-        var declared = new ScannerRegistry()
-            .Add("declared", SectionCost.Unbounded, ctx => ctx.DrillMap());
-
-        var allowed = Assert.Throws<InvalidOperationException>(
-            () => declared.RunScanners(["declared"], NullScannerContext()));
-        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ScannerDeclaration_DoesNotOutliveTheRun()
-    {
-        // ctx.BodyIndex is handed to scan methods as a method group, so the Func can outlive the
-        // scanner that supplied it and be invoked later while rendering. The declaration must
-        // therefore be scoped to scanner execution: left set, the LAST scanner's declaration would
-        // govern every later use, and a cheap scanner finishing the run would refuse the body
-        // index to a caller that never declared anything.
-        //
-        // An earlier version of this gate ran a cheap scanner after an expensive prerequisite and
-        // asserted the cheap one was refused. That proved nothing -- each scanner installs its own
-        // declaration on entry, so deleting the restore left it green. The observable that
-        // actually depends on the restore is the state after the run.
-        var registry = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, _ => { });
-        var context = NullScannerContext();
-
-        registry.RunScanners(["cheap"], context);
-
-        var ex = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
-        Assert.Contains("metadata context", ex.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("NetworkFree", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4468,129 +4281,10 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void CostOf_IsTheMaximumOverTheTransitivePrerequisiteClosure()
+    public void LibraryPipeline_ConsultsQueryCosts()
     {
-        // A bundle does no work of its own, so its cost is entirely what it pulls in. Letting it
-        // declare its own cost would let it under-state that, which is why AddBundle takes none.
-        var registry = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, _ => { })
-            .Add("expensive", SectionCost.Unbounded, _ => { })
-            .Add("moderate", SectionCost.Moderated, _ => { })
-            .AddBundle("mixed", "cheap", "expensive")
-            .AddBundle("allCheap", "cheap")
-            .Add("indirect", SectionCost.NetworkFree, _ => { }, "mixed");
-
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("cheap"));
-        Assert.Equal(SectionCost.Moderated, registry.CostOf("moderate"));
-        Assert.Equal(SectionCost.Unbounded, registry.CostOf("expensive"));
-        Assert.Equal(SectionCost.Unbounded, registry.CostOf("mixed"));
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("allCheap"));
-
-        // Transitive: a cheap scanner whose prerequisite is a bundle containing an expensive
-        // scanner costs what the run will actually do, not what it declared for itself.
-        Assert.Equal(SectionCost.Unbounded, registry.CostOf("indirect"));
-    }
-
-    [Fact]
-    public void SectionsBackedByUnboundedScanners_LeaveTheDetailedLadderButKeepTheirDoor()
-    {
-        // Seeded from the REGISTRY, where cost is declared, rather than from the pipeline that
-        // consumes it: asking the pipeline which sections it considers unbounded and then checking
-        // that it acted on that answer would assert nothing. The registry and the selection code
-        // are the two halves this change couples, so the gate holds one fixed and observes the
-        // other.
-        var registry = LibrarySections.CreateScannerRegistry();
-        var pipeline = LibrarySections.CreatePipeline();
-        // Presence flags only: the point is that each expensive section CAN render, so its
-        // absence from the -v:d ladder below is attributable to cost and nothing else.
-        var model = new LibraryInspection
-        {
-            AssemblyInfo = new AssemblyInfo(),
-            HasMethodBodies = true,
-            HasUnsafeCode = true,
-        };
-
-        var unboundedScanners = registry.RegisteredKeys
-            .Where(key => registry.CostOf(key) == SectionCost.Unbounded)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var expensiveSections = pipeline.ScannerBoundSections
-            .Where(section => unboundedScanners.Contains(section.ScannerKey))
-            .ToList();
-
-        // Non-vacuity: an empty expensive set would satisfy every assertion below.
-        Assert.NotEmpty(expensiveSections);
-
-        var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
-        var allPole = pipeline.GetAllSelectorSections(model);
-        var annotations = pipeline.GetCostAnnotations();
-
-        foreach (var section in expensiveSections)
-        {
-            var name = section.Name;
-            Assert.DoesNotContain(name, detailed);
-            Assert.DoesNotContain(name, allPole);
-            Assert.NotEqual(
-                SectionAnnotations.OptIn,
-                annotations.GetValueOrDefault(name));
-
-            // The other half, and what stops the first from passing for the wrong reason: absence
-            // from the ladder must be the cost decision, not a planner omission. Exact selection
-            // must retain the section and demand its scanner even before the scanner has produced
-            // the rows that determine effectiveness.
-            var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name };
-            Assert.Contains(name, pipeline.GetCandidateSections(Verbosity.Detailed, include));
-            Assert.Contains(section.ScannerKey, pipeline.GetRequiredScanners(Verbosity.Detailed, include));
-        }
-    }
-
-    [Fact]
-    public void CuratedInfoSection_WithUnboundedScanner_LeavesMinimalDefaultsButKeepsItsDoor()
-    {
-        var pipeline = new SectionPipeline<TestModel>()
-            .UseCuratedCatalog()
-            .UseScannerCosts(_ => SectionCost.Unbounded)
-            .Add(new SectionEntry<TestModel>
-            {
-                Name = "Target",
-                IsExpensive = false,
-                Info = true,
-                SizeClass = SectionSizeClass.Terse,
-                Cost = SectionCost.NetworkFree,
-                ScannerKey = "target",
-                IsApplicable = _ => true,
-                CanRender = _ => true,
-            });
-
-        Assert.Empty(pipeline.GetEffectiveSections(new TestModel("target", 1), Verbosity.Minimal));
-        Assert.Empty(pipeline.GetRequiredScanners(Verbosity.Minimal));
-        Assert.Empty(pipeline.InfoSectionNames);
-
-        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Target" };
-        Assert.Equal(
-            ["Target"],
-            pipeline.GetEffectiveSections(new TestModel("target", 1), Verbosity.Minimal, include));
-        Assert.Equal(["target"], pipeline.GetRequiredScanners(Verbosity.Minimal, include));
-    }
-
-    [Fact]
-    public void UseScannerCosts_ThrowsAfterSectionsAreRegistered()
-    {
-        // Costs are applied to entries as they are added, so wiring the source afterwards would
-        // silently leave everything already registered at its declared cost.
-        var pipeline = new SectionPipeline<LibraryInspection>()
-            .Add<LibrarySections.ExtensionMethods>();
-
-        Assert.Throws<InvalidOperationException>(
-            () => pipeline.UseScannerCosts(_ => SectionCost.Unbounded));
-    }
-
-    [Fact]
-    public void LibraryPipeline_ConsultsScannerCosts()
-    {
-        // Non-vacuity for the whole strand: LibrarySections.CreatePipeline must actually call
-        // UseScannerCosts. Dropping that one line leaves every gate above green except this one,
-        // because each scanner-bound section would simply keep its own declared cost.
+        // Non-vacuity: Performance: Boxing declares no cost of its own and is expensive only
+        // because the Optimization Opportunities query behind it is.
         var withCosts = LibrarySections.CreatePipeline();
         var model = new LibraryInspection
         {
@@ -4598,9 +4292,6 @@ public class SectionPipelineTests
             HasMethodBodies = true,
         };
 
-        // Performance: Boxing declares no cost of its own; it is expensive only because the
-        // Optimization Opportunities query behind it is. If the pipeline stopped consulting the
-        // registry it would return to the -v:d ladder.
         Assert.DoesNotContain(
             SectionNames.PerformanceBoxing,
             withCosts.GetEffectiveSections(model, Verbosity.Detailed));
@@ -4618,25 +4309,15 @@ public class SectionPipelineTests
         // deliberately not cheap. Any cost change that moves a section across the NetworkFree
         // boundary now fails here and has to be justified in review.
         //
-        // The re-review then showed one axis was still open. The first version of this gate read
-        // registry.CostOf(section.ScannerKey), which is only one of the two inputs: the raise is
-        // one-way, so a descriptor can declare a higher cost than its scanner and leave the ladder
-        // on its own. Declaring `Cost => Moderated` on the Switches descriptor reproduced the
-        // original defect exactly, with both new gates green. So the primary assertion is on the
-        // pipeline's effective cost — the value the ladder actually consults — which subsumes the
-        // scanner axis, because a scanner raise always raises the entry.
-        var registry = LibrarySections.CreateScannerRegistry();
+        // The primary assertion is on the pipeline's effective cost — the value the ladder
+        // actually consults. A descriptor can raise its own cost above its query, while a query
+        // raise always raises the entry.
         var pipeline = LibrarySections.CreatePipeline();
 
-        // The scanner axis: sections that are expensive because the scan behind them is. This is
-        // the family this change moved off the ladder.
-        string[] expectedScannerBodyIndexFamily =
-        [
-            SectionNames.BodyShapes,
-        ];
         string[] expectedQueryBodyIndexFamily =
         [
             SectionNames.ArrayPoolEscapes,
+            SectionNames.BodyShapes,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -4647,25 +4328,12 @@ public class SectionPipelineTests
             SectionNames.PerformanceOther,
         ];
 
-        var scannerAboveCheap = pipeline.ScannerBoundSections
-            .Where(section => registry.CostOf(section.ScannerKey) > SectionCost.NetworkFree)
-            .Select(section => section.Name)
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToList();
-
-        Assert.Equal(
-            expectedScannerBodyIndexFamily.OrderBy(
-                name => name,
-                StringComparer.Ordinal),
-            scannerAboveCheap);
-
         // The effective axis: everything the ladder will refuse to auto-render, whichever
         // declaration made it so. Metadata and SourceLink declare their own cost; Integrations
         // inherits the group query's Unbounded cost. This is the honest full set, so either kind
         // of cost declaration crossing the boundary requires an explicit review update.
         string[] expectedAboveCheap =
         [
-            .. expectedScannerBodyIndexFamily,
             .. expectedQueryBodyIndexFamily,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
@@ -4711,92 +4379,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ScannerKey_CannotBeRegisteredTwice()
-    {
-        // Raised as BLOCKING by the GPT review of #3626. SectionPipeline.Add snapshots the
-        // scanner's cost into the entry, so a later re-registration that raised the cost would
-        // leave the pipeline reading a stale cheap value while CostOf reported the truth -- and
-        // the pipeline is what the verbosity ladder consults. GPT demonstrated exactly that:
-        // register NetworkFree, add the entry, re-register Unbounded, and SectionCosts still
-        // answered NetworkFree.
-        //
-        // Making a key's cost immutable once declared is what makes the effective axis subsume
-        // the scanner axis unconditionally, rather than only for the construction order
-        // LibrarySections happens to use today.
-        var registry = new ScannerRegistry();
-        registry.Add("Solo", SectionCost.NetworkFree, _ => { });
-
-        var raise = Assert.Throws<InvalidOperationException>(
-            () => registry.Add("Solo", SectionCost.Unbounded, _ => { }));
-        Assert.Contains("already registered", raise.Message, StringComparison.Ordinal);
-
-        // The same key cannot be laundered through a bundle either, in either direction.
-        Assert.Throws<InvalidOperationException>(() => registry.AddBundle("Solo", "Other"));
-
-        registry.AddBundle("Bundle", "Solo");
-        Assert.Throws<InvalidOperationException>(
-            () => registry.Add("Bundle", SectionCost.NetworkFree, _ => { }));
-
-        // The cost that was declared first is the cost that stands.
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Solo"));
-    }
-
-    [Fact]
-    public void PrerequisiteList_CannotBeMutatedAfterRegistration()
-    {
-        // Raised as BLOCKING by the GPT review of #3626, one level deeper than the re-registration
-        // guard. The registry stored the caller's `params string[]` by reference and handed the
-        // same array back through RequirementsOf as IReadOnlyList, which casts straight back to
-        // string[]. Either alias could be edited after a section had already snapshotted the cost,
-        // so CostOf would report Unbounded while SectionCosts kept saying NetworkFree -- the
-        // pipeline's value being the one the ladder reads.
-        var registry = new ScannerRegistry();
-        registry.Add("Cheap", SectionCost.NetworkFree, _ => { });
-        registry.Add("Expensive", SectionCost.Unbounded, _ => { });
-
-        // Registration must copy, so editing the caller's array afterwards changes nothing.
-        var declared = new[] { "Cheap" };
-        registry.Add("Root", SectionCost.NetworkFree, _ => { }, declared);
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Root"));
-
-        declared[0] = "Expensive";
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Root"));
-        Assert.Equal(["Cheap"], registry.RequirementsOf("Root"));
-
-        // And the accessor must not hand out a mutable alias of the stored list. ImmutableArray
-        // is the enforcement: there is no cast that reaches the backing store.
-        Assert.Equal(["Cheap"], registry.RequirementsOf("Root"));
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Root"));
-    }
-
-    [Fact]
-    public void PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt()
-    {
-        // GPT's re-review asked whether the re-registration guard reaches one level down: can
-        // CostOf's max-over-closure change for a key whose own registration never moved, by
-        // raising one of its *prerequisites* after the fact? That is the same defect displaced,
-        // and the guard on Add would not obviously cover it.
-        //
-        // It does, but only in combination with the existing unregistered-prerequisite throw, so
-        // both halves are pinned here rather than left to be re-derived.
-        var registry = new ScannerRegistry();
-        registry.Add("Prereq", SectionCost.NetworkFree, _ => { });
-        registry.Add("Consumer", SectionCost.NetworkFree, _ => { }, "Prereq");
-        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Consumer"));
-
-        Assert.Throws<InvalidOperationException>(
-            () => registry.Add("Prereq", SectionCost.Unbounded, _ => { }));
-
-        // The other way a closure could move is a forward reference: declare a prerequisite that
-        // does not exist yet, snapshot the cheap cost, then register the prerequisite expensively.
-        // CostOf refuses to answer at all while the prerequisite is missing, so no entry can
-        // snapshot a cost that a later registration would invalidate.
-        var forward = new ScannerRegistry();
-        forward.Add("Early", SectionCost.NetworkFree, _ => { }, "Later");
-        Assert.Throws<InvalidOperationException>(() => forward.CostOf("Early"));
-    }
-
-    [Fact]
     public void SectionCost_OrdersFromCheapestToMostExpensive()
     {
         // Raised by GPT review of #3626. The raise-only logic and CostOf both compare tiers with
@@ -4812,76 +4394,6 @@ public class SectionPipelineTests
         Assert.Equal(
             [SectionCost.NetworkFree, SectionCost.Moderated, SectionCost.Unbounded],
             Enum.GetValues<SectionCost>());
-    }
-
-    [Fact]
-    public void LibraryScannerCosts_AreDeclaredAndResidualScannersAreUnbounded()
-    {
-        // Every registered key must resolve. CostOf throws both for an unregistered key and for a
-        // real scanner registered without a declared cost, so this walk is what makes those two
-        // holes fail here. GPT review of #3626 showed the earlier version of this test was
-        // vacuous: with CostOf defaulting to NetworkFree, adding a costless registration overload
-        // and routing a scanner through it left the full suite green.
-        var registry = LibrarySections.CreateScannerRegistry();
-
-        foreach (var key in registry.RegisteredKeys)
-        {
-            var cost = registry.CostOf(key);
-            Assert.True(
-                Enum.IsDefined(cost),
-                $"Scanner '{key}' resolved to an undeclared cost value.");
-        }
-
-        Assert.All(
-            registry.RegisteredKeys,
-            key => Assert.Equal(SectionCost.Unbounded, registry.CostOf(key)));
-    }
-
-    [Fact]
-    public void CostOf_ThrowsOnAnUnregisteredScannerKey()
-    {
-        // Raised by MAI-Code review of #3626. CostOf answered NetworkFree for a key nobody
-        // registered, so a stale or misspelled ScannerKey on a section would resolve to the
-        // cheapest tier and quietly return that section to the -v:d ladder -- the exact
-        // under-declaration this change exists to prevent, arrived at silently.
-        //
-        // The library pipeline is protected today by
-        // LibraryScannerRegistry_RegistrationMatchesDeclaration, but that is a property of one
-        // pipeline, not of CostOf, and any pipeline wired with UseScannerCosts depends on it.
-        var registry = new ScannerRegistry()
-            .Add("real", SectionCost.Unbounded, _ => { });
-
-        var ex = Assert.Throws<InvalidOperationException>(() => registry.CostOf("typo"));
-        Assert.Contains("typo", ex.Message, StringComparison.Ordinal);
-
-        // Non-vacuity: a registered key still resolves, including a bundle, which is registered
-        // with a null scan function and carries no cost entry of its own.
-        var withBundle = new ScannerRegistry()
-            .Add("real", SectionCost.Unbounded, _ => { })
-            .AddBundle("bundle", "real");
-
-        Assert.Equal(SectionCost.Unbounded, withBundle.CostOf("real"));
-        Assert.Equal(SectionCost.Unbounded, withBundle.CostOf("bundle"));
-    }
-
-    [Fact]
-    public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()    {
-        // Derived from the registry rather than restated, so a new prerequisite naming a key that
-        // does not exist fails here instead of silently never running. RunScanners skips an
-        // unregistered prerequisite, so nothing else would notice.
-        var registry = LibrarySections.CreateScannerRegistry();
-        var registered = registry.RegisteredKeys.ToHashSet(StringComparer.Ordinal);
-
-        foreach (var key in registered)
-        {
-            foreach (var required in registry.RequirementsOf(key))
-                Assert.Contains(required, registered);
-        }
-
-        // ExpandRequired throws on a cycle, so this both closes the graph and proves it acyclic.
-        // It used to short-circuit instead, which made the acyclicity claim vacuous; see
-        // ExpandRequired_ThrowsOnPrerequisiteCycle.
-        Assert.Equal(registered, registry.ExpandRequired(registered));
     }
 
     [Fact]
@@ -4925,8 +4437,6 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
-        Assert.Empty(
-            pipeline.GetRequiredScanners(Verbosity.Minimal, opportunities));
         Assert.Equal(
             [AssemblyContextIntegrationsQuery.Definition],
             catalog.GroupQueryRegistry.RequirementsOf(
@@ -4941,7 +4451,7 @@ public class SectionPipelineTests
     public void ClassifiedAndAuditQueries_ObserveOneSession()
     {
         var queryRegistry = LibrarySections.CreateQueryRegistry();
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -4965,7 +4475,7 @@ public class SectionPipelineTests
             context.Logger,
             results.Get(AuditMetadataQuery.Definition));
 
-        Assert.Equal(2, context.SharedScanCount);
+        Assert.Equal(2, context.SharedQueryCount);
         Assert.NotNull(context.Session());
         Assert.NotNull(context.Model.ClassifiedMethodInspection);
         Assert.NotNull(context.Model.AuditSignals);
@@ -4997,46 +4507,6 @@ public class SectionPipelineTests
                 Query: var query,
             } && ReferenceEquals(query, ClassifiedMethodsQuery.Definition));
         Assert.Equal(trace.RequestedQueries, trace.QueryClosure);
-        Assert.Empty(trace.Requested);
-    }
-
-    [Fact]
-    public void Trace_ExplainsEveryScannerThatRan()
-    {
-        // The report attributes each scanner to one of three mechanisms: a section named it, the
-        // command named it, or a declared prerequisite pulled it in. That attribution is the report's
-        // entire value, and it is the part with no other check on it -- a wrong bucket still renders
-        // a plausible-looking report and sends whoever chases an unexpected scan to a declaration
-        // that does not exist.
-        //
-        // The asymmetry is what makes this a gate rather than a restatement: the closure comes from
-        // what the run actually *did* (ExpandRequired over the returned set), while reachability is
-        // seeded from what the trace *claims* (recorded section and command demands). Seeding from
-        // trace.Requested instead would re-derive ExpandRequired's own input and assert X is a subset
-        // of X -- which an earlier version of this test did, and which stayed green under tampering.
-        var registry = LibrarySections.CreateScannerRegistry();
-        var pipeline = LibrarySections.CreatePipeline();
-        var trace = new InspectionTrace();
-        var requested = pipeline.GetRequiredScanners(Verbosity.Detailed, trace: trace);
-
-        trace.RecordClosure(registry.ExpandRequired(requested));
-
-        var claimed = trace.Demand.Select(d => d.Scanner)
-            .Concat(trace.CommandDemand.Select(c => c.Scanner))
-            .ToHashSet(StringComparer.Ordinal);
-
-        var reachable = new HashSet<string>(claimed, StringComparer.Ordinal);
-        var queue = new Queue<string>(claimed);
-        while (queue.Count > 0)
-        {
-            foreach (var requirement in registry.RequirementsOf(queue.Dequeue()))
-            {
-                if (reachable.Add(requirement))
-                    queue.Enqueue(requirement);
-            }
-        }
-
-        Assert.Empty(trace.Closure.Except(reachable, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -5106,7 +4576,7 @@ public class SectionPipelineTests
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
         using var metadataContext = PdbContext.Open(typeof(SectionPipelineTests).Assembly.Location);
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -5138,7 +4608,7 @@ public class SectionPipelineTests
         using var service = SourceLinkService.OpenPrefetched(
             typeof(SectionPipelineTests).Assembly.Location,
             _ => { });
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -5166,7 +4636,7 @@ public class SectionPipelineTests
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [UnsafeEvidenceQuery.Definition],
-            NullScannerContext());
+            NullQueryContext());
 
         var failed = Assert.IsType<UnsafeEvidenceResult.Failed>(
             results.Get(UnsafeEvidenceQuery.Definition));
@@ -5237,7 +4707,7 @@ public class SectionPipelineTests
         using var service = SourceLinkService.OpenPrefetched(
             typeof(SectionPipelineTests).Assembly.Location,
             _ => { });
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -5297,7 +4767,7 @@ public class SectionPipelineTests
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [OptimizationOpportunitiesQuery.Definition],
-            NullScannerContext());
+            NullQueryContext());
 
         var failed =
             Assert.IsType<OptimizationOpportunitiesResult.Failed>(
@@ -5359,10 +4829,14 @@ public class SectionPipelineTests
     public async Task ComposedBodyShapes_QueryFailureDoesNotProduceEmptySuccess()
     {
         var error = new IOException("body index failed");
-        var registry = new InspectionQueryRegistry<ScannerContext>()
+        var registry = new InspectionQueryRegistry<InspectionQueryContext>()
             .Add(
                 OptimizationOpportunitiesQuery.Definition,
-                _ => new OptimizationOpportunitiesResult.Failed(error));
+                _ => new OptimizationOpportunitiesResult.Failed(error))
+            .AddWithOptional(
+                BodyShapesQuery.Definition,
+                LibrarySections.ExecuteBodyShapesQuery,
+                [OptimizationOpportunitiesQuery.Definition]);
         using var httpClient = new HttpClient();
 
         LibraryInspection inspection = Assert.IsType<LibraryInspection>(
@@ -5383,11 +4857,15 @@ public class SectionPipelineTests
                 packageName: null,
                 packageVersion: null,
                 httpClient,
-                scanners: [LibrarySections.ScannerBodyShapes],
-                scannerRegistry: LibrarySections.CreateScannerRegistry(),
-                queries: [OptimizationOpportunitiesQuery.Definition],
+                queries:
+                [
+                    BodyShapesQuery.Definition,
+                    OptimizationOpportunitiesQuery.Definition,
+                ],
                 queryRegistry: registry));
 
+        Assert.IsType<BodyShapesResult.DependencyUnavailable>(
+            inspection.BodyShapesQueryResult);
         Assert.Null(inspection.BodyShapeSearchResult);
         var bodyShapesFailure = Assert.Single(
             inspection.InspectionFailures!,
@@ -5424,7 +4902,7 @@ public class SectionPipelineTests
         using var service = SourceLinkService.OpenPrefetched(
             typeof(SectionPipelineTests).Assembly.Location,
             _ => { });
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -5458,7 +4936,7 @@ public class SectionPipelineTests
         using var service = SourceLinkService.OpenPrefetched(
             typeof(SectionPipelineTests).Assembly.Location,
             _ => { });
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -5488,7 +4966,7 @@ public class SectionPipelineTests
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [TopLeverageQuery.Definition],
-            NullScannerContext());
+            NullQueryContext());
 
         var failed = Assert.IsType<TopLeverageResult.Failed>(
             results.Get(TopLeverageQuery.Definition));
@@ -5568,15 +5046,16 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void Trace_RecordsAScannerThatThrew()
+    public void Trace_RecordsAQueryThatThrew()
     {
         // The report is written in a finally, so a run that failed still says what it had done by
-        // the time it failed. If the throwing scanner were dropped from the record, the trace would
-        // implicate whichever scanner ran last before it.
-        var registry = new ScannerRegistry()
-            .Add("Boom", SectionCost.NetworkFree, _ => throw new InvalidOperationException("boom"));
+        // the time it failed. If the throwing query were dropped from the record, the trace would
+        // implicate whichever query ran last before it.
+        var boom = new InspectionQuery<int>("Boom", InspectionCost.NetworkFree);
+        var registry = LibrarySections.CreateQueryRegistry()
+            .Add<int>(boom, _ => throw new InvalidOperationException("boom"));
         var trace = new InspectionTrace();
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
             Model = new LibraryInspection(),
@@ -5584,9 +5063,10 @@ public class SectionPipelineTests
             Trace = trace,
         };
 
-        Assert.Throws<InvalidOperationException>(() => registry.RunScanners(["Boom"], context));
+        Assert.Throws<InvalidOperationException>(
+            () => registry.Run([boom], context, trace.RecordQueryExecution));
 
-        Assert.Equal(["Boom"], trace.Executions.Select(e => e.Key));
+        Assert.Equal([boom], trace.QueryExecutions.Select(e => e.Query));
     }
 
     [Fact]
@@ -5597,7 +5077,7 @@ public class SectionPipelineTests
         static int RunAndCountSharedScans(InspectionTrace? trace)
         {
             var registry = LibrarySections.CreateQueryRegistry();
-            using var context = new ScannerContext
+            using var context = new InspectionQueryContext
             {
                 AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
                 Model = new LibraryInspection(),
@@ -5613,7 +5093,7 @@ public class SectionPipelineTests
                 [AuditMetadataQuery.Definition],
                 context,
                 recordExecution);
-            return context.SharedScanCount;
+            return context.SharedQueryCount;
         }
 
         Assert.Equal(RunAndCountSharedScans(trace: null), RunAndCountSharedScans(new InspectionTrace()));
@@ -5706,7 +5186,7 @@ public class SectionPipelineTests
 
             var queryRegistry = LibrarySections.CreateQueryRegistry();
             var model = new LibraryInspection();
-            using var context = new ScannerContext
+            using var context = new InspectionQueryContext
             {
                 AssemblyPath = linkedAssembly,
                 Model = model,
@@ -5794,7 +5274,7 @@ public class SectionPipelineTests
             Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
 
             var model = new LibraryInspection();
-            using var context = new ScannerContext
+            using var context = new InspectionQueryContext
             {
                 AssemblyPath = linkedAssembly,
                 Model = model,
@@ -5898,7 +5378,7 @@ public class SectionPipelineTests
     private static (string Full, string Audit) CensusSignature(string assemblyPath)
     {
         var model = new LibraryInspection();
-        using var context = new ScannerContext
+        using var context = new InspectionQueryContext
         {
             AssemblyPath = assemblyPath,
             Model = model,
@@ -5910,7 +5390,7 @@ public class SectionPipelineTests
         return (SignatureOf(model), AuditSignatureOf(model));
     }
 
-    private static void RunClassifiedAndAuditQueries(ScannerContext context)
+    private static void RunClassifiedAndAuditQueries(InspectionQueryContext context)
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [
@@ -5971,7 +5451,7 @@ public class SectionPipelineTests
         }
     }
 
-    private static ScannerContext NullScannerContext() => new()
+    private static InspectionQueryContext NullQueryContext() => new()
     {
         AssemblyPath = "unused.dll",
         Model = new LibraryInspection(),

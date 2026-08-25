@@ -105,6 +105,69 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void ViewJson_PreservesSingleAndMultipleLibraryCompatibility()
+    {
+        var single = Assert.IsType<ViewDefinition>(InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "view", "id": "single", "library": "A" }
+            """));
+        var multiple = Assert.IsType<ViewDefinition>(InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "view", "id": "multiple", "libraries": ["A", "B"] }
+            """));
+
+        Assert.Equal(["A"], single.Libraries);
+        Assert.Equal(["A", "B"], multiple.Libraries);
+        Assert.Contains(
+            "\"library\": \"A\"",
+            InspectionDefinitionJson.Serialize(single),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"libraries\": [",
+            InspectionDefinitionJson.Serialize(multiple),
+            StringComparison.Ordinal);
+
+        var dual = Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                {
+                  "schemaVersion": 1,
+                  "kind": "view",
+                  "id": "dual",
+                  "library": "A",
+                  "libraries": ["B"]
+                }
+                """));
+        Assert.IsType<ArgumentException>(dual.InnerException);
+
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "null", "libraries": [null] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "one", "libraries": ["A"] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "empty", "libraries": [] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "order", "libraries": ["B", "A"] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "query", "id": "q", "libraries": null }
+                """));
+    }
+
+    [Fact]
     public void Parse_RejectsNullNestedArrayElements()
     {
         Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
@@ -594,6 +657,61 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks()
+    {
+        CatalogGroupDefinition group = new("leaf");
+        for (int depth = 1;
+            depth < InspectionDefinitionJson.MaxGroupDepth;
+            depth++)
+        {
+            group = new CatalogGroupDefinition($"g{depth}", children: [group]);
+        }
+
+        var maximumDepth = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups: [group]);
+        string json = InspectionDefinitionJson.Serialize(maximumDepth);
+        var parsed = Assert.IsType<WorkspaceDefinition>(
+            InspectionDefinitionJson.Parse(json));
+        Assert.Single(parsed.Groups);
+
+        var excessiveDepth = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups:
+            [
+                new CatalogGroupDefinition(
+                    "too-deep",
+                    children: [group]),
+            ]);
+        var depthException = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(excessiveDepth));
+        Assert.Contains(
+            "depth",
+            depthException.Message,
+            StringComparison.OrdinalIgnoreCase);
+
+        CatalogGroupDefinition[] excessiveNodes = Enumerable
+            .Range(0, InspectionDefinitionJson.MaxGroupsPerRecord + 1)
+            .Select(index => new CatalogGroupDefinition($"g{index}"))
+            .ToArray();
+        var excessiveCount = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups: excessiveNodes);
+        var countException = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(excessiveCount));
+        Assert.Contains(
+            "group",
+            countException.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parse_RejectsBlankQueryIdAndViewSelectors()
     {
         var queryEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
@@ -953,7 +1071,7 @@ public class InspectionDefinitionTests
                 Assert.Equal(view.MemberSignature, actualView.MemberSignature);
                 Assert.Equal(view.MemberKey, actualView.MemberKey);
                 Assert.Equal(view.Section, actualView.Section);
-                Assert.Equal(view.Library, actualView.Library);
+                Assert.Equal(view.Libraries, actualView.Libraries);
                 break;
             case NavigationDefinition navigation:
                 var actualNavigation = Assert.IsType<NavigationDefinition>(actual);

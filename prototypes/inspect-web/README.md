@@ -651,12 +651,12 @@ tsgolint package metadata, requires both Linux libc variants, and pins the npm
 preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
 gates the supported paths.
 
-`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
-probe reports 77 findings across 15 files: 65 in nine product files and 12 in
-six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
-records the probe commands, file distribution, and migration discipline; the
-set should be migrated with close negative tests for indexing behavior rather
-than hidden behind assertions.
+`noUncheckedIndexedAccess` is enabled in the shared configuration and therefore
+applies to both product and test projects. Indexed and lookup values are checked
+at their use sites, with malformed decoded coordinates ignored and missing
+decoded assembly descriptors reported through the existing visible failure
+paths. Close-negative tests cover those boundaries rather than relying on
+non-null assertions.
 
 ## Test
 
@@ -1047,9 +1047,12 @@ archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
 `inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
 download that artifact by ID with digest mismatch configured as an error and
 deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
-includes the managed API's hidden `.azurefunctions` dependencies, and the
-post-download gate requires its extension loader before deployment. Candidate
-build code never runs in the staging deployment job. The separate
+includes the managed API's hidden `.azurefunctions` dependencies and overwrites
+the same-name artifact on a rerun, so a cancelled attempt can be retried without
+leaving multiple artifacts that promotion rejects.
+`PromotionWorkflowContract` gates both properties. The post-download gate
+requires the extension loader before deployment. Candidate build code never
+runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
@@ -1071,18 +1074,20 @@ hook before and after artifact transfer.
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
 operator supplies the staging run ID and types `promote`; the workflow verifies
-that the run was a successful `main` push through the staging workflow, that
+that the run was a successful `main` build through the staging workflow, that
 its `Publish staging` job succeeded, and that it produced one unexpired,
-nonempty `inspect-web-site` artifact. After production approval it revalidates
-the run attempt, commit, artifact identity, and digest, downloads the exact
-artifact ID with digest mismatch configured as an error, and deploys the
-archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
-by inspect-web CI, gates the evidence discriminator and close negative cases;
+nonempty `inspect-web-site` artifact. Main-push staging is the default. An
+operator-dispatched staging run is accepted only when the promotion dispatch
+explicitly enables `allow_manual_staging`; the validator rejects it otherwise.
+After production approval the workflow revalidates that same override, run
+attempt, commit, artifact identity, and digest, downloads the exact artifact ID
+with digest mismatch configured as an error, and deploys the archived staging
+files. `validate-inspect-web-promotion.cs --self-test`, run by inspect-web CI,
+gates the default rejection, explicit exception, and other close negative cases;
 the CI change-detection workflow contract gate keeps all deployment jobs free
 of candidate code, closes the CoreCLR runtime and credential contract, keeps
 production revalidation on the trusted dispatch revision, and orders each
-artifact download before only verification and deployment. Manual staging runs
-remain useful for recovery but are deliberately not promotable.
+artifact download before only verification and deployment.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`

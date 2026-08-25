@@ -10,7 +10,7 @@ on:
         description: 'Fresh successful Deep Inspect test run certifying this commit or an ancestor'
         required: true
       allow_later_commit:
-        description: 'Allow publishing a later main commit than the certified commit'
+        description: 'Allow publishing a later main commit without exact certification'
         required: true
         default: false
         type: boolean

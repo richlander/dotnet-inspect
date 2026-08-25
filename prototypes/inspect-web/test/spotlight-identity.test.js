@@ -4485,6 +4485,7 @@ test("relationship navigation rejects ambiguous dotted identities", () => {
 
   assert.equal(uniqueTypeByQueryId([first], "N.T"), first);
   assert.equal(uniqueTypeByQueryId([first, second], "N.T"), null);
+  assert.equal(uniqueTypeByQueryId([], "N.T"), null);
 });
 
 test("call graph diagnostics distinguish failures from expected bounds", () => {
@@ -4615,6 +4616,14 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
     packageIdentityKey(active));
   assert.deepEqual(only.packages, []);
   assert.equal(only.active, null);
+
+  const missing = removeWorkspacePackage(
+    [first, active, last],
+    active,
+    "Missing.Package\u00001.0.0\u0000net10.0");
+  assert.deepEqual(missing.packages, [first, active, last]);
+  assert.equal(missing.active, active);
+  assert.equal(missing.closed, null);
 });
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {

@@ -43,24 +43,38 @@ function splitFrontmatter(text: string) {
   const source = text;
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
   if (!match) return { meta: null, body: source };
+  const frontmatter = match[1];
+  const matchedText = match[0];
+  if (frontmatter === undefined || matchedText === undefined)
+    return { meta: null, body: source };
   const meta: DocumentFrontmatter = {};
-  const lines = match[1].split(/\r?\n/);
+  const lines = frontmatter.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(lines[i]);
+    const line = lines[i];
+    if (line === undefined) continue;
+    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(line);
     if (!kv) continue;
-    let value = kv[2];
+    const key = kv[1];
+    const rawValue = kv[2];
+    if (key === undefined || rawValue === undefined) continue;
+    let value = rawValue;
     if (value === ">" || value === ">-" || value === "|" || value === "|-") {
       const folded = value.startsWith(">");
       const buffer = [];
-      while (i + 1 < lines.length
-        && (/^\s+\S/.test(lines[i + 1]) || lines[i + 1].trim() === "")) {
-        buffer.push(lines[++i].trim());
+      while (i + 1 < lines.length) {
+        const continuation = lines[i + 1];
+        if (continuation === undefined
+          || (!/^\s+\S/.test(continuation) && continuation.trim() !== "")) {
+          break;
+        }
+        i++;
+        buffer.push(continuation.trim());
       }
       value = buffer.join(folded ? " " : "\n").trim();
     }
-    meta[kv[1]] = value.trim();
+    meta[key] = value.trim();
   }
-  return { meta, body: source.slice(match[0].length) };
+  return { meta, body: source.slice(matchedText.length) };
 }
 
 export function createDocumentInspectionCoordinator(

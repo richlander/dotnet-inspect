@@ -12,6 +12,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 using Decompiler = ILInspector.Decompiler;
@@ -221,9 +222,17 @@ public static class ApiOutputFormatter
         var effectiveVerbosity = options.Verbosity;
 
         var pipeline = ApiMemberSectionPipelines.Create(options);
-        var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        var selectAll = SelectResolver.IsActiveAllSelector(
+            options.Select,
+            options.IncludeSections,
+            sectionsPreResolved);
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections, selectAll);
+            type,
+            effectiveVerbosity,
+            options.IncludeSections,
+            selectAll,
+            explicitInclude: sectionsPreResolved);
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -239,8 +248,14 @@ public static class ApiOutputFormatter
     internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
-        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+        && !SelectResolver.IsActiveAllSelector(
+            options.Select,
+            options.IncludeSections,
+            options is MemberOptions { MemberSectionsPreResolved: true })
+        && !SelectResolver.IsActiveInfoSelector(
+            options.SelectDefault,
+            options.IncludeSections,
+            options is MemberOptions { MemberSectionsPreResolved: true })
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;
@@ -263,7 +278,10 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+        || (!SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true })
             && (SectionRequested(options.IncludeSections, SectionNames.Operators)
                 || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
                 || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
@@ -283,7 +301,10 @@ public static class ApiOutputFormatter
         options.Verbosity == Verbosity.Minimal
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
-            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
+            || SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }));
 
     /// <summary>
     /// True when the type-listing tabular view must project the fixed fact table rather than type
@@ -312,6 +333,12 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections.Count: 0
+            })
+            return true;
         if (options.IncludeSections is { Count: 1 })
             return true;
         if (!ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options))
@@ -1830,7 +1857,9 @@ public static class ApiOutputFormatter
             if (code.Attributes is { Count: > 0 } attributes)
             {
                 view.MethodAttributeRows = attributes
-                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .Select(a => new MethodAttributeRow(
+                        new InertString(TextPolicy.Field, a.Name),
+                        new InertString(TextPolicy.Field, a.Value ?? "")))
                     .ToList();
             }
 

@@ -236,6 +236,10 @@ public sealed class WorkspaceSharePacketCodecTests
     [InlineData(",\"l\":[]")]
     [InlineData(",\"l\":[\"B\",\"A\"]")]
     [InlineData(",\"l\":[\"A\",\"A\"]")]
+    [InlineData(",\"v\":\" \"")]
+    [InlineData(",\"y\":\"\\t\"")]
+    [InlineData(",\"c\":\" \"")]
+    [InlineData(",\"l\":[\" \"]")]
     [InlineData(",\"unknown\":1")]
     public void Decode_RejectsInvalidViewAndLibraryShapes(string suffix)
     {
