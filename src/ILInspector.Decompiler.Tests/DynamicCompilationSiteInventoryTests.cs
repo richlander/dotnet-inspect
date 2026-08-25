@@ -30,6 +30,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CharElementStorePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced char-element-store source."),
             ["CoerceChokePointTests.cs"] = (1, "Product-output validity: compiles synthesized coercion source per case."),
             ["CSharpPrinterReceiverTests.cs"] = (2, "Product-output validity: compiles printer receiver-spelling output."),
+            ["CSharpPrinterSemanticSpacingTests.cs"] = (1, "Product-output validity: compiles printer-produced nested-function labels and structured-comment lambda bodies."),
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
             ["EnumCaseLabelOrderTests.cs"] = (1, "Round-trip fixed point: recompiles the alphabetically ordered product output and decompiles it again."),
@@ -126,9 +127,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     same-name assembly version pair to gate exact hierarchy identity.
     //   #4142 adds a second CSharpPrinterReceiverTests.cs site to compile
     //     instance-assignment operator receiver spelling.
-    //   Combined: 42 files, 53 sites.
-    const int ExpectedDynamicFiles = 42;
-    const int ExpectedDynamicSites = 53;
+    //   #4607 adds CSharpPrinterSemanticSpacingTests.cs (1 site): recompiles
+    //     nested-function label scopes and structured lambda bodies containing
+    //     printer line comments.
+    //   Combined: 43 files, 54 sites.
+    const int ExpectedDynamicFiles = 43;
+    const int ExpectedDynamicSites = 54;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

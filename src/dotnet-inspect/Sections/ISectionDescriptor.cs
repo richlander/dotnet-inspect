@@ -3,7 +3,7 @@ namespace DotnetInspector.Sections;
 /// <summary>
 /// Metadata descriptor for a named section. Declares the section's name,
 /// whether it requires expensive operations (network or heavy computation),
-/// scanner dependency, and a static check for whether the model has data
+/// and a static check for whether the model has data
 /// that the section can render.
 /// </summary>
 /// <typeparam name="TModel">The model type this section inspects.</typeparam>
@@ -79,14 +79,6 @@ public interface ISectionDescriptor<TModel>
     /// auto-run the section. Legacy pipelines ignore this and use <see cref="IsExpensive"/>.
     /// </summary>
     static virtual SectionCost Cost => SectionCost.NetworkFree;
-
-    /// <summary>
-    /// Transitional scanner key identifying a legacy data collection step this section requires.
-    /// Null means the section uses a typed query or data collected by another explicit baseline.
-    /// Multiple sections may share a scanner key (e.g., Unsafe and P/Invoke
-    /// both require "ClassifiedMethods").
-    /// </summary>
-    static abstract string? ScannerKey { get; }
 
     /// <summary>
     /// Returns <c>true</c> if the model contains data this section can render.
