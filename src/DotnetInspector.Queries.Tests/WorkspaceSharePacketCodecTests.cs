@@ -300,22 +300,36 @@ public sealed class WorkspaceSharePacketCodecTests
                 Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs + 1)
                     .Select(index => $"[\"P{index}\",null,\"net10.0\",null]"))
             + "]";
-        string allIndexes = "[["
-            + string.Join(',', Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs + 1))
-            + "]]";
+        string singletonContexts = "["
+            + string.Join(
+                ',',
+                Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs + 1)
+                    .Select(index => $"[{index}]"))
+            + "]";
         AssertFailure(
-            EncodeJson(PacketJson(tabs, allIndexes)),
+            EncodeJson(PacketJson(tabs, singletonContexts)),
             WorkspaceSharePacketFailureKind.InvalidShape);
 
+        const int contextTabCount = 5;
+        string contextTabs = "["
+            + string.Join(
+                ',',
+                Enumerable.Range(0, contextTabCount)
+                    .Select(index => $"[\"P{index}\",null,\"net10.0\",null]"))
+            + "]";
         string contexts = "["
             + string.Join(
                 ',',
-                Enumerable.Repeat("[0]", WorkspaceSharePacketCodec.MaxContexts + 1))
+                Enumerable.Range(0, contextTabCount)
+                    .Select(index => $"[{index}]")
+                    .Concat(
+                        from first in Enumerable.Range(0, contextTabCount)
+                        from second in Enumerable.Range(0, contextTabCount)
+                        where first != second
+                        select $"[{first},{second}]"))
             + "]";
         AssertFailure(
-            EncodeJson(PacketJson(
-                """[["P",null,"net10.0",null]]""",
-                contexts)),
+            EncodeJson(PacketJson(contextTabs, contexts)),
             WorkspaceSharePacketFailureKind.InvalidShape);
     }
 
