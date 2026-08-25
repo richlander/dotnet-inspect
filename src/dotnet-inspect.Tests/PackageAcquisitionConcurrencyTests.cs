@@ -1395,6 +1395,63 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void PackageAcquisitionIdentity_IncludesEverySignedAliasTransport()
+    {
+        const string Common =
+            "https://feed.invalid/v3/index.json?signature=common";
+        var routeA = Assert.IsType<RoutedPackageSource>(
+            Assert.Single(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions
+                    {
+                        Sources =
+                        [
+                            Common,
+                            "https://feed.invalid/v3/index.json?signature=fallback-a",
+                        ],
+                    },
+                    "example")));
+        var routeB = Assert.IsType<RoutedPackageSource>(
+            Assert.Single(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions
+                    {
+                        Sources =
+                        [
+                            Common,
+                            "https://feed.invalid/v3/index.json?signature=fallback-b",
+                        ],
+                    },
+                    "example")));
+        string producer =
+            PackageSourceClientProvider.ProducerKey(routeA);
+        using var client = new HttpClient();
+
+        var requestA = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [routeA],
+            client);
+        var requestB = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [routeB],
+            client);
+
+        Assert.NotEqual(requestA, requestB);
+        Assert.DoesNotContain(
+            "fallback-a",
+            requestA.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "fallback-b",
+            requestB.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_DoesNotShareFlightsAcrossHttpClients()
     {
         string packageName = $"clientflight.test.{Guid.NewGuid():N}";

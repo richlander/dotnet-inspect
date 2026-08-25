@@ -629,9 +629,15 @@ public static class PackageExtractor
         {
             foreach (NuGetSource source in sources)
             {
-                Append(source.Url);
-                Append(source.Credential?.Username);
-                Append(source.Credential?.Password);
+                if (source is RoutedPackageSource route)
+                {
+                    foreach (NuGetSource transport in route.Transports)
+                        AppendTransport(transport);
+                }
+                else
+                {
+                    AppendTransport(source);
+                }
             }
         }
 
@@ -639,6 +645,13 @@ public static class PackageExtractor
             HMACSHA256.HashData(
                 s_transportScopeKey,
                 Encoding.UTF8.GetBytes(scope.ToString())));
+
+        void AppendTransport(NuGetSource source)
+        {
+            Append(source.Url);
+            Append(source.Credential?.Username);
+            Append(source.Credential?.Password);
+        }
 
         void Append(string? value)
         {
