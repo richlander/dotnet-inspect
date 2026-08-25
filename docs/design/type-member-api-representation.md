@@ -95,18 +95,28 @@ intrinsic-core-library TypeRef supplies an exact type-forwarder root: a local
 TypeDef corresponds only when the other image forwards the same namespace and
 root segment to a platform-keyed core-library facade. This relationship covers
 reference-pack definitions that become runtime core-library references without
-permitting name-alone correspondence. Malformed or unrelated exported rows
-provide no authorization. Facade-reference and forwarder normalization are
-reader-pair correspondence only; they do not entitle either reader or any
-definition to mint core-library identity.
+permitting name-alone correspondence. The authorizing root must be unique:
+competing or malformed evidence for that same namespace and root fails the
+correspondence operation, while unrelated rejected rows provide no
+authorization. Forwarder names, assembly-reference identity, and public-key
+material draw from the operation budget; budget exhaustion fails the operation,
+and one assembly reference is projected at most once during the reader's
+forwarder scan. Facade-reference and forwarder normalization are reader-pair
+correspondence only; they do not entitle either reader or any definition to mint
+core-library identity.
 `ResolveApiMember_AssemblyScopeCaseFoldingUsesOrdinalIdentity`,
 `ResolveApiMember_ReferencePackCoreLibraryFacadeMatchesRuntime`,
 `ResolveApiMember_ReferencePackTypeDefMatchesRuntimeCoreLibraryForwarder`,
 `ResolveApiMember_CurrentTypeDefMatchesTargetCoreLibraryForwarder`,
 `ResolveApiMember_CurrentTypeDefWithoutTargetForwarderIsAbsent`,
+`ResolveApiMember_UntrustedTargetForwarderDoesNotAuthorizeCurrentTypeDef`,
+`ResolveApiMember_CompetingForwarderForMatchedRootFails`,
+`ResolveApiMember_MalformedForwarderForMatchedRootFails`,
 `ResolveApiMember_NestedCurrentTypeDefUsesForwardedRoot`,
 `ResolveApiMember_NestedCurrentTypeDefDoesNotUseLeafForwarder`,
 `ResolveApiMember_TargetForwardersAreChargedOncePerReader`,
+`ResolveApiMember_ReusedForwarderAssemblyReferenceIsProjectedOnce`,
+`ResolveApiMember_ForwarderBudgetExhaustionFailsWithoutSelectingPartialEvidence`,
 `ResolveApiMember_UnrelatedMalformedForwarderDoesNotAuthorizeOrFail`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,
 `ResolveApiMember_OutOfRangeGenericParameterIndexFails`,

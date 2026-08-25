@@ -74,8 +74,11 @@ references are the exception: reference and runtime facade spellings normalize
 to one intrinsic signature scope. A reference-pack TypeDef can match that
 runtime intrinsic reference only when the image that spells the type as an
 intrinsic reference forwards the same namespace and root type segment to a
-platform-keyed core-library facade; that image's forwarder is the evidence, not
-the other type's name.
+platform-keyed core-library facade; that image's unique forwarder is the
+evidence, not the other type's name. Competing or malformed rows for that root
+fail correspondence rather than selecting from a partial projection. Unrelated
+rejected rows remain non-authorizing evidence. Forwarder and assembly-reference
+projection is operation-budgeted and projects repeated key material once.
 Neither case grants either reader core-library entitlement. Every name
 comparison, extension classification, forwarder projection, and identity
 materialization draws from one operation-wide work budget.

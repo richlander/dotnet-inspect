@@ -712,6 +712,61 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Empty(result.Candidates);
     }
 
+    [Theory]
+    [InlineData(ForwarderTargetKind.NonCoreLibrary)]
+    [InlineData(ForwarderTargetKind.UnsignedCoreLibrary)]
+    [InlineData(ForwarderTargetKind.ForgedCoreLibrary)]
+    [InlineData(ForwarderTargetKind.File)]
+    [InlineData(ForwarderTargetKind.MissingForwarderFlag)]
+    public void ResolveApiMember_UntrustedTargetForwarderDoesNotAuthorizeCurrentTypeDef(
+        ForwarderTargetKind targetKind)
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                forwarderTargetKind: targetKind));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_CompetingForwarderForMatchedRootFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                includeConflictingForwarder: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("conflicting exported-root evidence", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_MalformedForwarderForMatchedRootFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                includeMalformedForwarder: true,
+                malformedForwarderMatchesRoot: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("conflicting exported-root evidence", result.Failure);
+    }
+
     [Fact]
     public void ResolveApiMember_TargetForwardersAreChargedOncePerReader()
     {
@@ -743,6 +798,50 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReusedForwarderAssemblyReferenceIsProjectedOnce()
+    {
+        byte[] source =
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false);
+        byte[] target =
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                noiseForwarderCount: 256,
+                noisePublicKeyBytes: 64 * 1024);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ForwarderBudgetExhaustionFailsWithoutSelectingPartialEvidence()
+    {
+        string matchedNamespace = new('n', 1_000);
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false,
+                typeNamespace: matchedNamespace),
+            BuildForwarderBudgetAmbiguityImage(
+                noiseForwarderCount: 55_805,
+                matchedNamespace: matchedNamespace));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("work budget", result.Failure);
+        Assert.Empty(result.Candidates);
     }
 
     [Fact]
@@ -1085,6 +1184,19 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
         Assert.Contains("argument count", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ZeroArgumentGenericInstantiationFails()
+    {
+        byte[] image = BuildMethodSignatureImage(
+            [0x00, 0x01, 0x01, 0x15, 0x12, 0x08, 0x00]);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("at least one element", result.Failure);
     }
 
     [Fact]
@@ -2225,6 +2337,16 @@ public sealed class MethodCorrespondenceResolverTests
         return Serialize(metadata);
     }
 
+    public enum ForwarderTargetKind
+    {
+        PlatformCoreLibrary,
+        NonCoreLibrary,
+        UnsignedCoreLibrary,
+        ForgedCoreLibrary,
+        File,
+        MissingForwarderFlag,
+    }
+
     static byte[] BuildCurrentToCoreLibraryForwarderImage(
         bool useTypeDefinition,
         bool includeForwarder,
@@ -2232,7 +2354,13 @@ public sealed class MethodCorrespondenceResolverTests
         int noiseForwarderCount = 0,
         bool nested = false,
         string forwardedRootName = "T",
-        bool includeMalformedForwarder = false)
+        bool includeMalformedForwarder = false,
+        bool malformedForwarderMatchesRoot = false,
+        bool includeConflictingForwarder = false,
+        ForwarderTargetKind forwarderTargetKind =
+            ForwarderTargetKind.PlatformCoreLibrary,
+        int noisePublicKeyBytes = 0,
+        string typeNamespace = "N")
     {
         var metadata =
             CreateSingleTypeMetadata("CurrentToCoreLibrary");
@@ -2249,13 +2377,76 @@ public sealed class MethodCorrespondenceResolverTests
                     }),
                 default,
                 default);
+        EntityHandle forwarderTarget = coreLibrary;
+        TypeAttributes forwarderAttributes =
+            TypeAttributes.Public | (TypeAttributes)0x00200000;
+        switch (forwarderTargetKind)
+        {
+            case ForwarderTargetKind.PlatformCoreLibrary:
+                break;
+            case ForwarderTargetKind.NonCoreLibrary:
+                forwarderTarget =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("Some.Other"),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        metadata.GetOrAddBlob(
+                            new byte[]
+                            {
+                                0xb0, 0x3f, 0x5f, 0x7f,
+                                0x11, 0xd5, 0x0a, 0x3a,
+                            }),
+                        default,
+                        default);
+                break;
+            case ForwarderTargetKind.UnsignedCoreLibrary:
+                forwarderTarget =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString(
+                            "System.Private.CoreLib"),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default);
+                break;
+            case ForwarderTargetKind.ForgedCoreLibrary:
+                forwarderTarget =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString(
+                            "System.Private.CoreLib"),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        metadata.GetOrAddBlob(
+                            new byte[]
+                            {
+                                1, 2, 3, 4,
+                                5, 6, 7, 8,
+                            }),
+                        default,
+                        default);
+                break;
+            case ForwarderTargetKind.File:
+                forwarderTarget =
+                    metadata.AddAssemblyFile(
+                        metadata.GetOrAddString("module.netmodule"),
+                        default,
+                        containsMetadata: true);
+                break;
+            case ForwarderTargetKind.MissingForwarderFlag:
+                forwarderAttributes = TypeAttributes.Public;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(forwarderTargetKind));
+        }
         EntityHandle signatureType;
         if (useTypeDefinition)
         {
             TypeDefinitionHandle root =
                 metadata.AddTypeDefinition(
                     TypeAttributes.Public,
-                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(typeNamespace),
                     metadata.GetOrAddString("T"),
                     default,
                     MetadataTokens.FieldDefinitionHandle(1),
@@ -2280,7 +2471,7 @@ public sealed class MethodCorrespondenceResolverTests
             TypeReferenceHandle root =
                 metadata.AddTypeReference(
                     coreLibrary,
-                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(typeNamespace),
                     metadata.GetOrAddString("T"));
             signatureType = root;
             if (nested)
@@ -2295,12 +2486,47 @@ public sealed class MethodCorrespondenceResolverTests
         if (includeForwarder)
         {
             metadata.AddExportedType(
-                TypeAttributes.Public
-                    | (TypeAttributes)0x00200000,
-                metadata.GetOrAddString("N"),
+                forwarderAttributes,
+                metadata.GetOrAddString(typeNamespace),
                 metadata.GetOrAddString(forwardedRootName),
-                coreLibrary,
+                forwarderTarget,
                 typeDefinitionId: 0);
+        }
+        if (includeConflictingForwarder)
+        {
+            AssemblyReferenceHandle conflictingTarget =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Some.Other"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    metadata.GetOrAddBlob(
+                        new byte[]
+                        {
+                            0xb0, 0x3f, 0x5f, 0x7f,
+                            0x11, 0xd5, 0x0a, 0x3a,
+                        }),
+                    default,
+                    default);
+            metadata.AddExportedType(
+                TypeAttributes.Public | (TypeAttributes)0x00200000,
+                metadata.GetOrAddString(typeNamespace),
+                metadata.GetOrAddString(forwardedRootName),
+                conflictingTarget,
+                typeDefinitionId: 0);
+        }
+        EntityHandle noiseTarget = coreLibrary;
+        if (noisePublicKeyBytes > 0)
+        {
+            var key = new byte[noisePublicKeyBytes];
+            key[0] = 1;
+            noiseTarget =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Hostile"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    metadata.GetOrAddBlob(key),
+                    AssemblyFlags.PublicKey,
+                    default);
         }
         for (int i = 0; i < noiseForwarderCount; i++)
         {
@@ -2309,7 +2535,7 @@ public sealed class MethodCorrespondenceResolverTests
                     | (TypeAttributes)0x00200000,
                 metadata.GetOrAddString("Noise"),
                 metadata.GetOrAddString($"T{i}"),
-                coreLibrary,
+                noiseTarget,
                 typeDefinitionId: 0);
         }
         if (includeMalformedForwarder)
@@ -2317,9 +2543,16 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.AddExportedType(
                 TypeAttributes.Public
                     | (TypeAttributes)0x00200000,
-                metadata.GetOrAddString("Noise"),
-                metadata.GetOrAddString("Malformed"),
-                MetadataTokens.AssemblyReferenceHandle(2),
+                metadata.GetOrAddString(
+                    malformedForwarderMatchesRoot
+                        ? typeNamespace
+                        : "Noise"),
+                metadata.GetOrAddString(
+                    malformedForwarderMatchesRoot
+                        ? forwardedRootName
+                        : "Malformed"),
+                MetadataTokens.AssemblyReferenceHandle(
+                    metadata.GetRowCount(TableIndex.AssemblyRef) + 1),
                 typeDefinitionId: 0);
         }
 
@@ -2357,6 +2590,91 @@ public sealed class MethodCorrespondenceResolverTests
                 MetadataTokens.ParameterHandle(1));
         }
         return Serialize(metadata);
+    }
+
+    static byte[] BuildForwarderBudgetAmbiguityImage(
+        int noiseForwarderCount,
+        string matchedNamespace)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("ForwarderBudgetAmbiguity");
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    }),
+                default,
+                default);
+        TypeDefinitionHandle definition =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString(matchedNamespace),
+                metadata.GetOrAddString("T"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        TypeReferenceHandle reference =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString(matchedNamespace),
+                metadata.GetOrAddString("T"));
+        TypeAttributes forwarder =
+            TypeAttributes.Public | (TypeAttributes)0x00200000;
+        for (int i = 0; i < noiseForwarderCount; i++)
+        {
+            metadata.AddExportedType(
+                forwarder,
+                metadata.GetOrAddString("Noise"),
+                metadata.GetOrAddString($"T{i}"),
+                coreLibrary,
+                typeDefinitionId: 0);
+        }
+        metadata.AddExportedType(
+            forwarder,
+            metadata.GetOrAddString(matchedNamespace),
+            metadata.GetOrAddString("T"),
+            coreLibrary,
+            typeDefinitionId: 0);
+
+        AddMethod(definition);
+        AddMethod(reference);
+        return Serialize(metadata);
+
+        void AddMethod(EntityHandle parameterType)
+        {
+            int codedIndex =
+                parameterType.Kind switch
+                {
+                    HandleKind.TypeDefinition =>
+                        MetadataTokens.GetRowNumber(
+                            (TypeDefinitionHandle)parameterType)
+                            << 2,
+                    HandleKind.TypeReference =>
+                        (MetadataTokens.GetRowNumber(
+                            (TypeReferenceHandle)parameterType)
+                            << 2) | 1,
+                    _ => throw new InvalidOperationException(),
+                };
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x01);
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(codedIndex);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
     }
 
     static byte[] BuildSignatureGenericTypeImage(

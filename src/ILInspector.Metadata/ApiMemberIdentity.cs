@@ -86,23 +86,74 @@ public static class ApiMemberIdentity
     {
         readonly Dictionary<
             MetadataReader,
-            HashSet<(string Namespace, string Name)>>
+            IntrinsicCoreLibraryForwardedRootProjection>
             _intrinsicCoreLibraryForwardedRoots = [];
 
-        internal HashSet<(string Namespace, string Name)>
+        internal IntrinsicCoreLibraryForwardedRootProjection
             GetOrAddIntrinsicCoreLibraryForwardedRoots(
             MetadataReader reader,
-            Func<HashSet<(string Namespace, string Name)>> create)
+            Func<IntrinsicCoreLibraryForwardedRootProjection> create)
         {
             if (!_intrinsicCoreLibraryForwardedRoots.TryGetValue(
                     reader,
-                    out HashSet<(string Namespace, string Name)>? roots))
+                    out IntrinsicCoreLibraryForwardedRootProjection? roots))
             {
                 roots = create();
                 _intrinsicCoreLibraryForwardedRoots.Add(reader, roots);
             }
             return roots;
         }
+    }
+
+    internal sealed class IntrinsicCoreLibraryForwardedRootProjection
+    {
+        readonly Dictionary<
+            (string Namespace, string Name),
+            IntrinsicCoreLibraryForwardedRootEvidence> _roots = [];
+
+        internal void Record(
+            (string Namespace, string Name) root,
+            bool authorized)
+        {
+            IntrinsicCoreLibraryForwardedRootEvidence evidence =
+                authorized
+                    ? IntrinsicCoreLibraryForwardedRootEvidence.Authorized
+                    : IntrinsicCoreLibraryForwardedRootEvidence.Rejected;
+            if (!_roots.TryAdd(root, evidence)
+                && (_roots[root]
+                        == IntrinsicCoreLibraryForwardedRootEvidence.Authorized
+                    || authorized))
+            {
+                _roots[root] =
+                    IntrinsicCoreLibraryForwardedRootEvidence.Conflicting;
+            }
+        }
+
+        internal bool Authorizes(
+            (string Namespace, string Name) root)
+        {
+            if (!_roots.TryGetValue(
+                    root,
+                    out IntrinsicCoreLibraryForwardedRootEvidence evidence))
+            {
+                return false;
+            }
+            if (evidence
+                == IntrinsicCoreLibraryForwardedRootEvidence.Conflicting)
+            {
+                throw new BadImageFormatException(
+                    "The intrinsic core-library type has conflicting exported-root evidence.");
+            }
+            return evidence
+                == IntrinsicCoreLibraryForwardedRootEvidence.Authorized;
+        }
+    }
+
+    enum IntrinsicCoreLibraryForwardedRootEvidence
+    {
+        Rejected,
+        Authorized,
+        Conflicting,
     }
 
     internal sealed class MethodTypeCorrespondence
@@ -1875,17 +1926,21 @@ public static class ApiMemberIdentity
                 _correspondenceContext
                 ?? throw new InvalidOperationException(
                     "Correspondence construction requires an operation context.");
-            HashSet<(string Namespace, string Name)> roots =
+            IntrinsicCoreLibraryForwardedRootProjection roots =
                 context.GetOrAddIntrinsicCoreLibraryForwardedRoots(
                     reader,
                     ReadIntrinsicCoreLibraryForwardedRoots);
-            return roots.Contains((@namespace, name));
+            return roots.Authorizes((@namespace, name));
 
-            HashSet<(string Namespace, string Name)>
+            IntrinsicCoreLibraryForwardedRootProjection
                 ReadIntrinsicCoreLibraryForwardedRoots()
             {
                 var forwardedRoots =
-                    new HashSet<(string Namespace, string Name)>();
+                    new IntrinsicCoreLibraryForwardedRootProjection();
+                var assemblyReferences =
+                    new AssemblyReferenceProjectionCache(reader);
+                var chargedAssemblyReferences =
+                    new HashSet<AssemblyReferenceHandle>();
                 Span<ExportedTypeHandle> rootToLeaf =
                     stackalloc ExportedTypeHandle[
                         MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1902,28 +1957,18 @@ public static class ApiMemberIdentity
                                 out _)
                         || consumed == 0)
                     {
-                        // A malformed unrelated row cannot authorize a scope
-                        // equivalence. Treat it as absent evidence rather than
-                        // failing correspondence for another type.
+                        RecordRejectedRoot(handle);
                         continue;
                     }
-                    if (terminal.Kind != HandleKind.AssemblyReference)
+                    if (rootToLeaf[0] != handle)
                         continue;
 
+                    (string Namespace, string Name) rootIdentity;
                     try
                     {
                         ExportedType root =
                             reader.GetExportedType(rootToLeaf[0]);
-                        if (!root.IsForwarder)
-                            continue;
-                        AssemblyReferenceIdentity target =
-                            AssemblyReferenceIdentity.From(
-                                reader,
-                                (AssemblyReferenceHandle)terminal);
-                        if (!PlatformKeys.IsCoreLibraryFacadeReference(target))
-                            continue;
-
-                        forwardedRoots.Add(
+                        rootIdentity =
                             (
                                 ReadStructuralString(
                                     reader,
@@ -1932,18 +1977,91 @@ public static class ApiMemberIdentity
                                 ReadStructuralString(
                                     reader,
                                     root.Name,
-                                    _workBudget)));
+                                    _workBudget));
                     }
-                    catch (Exception ex) when (
-                        ex is BadImageFormatException
-                            or ArgumentOutOfRangeException)
+                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
                     {
-                        // As above, an invalid row supplies no authority for
-                        // a correspondence involving another type.
                         continue;
                     }
+
+                    bool authorized = false;
+                    try
+                    {
+                        ExportedType root =
+                            reader.GetExportedType(rootToLeaf[0]);
+                        if (terminal.Kind == HandleKind.AssemblyReference
+                            && root.IsForwarder)
+                        {
+                            var targetHandle =
+                                (AssemblyReferenceHandle)terminal;
+                            ChargeAssemblyReference(targetHandle);
+                            AssemblyReferenceIdentity target =
+                                AssemblyReferenceIdentity.From(
+                                    targetHandle,
+                                    assemblyReferences);
+                            authorized =
+                                PlatformKeys
+                                    .IsCoreLibraryFacadeReference(target);
+                        }
+                    }
+                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
+                    {
+                        authorized = false;
+                    }
+                    forwardedRoots.Record(rootIdentity, authorized);
                 }
                 return forwardedRoots;
+
+                void RecordRejectedRoot(ExportedTypeHandle handle)
+                {
+                    try
+                    {
+                        ExportedType row =
+                            reader.GetExportedType(handle);
+                        forwardedRoots.Record(
+                            (
+                                ReadStructuralString(
+                                    reader,
+                                    row.Namespace,
+                                    _workBudget),
+                                ReadStructuralString(
+                                    reader,
+                                    row.Name,
+                                    _workBudget)),
+                            authorized: false);
+                    }
+                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
+                    {
+                    }
+                }
+
+                void ChargeAssemblyReference(
+                    AssemblyReferenceHandle handle)
+                {
+                    if (!chargedAssemblyReferences.Add(handle))
+                        return;
+
+                    System.Reflection.Metadata.AssemblyReference reference =
+                        reader.GetAssemblyReference(handle);
+                    _workBudget.Charge(
+                        reader.GetBlobReader(reference.Name).Length);
+                    if (!reference.Culture.IsNil)
+                    {
+                        _workBudget.Charge(
+                            reader.GetBlobReader(reference.Culture).Length);
+                    }
+                    if (!reference.PublicKeyOrToken.IsNil)
+                    {
+                        _workBudget.Charge(
+                            reader.GetBlobReader(
+                                reference.PublicKeyOrToken).Length);
+                    }
+                }
+
+                bool CanIgnoreMalformedRow(Exception ex) =>
+                    _workBudget.Remaining > 0
+                    && ex is BadImageFormatException
+                        or ArgumentOutOfRangeException;
             }
         }
 
