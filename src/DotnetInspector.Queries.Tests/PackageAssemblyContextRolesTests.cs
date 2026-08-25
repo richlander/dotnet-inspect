@@ -194,6 +194,45 @@ public sealed class PackageAssemblyContextRolesTests
         Assert.Equal(0, GroupCount(workspace));
     }
 
+    [Fact]
+    public void Dispose_ContinuesAfterBothRoleGroupsFail()
+    {
+        ResolvedAssemblyReference surface = Assembly("Dispose", marker: 1);
+        ResolvedAssemblyReference implementation =
+            Assembly("Dispose", marker: 2);
+        using var workspace = new InspectionWorkspace();
+        PackageAssemblyContextRoles roles =
+            workspace.CreatePackageAssemblyContextRoles(
+                [surface],
+                [implementation],
+                [new(surface, implementation)]);
+        roles.SurfaceGroup.RegisterOwnedResource(
+            new ThrowingResource("surface disposal failed"));
+        roles.ImplementationGroup!.RegisterOwnedResource(
+            new ThrowingResource("implementation disposal failed"));
+
+        AggregateException failure =
+            Assert.Throws<AggregateException>(roles.Dispose);
+
+        IReadOnlyCollection<Exception> failures =
+            failure.Flatten().InnerExceptions;
+        Assert.Contains(
+            failures,
+            ex => ex.Message == "surface disposal failed");
+        Assert.Contains(
+            failures,
+            ex => ex.Message == "implementation disposal failed");
+        Assert.Equal(0, GroupCount(workspace));
+        Assert.Throws<ObjectDisposedException>(
+            () => roles.SurfaceGroup.UseAssemblyImage(
+                surface,
+                static image => image.Content.Length));
+        Assert.Throws<ObjectDisposedException>(
+            () => roles.ImplementationGroup.UseAssemblyImage(
+                implementation,
+                static image => image.Content.Length));
+    }
+
     static ResolvedAssemblyReference Assembly(
         string name,
         byte marker) =>
@@ -221,5 +260,11 @@ public sealed class PackageAssemblyContextRolesTests
                 "InspectionWorkspace._groups was not found.");
         return ((System.Collections.ICollection)field.GetValue(workspace)!)
             .Count;
+    }
+
+    sealed class ThrowingResource(string message) : IDisposable
+    {
+        public void Dispose() =>
+            throw new InvalidOperationException(message);
     }
 }

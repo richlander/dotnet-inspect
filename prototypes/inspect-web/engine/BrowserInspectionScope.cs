@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -236,8 +237,30 @@ internal sealed class BrowserInspectionScope : IDisposable
 
     public void Dispose()
     {
-        _roles.Dispose();
-        _workspace.Dispose();
+        Exception? roleFailure = null;
+        try
+        {
+            _roles.Dispose();
+        }
+        catch (Exception ex)
+        {
+            roleFailure = ex;
+        }
+
+        try
+        {
+            _workspace.Dispose();
+        }
+        catch (Exception workspaceFailure)
+            when (roleFailure is not null)
+        {
+            throw new AggregateException(
+                roleFailure,
+                workspaceFailure);
+        }
+
+        if (roleFailure is not null)
+            ExceptionDispatchInfo.Capture(roleFailure).Throw();
     }
 
     static BrowserRoleAssembly[] CreateRole(

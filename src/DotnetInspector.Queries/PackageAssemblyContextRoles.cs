@@ -40,6 +40,11 @@ public sealed record PackageAssemblyRoleCorrespondence
 /// surface role. Correspondences are validated before either group is created,
 /// and preserve typed participant identity across the two roles.
 /// </para>
+/// <para>
+/// Disposal attempts every distinct role group even when an earlier group's
+/// owned-resource cleanup fails. Gated by
+/// <c>PackageAssemblyContextRolesTests.Dispose_ContinuesAfterBothRoleGroupsFail</c>.
+/// </para>
 /// </remarks>
 public sealed class PackageAssemblyContextRoles : IDisposable
 {
@@ -119,11 +124,21 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                     implementationParticipants[pair.Implementation]);
             }
         }
-        catch
+        catch (Exception creationFailure)
         {
-            if (!ReferenceEquals(implementationGroup, surfaceGroup))
-                implementationGroup?.Dispose();
-            surfaceGroup?.Dispose();
+            try
+            {
+                DisposeGroups(
+                    implementationGroup,
+                    surfaceGroup);
+            }
+            catch (Exception disposalFailure)
+            {
+                throw new AggregateException(
+                    creationFailure,
+                    disposalFailure);
+            }
+
             throw;
         }
     }
@@ -170,9 +185,38 @@ public sealed class PackageAssemblyContextRoles : IDisposable
         if (_disposed)
             return;
         _disposed = true;
-        if (!ReferenceEquals(ImplementationGroup, SurfaceGroup))
-            ImplementationGroup?.Dispose();
-        SurfaceGroup.Dispose();
+        DisposeGroups(ImplementationGroup, SurfaceGroup);
+    }
+
+    static void DisposeGroups(
+        AssemblyContextGroup? implementation,
+        AssemblyContextGroup? surface)
+    {
+        List<Exception>? failures = null;
+        if (implementation is not null
+            && !ReferenceEquals(implementation, surface))
+        {
+            TryDispose(implementation, ref failures);
+        }
+        if (surface is not null)
+            TryDispose(surface, ref failures);
+
+        if (failures is not null)
+            throw new AggregateException(failures);
+    }
+
+    static void TryDispose(
+        IDisposable resource,
+        ref List<Exception>? failures)
+    {
+        try
+        {
+            resource.Dispose();
+        }
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
     }
 
     static ImmutableArray<ResolvedAssemblyReference> SnapshotRole(
