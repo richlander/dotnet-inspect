@@ -664,8 +664,10 @@ paths. Close-negative tests cover those boundaries rather than relying on
 non-null assertions.
 
 The scope, lens, and member-section vocabularies are closed union types derived
-from the catalogs that render them, so `data.ts` and `spotlight.ts` are the only
-places those spellings exist. Values arriving from `dataset` attributes, URL
+from the catalogs that render them. `data.ts` and `spotlight.ts` own those
+catalogs; narrower typed subsets such as the platform library picker may repeat
+only the values that surface exposes, with assignment back to catalog-derived
+state checked by TypeScript. Values arriving from `dataset` attributes, URL
 query parameters, hashes, and share packets are admitted through `isTypeLens`,
 `isPackageLens`, `isMemberSection`, `isWorkspaceScope`, and `availableScope`;
 an unrecognized value is rejected at that boundary rather than cast into typed
