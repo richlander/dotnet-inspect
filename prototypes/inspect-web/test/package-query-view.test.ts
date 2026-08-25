@@ -211,6 +211,26 @@ test("a bounded-complete zero-row outcome never claims plain 'no matches' — it
   assert.match(html, /first 1,500 relevance-ranked ids/);
 });
 
+test("a bounded-complete zero-row outcome with a partial failure keeps the bound, not just the failure wording", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(
+      appendFailure(emptyOutcome(), "feed Y unreachable"),
+      { kind: "bounded", reason: "first 1,500 relevance-ranked ids" },
+    ),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  // A bounded outcome keeps its bounded label regardless of a partial
+  // failure (same rule the footer follows for non-empty results) — the
+  // generic "with failures" wording alone would silently drop the bound.
+  assert.match(html, /first 1,500 relevance-ranked ids/);
+  assert.match(html, /feed Y unreachable/);
+  assert.doesNotMatch(html, /<h2>No matches found — with failures<\/h2>/);
+});
+
 test("zero rows plus a failure never renders as a confirmed empty result", () => {
   const state: PackageQueryState = {
     request: createQueryRequest("Microsoft.*", "Microsoft."),

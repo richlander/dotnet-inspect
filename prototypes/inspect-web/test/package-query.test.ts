@@ -361,3 +361,33 @@ test("cancel() signals the data source's abortSignal so in-flight work can stop"
 
   assert.ok(observedAborted, "the source's abortSignal should fire when cancel() is called");
 });
+
+test("cancel() stays authoritative even against a source that ignores the abort signal", async () => {
+  const state = initialQueryState();
+  let releaseGate!: () => void;
+  const gate = new Promise<void>(resolve => { releaseGate = resolve; });
+
+  // This source never checks abortSignal.aborted at all — it keeps working
+  // and eventually reports a page, a failure, and an "exhausted" completion
+  // regardless of cancellation. The generation guard (not the source's
+  // cooperation) is what must keep "cancelled" authoritative here.
+  const uncooperativeSource: PackageQueryDataSource = {
+    async run(_request, onPage, onFailure) {
+      await gate;
+      onPage([row("late")]);
+      onFailure("late failure");
+      return { kind: "exhausted" };
+    },
+  };
+
+  const controller = createPackageQueryController(state, uncooperativeSource, () => {});
+
+  const running = controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  controller.cancel();
+  releaseGate();
+  await running;
+
+  assert.equal(state.outcome.completion.kind, "cancelled");
+  assert.deepEqual(state.outcome.rows, []);
+  assert.deepEqual(state.outcome.failures, []);
+});
