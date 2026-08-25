@@ -552,15 +552,23 @@ identity: name, normalized culture, and canonical public-key token. Adapters
 and endpoint owners can mint only that authority. The owner then applies its
 logical selection rule:
 
-| Acquisition owner | Logical participant slot | Side-local evidence |
+The evidence column below lists facts that may accompany one side; it does not
+make every fact an admission prerequisite. Artifact identity, acquisition
+registration, and retained-snapshot identity come from the owner without
+requiring a content digest. A digest is present only when the source declared
+one or an authorized consumer explicitly requested it through the artifact
+owner under the owning operation's budget. Participant pairing never triggers
+or requires that cold digest pass.
+
+| Acquisition owner | Logical participant slot | Available side-local evidence |
 | --- | --- | --- |
-| Direct package | Paired endpoint request, selection slot, asset role, and logical assembly entry | Package id/version, selected TFM/RID, archive/path locator, digest |
-| Project dependency | Paired project request, target-selection slot, dependency package id, asset role, and logical assembly entry | Package version, restore root, resolved asset path, digest |
-| Direct project output | Paired project request, target-selection slot, configuration, output role, and logical assembly entry | Build root, resolved TFM/RID, output path, digest |
-| Platform | Paired endpoint request, version-neutral framework slot, asset role, and logical assembly entry | Framework family/version, installed/remote locator, digest |
-| Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Workspace context id, canonical bundle-relative `ContentRef`, provider handle, and SHA-256 digest |
-| Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Absolute path, retained-snapshot id, digest |
-| Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Both adapters' source-specific provenance and locators |
+| Direct package | Paired endpoint request, selection slot, asset role, and logical assembly entry | Artifact registration, package id/version, selected TFM/RID, archive/path locator, optional owner-issued digest |
+| Project dependency | Paired project request, target-selection slot, dependency package id, asset role, and logical assembly entry | Artifact registration, package version, restore root, resolved asset path, optional owner-issued digest |
+| Direct project output | Paired project request, target-selection slot, configuration, output role, and logical assembly entry | Artifact registration, build root, resolved TFM/RID, output path, optional owner-issued digest |
+| Platform | Paired endpoint request, version-neutral framework slot, asset role, and logical assembly entry | Artifact registration, framework family/version, installed/remote locator, optional owner-issued digest |
+| Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Artifact registration, workspace context id, canonical bundle-relative `ContentRef`, provider handle, source-declared bundle digest |
+| Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Artifact registration, absolute path, retained-snapshot id, optional owner-issued digest |
+| Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Both artifact registrations, adapters' source-specific provenance and locators, optional source-declared or owner-issued digests |
 | Direct live-member call | One invocation-scoped paired-input designation | Exact live participant bindings and MVIDs |
 
 A package selection slot describes the request, not whichever framework folder
@@ -578,7 +586,7 @@ configuration, and output role. An embedded comparison host explicitly pairs
 the before/after workspace inputs or members. `ContentRef` is the canonical
 bundle-relative locator inside one side's workspace context; it cannot pair two
 contexts and remains side-local with the context id, provider handle, and
-digest. The host-issued paired id is the cross-side slot.
+source-declared bundle digest. The host-issued paired id is the cross-side slot.
 
 Endpoint source kinds and source identities need not match. An explicit
 package-to-local comparison is valid because the host owns that paired
@@ -1081,6 +1089,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
 - `ComparisonParticipantPairing_DuplicateLogicalSlotIsAmbiguous`
 - `ComparisonParticipantPairing_IsStableAcrossInputReordering`
+- `ComparisonParticipantPairing_DoesNotRequestContentDigest`
 - `ComparisonParticipantPairing_AdaptersCannotMintDirectAuthority`
 - `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`
