@@ -3422,6 +3422,42 @@ public partial class CommandExecutionTests
         Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task RangeConsumers_InvalidPackageIdReturnCoordinateDiagnostic()
+    {
+        const string InvalidRange = "bad package@1.0.0..2.0.0";
+        var timeline = await RunAppAsync(
+            "timeline",
+            "--package",
+            InvalidRange,
+            "--type",
+            "Sample.Widget",
+            "--finding",
+            "api.type",
+            "--at",
+            "first");
+        var type = await RunAppAsync(
+            "type",
+            "Sample.Widget",
+            "--package",
+            InvalidRange,
+            "--at",
+            "first");
+
+        foreach (var (exit, output, error) in new[] { timeline, type })
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "A package coordinate requires a package id",
+                error);
+            Assert.DoesNotContain(
+                "Arg_ParamName",
+                error,
+                StringComparison.Ordinal);
+        }
+    }
+
     [Theory]
     [InlineData("System.Collections.Generic.Dictionary<List<T>?,string>")]
     [InlineData("System.Collections.Generic.Dictionary<List<T>[,],string>")]

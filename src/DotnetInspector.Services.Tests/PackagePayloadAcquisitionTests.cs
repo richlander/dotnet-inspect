@@ -931,7 +931,7 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
-    public void PackageCache_MaximumMultibyteIdCommitsAndReopensBoundedArchive()
+    public async Task PackageCache_MaximumMultibyteIdCommitsAndReopensBoundedArchive()
     {
         string cacheRoot = TempDirectory();
         string stagingRoot = TempDirectory();
@@ -993,6 +993,19 @@ public sealed class PackagePayloadAcquisitionTests
                 NuGetCache.GetCachedVersions(
                     packageId,
                     [sourceKey]));
+            var store = new FileSystemPackageStore();
+            IPackageContent cached = Assert.Single(
+                store.EnumerateCached(
+                    packageId,
+                    Version,
+                    [sourceKey]));
+            Assert.Equal(committed.NupkgPath, cached.NupkgPath);
+            Assert.Equal(
+                PackageContentAdmission.Outcome.Admissible,
+                await PackageContentAdmission.EvaluateAsync(
+                    cached,
+                    PackagePayloadLimits.Default,
+                    TestContext.Current.CancellationToken));
         }
         finally
         {

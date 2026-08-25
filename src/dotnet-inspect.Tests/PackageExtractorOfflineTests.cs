@@ -209,6 +209,29 @@ public sealed class PackageExtractorOfflineTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_OfflineUnicodePin_ReopensRetainedArchive()
+    {
+        string packageName = $"日本語.Sample.{Guid.NewGuid():N}";
+        const string Version = "1.2.3";
+        const string SourceUrl = "https://private.invalid/v3/index.json";
+        string sourceKey = NuGetCache.GetSourceKey(SourceUrl);
+        CommitPackage(packageName, Version, sourceKey);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                Core.HttpClientFactory.Shared,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [SourceUrl],
+                },
+                version: Version);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(sourceKey, outcome.Result!.ProducerKey);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate()
     {
         string packageName = $"Offline.Canonical.{Guid.NewGuid():N}";

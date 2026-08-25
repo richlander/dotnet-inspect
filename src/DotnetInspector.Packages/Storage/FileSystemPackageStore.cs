@@ -54,7 +54,8 @@ public sealed class FileSystemPackageStore : IPackageStore
                 var cachedNupkg = FindNupkgInDirectory(
                     cached.ExtractPath,
                     normalizedName,
-                    normalizedVersion);
+                    normalizedVersion,
+                    cached.RequiresArchiveTreeMatch);
                 yield return new FileSystemPackageContent(
                     cached.ExtractPath,
                     cachedNupkg,
@@ -128,13 +129,20 @@ public sealed class FileSystemPackageStore : IPackageStore
         }
     }
 
-    private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
+    private static string? FindNupkgInDirectory(
+        string cacheDir,
+        string packageName,
+        string version,
+        bool requiresArchiveTreeMatch)
     {
-        // Standard NuGet cache layout: {package}/{version}/{package}.{version}.nupkg
         // Only the expected retained archive name is admissible. Scanning for
         // any *.nupkg would let extracted package content (a decoy nupkg in the
         // tree) stand in for the archive PackageContentAdmission re-validates.
-        var expectedPath = Path.Combine(cacheDir, $"{packageName}.{version}.nupkg");
+        string archiveName = requiresArchiveTreeMatch
+            ? NuGetCache.GetRetainedArchiveFileName(packageName, version)
+            // The read-only global-packages tier retains NuGet's raw filename.
+            : $"{packageName}.{version}.nupkg";
+        var expectedPath = Path.Combine(cacheDir, archiveName);
         return File.Exists(expectedPath) ? expectedPath : null;
     }
 }

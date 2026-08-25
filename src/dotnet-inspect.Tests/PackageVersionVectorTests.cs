@@ -241,6 +241,34 @@ public class PackageVersionVectorTests
                 address => address.Version.ToNormalizedString()));
     }
 
+    [Fact]
+    public async Task ResolveAsync_InvalidPackageIdFailsBeforeSourceRequest()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        Assert.True(
+            PackageVersionRange.TryParse(
+                "bad package@1.0.0..2.0.0",
+                out PackageVersionRange? range,
+                out _));
+        var handler = new VersionListingHandler();
+        using var client = new HttpClient(handler);
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => PackageVersionVector.ResolveAsync(
+                    client,
+                    range!,
+                    new NuGetSourceOptions
+                    {
+                        Sources = [VersionListingHandler.IndexUrl],
+                    }));
+
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            exception.Message);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
     sealed class VersionListingHandler(
         HttpStatusCode? failingStatus = null) : HttpMessageHandler
     {
@@ -252,11 +280,13 @@ public class PackageVersionVectorTests
             "https://healthy.test/flat/";
         const string FailingFlatContainer =
             "https://failing.test/flat/";
+        internal int RequestCount { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            RequestCount++;
             string url = request.RequestUri!.ToString();
             if (url == $"{FailingFlatContainer}example/index.json")
             {
