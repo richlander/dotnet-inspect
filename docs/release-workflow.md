@@ -125,8 +125,8 @@ Before dispatching a release:
 
 ## Shipped documentation
 
-`README.md` and the skills are not repository-side notes. They are release
-artifacts:
+`README.md` and the user-facing product skills under `skills/` are not
+repository-side notes. They are release artifacts:
 
 - `README.md` is the package readme (`PackageReadmeFile` in
   `src/dotnet-inspect/dotnet-inspect.csproj`, packed via the `None Include`
@@ -138,18 +138,22 @@ artifacts:
   enumerated one line per skill in `src/dotnet-inspect/dotnet-inspect.csproj`,
   not globbed.
 
+Repo-local maintainer skills under `.github/skills/` and `.claude/skills/` are
+not product release artifacts. Do not register or embed them.
+
 A change to `VersionPrefix` is therefore a documentation checkpoint. Consult
 both before dispatching, and expect to update them:
 
 - Do the commands, flags, defaults, and example output in `README.md` still
   match the tool? Re-run any example whose command surface changed rather than
   eyeballing it.
-- Does each `SKILL.md` still describe capabilities the release actually has,
-  and is a new capability discoverable from the skill that owns it? A skill's
-  YAML frontmatter `description:` is the single source of truth for the
-  generated listing, so a stale description ships as a stale listing.
-- **Does every skill added since the last release appear in both places?** A
-  skill needs an `EmbeddedResource` line in
+- Does each product `skills/*/SKILL.md` still describe capabilities the release
+  actually has, and is a new capability discoverable from the product skill
+  that owns it? A product skill's YAML frontmatter `description:` is the single
+  source of truth for the generated listing, so a stale description ships as a
+  stale listing.
+- **Does every product skill added under `skills/` since the last release appear
+  in both places?** A product skill needs an `EmbeddedResource` line in
   `src/dotnet-inspect/dotnet-inspect.csproj` *and* an entry in
   `SkillCommand.Skills`.
   `SkillCommandTests.FocusedSkillFilesRegistryAndEmbeddedResourcesAgree`
@@ -171,9 +175,27 @@ both before dispatching, and expect to update them:
    release commit:
 
    ```bash
+   set -euo pipefail
+   : "${ci_run_id:?set ci_run_id to the successful main CI run ID}"
+   : "${staging_run_id:?set staging_run_id to the matching staging run ID}"
+
    ci_sha=$(gh run view "$ci_run_id" --json headSha --jq .headSha)
    site_sha=$(gh run view "$staging_run_id" --json headSha --jq .headSha)
-   test "$ci_sha" = "$site_sha"
+
+   [[ "$ci_sha" =~ ^[0-9a-f]{40}$ ]] || {
+     printf 'invalid CI SHA: %s\n' "$ci_sha" >&2
+     exit 1
+   }
+   [[ "$site_sha" =~ ^[0-9a-f]{40}$ ]] || {
+     printf 'invalid staging SHA: %s\n' "$site_sha" >&2
+     exit 1
+   }
+   if [ "$ci_sha" != "$site_sha" ]; then
+     printf 'release SHA mismatch: CI=%s staging=%s\n' \
+       "$ci_sha" "$site_sha" >&2
+     exit 1
+   fi
+
    printf 'release SHA: %s\n' "$ci_sha"
    ```
 
@@ -187,8 +209,10 @@ both before dispatching, and expect to update them:
    only after reviewing the commits between the certified and target SHAs.
 9. Dispatch both workflows as one operator action. Do not substitute a newer
    run for either side after the exact-SHA comparison.
-10. Confirm that both resolve jobs report the expected release SHA before
-    approving either protected publishing environment.
+10. Confirm that both resolve jobs report the expected release SHA.
+11. Wait for every package build to succeed, then approve the NuGet environment.
+12. Wait for the package workflow and GitHub release to succeed, then approve
+    the production-site environment. Never promote the site first.
 
 The package workflow then:
 
@@ -209,9 +233,11 @@ The package workflow then:
 The pointer is deliberately published last because it references the
 runtime-specific packages.
 
-In parallel, the site promotion workflow revalidates the staging run and
-artifact identity, downloads the exact staged artifact with digest verification,
-and deploys it to `https://dotnet-inspect.net`.
+The site promotion workflow may validate its staging evidence while packages
+build, but its production environment remains unapproved. After package
+publication succeeds, approve the site workflow; it revalidates the staging run
+and artifact identity, downloads the exact staged artifact with digest
+verification, and deploys it to `https://dotnet-inspect.net`.
 
 The release is complete only when both workflows succeed. Verify that the
 published package and GitHub release use the intended version and commit, then
@@ -239,8 +265,9 @@ check the production site's status bar for the same version and linked commit.
 - **A partially published release is retried:** the workflow uses
   `--skip-duplicate`, but verify the complete package set and GitHub release
   before treating the release as complete.
-- **The package workflow fails after site promotion:** retry package publication
-  with the same CI and certification run IDs. Do not promote a newer site.
+- **The package workflow fails before site approval:** leave the production-site
+  environment unapproved and retry package publication with the same CI and
+  certification run IDs.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
 - **Either side resolves a different SHA:** cancel before approving publication

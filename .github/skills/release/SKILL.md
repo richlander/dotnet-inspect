@@ -28,9 +28,27 @@ From `main`, collect:
 Compare the full CI and staging SHAs before dispatching:
 
 ```bash
+set -euo pipefail
+: "${ci_run_id:?set ci_run_id to the successful main CI run ID}"
+: "${staging_run_id:?set staging_run_id to the matching staging run ID}"
+
 ci_sha=$(gh run view "$ci_run_id" --json headSha --jq .headSha)
 site_sha=$(gh run view "$staging_run_id" --json headSha --jq .headSha)
-test "$ci_sha" = "$site_sha"
+
+[[ "$ci_sha" =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'invalid CI SHA: %s\n' "$ci_sha" >&2
+  exit 1
+}
+[[ "$site_sha" =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'invalid staging SHA: %s\n' "$site_sha" >&2
+  exit 1
+}
+if [ "$ci_sha" != "$site_sha" ]; then
+  printf 'release SHA mismatch: CI=%s staging=%s\n' \
+    "$ci_sha" "$site_sha" >&2
+  exit 1
+fi
+
 printf 'release SHA: %s\n' "$ci_sha"
 ```
 
@@ -50,7 +68,9 @@ Open `release.yml` and `promote-inspect-web.yml` together:
 2. Dispatch `promote-inspect-web.yml` with the matching staging run ID and
    `confirm=promote`.
 3. Confirm that both resolve jobs report the same full release SHA.
-4. Only then approve the protected NuGet and production-site environments.
+4. Wait for every package build to succeed, then approve the NuGet environment.
+5. Wait for the package workflow and GitHub release to succeed, then approve
+   the production-site environment. Never promote the site first.
 
 Do not substitute a newer run after the SHA comparison. The release is complete
 only when both workflows succeed.
@@ -60,8 +80,9 @@ only when both workflows succeed.
 Verify the package version and commit in NuGet and the GitHub release. Then
 check the production site's status bar for the same version and linked commit.
 
-If one workflow fails after the other publishes, retry the failed workflow with
-the same run IDs. Package retries tolerate already-published artifacts with
-`--skip-duplicate`; site retries revalidate and promote the same staged
-artifact. A different SHA, ancestry-only relationship, or matching version
-string is not a valid substitute.
+If the package workflow fails, leave site production unapproved and retry with
+the same CI and certification run IDs. Package retries tolerate
+already-published artifacts with `--skip-duplicate`. If site promotion fails
+after package publication, retry with the same staging run ID; site retries
+revalidate and promote the same staged artifact. A different SHA, ancestry-only
+relationship, or matching version string is not a valid substitute.
