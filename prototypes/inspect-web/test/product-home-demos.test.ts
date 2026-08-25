@@ -215,10 +215,12 @@ test("extensions-callgraph delegates execution to the engine instead of encoding
 });
 
 test("platform residual rejects pinned runtime coordinates", () => {
+  const stjTab = unversionedRuntimeResolved.tabs[0];
+  assert.ok(stjTab);
   const pinned = {
     ...unversionedRuntimeResolved,
     tabs: [
-      unversionedRuntimeResolved.tabs[0],
+      stjTab,
       {
         id: "runtime",
         member: {

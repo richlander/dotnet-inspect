@@ -189,7 +189,7 @@ test("trailing whitespace preserves completed command arguments", () => {
     ["types kind ", "types kind"],
     ["clear ", "clear"],
     ["share ", "share"],
-  ]) {
+  ] as const) {
     assert.deepEqual(
       commandPaletteResults(commandContext(command), lenses)
         .map(result => [result.command, result.action]),

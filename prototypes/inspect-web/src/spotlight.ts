@@ -244,6 +244,11 @@ function hasElementId(value: EventTarget | null): value is EventTarget & { id: s
   return value !== null && "id" in value && typeof value.id === "string";
 }
 
+function itemAt<T>(items: readonly T[], index: number): T | null {
+  const item = items[index];
+  return item === undefined ? null : item;
+}
+
 export function createSpotlight(options: SpotlightOptions) {
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
@@ -402,8 +407,9 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function rememberSelection(items: readonly SpotlightResult[]): void {
-    selectedResultIdentity = items[state.spotlightIndex]
-      ? spotlightResultIdentity(items[state.spotlightIndex])
+    const selectedResult = itemAt(items, state.spotlightIndex);
+    selectedResultIdentity = selectedResult
+      ? spotlightResultIdentity(selectedResult)
       : null;
   }
 
@@ -671,7 +677,9 @@ export function createSpotlight(options: SpotlightOptions) {
         event.shiftKey,
       );
       state.spotlightChipIndex = next;
-      setScope(available[next].id);
+      const scope = itemAt(available, next);
+      if (!scope) return true;
+      setScope(scope.id);
       return true;
     }
 

@@ -42,9 +42,12 @@ test("hiding a medium drops only that medium's lines and rebases no coordinate",
 
   assert.deepEqual(view.lines.map(line => line.number), [1, 3, 4, 6]);
   assert.equal(view.hiddenLines, 2);
-  assert.equal(view.lines[0].start, 0);
+  const [firstLine, , thirdLine] = view.lines;
+  assert.ok(firstLine);
+  assert.ok(thirdLine);
+  assert.equal(firstLine.start, 0);
   assert.equal(
-    view.lines[2].segments.map(segment => segment.text).join(""),
+    thirdLine.segments.map(segment => segment.text).join(""),
     "    return new object();",
   );
 });
@@ -97,17 +100,26 @@ test("facts with no targets stay visible as explicitly unanchored", () => {
 
   assert.deepEqual(view.facts.map(fact => fact.id), [0, 1, 2]);
   assert.deepEqual(view.unanchoredFactIds, [2]);
-  assert.equal(view.facts[2].anchored, false);
-  assert.deepEqual(view.facts[2].nodeIds, []);
-  assert.equal(view.facts[2].origin, "MemberHeader");
+  const unanchoredFact = view.facts[2];
+  assert.ok(unanchoredFact);
+  assert.equal(unanchoredFact.anchored, false);
+  assert.deepEqual(unanchoredFact.nodeIds, []);
+  assert.equal(unanchoredFact.origin, "MemberHeader");
 });
 
 test("clicking text selects the tightest node and its facts", () => {
   const offset = sampleDocument.text.indexOf("new object()");
+  assert.notEqual(offset, -1);
 
-  assert.equal(nodeAtOffset(sampleDocument, offset)!.id, 1);
+  const selectedNode = nodeAtOffset(sampleDocument, offset);
+  assert.ok(selectedNode);
+  assert.equal(selectedNode.id, 1);
   assert.deepEqual(factsForNode(sampleDocument, 1).map(fact => fact.descriptor), ["alloc.new"]);
-  assert.equal(nodeAtOffset(sampleDocument, sampleDocument.text.indexOf("for ("))!.id, 0);
+  const forOffset = sampleDocument.text.indexOf("for (");
+  assert.notEqual(forOffset, -1);
+  const forNode = nodeAtOffset(sampleDocument, forOffset);
+  assert.ok(forNode);
+  assert.equal(forNode.id, 0);
   assert.equal(nodeAtOffset(sampleDocument, sampleDocument.text.length), null);
 });
 

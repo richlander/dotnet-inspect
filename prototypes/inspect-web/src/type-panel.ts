@@ -410,10 +410,17 @@ export function renderMemberNav(options: MemberNavOptions): string {
               <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}</small>
             </button>`;
           }
+          const overload = entry.group.overloads[entry.index];
+          if (!overload) {
+            return `<button class="type-row overload-nav-row unavailable" data-nav-overload="${entry.index}" role="option" aria-disabled="true" disabled>
+              <span class="overload-branch">↳</span>
+              <code>Unavailable overload</code>
+            </button>`;
+          }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
           return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
             <span class="overload-branch">↳</span>
-            <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
+            <code>${highlight(overload.signature)}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>

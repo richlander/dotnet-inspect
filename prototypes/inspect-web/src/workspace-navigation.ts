@@ -196,9 +196,9 @@ export function createNavigationHistory<TView>(
       const view = dependencies.capture();
       if (!view) return;
       const sig = dependencies.signature(view);
-      if (navigation.index >= 0
-        && navigation.stack[navigation.index]?.sig === sig) {
-        navigation.stack[navigation.index].view = view;
+      const current = itemAt(navigation.stack, navigation.index);
+      if (current && current.sig === sig) {
+        current.view = view;
         return;
       }
       navigation.stack = navigation.stack.slice(0, navigation.index + 1);
@@ -225,7 +225,11 @@ export function createNavigationHistory<TView>(
       while (navigation.index > 0) {
         const candidate = navigation.index - 1;
         navigation.index = candidate;
-        if (dependencies.apply(navigation.stack[candidate].view)) return true;
+        const candidateEntry = itemAt(navigation.stack, candidate);
+        if (!candidateEntry) {
+          throw new Error("The current navigation entry is unavailable.");
+        }
+        if (dependencies.apply(candidateEntry.view)) return true;
         navigation.stack.splice(candidate, 1);
       }
       dependencies.onExhausted();
@@ -235,7 +239,11 @@ export function createNavigationHistory<TView>(
       while (navigation.index < navigation.stack.length - 1) {
         const candidate = navigation.index + 1;
         navigation.index = candidate;
-        if (dependencies.apply(navigation.stack[candidate].view)) return true;
+        const candidateEntry = itemAt(navigation.stack, candidate);
+        if (!candidateEntry) {
+          throw new Error("The current navigation entry is unavailable.");
+        }
+        if (dependencies.apply(candidateEntry.view)) return true;
         navigation.stack.splice(candidate, 1);
         navigation.index--;
       }
@@ -324,6 +332,11 @@ type ShareStateResult = DecodedShareState | { error: string } | null;
 
 const invalidShareState =
   "The shared workspace state is invalid and was ignored.";
+
+function itemAt<T>(items: readonly T[], index: number): T | null {
+  const item = items[index];
+  return item === undefined ? null : item;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -451,9 +464,11 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
       if (graphMember.error) return { error: graphMember.error };
       if (!richSharePacketIsValid(raw, normalized.sourceIndexes))
         return { error: invalidShareState };
+      const active = itemAt(normalized.sourceIndexes, raw.a);
+      if (active === null) return { error: invalidShareState };
       return {
         tabs: normalized.tabs,
-        active: normalized.sourceIndexes[raw.a],
+        active,
         view: typeof raw.v === "string" ? raw.v : "",
         rich: true,
         type: typeof raw.y === "string" ? raw.y : null,
@@ -562,6 +577,9 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   }
   if (!pkg && tabs.length) {
     const target = tabs[Math.min(Math.max(0, active), tabs.length - 1)];
+    if (!target) {
+      throw new Error(invalidShareState);
+    }
     pkg = target.id;
     version = target.version;
     framework = target.framework;

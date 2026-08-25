@@ -382,7 +382,7 @@ interface AppMemberGroup {
   key: string;
   name: string;
   kind: string;
-  overloads: AppMemberSurface[];
+  overloads: [AppMemberSurface, ...AppMemberSurface[]];
 }
 
 interface AppMemberSurface extends BrowserMemberSurface {
@@ -1787,10 +1787,11 @@ function memberGroups(
       `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
     if (!group) {
-      group = { key, name: member.name, kind: member.kind, overloads: [] };
+      group = { key, name: member.name, kind: member.kind, overloads: [member] };
       groups.set(key, group);
+    } else {
+      group.overloads.push(member);
     }
-    group.overloads.push(member);
   }
   return [...groups.values()];
 }
@@ -1952,10 +1953,15 @@ function packageLensesFor(pkg: AppPackage | null) {
 // The single platform library the Integrations/Opportunities/Analysis lenses scan: whatever
 // is currently scoped (one library), else none — the lens then prompts the user to pick one.
 // Identity is the bare assembly key (no .dll), matching libraryScope and the platform roster.
+function singleLibraryScope() {
+  if (state.libraryScope?.size !== 1) return null;
+  const candidate = state.libraryScope.values().next();
+  return candidate.done ? null : candidate.value;
+}
+
 function scopedPlatformLibrary() {
   if (!state.package?.isRuntimePack) return null;
-  if (state.libraryScope && state.libraryScope.size === 1) return [...state.libraryScope][0];
-  return null;
+  return singleLibraryScope();
 }
 
 function activeLenses() {
@@ -2018,7 +2024,8 @@ function enterMemberScope() {
   state.memberBrowseTypeId = type.id;
   const visible = visibleMemberGroups(type);
   if (!memberSelectionIsAvailable(type, visible)) {
-    if (visible.length) openMemberGroup(visible[0].key);
+    const first = visible[0];
+    if (first) openMemberGroup(first.key);
     else {
       state.selectedMemberKey = "";
       state.selectedOverloadIndex = null;
@@ -2136,7 +2143,8 @@ function stepMemberNav(delta: number, focusList: boolean) {
   const entries = memberNavEntries(type);
   if (!entries.length) return;
   const cursor = memberNavTargetIndex(memberNavCursor(entries), entries.length, delta);
-  selectMemberNavEntry(entries[cursor], focusList);
+  const entry = entries[cursor];
+  if (entry) selectMemberNavEntry(entry, focusList);
 }
 
 // ↑/↓ always act on the visible nav list, whatever depth you are at.
@@ -2151,7 +2159,9 @@ function stepHorizontal(delta: number) {
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
     const index = strip.findIndex(([id]) => id === state.packageLens);
-    state.packageLens = strip[(index + delta + strip.length) % strip.length][0];
+    const lens = strip[(index + delta + strip.length) % strip.length];
+    if (!lens) return;
+    state.packageLens = lens[0];
     render();
     return;
   }
@@ -2163,12 +2173,14 @@ function stepHorizontal(delta: number) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
     if (index < 0) index = 0;
-    applyMemberSection(order[(index + delta + order.length) % order.length]);
+    const section = order[(index + delta + order.length) % order.length];
+    if (section) applyMemberSection(section);
   } else {
     const available = typeLensesFor(state.package);
     const index = available.findIndex(([id]) => id === state.lens);
-    state.lens = available[
-      (index + delta + available.length) % available.length][0];
+    const lens = available[(index + delta + available.length) % available.length];
+    if (!lens) return;
+    state.lens = lens[0];
     render();
   }
 }
@@ -2697,6 +2709,9 @@ function dependencyListSectionHtml(
   selectedGroupIndex: number | null,
 ) {
   const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
+  if (!group) {
+    throw new Error("Cannot render a dependency list without a dependency group.");
+  }
   const deps = group.dependencies || [];
   return `
     <section class="document-section" id="dep-list-section">
@@ -4578,7 +4593,8 @@ function bindAnnotatedSourceEvents() {
       const owning = node
         ? factsForNode(state.memberAnnotated.document, node.id)
         : [];
-      if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
+      const fact = owning[0];
+      if (owning.length === 1 && fact) state.memberAnnotatedFactId = fact.id;
       render();
     },
   });
@@ -4705,8 +4721,10 @@ function selectTypeByCursor(
   items: readonly BrowserTypeSurface[],
   focusList: boolean,
 ) {
+  const item = items[cursor];
+  if (!item) return;
   state.typeCursor = cursor;
-  state.selectedTypeId = items[cursor].id;
+  state.selectedTypeId = item.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
@@ -5752,8 +5770,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     }
   }
   const library = isRuntimePackId(state.package.id)
-    && state.libraryScope?.size === 1
-    ? [...state.libraryScope][0]
+    ? singleLibraryScope()
     : null;
   return {
     package: state.package.id,
@@ -7126,9 +7143,8 @@ function blockedCallGraphNodeBinding(
 }
 
 function currentCallGraph() {
-  return state.platformStack.length > 0
-    ? state.platformStack[state.platformStack.length - 1].graph
-    : state.memberCallGraph;
+  const current = state.platformStack.at(-1);
+  return current ? current.graph : state.memberCallGraph;
 }
 
 function platformCrumbTrail() {
@@ -7174,12 +7190,10 @@ function findGraphMemberSelection(
 ) {
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, target);
-  return selection
-    ? {
-        group: groups[selection.groupIndex],
-        overloadIndex: selection.overloadIndex
-      }
-    : null;
+  if (!selection) return null;
+  const group = groups[selection.groupIndex];
+  if (!group?.overloads[selection.overloadIndex]) return null;
+  return { group, overloadIndex: selection.overloadIndex };
 }
 
 async function loadGraphMemberSurface(
@@ -7664,13 +7678,10 @@ function findRuntimeMemberSelection(
   const type = candidate.type;
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, node);
-  return selection
-    ? {
-        type,
-        group: groups[selection.groupIndex],
-        overloadIndex: selection.overloadIndex
-      }
-    : null;
+  if (!selection) return null;
+  const group = groups[selection.groupIndex];
+  if (!group?.overloads[selection.overloadIndex]) return null;
+  return { type, group, overloadIndex: selection.overloadIndex };
 }
 
 function stripArity(name: string) {
@@ -8274,6 +8285,11 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
       throw new Error(
         "The engine-run demo selection was not present in its returned package surfaces.");
     }
+    const overload = member.overloads[overloadIndex];
+    if (!overload) {
+      throw new Error(
+        "The engine-run demo overload was not present in its returned member surface.");
+    }
 
     for (const packageModel of packages) {
       retainPackageModel(packageModel);
@@ -8308,7 +8324,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
     state.memberCallGraphExpanding = false;
     state.memberCallGraphKey = memberRequestSignature(
       type,
-      member.overloads[overloadIndex],
+      overload,
       true);
     state.loading = false;
     render();
@@ -8907,15 +8923,16 @@ keybindings.register({
   run: event => {
     const set = activeLenses();
     const index = Number(event.key) - 1;
-    if (index < set.length) {
+    const selected = set[index];
+    if (selected) {
       const sc = scope();
       if (sc === "package") {
-        state.packageLens = set[index][0];
+        state.packageLens = selected[0];
         render();
-      } else if (sc === "member" && isMemberSection(set[index][0])) {
-        applyMemberSection(set[index][0]);
+      } else if (sc === "member" && isMemberSection(selected[0])) {
+        applyMemberSection(selected[0]);
       } else {
-        state.lens = set[index][0];
+        state.lens = selected[0];
         render();
       }
     }

@@ -165,14 +165,17 @@ const groups = [
 ];
 
 test("member filters compose on one matching overload", () => {
-  assert.equal(memberGroupMatches(groups[0], {
+  const buildGroup = groups[0];
+  assert.ok(buildGroup);
+
+  assert.equal(memberGroupMatches(buildGroup, {
     kind: "method",
     accessibility: "public",
     trait: "isStatic",
     query: "path",
   }), true);
 
-  assert.equal(memberGroupMatches(groups[0], {
+  assert.equal(memberGroupMatches(buildGroup, {
     kind: "method",
     accessibility: "protected",
     trait: "isStatic",

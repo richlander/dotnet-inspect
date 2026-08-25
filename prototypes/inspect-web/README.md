@@ -606,13 +606,18 @@ npm run analyze
 ```
 
 The TypeScript gate checks product and test projects with `strict`,
-`exactOptionalPropertyTypes`, and `noImplicitReturns`. `npm run analyze` then
-runs Oxlint with its tsgolint backend against the same TypeScript 7.0.2
-toolchain used to build the product. Correctness and suspicious diagnostics,
-type-aware promise and unsafe-operation checks, warnings, and unused
-suppression directives all fail the gate. Browser/background promises must
-either preserve sequencing or surface unexpected rejection visibly. The exact
-`node:test` `test` call is the only configured safe promise-returning call
+`exactOptionalPropertyTypes`, `noImplicitReturns`, and
+`noUncheckedIndexedAccess`. Indexed reads must prove that an entry exists or
+preserve absence as an explicit result. The `npm test` cases `closing a package
+removes its coordinate and selects the adjacent tab` and `call graph navigation
+resolves accessor selectors across image-local token differences` provide
+close negative coverage for sparse workspace packages and graph member groups.
+`npm run analyze` then runs Oxlint with its tsgolint backend against the same
+TypeScript 7.0.2 toolchain used to build the product. Correctness and suspicious
+diagnostics, type-aware promise and unsafe-operation checks, warnings, and
+unused suppression directives all fail the gate. Browser/background promises
+must either preserve sequencing or surface unexpected rejection visibly. The
+exact `node:test` `test` call is the only configured safe promise-returning call
 because the test runner owns and observes that returned promise.
 
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
@@ -650,13 +655,6 @@ unit test derives the supported intersection from the locked Oxlint and
 tsgolint package metadata, requires both Linux libc variants, and pins the npm
 preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
 gates the supported paths.
-
-`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
-probe reports 77 findings across 15 files: 65 in nine product files and 12 in
-six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
-records the probe commands, file distribution, and migration discipline; the
-set should be migrated with close negative tests for indexing behavior rather
-than hidden behind assertions.
 
 ## Test
 

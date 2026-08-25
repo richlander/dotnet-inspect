@@ -3124,6 +3124,16 @@ test("call graph navigation resolves accessor selectors across image-local token
       selectorKey: "getter-selector"
     }),
     null);
+  const sparseGroups = [];
+  sparseGroups.length = 2;
+  sparseGroups[1] = group;
+  assert.deepEqual(
+    graphMemberSelection(sparseGroups, {
+      metadataToken: 456,
+      memberName: "get_P",
+      selectorKey: "getter-selector"
+    }),
+    { groupIndex: 1, overloadIndex: 0 });
 
   const runtimeResolver =
     appSource.match(/function findRuntimeMemberSelection[\s\S]*?\n\}/)?.[0]
@@ -4615,6 +4625,13 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
     packageIdentityKey(active));
   assert.deepEqual(only.packages, []);
   assert.equal(only.active, null);
+
+  const sparse = [];
+  sparse.length = 1;
+  const malformed = removeWorkspacePackage(sparse, active, "");
+  assert.equal(malformed.packages.length, 1);
+  assert.equal(malformed.active, active);
+  assert.equal(malformed.closed, null);
 });
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {

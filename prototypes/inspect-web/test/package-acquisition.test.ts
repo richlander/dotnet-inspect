@@ -282,7 +282,9 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
     mergedModel.types.map(candidate => candidate.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
   assert.equal(mergedModel.totalMembers, 5);
-  assert.equal(mergedModel.accessibility[0].count, 2);
+  const [primaryAccessibility] = mergedModel.accessibility;
+  assert.ok(primaryAccessibility);
+  assert.equal(primaryAccessibility.count, 2);
   assert.equal(mergedModel.assembly, "System.Private.CoreLib");
   assert.equal(mergedModel.assemblyId, "corelib");
   assert.equal(

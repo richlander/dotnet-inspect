@@ -211,6 +211,25 @@ export interface MetadataExplorerBindingActions {
   onTableFocus: (index: number, rowId: number) => void;
 }
 
+function parseMetadataExplorerIndex(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const index = Number(value);
+  return Number.isSafeInteger(index) ? index : null;
+}
+
+function parseMetadataExplorerPair(
+  value: string | undefined,
+): [number, number] | null {
+  if (value === undefined) return null;
+  const [indexText, rowIdText] = value.split(":");
+  if (indexText === undefined || rowIdText === undefined) return null;
+  const index = Number(indexText);
+  const rowId = Number(rowIdText);
+  return Number.isSafeInteger(index) && Number.isSafeInteger(rowId)
+    ? [index, rowId]
+    : null;
+}
+
 export function bindMetadataExplorer(
   root: ParentNode,
   explorer: Pick<ExplorerState, "overview"> | null,
@@ -242,13 +261,15 @@ export function bindMetadataExplorer(
   root.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
     chip.addEventListener(
       "click",
-      () => actions.onTableFocus(Number(chip.dataset.mdeChip), 0)));
+      () => {
+        const index = parseMetadataExplorerIndex(chip.dataset.mdeChip);
+        if (index !== null) actions.onTableFocus(index, 0);
+      }));
   root.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(button =>
     button.addEventListener("click", event => {
       event.stopPropagation();
-      const [index, rowId] =
-        (button.dataset.mdeJump ?? "").split(":").map(Number);
-      actions.onJump(index, rowId);
+      const ref = parseMetadataExplorerPair(button.dataset.mdeJump);
+      if (ref) actions.onJump(ref[0], ref[1]);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(button =>
     button.addEventListener("click", event => {
@@ -257,9 +278,8 @@ export function bindMetadataExplorer(
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(button =>
     button.addEventListener("click", () => {
-      const [index, startRowId] =
-        (button.dataset.mdePage ?? "").split(":").map(Number);
-      actions.onPage(index, startRowId);
+      const ref = parseMetadataExplorerPair(button.dataset.mdePage);
+      if (ref) actions.onPage(ref[0], ref[1]);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
     chip.addEventListener("click", () => {
@@ -272,7 +292,10 @@ export function bindMetadataExplorer(
       ".mde-wall .mde-card[data-mde-index] .mde-card-head",
     ).forEach(head => head.addEventListener("click", () => {
       const card = head.closest<HTMLElement>(".mde-card");
-      if (card) actions.onTableFocus(Number(card.dataset.mdeIndex), 0);
+      if (card) {
+        const index = parseMetadataExplorerIndex(card.dataset.mdeIndex);
+        if (index !== null) actions.onTableFocus(index, 0);
+      }
     }));
     root.querySelectorAll<HTMLElement>(
       ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
@@ -284,9 +307,8 @@ export function bindMetadataExplorer(
     root.querySelectorAll<HTMLElement>(
       ".mde-wall .mde-row[data-mde-row]",
     ).forEach(row => row.addEventListener("click", () => {
-      const [index, rowId] =
-        (row.dataset.mdeRow ?? "").split(":").map(Number);
-      actions.onTableFocus(index, rowId);
+      const ref = parseMetadataExplorerPair(row.dataset.mdeRow);
+      if (ref) actions.onTableFocus(ref[0], ref[1]);
     }));
   } else {
     root.querySelector("#mde-canvas")?.addEventListener(
@@ -295,9 +317,8 @@ export function bindMetadataExplorer(
     root.querySelectorAll<HTMLElement>(
       ".mde-focus .mde-row[data-mde-row]",
     ).forEach(row => row.addEventListener("click", () => {
-      const [index, rowId] =
-        (row.dataset.mdeRow ?? "").split(":").map(Number);
-      actions.onRowFocus(index, rowId);
+      const ref = parseMetadataExplorerPair(row.dataset.mdeRow);
+      if (ref) actions.onRowFocus(ref[0], ref[1]);
     }));
   }
 }

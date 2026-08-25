@@ -362,7 +362,9 @@ test("attach owns one keydown listener and returns its teardown", () => {
 
   const detach = registry.attach(target);
   assert.equal(listeners.length, 1);
-  listeners[0](keyboardEvent({ key: "x" }).event);
+  const listener = listeners[0];
+  assert.ok(listener);
+  listener(keyboardEvent({ key: "x" }).event);
   assert.equal(calls, 1);
   detach();
   assert.equal(removed, listeners[0]);

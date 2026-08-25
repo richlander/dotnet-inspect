@@ -59,10 +59,10 @@ export function memberGroupMatches(
   });
 }
 
-export function filterMemberGroups(
-  groups: readonly FilterableMemberGroup[],
+export function filterMemberGroups<T extends FilterableMemberGroup>(
+  groups: readonly T[],
   filters: MemberGroupFilters,
-): FilterableMemberGroup[] {
+): T[] {
   return groups.filter(group => memberGroupMatches(group, filters));
 }
 

@@ -467,11 +467,12 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
   packageKey: string,
 ): RemoveWorkspacePackageResult<T> {
   const index = packages.findIndex(item => packageIdentityKey(item) === packageKey);
-  if (index < 0 || packages[index].isRuntimePack) {
+  const packageToClose = packages[index];
+  if (!packageToClose || packageToClose.isRuntimePack) {
     return { packages: [...packages], active: activePackage, closed: null };
   }
 
-  const closed = packages[index];
+  const closed = packageToClose;
   const remaining = packages.filter((_, candidate) => candidate !== index);
   const active = packageIdentityKey(activePackage) === packageKey
     ? remaining[Math.min(index, remaining.length - 1)] ?? null
@@ -860,7 +861,7 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
 ): T | null {
   const matches = (types ?? []).filter(type =>
     (type.queryId ?? type.id) === queryId);
-  return matches.length === 1 ? matches[0] : null;
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 export interface CallGraphAssembly {
@@ -976,8 +977,9 @@ function resolveGraphTargetCandidate<
       if (matches.length > 1) return { status: "ambiguous" };
     }
   }
-  return matches.length === 1
-    ? { status: "unique", ...matches[0] }
+  const match = matches[0];
+  return matches.length === 1 && match
+    ? { status: "unique", ...match }
     : exactAssemblyResident
       ? { status: "resident" }
       : identitySkew
@@ -1276,8 +1278,10 @@ export function graphMemberSelection(
   )[] = [];
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
     const group = groups[groupIndex];
+    if (!group) continue;
     for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
       const overload = group.overloads[overloadIndex];
+      if (!overload) continue;
       for (const body of overload.bodySelectors ?? []) {
         if (body.memberName === target.memberName
           && body.selectorKey === target.selectorKey) {
@@ -1288,6 +1292,7 @@ export function graphMemberSelection(
   }
   if (bodyMatches.length > 0) {
     const [first] = bodyMatches;
+    if (!first) return null;
     if (bodyMatches.length === 1
       || (first.token != null
         && bodyMatches.every(match => match.token === first.token))) {
@@ -1302,12 +1307,13 @@ export function graphMemberSelection(
   const ownerMatches: GraphMemberSelection[] = [];
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
     const group = groups[groupIndex];
+    if (!group) continue;
     for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
-      if (group.overloads[overloadIndex].graphSelectorKey === target.selectorKey)
+      if (group.overloads[overloadIndex]?.graphSelectorKey === target.selectorKey)
         ownerMatches.push({ groupIndex, overloadIndex });
     }
   }
-  return ownerMatches.length === 1 ? ownerMatches[0] : null;
+  return ownerMatches.length === 1 ? ownerMatches[0] ?? null : null;
 }
 
 export function searchableMemberGroups<

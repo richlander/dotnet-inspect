@@ -651,17 +651,22 @@ test("workspace dependency loading records failures and ignores runtime packs", 
     "Example.Dependency");
   assert.equal(Object.hasOwn(state.workspaceDependencyErrors, goodKey), false);
   const partialKey = workspaceDependencyKey(partial);
+  const partialWorkspace = state.workspaceDependencies[partialKey];
+  assert.ok(partialWorkspace);
   assert.equal(
-    state.workspaceDependencies[partialKey].dependencyGroupError,
+    partialWorkspace.dependencyGroupError,
     "no dependency group matches net10.0");
   assert.equal(
     state.workspaceDependencyErrors[partialKey],
     "no dependency group matches net10.0");
+  const badKey = workspaceDependencyKey(bad);
+  const badWorkspace = state.workspaceDependencies[badKey];
+  assert.ok(badWorkspace);
   assert.deepEqual(
-    state.workspaceDependencies[workspaceDependencyKey(bad)].dependencyGroups,
+    badWorkspace.dependencyGroups,
     []);
   assert.equal(
-    state.workspaceDependencyErrors[workspaceDependencyKey(bad)],
+    state.workspaceDependencyErrors[badKey],
     "dependency feed unavailable");
   assert.equal(
     Object.hasOwn(state.workspaceDependencies, workspaceDependencyKey(runtime)),

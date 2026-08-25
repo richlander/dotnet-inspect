@@ -58,21 +58,37 @@ function parseTsv(text: string): ParsedIndex {
     if (!line) continue;
     const parts = line.split("\t");
     if (parts.length < 8) continue;
+    const tfm = parts[0];
     const pack = parts[1];
+    const assembly = parts[2];
+    const file = parts[3];
     const kind = parts[4];
+    const forwardsTo = parts[5];
+    const version = parts[6];
+    const publicTypesText = parts[7];
+    if (tfm === undefined
+      || pack === undefined
+      || assembly === undefined
+      || file === undefined
+      || kind === undefined
+      || forwardsTo === undefined
+      || version === undefined
+      || publicTypesText === undefined) {
+      continue;
+    }
     if (pack !== "netcore.app" && pack !== "aspnetcore.app" && pack !== "netstandard")
       throw new Error(`Invalid platform pack '${pack}' on index line ${i + 1}.`);
     if (kind !== "impl" && kind !== "facade" && kind !== "ref")
       throw new Error(`Invalid platform assembly kind '${kind}' on index line ${i + 1}.`);
     const row: PlatformAssemblyRow = {
-      tfm: parts[0],
+      tfm,
       pack,
-      assembly: parts[2],
-      file: parts[3],
+      assembly,
+      file,
       kind,
-      forwardsTo: parts[5] || null,
-      version: parts[6],
-      publicTypes: Number(parts[7]) || 0
+      forwardsTo: forwardsTo || null,
+      version,
+      publicTypes: Number(publicTypesText) || 0
     };
     rows.push(row);
     let bucket = byTfm.get(row.tfm);
