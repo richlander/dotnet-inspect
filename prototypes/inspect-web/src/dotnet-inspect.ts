@@ -82,6 +82,10 @@ import {
   type WorkspaceView,
 } from "./workspace-navigation.ts";
 import {
+  createWorkbenchKeybindings,
+  WORKBENCH_KEYBINDING_PRIORITY,
+} from "./workbench-keybindings.ts";
+import {
   createNuGetPackageModel,
   createPackageAcquisition,
   runtimeAssemblyIsResident,
@@ -752,6 +756,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const annotatedSourceExplorerRenderCoordinator =
   new AnnotatedSourceExplorerRenderCoordinator();
+const keybindings = createWorkbenchKeybindings();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   queryMemberSource: request => inspectMemberSource(
@@ -1302,6 +1307,7 @@ const catalogRequests = createCatalogRequests({
   updatePackageVersionSelect: updateVersionSelect,
 });
 const spotlight = createSpotlight({
+  keybindings,
   state,
   lenses: () => typeLensesFor(state.package),
   escapeHtml,
@@ -1339,11 +1345,6 @@ function isInteractiveElement(element: Element | null) {
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
-function isContainedBrowserShortcut(event: KeyboardEvent) {
-  return (event.metaKey || event.ctrlKey)
-    && ["f", "k", "p"].includes(event.key.toLowerCase());
-}
-
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
@@ -1368,6 +1369,7 @@ function closeSpotlight() {
 }
 
 const packageBar = createPackageBar({
+  keybindings,
   state,
   escapeHtml,
   packageIdentityKey,
@@ -4063,6 +4065,23 @@ function bindAnnotatedSourceExplorerEvents() {
       closeAnnotatedSourceExplorer();
       binding.onSelect();
     },
+    onCodeLensPreview: nodeId => {
+      updateAnnotatedSourceExplorer({
+        type: "preview-codelens",
+        nodeId,
+        startedAt: Date.now(),
+      }, false, `[data-ase-codelens-node="${nodeId}"]`);
+    },
+    onCodeLensPreviewEnd: nodeId => {
+      if (!state.annotatedExplorer || !state.memberAnnotated) return;
+      const next = reduceAnnotatedSourceExplorerState(
+        state.memberAnnotated.document,
+        state.annotatedExplorer,
+        { type: "clear-codelens-preview", nodeId });
+      if (next === state.annotatedExplorer) return;
+      state.annotatedExplorer = next;
+      render();
+    },
     onCodeLensToggle: () => {
       updateAnnotatedSourceExplorer(
         { type: "toggle-codelens" },
@@ -4146,6 +4165,7 @@ function annotatedSourceExplorerFocusSelector() {
     "aseFact",
     "aseNode",
     "aseOffset",
+    "aseCodelensNode",
   ]) {
     if (active.dataset?.[name] !== undefined) {
       const attribute = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
@@ -4650,8 +4670,7 @@ function bindTypePanelEvents() {
     },
     onMemberFilterKeyDown: (event, value) => {
       if (event.key === "Escape") {
-        if (navMode() !== "member" && value === "") return;
-        event.preventDefault();
+        if (navMode() !== "member" && value === "") return false;
         if (navMode() === "member") {
           exitMemberScope();
         } else {
@@ -4659,11 +4678,11 @@ function bindTypePanelEvents() {
           normalizeMemberSelection();
           renderMemberFilterAndRestoreFocus("#member-filter");
         }
-        return;
+        return true;
       }
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-      event.preventDefault();
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
       stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+      return true;
     },
     onMemberGroupOpen: memberKey => {
       enterMemberNavigation(() => openMemberGroup(memberKey));
@@ -4725,7 +4744,7 @@ function bindTypePanelEvents() {
         .findIndex(item => item.id === state.selectedTypeId);
       render();
     },
-  });
+  }, keybindings);
 }
 
 function bindScopeBarEvents() {
@@ -4922,47 +4941,45 @@ function setTheme(theme: "light" | "dark", renderView = true) {
   }
 }
 
-function handleTypeKeys(event: KeyboardEvent) {
+function handleTypeKeys(event: KeyboardEvent): boolean {
   if (navMode() === "member") {
     if (event.key === "ArrowDown" || event.key === "j") {
-      event.preventDefault();
       stepMemberNav(1, true);
+      return true;
     } else if (event.key === "ArrowUp" || event.key === "k") {
-      event.preventDefault();
       stepMemberNav(-1, true);
+      return true;
     } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
       // Alt/Shift+ArrowLeft is the global back gesture (see the document keydown
       // handler); leave it unclaimed here so it isn't swallowed as in-page stepping.
-      event.preventDefault();
       stepHorizontal(-1);
+      return true;
     } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
-      event.preventDefault();
       stepHorizontal(1);
+      return true;
     }
-    return;
+    return false;
   }
   const items = filteredTypes();
-  if (!items.length) return;
+  if (!items.length) return false;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
   if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
   if (event.key === "ArrowDown" || event.key === "j") {
-    event.preventDefault();
     cursor = Math.min(items.length - 1, cursor + 1);
   } else if (event.key === "ArrowUp" || event.key === "k") {
-    event.preventDefault();
     cursor = Math.max(0, cursor - 1);
   } else if (event.key === "Home") {
     cursor = 0;
   } else if (event.key === "End") {
     cursor = items.length - 1;
   } else if (event.key === "/") {
-    event.preventDefault();
     focusFilter();
-    return;
+    return true;
   } else {
-    return;
+    return false;
   }
   selectTypeByCursor(cursor, items, true);
+  return true;
 }
 
 function selectTypeByCursor(
@@ -6854,7 +6871,7 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    bindGraphPanZoom(container, viewport);
+    bindGraphPanZoom(container, viewport, { keybindings });
     bindTypeGraphNodes(viewport, nodeId => {
       const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
       if (!graphNode) return null;
@@ -6999,7 +7016,7 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    bindGraphPanZoom(container, viewport);
+    bindGraphPanZoom(container, viewport, { keybindings });
     bindDependencyGraphNodes(viewport, nodeId => {
       const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
       if (!info || info.kind === "self") return null;
@@ -7223,6 +7240,7 @@ async function renderMermaidCallGraph() {
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
       bindGraphPanZoom(container, viewport, {
+        keybindings,
         resolveCallGraphNode: nodeId =>
           callGraphNodeBinding(active, nodeId),
       });
@@ -8905,204 +8923,413 @@ bindWorkspaceLinkNavigation(document, {
   navigate: navigateInAppUrl,
 });
 
-// A modal-style view that owns the keydown event outright while it is open (Escape
-// dismisses it, plus whatever other keys are its own). Declaring these as one ordered
-// list — instead of a chain of `if (state.x) { ...; return; }` blocks — makes this the
-// single, explicit place that decides which layer Escape (and everything else) belongs
-// to; adding a new dismissable layer means adding one entry here, not re-deriving the
-// right spot in a growing if/else chain.
-interface KeydownLayer {
-  active(): boolean;
-  handle(event: KeyboardEvent): void;
+const containedShortcutKeys = ["f", "k", "p"] as const;
+const alphabetKeys = "abcdefghijklmnopqrstuvwxyz".split("");
+
+function registerContainedShortcuts(
+  id: string,
+  priority: number,
+  when: () => boolean,
+): void {
+  keybindings.register({
+    id,
+    key: containedShortcutKeys,
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority,
+    when,
+    run: () => true,
+  });
 }
 
-// The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
-// out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
-// the ref->def history (Shift+Backspace forward). Settings is a modal-style page reachable
-// from home too, so it takes priority over the home bail below (which otherwise swallows the
-// keystroke on the home page).
-const homeIndependentKeydownLayers: readonly KeydownLayer[] = [
-  {
-    active: () => Boolean(state.explorer?.open),
-    handle(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        if (!state.explorer!.overview) explorerShowOverview();
-        else closeExplorer();
-      } else if (event.key === "Backspace") {
-        event.preventDefault();
-        if (event.shiftKey) explorerHistoryForward();
-        else explorerHistoryBack();
-      } else if (isContainedBrowserShortcut(event)) {
-        event.preventDefault();
-      }
-    },
-  },
-  {
-    active: () => state.settings,
-    handle(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSettings();
-      } else if (isContainedBrowserShortcut(event)) {
-        event.preventDefault();
-      }
-    },
-  },
-];
+function workspaceKeyboardContextIsActive(): boolean {
+  return !state.explorer?.open
+    && !state.settings
+    && !state.annotatedExplorer
+    && !state.home
+    && !state.loading
+    && !state.error
+    && !state.graphSourceOpen
+    && !state.docViewerOpen
+    && !state.spotlightOpen;
+}
 
-// These modal-style layers only apply once a package workspace is loaded (the home and
-// loading/error bails below run first), but are otherwise the same kind of Escape-owning
-// layer as above.
-const workspaceKeydownLayers: readonly KeydownLayer[] = [
-  {
-    active: () => Boolean(state.annotatedExplorer),
-    handle(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        const findingPeek =
-          document.querySelector<HTMLElement>(".finding-peek:popover-open");
-        if (findingPeek) {
-          findingPeek.hidePopover();
-          return;
-        }
-        closeAnnotatedSourceExplorer();
-      }
-    },
-  },
-  {
-    active: () => state.graphSourceOpen,
-    handle(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeGraphSource();
-      } else if (isContainedBrowserShortcut(event)) {
-        event.preventDefault();
-      }
-    },
-  },
-  {
-    active: () => state.docViewerOpen,
-    handle(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeDocViewer();
-      } else if (isContainedBrowserShortcut(event)) {
-        event.preventDefault();
-      }
-    },
-  },
-  {
-    active: () => state.spotlightOpen,
-    handle(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSpotlight();
-      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        openSpotlight("", "commands");
-      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-        event.preventDefault();
-        openSpotlight();
-      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-      }
-    },
-  },
-];
+const workspaceModalContextIsAvailable = () =>
+  !state.annotatedExplorer && !state.home && !state.loading && !state.error;
+const graphSourceContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.graphSourceOpen;
+const documentViewerContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.docViewerOpen;
+const spotlightContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.spotlightOpen;
 
-document.addEventListener("keydown", event => {
-  for (const layer of homeIndependentKeydownLayers) {
-    if (layer.active()) {
-      layer.handle(event);
-      return;
-    }
-  }
-  const typing = isTextEntry();
-  // The home page has its own scoped input handling (search box); global workbench
-  // shortcuts assume a loaded package, so stay out of the way here.
-  if (state.home) return;
-  if (state.loading || state.error) {
-    if (isContainedBrowserShortcut(event) || event.key === "/") {
-      event.preventDefault();
-    }
-    return;
-  }
-  for (const layer of workspaceKeydownLayers) {
-    if (layer.active()) {
-      layer.handle(event);
-      return;
-    }
-  }
-  if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
-    event.preventDefault();
+keybindings.register({
+  id: "metadata-explorer.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  when: () => Boolean(state.explorer?.open),
+  run: () => {
+    if (!state.explorer!.overview) explorerShowOverview();
+    else closeExplorer();
+    return true;
+  },
+});
+keybindings.register({
+  id: "metadata-explorer.history",
+  key: "Backspace",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  when: () => Boolean(state.explorer?.open),
+  run: event => {
+    if (event.shiftKey) explorerHistoryForward();
+    else explorerHistoryBack();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "metadata-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  () => Boolean(state.explorer?.open),
+);
+
+keybindings.register({
+  id: "settings.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.settings,
+  run: () => {
+    closeSettings();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "settings.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.settings,
+);
+
+keybindings.register({
+  id: "annotated-source.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.annotatedSource,
+  when: () => Boolean(state.annotatedExplorer),
+  run: () => {
+    const findingPeek =
+      document.querySelector<HTMLElement>(".finding-peek:popover-open");
+    if (findingPeek) findingPeek.hidePopover();
+    else closeAnnotatedSourceExplorer();
+    return true;
+  },
+});
+
+const unavailableWorkspaceContext = () =>
+  !state.annotatedExplorer
+    && !state.home
+    && (state.loading || Boolean(state.error));
+registerContainedShortcuts(
+  "unavailable-workspace.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.unavailableWorkspace,
+  unavailableWorkspaceContext,
+);
+keybindings.register({
+  id: "unavailable-workspace.contain-filter-shortcut",
+  key: "/",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.unavailableWorkspace,
+  when: unavailableWorkspaceContext,
+  run: () => true,
+});
+
+keybindings.register({
+  id: "graph-source.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  when: graphSourceContextIsActive,
+  run: () => {
+    closeGraphSource();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "graph-source.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  graphSourceContextIsActive,
+);
+
+keybindings.register({
+  id: "document-viewer.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.documentViewer,
+  when: documentViewerContextIsActive,
+  run: () => {
+    closeDocViewer();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "document-viewer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.documentViewer,
+  documentViewerContextIsActive,
+);
+
+keybindings.register({
+  id: "spotlight.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    closeSpotlight();
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.open-commands",
+  key: "k",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    openSpotlight("", "commands");
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    openSpotlight();
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.contain-browser-find",
+  key: "f",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => true,
+});
+
+keybindings.register({
+  id: "taste.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.popover,
+  when: () => workspaceKeyboardContextIsActive() && state.tasteOpen,
+  run: () => {
     state.tasteOpen = false;
     render();
-  } else if (event.key === "Escape" && !event.defaultPrevented && !typing
-      && (navMode() === "member" || !state.atPackageRoot)) {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-out-escape",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && (navMode() === "member" || !state.atPackageRoot),
+  run: () => {
     if (navMode() === "member") exitMemberScope();
     else drillOut();
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.open-commands",
+  key: "k",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     openSpotlight("", "commands");
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     openSpotlight();
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.focus-filter",
+  key: "f",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     focusFilter();
-  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowLeft"
-      && (event.altKey || (event.shiftKey && !typing))) {
-    // Alt+←/→ always drives back/forward. Shift+←/→ is the same gesture, gated on
-    // `!typing` so it doesn't steal native text-selection (Shift+Arrow) inside inputs.
-    // `!event.defaultPrevented` defers to any element-scoped handler (e.g. the type
-    // list's in-page stepHorizontal, the graph viewport's pan) that already claimed
-    // this key. Shift+↑/↓ stays unclaimed for now.
-    event.preventDefault();
-    navBack();
-  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowRight"
-      && (event.altKey || (event.shiftKey && !typing))) {
-    event.preventDefault();
-    navForward();
-  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {
+    return true;
+  },
+});
+
+for (const [key, action] of [
+  ["ArrowLeft", navBack],
+  ["ArrowRight", navForward],
+] as const) {
+  keybindings.register({
+    id: `workspace.history-alt-${key}`,
+    key,
+    modifiers: { alt: true },
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    when: event => workspaceKeyboardContextIsActive()
+      && !event.metaKey
+      && !event.ctrlKey,
+    run: () => {
+      action();
+      return true;
+    },
+  });
+  keybindings.register({
+    id: `workspace.history-shift-${key}`,
+    key,
+    modifiers: { shift: true },
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+    run: () => {
+      action();
+      return true;
+    },
+  });
+}
+
+keybindings.register({
+  id: "workspace.select-lens",
+  key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  allowExtraModifiers: true,
+  preventDefault: false,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey,
+  run: event => {
     const set = activeLenses();
     const index = Number(event.key) - 1;
     if (index < set.length) {
       const sc = scope();
-      if (sc === "package") { state.packageLens = set[index][0]; render(); }
-      else if (sc === "member" && isMemberSection(set[index][0]))
+      if (sc === "package") {
+        state.packageLens = set[index][0];
+        render();
+      } else if (sc === "member" && isMemberSection(set[index][0])) {
         applyMemberSection(set[index][0]);
-      else { state.lens = set[index][0]; render(); }
+      } else {
+        state.lens = set[index][0];
+        render();
+      }
     }
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-    event.preventDefault();
-    stepNav(event.key === "ArrowDown" ? 1 : -1);
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-    event.preventDefault();
-    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen
-      && !isInteractiveElement(
-        event.target instanceof Element ? event.target : null)
-      && event.key === "Enter") {
-    event.preventDefault();
-    drillIn();
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && event.key === "Backspace" && (navMode() === "member" || !state.atPackageRoot)) {
-    event.preventDefault();
-    drillOut();
-  } else if (!typing && event.key === "/") {
-    event.preventDefault();
-    focusFilter();
-  } else if (!typing && !state.spotlightOpen && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !event.defaultPrevented && event.key.length === 1 && /[a-zA-Z]/.test(event.key)) {
-    event.preventDefault();
-    openSpotlight(event.key);
-  }
+    return true;
+  },
 });
+keybindings.register({
+  id: "workspace.navigate-vertical",
+  key: ["ArrowUp", "ArrowDown"],
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey,
+  run: event => {
+    stepNav(event.key === "ArrowDown" ? 1 : -1);
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.navigate-horizontal",
+  key: ["ArrowLeft", "ArrowRight"],
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  run: event => {
+    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !isInteractiveElement(
+      event.target instanceof Element ? event.target : null),
+  run: () => {
+    drillIn();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-out-backspace",
+  key: "Backspace",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && (navMode() === "member" || !state.atPackageRoot),
+  run: () => {
+    drillOut();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.focus-filter-slash",
+  key: "/",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  run: () => {
+    focusFilter();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.seed-spotlight",
+  key: alphabetKeys,
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey,
+  run: event => {
+    openSpotlight(event.key);
+    return true;
+  },
+});
+
+keybindings.attach(document);
 
 document.addEventListener("mousedown", event => {
   if (!state.tasteOpen) return;

@@ -50,6 +50,8 @@ function escapeHtml(value: unknown) {
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly classes = new Set<string>();
+  readonly sourceAffordances: FakeElement[] = [];
+  tabIndex = -1;
   readonly classList = {
     contains: (token: string) => this.classes.has(token),
     toggle: (token: string, force?: boolean) => {
@@ -92,6 +94,22 @@ class FakeElement {
       listener(event);
     }
   }
+
+  contains(value: unknown): boolean {
+    return value === this || this.sourceAffordances.includes(value as FakeElement);
+  }
+
+  focus(): void {
+    this.ownerDocument.activeElement = this;
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    return selector === "[data-ase-source-affordance]"
+      ? this.sourceAffordances
+      : [];
+  }
+
+  scrollIntoView(): void {}
 }
 
 test("the member tab hands annotated source off to the full-screen explorer", () => {
@@ -147,6 +165,8 @@ test("drag selection does not activate an addressable source segment", () => {
     onCopy: () => {},
     onExit: () => {},
     onCaptureSelect: () => {},
+    onCodeLensPreview: () => {},
+    onCodeLensPreviewEnd: () => {},
     onCodeLensToggle: () => {},
     onFactSelect: () => {},
     onFindingMemberCopy: () => {},
@@ -166,17 +186,19 @@ test("drag selection does not activate an addressable source segment", () => {
   assert.deepEqual(calls, [17, 17]);
 });
 
-test("CodeLens activation retains its node preview until the six-second animation ends", () => {
+test("CodeLens preview state survives rerenders until the six-second animation ends", () => {
   const lens = new FakeElement({ aseCodelensNode: "7" });
-  const target = new FakeElement({ aseNodeIds: "7" });
+  const target = new FakeElement({ aseCodelensPreviewNode: "7" });
   const toggle = new FakeElement();
+  const previews: number[] = [];
+  const ended: number[] = [];
   let toggles = 0;
   const root = fakeDom.parentNode({
     querySelector: (selector: string) =>
       selector === "[data-ase-codelens-toggle]" ? toggle : null,
     querySelectorAll: (selector: string) => {
       if (selector === "[data-ase-codelens-node]") return [lens];
-      if (selector === '[data-ase-node-ids~="7"]') return [target];
+      if (selector === "[data-ase-codelens-preview-node]") return [target];
       return [];
     },
   });
@@ -186,6 +208,8 @@ test("CodeLens activation retains its node preview until the six-second animatio
     onCopy: () => {},
     onExit: () => {},
     onCaptureSelect: () => {},
+    onCodeLensPreview: nodeId => previews.push(nodeId),
+    onCodeLensPreviewEnd: nodeId => ended.push(nodeId),
     onCodeLensToggle: () => toggles++,
     onFactSelect: () => {},
     onFindingMemberCopy: () => {},
@@ -198,16 +222,51 @@ test("CodeLens activation retains its node preview until the six-second animatio
   });
 
   lens.dispatch("click");
-  assert.equal(lens.classList.contains("previewing"), true);
-  assert.equal(target.classList.contains("codelens-preview"), true);
+  assert.deepEqual(previews, [7]);
   target.dispatch("animationend", fakeDom.event({
     animationName: "ase-codelens-preview",
   }));
-  assert.equal(lens.classList.contains("previewing"), false);
-  assert.equal(target.classList.contains("codelens-preview"), false);
+  assert.deepEqual(ended, [7]);
 
-  lens.dispatch("click");
-  assert.equal(target.classList.contains("codelens-preview"), true);
+  const initial = createAnnotatedSourceExplorerState(sampleDocument);
+  const candidate = initial.prepared.codeLensCandidates[0];
+  assert.ok(candidate);
+  const previewing = reduceAnnotatedSourceExplorerState(
+    sampleDocument,
+    initial,
+    { type: "preview-codelens", nodeId: candidate.nodeId, startedAt: 1_000 },
+  );
+  const renderAt = (now: number) => renderAnnotatedSourceExplorer({
+    result,
+    state: previewing,
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+    now,
+  });
+  const firstRender = renderAt(2_000);
+  const secondRender = renderAt(4_000);
+  assert.match(
+    firstRender,
+    new RegExp(`class="previewing"[^>]*data-ase-codelens-node="${candidate.nodeId}"`),
+  );
+  assert.match(
+    firstRender,
+    new RegExp(`data-ase-codelens-preview-node="${candidate.nodeId}" style="animation-delay: -1000ms"`),
+  );
+  assert.match(
+    secondRender,
+    new RegExp(`data-ase-codelens-preview-node="${candidate.nodeId}" style="animation-delay: -3000ms"`),
+  );
+  assert.doesNotMatch(renderAt(7_600), /data-ase-codelens-preview-node/);
+  assert.equal(
+    reduceAnnotatedSourceExplorerState(
+      sampleDocument,
+      previewing,
+      { type: "clear-codelens-preview", nodeId: candidate.nodeId },
+    ).codeLensPreview,
+    null,
+  );
   assert.match(
     styles,
     /\.annotated-span\.codelens-preview\s*\{[^}]*box-shadow:\s*none;[^}]*animation:\s*ase-codelens-preview 6\.6s/,
@@ -244,6 +303,8 @@ test("Finding evidence actions copy and navigate without changing selection", ()
     onCopy: () => {},
     onExit: () => {},
     onCaptureSelect: () => {},
+    onCodeLensPreview: () => {},
+    onCodeLensPreviewEnd: () => {},
     onCodeLensToggle: () => {},
     onFactSelect: () => {},
     onFindingMemberCopy: member => calls.push(`copy:${member}`),
@@ -267,7 +328,10 @@ test("the app routes the member tab into the TypeScript explorer", () => {
   assert.match(appSource, /from "\.\/annotated-source-explorer\.ts"/);
   assert.match(appSource, /renderAnnotatedSourceEntry\(/);
   assert.match(appSource, /#open-annotated-explorer/);
-  assert.match(appSource, /active: \(\) => Boolean\(state\.annotatedExplorer\)/);
+  assert.match(
+    appSource,
+    /id: "annotated-source\.dismiss"[\s\S]*when: \(\) => Boolean\(state\.annotatedExplorer\)/,
+  );
   assert.match(appSource, /renderAnnotatedSourceExplorer\(\)/);
   assert.match(appSource, /memberAnnotatedActiveFactIds/);
   assert.match(
@@ -1164,6 +1228,73 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
     /if \(event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return;/,
   );
   assert.match(explorerSource, /spans\[nextIndex\]\.focus\(\{ preventScroll: true \}\)/);
+});
+
+test("roving focus removes the source container from reverse tab order", () => {
+  const ownerDocument = {
+    activeElement: null as unknown,
+    getSelection: () => null,
+  };
+  const code = new FakeElement({}, ownerDocument);
+  const first = new FakeElement({}, ownerDocument);
+  const second = new FakeElement({}, ownerDocument);
+  const outside = new FakeElement({}, ownerDocument);
+  code.tabIndex = 0;
+  code.sourceAffordances.push(first, second);
+  const root = fakeDom.parentNode({
+    querySelector: (selector: string) =>
+      selector === ".ase-code-scroll" ? code : null,
+    querySelectorAll: () => [],
+  });
+  const htmlElementDescriptor =
+    Object.getOwnPropertyDescriptor(globalThis, "HTMLElement");
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: FakeElement,
+  });
+  try {
+    bindAnnotatedSourceExplorer(root, {
+      onClearSelection: () => {},
+      onCopy: () => {},
+      onExit: () => {},
+      onCaptureSelect: () => {},
+      onCodeLensPreview: () => {},
+      onCodeLensPreviewEnd: () => {},
+      onCodeLensToggle: () => {},
+      onFactSelect: () => {},
+      onFindingMemberCopy: () => {},
+      onFindingMemberNavigate: () => {},
+      onMediumToggle: () => {},
+      onNodeKindSelect: () => {},
+      onRegionSelect: () => {},
+      onNodeSelect: () => {},
+      onOffsetSelect: () => {},
+    });
+    ownerDocument.activeElement = code;
+    let prevented = false;
+    code.dispatch("keydown", fakeDom.keyboardEvent({
+      key: "ArrowDown",
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      preventDefault: () => { prevented = true; },
+    }));
+    assert.equal(prevented, true);
+    assert.equal(ownerDocument.activeElement, first);
+    assert.equal(code.tabIndex, -1);
+
+    code.dispatch("focusout", fakeDom.event({ relatedTarget: outside }));
+    assert.equal(code.tabIndex, 0);
+    code.dispatch("focusin", fakeDom.event({ target: second }));
+    assert.equal(code.tabIndex, -1);
+  } finally {
+    if (htmlElementDescriptor) {
+      Object.defineProperty(globalThis, "HTMLElement", htmlElementDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "HTMLElement");
+    }
+  }
 });
 
 test("all explorer renders preserve focus and scroll while home invalidates the context", () => {

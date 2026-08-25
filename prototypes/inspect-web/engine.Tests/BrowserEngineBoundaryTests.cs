@@ -2007,16 +2007,31 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate coordinate = Coordinate(
             "Platform.Confusable",
             Package(image, "lib/net11.0/Platform.Confusable.dll"));
-        PackageCompileAsset asset = Assert.Single(coordinate.Selection.Assets);
-        using var workspace = new InspectionWorkspace();
-        using var group = new BrowserWorkspaceGroup(
-            workspace,
-            [(coordinate, asset)],
-            BrowserInspectionScope.MaxRetainedImageBytes);
-        AssemblyReferenceIdentity identity = Assert.Single(group.Participants).Assembly.Identity;
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.SurfaceParticipants);
+        AssemblyBindingSelection any =
+            participant.Participant.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(
+                        participant.Assembly),
+                    AssemblyResolutionScope.Any));
+        AssemblyBindingSelection platform =
+            participant.Participant.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(
+                        participant.Assembly),
+                    AssemblyResolutionScope.Platform));
 
-        Assert.NotNull(group.Resolve(identity, AssemblyResolutionScope.Any));
-        Assert.Null(group.Resolve(identity, AssemblyResolutionScope.Platform));
+        Assert.Same(
+            participant.Assembly,
+            Assert.IsType<AssemblyBindingSelection.Selected>(any).Assembly);
+        Assert.IsType<AssemblyBindingSelection.Missing>(platform);
     }
 
     [Fact]
@@ -2068,6 +2083,47 @@ public sealed class BrowserEngineBoundaryTests
 
         Assert.NotNull(
             equivalentScope.ImplementationParticipant(equivalentSurface));
+    }
+
+    [Fact]
+    public void WorkspaceDisposal_ClosesWorkspaceAfterRoleFailure()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Dispose.Roles",
+            PackagePair(image, image, "Dispose.Roles.dll"));
+        var scope = new BrowserInspectionScope([coordinate]);
+        AssemblyContextGroup implementation =
+            scope.UseImplementation(group => group);
+        MethodInfo registerOwnedResource =
+            typeof(AssemblyContextGroup).GetMethod(
+                "RegisterOwnedResource",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "AssemblyContextGroup.RegisterOwnedResource was not found.");
+        registerOwnedResource.Invoke(
+            implementation,
+            [new ThrowingResource("browser role disposal failed")]);
+
+        AggregateException failure =
+            Assert.Throws<AggregateException>(scope.Dispose);
+
+        Assert.Contains(
+            failure.Flatten().InnerExceptions,
+            ex => ex.Message == "browser role disposal failed");
+        FieldInfo field =
+            typeof(BrowserInspectionScope).GetField(
+                "_workspace",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "BrowserInspectionScope._workspace was not found.");
+        var workspace =
+            Assert.IsType<InspectionWorkspace>(field.GetValue(scope));
+        Assert.Throws<ObjectDisposedException>(
+            () => workspace.CreateAssemblyContextGroup(
+                [scope.SurfaceParticipants[0].Participant]));
     }
 
     [Fact]
@@ -4147,6 +4203,12 @@ public sealed class BrowserEngineBoundaryTests
         public void Dispose()
         {
         }
+    }
+
+    sealed class ThrowingResource(string message) : IDisposable
+    {
+        public void Dispose() =>
+            throw new InvalidOperationException(message);
     }
 
     sealed class RequestRecordingHandler : HttpMessageHandler

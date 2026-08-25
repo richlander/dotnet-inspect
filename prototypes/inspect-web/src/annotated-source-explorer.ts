@@ -35,6 +35,7 @@ export interface AnnotatedSourceExplorerState {
   prepared: PreparedAnnotatedView;
   media: Record<SourceMedium, boolean>;
   codeLens: boolean;
+  codeLensPreview: { nodeId: number; startedAt: number } | null;
   selectedFactId: number | null;
   activeFactIds: readonly number[];
   selectedCaptureIndex: number | null;
@@ -53,6 +54,8 @@ export interface AnnotatedSourceExplorerRenderState {
 export type AnnotatedSourceExplorerAction =
   | { type: "toggle-medium"; medium: SourceMedium }
   | { type: "toggle-codelens" }
+  | { type: "preview-codelens"; nodeId: number; startedAt: number }
+  | { type: "clear-codelens-preview"; nodeId: number }
   | { type: "select-fact"; factId: number }
   | { type: "select-capture"; captureIndex: number }
   | { type: "select-node"; nodeId: number }
@@ -81,6 +84,8 @@ export interface AnnotatedSourceExplorerBindingActions {
   onFactSelect: (factId: number) => void;
   onFindingMemberCopy: (member: string) => void;
   onFindingMemberNavigate: (evidenceIndex: number) => void;
+  onCodeLensPreview: (nodeId: number) => void;
+  onCodeLensPreviewEnd: (nodeId: number) => void;
   onCodeLensToggle: () => void;
   onMediumToggle: (medium: SourceMedium) => void;
   onNodeKindSelect: (kind: string) => void;
@@ -107,10 +112,12 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
   subtitle: string;
   nodeKinds?: readonly AnnotatedSourceKindOption[];
   tokenizeCSharp?: CSharpTokenizer;
+  now?: number;
 }
 
 const MAX_SELECTION_DETAILS = 50;
 const MAX_FINDING_PEEK_LINES = 8;
+const CODELENS_PREVIEW_DURATION_MS = 6_600;
 const REMOTE_FINDING_DESCRIPTORS = new Set([
   "cost.callee",
   "safety.callee",
@@ -166,27 +173,14 @@ export function bindAnnotatedSourceExplorer(
       () => actions.onNodeSelect(Number(button.dataset.aseNode))));
   root.querySelectorAll<HTMLElement>("[data-ase-codelens-node]").forEach(button => {
     const nodeId = Number(button.dataset.aseCodelensNode);
-    const targets = [...root.querySelectorAll<HTMLElement>(
-      `[data-ase-node-ids~="${nodeId}"]`,
-    )];
-    targets.forEach(target => {
-      target.addEventListener("animationend", event => {
-        if (event.animationName !== "ase-codelens-preview") return;
-        target.classList.toggle("codelens-preview", false);
-        if (!targets.some(span => span.classList.contains("codelens-preview"))) {
-          button.classList.toggle("previewing", false);
-        }
-      });
-    });
-    button.addEventListener("click", () => {
-      for (const target of targets) {
-        target.classList.toggle("codelens-preview", false);
-        void target.offsetWidth;
-        target.classList.toggle("codelens-preview", true);
-      }
-      button.classList.toggle("previewing", targets.length > 0);
-    });
+    button.addEventListener("click", () => actions.onCodeLensPreview(nodeId));
   });
+  root.querySelectorAll<HTMLElement>("[data-ase-codelens-preview-node]").forEach(target =>
+    target.addEventListener("animationend", event => {
+      if (event.animationName !== "ase-codelens-preview") return;
+      actions.onCodeLensPreviewEnd(
+        Number(target.dataset.aseCodelensPreviewNode));
+    }));
   root.querySelectorAll<HTMLElement>("[data-ase-finding-peek]").forEach(button => {
     const peekId = button.dataset.aseFindingPeek;
     const peek = peekId ? button.ownerDocument.getElementById(peekId) : null;
@@ -238,6 +232,14 @@ export function bindAnnotatedSourceExplorer(
   root.querySelector("#ase-clear")?.addEventListener("click", actions.onClearSelection);
 
   const code = root.querySelector<HTMLElement>(".ase-code-scroll");
+  code?.addEventListener("focusin", event => {
+    if (event.target !== code) code.tabIndex = -1;
+  });
+  code?.addEventListener("focusout", event => {
+    if (!event.relatedTarget || !code.contains(event.relatedTarget as Node)) {
+      code.tabIndex = 0;
+    }
+  });
   code?.addEventListener("keydown", event => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const spans = [
@@ -267,6 +269,7 @@ export function bindAnnotatedSourceExplorer(
         return;
     }
     event.preventDefault();
+    code.tabIndex = -1;
     spans[nextIndex].focus({ preventScroll: true });
     spans[nextIndex].scrollIntoView({ block: "nearest", inline: "nearest" });
   });
@@ -325,6 +328,7 @@ export function createAnnotatedSourceExplorerState(
     prepared,
     media,
     codeLens: initial.codeLens !== false,
+    codeLensPreview: initial.codeLensPreview ?? null,
     selectedFactId: initial.selectedFactId ?? null,
     activeFactIds: [...new Set(
       initial.activeFactIds
@@ -348,7 +352,25 @@ export function reduceAnnotatedSourceExplorerState(
       return hasVisibleSource(state.prepared, media) ? { ...state, media } : state;
     }
     case "toggle-codelens":
-      return { ...state, codeLens: !state.codeLens };
+      return {
+        ...state,
+        codeLens: !state.codeLens,
+        codeLensPreview: state.codeLens ? null : state.codeLensPreview,
+      };
+    case "preview-codelens":
+      if (!state.prepared.codeLensCandidates.some(
+        candidate => candidate.nodeId === action.nodeId)) return state;
+      return {
+        ...state,
+        codeLensPreview: {
+          nodeId: action.nodeId,
+          startedAt: action.startedAt,
+        },
+      };
+    case "clear-codelens-preview":
+      return state.codeLensPreview?.nodeId === action.nodeId
+        ? { ...state, codeLensPreview: null }
+        : state;
     case "select-fact": {
       if (!document.facts.some(fact => fact.id === action.factId)) return state;
       const selected = state.selectedFactId === action.factId;
@@ -473,7 +495,15 @@ export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions)
 export function renderAnnotatedSourceExplorer(
   options: AnnotatedSourceExplorerOptions,
 ): string {
-  const { result, state, title, subtitle, escapeHtml, tokenizeCSharp } = options;
+  const {
+    result,
+    state,
+    title,
+    subtitle,
+    escapeHtml,
+    tokenizeCSharp,
+    now = Date.now(),
+  } = options;
   if (state.prepared.document !== result.document) {
     throw new Error("The annotated source explorer state belongs to a different document.");
   }
@@ -519,6 +549,14 @@ export function renderAnnotatedSourceExplorer(
     : new Map<number, readonly SourceCodeLensAnnotation[]>();
   const codeLensNodeIds = new Set(
     [...codeLensAnnotations.values()].flat().map(annotation => annotation.nodeId));
+  const codeLensPreviewElapsed = state.codeLensPreview
+    ? Math.max(0, now - state.codeLensPreview.startedAt)
+    : 0;
+  const activeCodeLensPreview = state.codeLens
+    && state.codeLensPreview
+    && codeLensPreviewElapsed < CODELENS_PREVIEW_DURATION_MS
+    ? state.codeLensPreview
+    : null;
   const nodeCaretAnnotations = combineCaretAnnotations(
     persistentSelectedNodes
       .filter(node => !codeLensNodeIds.has(node.id))
@@ -595,6 +633,8 @@ export function renderAnnotatedSourceExplorer(
         && segment.nodeIds.includes(directlySelectedNode.id);
       const captureScope = view.captureScopeNodeId !== null
         && segment.nodeIds.includes(view.captureScopeNodeId);
+      const codeLensPreview = activeCodeLensPreview !== null
+        && segment.nodeIds.includes(activeCodeLensPreview.nodeId);
       const descriptions = [
         factCount > 0
           ? `${factCount} finding${factCount === 1 ? "" : "s"} available: ${factDescriptors.join(", ")}`
@@ -614,7 +654,10 @@ export function renderAnnotatedSourceExplorer(
         const accessibleLabel = descriptions
           ? ` aria-label="${escapeHtml(`${segment.text}; ${descriptions}`)}"`
           : "";
-        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}" data-ase-source-affordance data-ase-offset="${segment.start}" data-ase-node-ids="${segment.nodeIds.join(" ")}" title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
+        const previewAttributes = codeLensPreview
+          ? ` data-ase-codelens-preview-node="${activeCodeLensPreview.nodeId}" style="animation-delay: -${codeLensPreviewElapsed}ms"`
+          : "";
+        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}${codeLensPreview ? " codelens-preview" : ""}" data-ase-source-affordance data-ase-offset="${segment.start}" data-ase-node-ids="${segment.nodeIds.join(" ")}"${previewAttributes} title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
       }
       return `<span class="annotated-span${selectionClass}">${content}</span>`;
     }).join("");
@@ -627,7 +670,7 @@ export function renderAnnotatedSourceExplorer(
           `<div class="annotated-codelens-row">
             <span class="annotated-line-number"></span>
             ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
-            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" tabindex="-1" data-ase-source-affordance data-ase-codelens-node="${annotation.nodeId}" title="Preview ${escapeHtml(annotation.label)} for six seconds">${escapeHtml(annotation.label)}</button></span>
+            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" tabindex="-1"${activeCodeLensPreview?.nodeId === annotation.nodeId ? ' class="previewing"' : ""} data-ase-source-affordance data-ase-codelens-node="${annotation.nodeId}" title="Preview ${escapeHtml(annotation.label)} for six seconds">${escapeHtml(annotation.label)}</button></span>
           </div>`,
         ).join("") ?? ""
       : "";

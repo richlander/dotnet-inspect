@@ -40,18 +40,25 @@ shortening the selected assembly set.
    stable result. Neither path requests the NuGet.org v3 service index. The
    Browser adapter then selects one target framework — never "whatever the
    package happens to ship".
-2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
+2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
    admits the package from the Gallery package CDN through the shared typed
    source, transport, and archive policy. The Gallery payload carries its
    advertised length into the Browser reservation policy before body
    materialization.
    `PackageCompileAssetSelector` adds reference-group semantics around the
-   implementation universe selected by `PackageAssetSelector`, decodes each
-   healthy entry's real metadata identity, and creates one
+   implementation universe selected by `PackageAssetSelector`. The narrow
+   Browser acquisition adapter decodes each healthy entry's real metadata
+   identity and creates one
    `ResolvedAssemblyReference` per selected compile asset and, when the roles
    differ, per matching implementation asset. Malformed selected entries remain
    participants so queries report their rejection. Acquisition never inspects
    one.
+   `InspectionWorkspace.CreatePackageAssemblyContextRoles` then owns the
+   coordinated surface and implementation binding snapshots, equivalent-
+   identity rejection, group construction, reference-only surfaces, and exact
+   surface-to-implementation participant correspondence. Browser retains the
+   selected package/asset provenance used by source and navigation operations,
+   but does not implement assembly binding or group composition.
    The Browser adapter places one 30-second operation deadline around coordinate
    resolution and payload acquisition. The deadline token flows through the
    shared resolver, retry, response-body, archive-validation, and store paths;
@@ -92,9 +99,10 @@ shortening the selected assembly set.
    `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
    `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
    consumption.
-3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
-   and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
-   exposes exactly two hand-offs — `Use(group => query(group))` and
+3. **Hand a role group to a query.** The participants open one
+   `InspectionWorkspace` and one or two binding-consistent
+   `AssemblyContextGroup` instances. `BrowserInspectionScope` exposes exactly
+   two hand-offs — `Use(group => query(group))` and
    `UseParticipant(participant, (group, participant) => query(...))` — and no
    accessor for a session, an image, or a descriptor.
 
@@ -212,10 +220,10 @@ assemblies that receive a .NET platform lookup on click.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, participant minting, and the bounded workspace registry |
+| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, descriptor minting, and the bounded workspace registry |
 | `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
-| `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
+| `engine/BrowserInspectionScope.cs` | package/asset provenance over product-owned surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
@@ -590,10 +598,12 @@ do not construct annotations. CodeLens is globally on or off; its unnumbered
 rows do not alter canonical coordinates or source line numbering. Pressing and
 activating a CodeLens chip bolds and shades exactly the product-issued node
 spans for six seconds, then fades the preview without changing persistent
-selection. The chip's text aligns with the first source character it describes;
+selection. Preview identity and start time live in explorer state, so a
+selection or async rerender resumes the remaining animation instead of
+cancelling or restarting it. The chip's text aligns with the first source character it describes;
 its border extends around that shared column. Large syntax constructs use this
 leading annotation rather than emitting caret rows across the construct. The
-`CodeLens activation retains its node preview until the six-second animation
+`CodeLens preview state survives rerenders until the six-second animation
 ends`, `product labels render as toggleable structural CodeLens annotations`,
 and `CodeLens reuses prepared candidates and skips their construction while off`
 tests gate those interactions.
@@ -611,7 +621,8 @@ spans so syntax color never changes canonical coordinates or opens markup
 across a structural button boundary. Token ranges are cached per document and
 tokenizer for interaction-time reuse. The source panel is one tab stop; arrow
 keys move among structural spans, CodeLens chips, and Finding evidence chips,
-while Tab proceeds directly to the inspector.
+while Tab proceeds directly to the inspector and Shift+Tab leaves the panel
+rather than revisiting its entry container.
 Each selection plane keeps its own visual treatment: green Finding affordances,
 orange active Finding targets and carets, blue source-node carets and transient
 CodeLens previews, and purple capture scope and uses. Selection highlights
@@ -801,21 +812,43 @@ that intercepts same-origin in-app anchor clicks
 browser behavior. `dotnet-inspect.ts` remains the sole mutable
 application-state owner: it supplies typed snapshots and explicit transition
 callbacks, calls the one link-navigation binder instead of adding its own
-click listener, and declares its Escape-owning modal layers (Metadata
-Explorer, Settings, Annotated Source, graph source, doc viewer, Spotlight) as one explicit
-ordered `KeydownLayer` list rather than an ad hoc if/else chain, so adding a
-new dismissable layer means adding one entry instead of re-deriving its
-priority. `dotnet-inspect.ts` retains asynchronous workspace restoration and
-its remaining DOM event binding. Alt+←/→ and Shift+←/→ drive `navBack()`/
-`navForward()` unless an element-scoped handler (the type list, the graph
-viewport) already claimed the same combo and called `preventDefault()` first;
-Shift+←/→ are further gated on the shared `typing` check so they never steal
-native text-selection inside an input or filter field — Shift+↑/↓ stay
-unclaimed. `test/workspace-navigation.test.ts` gates
+click listener, and registers application-level gestures and context
+predicates with the shared keybinding dispatcher.
+
+`src/keybinding-registry.ts` is a dependency-free general component with no
+inspect-web imports. A registration declares keys, exact modifiers by default,
+priority, an optional event-path scope and context predicate, and a handler
+whose Boolean result distinguishes "matched" from "handled". The registry
+orders active matches by priority and nearest event-path scope, stops at the
+first handled result, and centrally applies `preventDefault()`. A false result
+falls through to the next candidate. Equal-precedence matches produce a
+structured conflict callback while retaining deterministic registration order.
+Event-scoped registrations live in a `WeakMap`; registration also returns an
+explicit disposer.
+
+`src/workbench-keybindings.ts` is the inspect-web adapter: it defines the
+workspace, element, and modal priority policy and reports conflicts. Local
+owners including Spotlight, type/member filters, package tabs, and graph
+interactions register their gestures against the rendered element. The
+composition root registers workspace and modal gestures, then attaches the
+registry's only raw `keydown` listener to `document`. Alt+←/→ and Shift+←/→
+drive `navBack()`/`navForward()`; element-scoped gestures arbitrate in the same
+dispatcher instead of relying on bubbling order or `defaultPrevented`
+cooperation. Shift+←/→ remain gated by the shared typing check so they never
+steal native text selection inside an input or filter field; Shift+↑/↓ stay
+unclaimed globally. Annotated Source registers above the unavailable/loading
+workspace context because the full-screen explorer can remain visible during a
+package transition; Escape therefore closes an open Finding peek and then the
+explorer even while loading.
+
+`test/keybinding-registry.test.ts` gates precedence, scoped arbitration,
+handled fallthrough, exact modifiers, conflict reporting, disposal, and the
+original stack-navigation collision. `test/spotlight-identity.test.js` gates
+the single-listener wiring and the complete workbench priority order.
+`test/workspace-navigation.test.ts` gates
 history traversal, stale-entry removal, navigation cancellation, rich and
 legacy URL compatibility, visible invalid-state failures, sandboxed history
-errors, and the link-interception rule;
-`test/spotlight-identity.test.js` gates the composition-root wiring.
+errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
@@ -1012,8 +1045,9 @@ image rather than the API surface within it, so they share one module the way
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
 the explorer's focus/history stack, lazy `IntersectionObserver` hydration,
-resize coordination, and the global keydown handler, supplying those effects
-through typed callbacks; the shared helpers used well beyond these views
+resize coordination, and global gesture effects, supplying those effects
+through typed callbacks and registry declarations; the shared helpers used
+well beyond these views
 (`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.
