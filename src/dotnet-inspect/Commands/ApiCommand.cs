@@ -648,7 +648,11 @@ public class ApiCommand
 
         const string required =
             "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
-        if (selectResult.ExactSections.Contains(SectionNames.BodyShapes)
+        bool explicitlyTargetsBodyShapes =
+            options is MemberOptions { MemberSectionsPreResolved: true }
+                ? selectResult.ExactSections.Contains(SectionNames.BodyShapes)
+                : TargetsBodyShapes(options, options.Select);
+        if (explicitlyTargetsBodyShapes
             || sections.Count == 1)
         {
             return required;
