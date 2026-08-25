@@ -506,41 +506,33 @@ public static class ApiSurfaceExtractor
                 HashSet<string>>();
         if (!typesOnly)
         {
-            foreach (TypeDefinitionHandle typeHandle
-                in reader.TypeDefinitions)
+            foreach (MethodDefinitionHandle methodHandle
+                in reader.MethodDefinitions)
             {
-                TypeDefinition type =
-                    reader.GetTypeDefinition(typeHandle);
-                string typeNamespace = DecodeString(
-                    reader,
-                    type.Namespace,
-                    observeDecodeWork);
-                string typeName = DecodeString(
-                    reader,
-                    type.Name,
-                    observeDecodeWork);
-                if (typeNamespace
-                        != "System.Runtime.InteropServices.JavaScript"
-                    || typeName != "__GeneratedInitializer")
-                {
-                    continue;
-                }
-
-                foreach (MethodDefinitionHandle methodHandle
-                    in type.GetMethods())
+                try
                 {
                     MethodDefinition method =
                         reader.GetMethodDefinition(methodHandle);
-                    string methodName = DecodeString(
-                        reader,
-                        method.Name,
-                        observeDecodeWork);
-                    if (methodName != "__Register_"
-                        || (method.Attributes
-                                & (MethodAttributes.MemberAccessMask
-                                    | MethodAttributes.Static))
-                            != (MethodAttributes.Private
+                    if ((method.Attributes
+                            & (MethodAttributes.MemberAccessMask
                                 | MethodAttributes.Static))
+                            != (MethodAttributes.Private
+                                | MethodAttributes.Static)
+                        || !reader.StringComparer.Equals(
+                            method.Name,
+                            "__Register_"))
+                    {
+                        continue;
+                    }
+
+                    TypeDefinition type = reader.GetTypeDefinition(
+                        method.GetDeclaringType());
+                    if (!reader.StringComparer.Equals(
+                            type.Namespace,
+                            "System.Runtime.InteropServices.JavaScript")
+                        || !reader.StringComparer.Equals(
+                            type.Name,
+                            "__GeneratedInitializer"))
                     {
                         continue;
                     }
@@ -568,6 +560,12 @@ public static class ApiSurfaceExtractor
 
                         names.Add(registration.MemberName);
                     }
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    // Registration evidence is optional and fails closed.
                 }
             }
         }
