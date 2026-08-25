@@ -270,6 +270,18 @@ public sealed class PackageFixtureTests
                             == "Route\u202EepyT\u202C";
                 });
 
+            File.WriteAllText(
+                Path.ChangeExtension(fixtureAssemblyPath, ".xml"),
+                """
+                <?xml version="1.0"?>
+                <doc>
+                  <members>
+                    <member name="T:Arity`2">
+                      <summary>before&#x202E;after literal \u0041</summary>
+                    </member>
+                  </members>
+                </doc>
+                """);
             await VerifySemanticTypeOutputContainmentAsync(
                 fixtureAssemblyPath);
         }
@@ -410,6 +422,13 @@ public sealed class PackageFixtureTests
             @"\u200B",
             @"\u2060");
         await AssertContainedTypeOutputAsync(
+            [
+                "type", "--library", assemblyPath, "--all", "--table",
+                "--columns", "Kind,Type,Members,Description", "--tips", "q",
+            ],
+            @"\u202E",
+            @"\\u0041");
+        await AssertContainedTypeOutputAsync(
             ["type", "Arity`2", "--library", assemblyPath, "--shape", "--tips", "q"],
             @"\u2060");
         await AssertContainedTypeOutputAsync(
@@ -476,6 +495,8 @@ public sealed class PackageFixtureTests
     {
         Assert.DoesNotContain('\u200B', value);
         Assert.DoesNotContain('\u2060', value);
+        Assert.DoesNotContain('\u202E', value);
+        Assert.DoesNotContain('\u202C', value);
     }
 
     private static void AssertNoDoubledMetadataConfusionSpelling(

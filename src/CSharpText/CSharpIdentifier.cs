@@ -69,9 +69,10 @@ public static class CSharpIdentifier
         => CSharpIdentifierCore.Sanitize(name, CSharpKeywords.RequiresBodyEscape);
 
     /// <summary>
-    /// <see cref="Escape"/> plus containment of a name carrying a line terminator,
-    /// which would otherwise break out of its code fence, table row, or tree gutter
-    /// (issue #3319). Byte-neutral for every name a compiler can emit.
+    /// <see cref="Escape"/> plus containment of rendering hazards and
+    /// disambiguation of literal backslashes, which would otherwise break output
+    /// structure or masquerade as generated escape spellings (issues #3319 and
+    /// #4613). Byte-neutral for every name a compiler can emit.
     /// </summary>
     /// <remarks>
     /// Narrower than <see cref="Sanitize"/> on purpose: an unspellable name that
@@ -118,8 +119,9 @@ public static class CSharpIdentifier
     /// <summary>
     /// Contains free text that is rendered but is not a C# identifier — an IL side
     /// comment, a composed member name (<c>.ctor</c>, <c>IFoo.Bar</c>), a taste
-    /// annotation. Folds line terminators to a space and rewrites every rendering
-    /// hazard as a visible <c>\uXXXX</c>, changing nothing else.
+    /// annotation. Folds line terminators to a space, rewrites every rendering
+    /// hazard as a visible <c>\uXXXX</c>, and doubles literal backslashes so they
+    /// remain distinct from generated escape spellings.
     /// </summary>
     /// <remarks>
     /// One definition for every "neutralize, do not sanitize" channel. These

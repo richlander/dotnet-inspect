@@ -89,6 +89,27 @@ raw identity, decoded JSON values, and schema-neutral benign text.
 the repository-owned SRM fixture through Markdown, shape, table, JSONL, and
 document JSON as the real-artifact gate.
 
+Rendered C# is presentation syntax, not an encoded identity value. The
+presentation boundary therefore never decodes it: it preserves existing C#
+escape syntax and encodes only residual unsafe scalars or unpaired surrogates.
+Metadata identifier containment disambiguates literal backslashes before that
+boundary, so a raw name containing `\u0041` cannot masquerade as a generated
+escape. `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
+`UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
+and the `ContainIdentifier_*` and `ContainComposedName_*` cases in
+`CSharpIdentifierSanitizationTests` enforce those properties.
+
+Documentation is free-form text rather than C# syntax. Extraction folds its
+lines and retains the result using the actual `InertString` field codec; API
+views and document JSON import that encoded value instead of decoding or
+encoding it again. Ordinary persistence JSON decodes that known encoded
+currency before the model setter retains it, so serialization round trips do
+not add another layer.
+`SemanticTypeOutputContainmentTests.DocumentationEncoding_PreservesLiteralEscapeIdentity`,
+`SemanticTypeOutputContainmentTests.DocumentationEncoding_RoundTripsThroughPersistenceJson`,
+`SemanticTypeOutputContainmentTests.SurfaceDescription_ImportsDocumentationEncodingOnce`,
+and the metadata-confusion package gate enforce that single encoding.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |

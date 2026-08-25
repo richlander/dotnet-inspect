@@ -4,7 +4,6 @@ using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using InertText;
-using InertText.Encoding;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -20,19 +19,17 @@ internal static class ApiViewText
     public static InertString? OptionalProse(string? value) =>
         value is null ? null : new InertString(TextPolicy.Prose, value);
 
-    public static InertString CSharpField(string value)
-    {
-        if (!VisualEncoder.TryDecode(value, out string? untreated))
-        {
-            throw new InvalidOperationException(
-                "C# presentation text is not a valid visual encoding.");
-        }
-
-        return Field(untreated);
-    }
+    public static InertString CSharpField(string value) =>
+        ApiPresentationText.CSharpField(value);
 
     public static InertString? OptionalCSharpField(string? value) =>
         value is null ? null : CSharpField(value);
+
+    public static InertString EncodedField(string value) =>
+        ApiPresentationText.EncodedField(value);
+
+    public static InertString? OptionalEncodedField(string? value) =>
+        value is null ? null : EncodedField(value);
 }
 
 /// <summary>
@@ -922,7 +919,15 @@ public sealed class EventSummaryRow(
 }
 
 [MarkoutSerializable]
-public record MethodAttributeRow(string Name, string Value);
+public sealed class MethodAttributeRow(
+    InertString nameText,
+    InertString valueText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString ValueText { get; } = valueText;
+    public string Value => ValueText.ToString();
+}
 
 /// <summary>
 /// View model for constructor emphasis (--ctor mode).
@@ -941,7 +946,18 @@ public class ConstructorOverloadView
 }
 
 [MarkoutSerializable]
-public record ConstructorParameterRow(string Parameter, string Type, string Notes);
+public sealed class ConstructorParameterRow(
+    InertString parameterText,
+    InertString typeText,
+    InertString notesText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString ParameterText { get; } = parameterText;
+    public string Parameter => ParameterText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
+    public string Type => TypeText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString NotesText { get; } = notesText;
+    public string Notes => NotesText.ToString();
+}
 
 /// <summary>
 /// View model for type shape output (--shape).

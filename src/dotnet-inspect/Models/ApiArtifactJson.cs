@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
 using InertText;
-using InertText.Encoding;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Models;
 
@@ -52,7 +52,7 @@ internal static class ApiArtifactJson
     {
         if (typeInfo.Type == typeof(DocComment))
         {
-            SetCSharpStrings(typeInfo, "summary", "remarks", "returns");
+            SetEncodedStrings(typeInfo, "summary", "remarks", "returns");
         }
         else if (typeInfo.Type == typeof(TypeParameter))
         {
@@ -124,6 +124,19 @@ internal static class ApiArtifactJson
                 typeInfo,
                 propertyName,
                 ApiArtifactCSharpStringJsonConverter.Instance);
+        }
+    }
+
+    private static void SetEncodedStrings(
+        JsonTypeInfo typeInfo,
+        params string[] propertyNames)
+    {
+        foreach (string propertyName in propertyNames)
+        {
+            SetConverter(
+                typeInfo,
+                propertyName,
+                ApiArtifactEncodedStringJsonConverter.Instance);
         }
     }
 
@@ -226,17 +239,28 @@ internal sealed class ApiArtifactCSharpStringJsonConverter
         writer.WriteStringValue(Contain(value));
 
     internal static string Contain(string value)
-    {
-        if (!VisualEncoder.TryDecode(value, out string? untreated))
-        {
-            throw new JsonException(
-                "C# presentation text is not a valid visual encoding.");
-        }
+        => ApiPresentationText.CSharpField(value).ToString();
+}
 
-        return new InertString(
-            TextPolicy.Field,
-            untreated).ToString();
-    }
+internal sealed class ApiArtifactEncodedStringJsonConverter
+    : JsonConverter<string>
+{
+    public static ApiArtifactEncodedStringJsonConverter Instance { get; } =
+        new();
+
+    public override string Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException(
+            "Contained API output is a presentation projection and cannot be read as raw identity.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        string value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(
+            ApiPresentationText.EncodedField(value).ToString());
 }
 
 internal sealed class ApiArtifactCSharpStringListJsonConverter

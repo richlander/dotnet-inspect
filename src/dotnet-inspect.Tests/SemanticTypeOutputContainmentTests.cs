@@ -134,6 +134,86 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void CSharpField_PreservesEscapesAndContainsResidualScalars()
+    {
+        const string rendered =
+            "void Meth\\\\u0041(string path = \"C:\\\\temp\")";
+        Assert.Equal(
+            rendered,
+            ApiViewText.CSharpField(rendered).ToString());
+
+        string surrogate = ApiViewText.CSharpField(
+            "string M(string value = \"A\uD800B\")").ToString();
+        Assert.Equal(
+            "string M(string value = \"A\\uD800B\")",
+            surrogate);
+        Assert.DoesNotContain('\uD800', surrogate);
+    }
+
+    [Fact]
+    public void DocumentationEncoding_PreservesLiteralEscapeIdentity()
+    {
+        var comment = new DocComment
+        {
+            Summary = @"Escape \u0041 and C:\temp",
+        };
+
+        Assert.Equal(
+            @"Escape \\u0041 and C:\\temp",
+            comment.Summary);
+        Assert.Equal(
+            comment.Summary,
+            ApiViewText.EncodedField(comment.Summary!).ToString());
+    }
+
+    [Fact]
+    public void DocumentationEncoding_RoundTripsThroughPersistenceJson()
+    {
+        var type = new ApiType
+        {
+            Documentation = new DocComment
+            {
+                Summary = "before\u202Eafter literal \\u0041",
+            },
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(
+            type.Documentation.Summary,
+            restored.Documentation.Summary);
+    }
+
+    [Fact]
+    public void SurfaceDescription_ImportsDocumentationEncodingOnce()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Docs",
+            Name = "Widget",
+            Kind = "class",
+            Documentation = new DocComment
+            {
+                Summary = "before\u202Eafter literal \\u0041",
+            },
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildSurfaceTableView(
+            new ApiSurface { Types = [type] },
+            new ApiOptions { ShowDocs = true });
+        ApiSurfaceTableRow row = Assert.Single(
+            view.RowsWithDescription!);
+        Assert.Equal(
+            @"before\u202Eafter literal \\u0041",
+            row.DescriptionText!.Value.ToString());
+    }
+
+    [Fact]
     public void MemberTableAndShape_CarryContainedArtifactText()
     {
         var type = new ApiType

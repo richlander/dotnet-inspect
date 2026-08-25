@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Fixtures;
@@ -116,6 +117,37 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
     }
 
     /// <summary>
+    /// A literal metadata <c>\u0041</c> spelling is data, not the escape spelling
+    /// generated for a contained scalar. This real extraction and JSON route gates
+    /// the composed-member-name disambiguation that keeps those origins distinct.
+    /// </summary>
+    [Fact]
+    public async Task TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity()
+    {
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                TypeName = @"Literal.Name\u0041Alpha",
+                AssemblyPath = _path,
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            }));
+
+        Assert.Equal(0, exit);
+        using var document = JsonDocument.Parse(output);
+        JsonElement member = document.RootElement
+            .GetProperty("members")
+            .EnumerateArray()
+            .Single(element =>
+                element.GetProperty("name").GetString()
+                    == @"Meth\\u0041One");
+        Assert.Equal(
+            @"int Meth\\u0041One()",
+            member.GetProperty("signature").GetString());
+    }
+
+    /// <summary>
     /// Line-integrity oracle. <see cref="AssertNoHazard"/> deliberately permits
     /// CR and LF because they are legitimate structure in rendered Markdown, so
     /// on its own it would accept a regression that rewrote the hazard as a raw
@@ -206,6 +238,18 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
             CharSet.Ansi);
         pinvoke.SetImplementationFlags(MethodImplAttributes.PreserveSig);
         nativeType.CreateType();
+
+        var literalType = module.DefineType(
+            @"Literal.Name\u0041Alpha",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var literalMethod = literalType.DefineMethod(
+            @"Meth\u0041One",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        literalMethod.GetILGenerator().Emit(OpCodes.Ldc_I4_0);
+        literalMethod.GetILGenerator().Emit(OpCodes.Ret);
+        literalType.CreateType();
 
         ab.Save(path);
     }
@@ -1222,8 +1266,39 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
 
         var combined = output + "\n" + error;
         HostileOutputAssert.MarkersRendered(combined, "ctor", "INJECTEDCTOR");
+        HostileOutputAssert.MarkersRendered(
+            combined,
+            "ctor parameter",
+            "INJECTEDPARAMETER");
         HostileOutputAssert.NoRenderingHazard(combined, "ctor");
-        HostileOutputAssert.NoLineSplit(combined, ["INJECTEDCTOR"]);
+        HostileOutputAssert.NoLineSplit(
+            combined,
+            ["INJECTEDCTOR", "INJECTEDPARAMETER"]);
+    }
+
+    [Fact]
+    public async Task MethodAttribute_WithHostileValue_RendersNoHazard()
+    {
+        var (_, output, error) = await HostileCli.RunAsync(
+            "member",
+            $"DeclNs.Bad{Hazard}INJECTEDCTOR.Run",
+            "--library",
+            _path,
+            "-S",
+            "Custom Attributes",
+            "-v:d");
+
+        var combined = output + "\n" + error;
+        HostileOutputAssert.MarkersRendered(
+            combined,
+            "method attribute",
+            "INJECTEDATTRIBUTE");
+        HostileOutputAssert.NoRenderingHazard(
+            combined,
+            "method attribute");
+        HostileOutputAssert.NoLineSplit(
+            combined,
+            ["INJECTEDATTRIBUTE"]);
     }
 
     [Fact]
@@ -1251,6 +1326,62 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
             TypeAttributes.Public | TypeAttributes.Class,
             typeof(object));
         type.DefineDefaultConstructor(MethodAttributes.Public);
+        ConstructorBuilder constructor = type.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            [typeof(string)]);
+        constructor.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            $"value{Hazard}INJECTEDPARAMETER");
+        ILGenerator constructorIl = constructor.GetILGenerator();
+        constructorIl.Emit(OpCodes.Ldarg_0);
+        constructorIl.Emit(
+            OpCodes.Call,
+            typeof(object).GetConstructor(Type.EmptyTypes)!);
+        constructorIl.Emit(OpCodes.Ret);
+
+        TypeBuilder attribute = module.DefineType(
+            "DeclNs.NoteAttribute",
+            TypeAttributes.Public | TypeAttributes.Class,
+            typeof(Attribute));
+        ConstructorBuilder attributeConstructor =
+            attribute.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                [typeof(string)]);
+        ILGenerator attributeIl = attributeConstructor.GetILGenerator();
+        attributeIl.Emit(OpCodes.Ldarg_0);
+        attributeIl.Emit(
+            OpCodes.Call,
+            typeof(Attribute).GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                Type.EmptyTypes,
+                modifiers: null)!);
+        attributeIl.Emit(OpCodes.Ret);
+        Type noteAttribute = attribute.CreateType();
+
+        MethodBuilder run = type.DefineMethod(
+            "Run",
+            MethodAttributes.Public,
+            typeof(void),
+            Type.EmptyTypes);
+        byte[] attributeValue = System.Text.Encoding.UTF8.GetBytes(
+            $"before{Hazard}INJECTEDATTRIBUTE");
+        byte[] attributeBlob =
+        [
+            0x01,
+            0x00,
+            checked((byte)attributeValue.Length),
+            .. attributeValue,
+            0x00,
+            0x00,
+        ];
+        run.SetCustomAttribute(
+            noteAttribute.GetConstructor([typeof(string)])!,
+            attributeBlob);
+        run.GetILGenerator().Emit(OpCodes.Ret);
 
         // A real override of Object.Finalize -- a plain method named "Finalize"
         // is not recognised as a finalizer, which would leave the node under

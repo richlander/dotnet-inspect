@@ -1,8 +1,11 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using CSharpText;
 using ILInspector.Findings;
+using InertText;
+using InertText.Encoding;
 
 namespace ILInspector.Metadata;
 
@@ -22,7 +25,11 @@ internal static class DocText
 {
     [return: NotNullIfNotNull(nameof(value))]
     public static string? Contain(string? value)
-        => value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
+        => value is null
+            ? null
+            : new InertString(
+                TextPolicy.Field,
+                value.ReplaceLineEndings(" ")).ToString();
 }
 
 /// <summary>
@@ -31,9 +38,11 @@ internal static class DocText
 public class DocComment
 {
     /// <inheritdoc cref="DocText"/>
+    [JsonConverter(typeof(EncodedDocTextJsonConverter))]
     public string? Summary { get => field; set => field = DocText.Contain(value); }
 
     /// <inheritdoc cref="DocText"/>
+    [JsonConverter(typeof(EncodedDocTextJsonConverter))]
     public string? Remarks { get => field; set => field = DocText.Contain(value); }
 
     /// <summary>
@@ -60,12 +69,48 @@ public class DocComment
     }
 
     /// <inheritdoc cref="DocText"/>
+    [JsonConverter(typeof(EncodedDocTextJsonConverter))]
     public string? Returns { get => field; set => field = DocText.Contain(value); }
 
     /// <summary>
     /// Sample code references extracted from doc comments.
     /// </summary>
     public List<SampleReference> Samples { get; set; } = [];
+}
+
+/// <summary>
+/// Restores serialized documentation to untreated text before
+/// <see cref="DocComment"/> retains it through the field codec again.
+/// </summary>
+/// <remarks>
+/// <c>SemanticTypeOutputContainmentTests.DocumentationEncoding_RoundTripsThroughPersistenceJson</c>
+/// gates the non-vacuity of this persistence boundary.
+/// </remarks>
+public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
+{
+    public override string Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Encoded documentation must be a string.");
+
+        string encoded = reader.GetString()!;
+        if (!VisualEncoder.TryDecode(encoded, out string? untreated))
+        {
+            throw new JsonException(
+                "Documentation is not a valid inert-text encoding.");
+        }
+
+        return untreated;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        string value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(value);
 }
 
 /// <summary>

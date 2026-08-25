@@ -176,7 +176,7 @@ public static class ApiOutputFormatter
                 if (showDocs)
                 {
                     descriptionText = Ellipsize(
-                        ApiViewText.CSharpField(
+                        ApiViewText.EncodedField(
                             t.Documentation.Summary ?? ""),
                         80);
                 }
@@ -521,7 +521,7 @@ public static class ApiOutputFormatter
 
         return new TypeView(
             ApiViewText.Field(rawTitle),
-            ApiViewText.OptionalCSharpField(description))
+            ApiViewText.OptionalEncodedField(description))
         {
             Summary = memberDetail
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
@@ -915,7 +915,7 @@ public static class ApiOutputFormatter
                     OperatorNames.FormatRawDisplayName(m.Name)),
                 m.EnumValue.ToString()!,
                 hasAnyDocs
-                    ? ApiViewText.CSharpField(
+                    ? ApiViewText.EncodedField(
                         m.Documentation.Summary ?? "")
                     : null))
             .ToList();
@@ -1013,7 +1013,7 @@ public static class ApiOutputFormatter
                     MarkoutInline.CodeText(
                         ApiViewText.CSharpField(sigDisplay)),
                     hasDocs
-                        ? ApiViewText.CSharpField(
+                        ? ApiViewText.EncodedField(
                             m.Documentation.Summary ?? "")
                         : null);
             }).ToList();
@@ -1111,7 +1111,7 @@ public static class ApiOutputFormatter
                 MarkoutInline.CodeText(
                     ApiViewText.Field(anchor.CanonicalSignature)),
                 SignatureDecodeMarker(member),
-                ApiViewText.OptionalCSharpField(description))
+                ApiViewText.OptionalEncodedField(description))
         ];
     }
 
@@ -1468,7 +1468,12 @@ public static class ApiOutputFormatter
             if (paramInfo.Count > 0)
             {
                 overloadView.Parameters = paramInfo
-                    .Select(p => new ConstructorParameterRow(p.name, MarkoutInline.Code(p.type), p.hasDefault ? "optional" : "required"))
+                    .Select(p => new ConstructorParameterRow(
+                        ApiViewText.Field(p.name),
+                        MarkoutInline.CodeText(
+                            ApiViewText.CSharpField(p.type)),
+                        ApiViewText.Field(
+                            p.hasDefault ? "optional" : "required")))
                     .ToList();
             }
 
@@ -1949,7 +1954,9 @@ public static class ApiOutputFormatter
             if (code.Attributes is { Count: > 0 } attributes)
             {
                 view.MethodAttributeRows = attributes
-                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .Select(a => new MethodAttributeRow(
+                        ApiViewText.Field(a.Name),
+                        ApiViewText.Field(a.Value ?? "")))
                     .ToList();
             }
 
@@ -3305,7 +3312,7 @@ public static class ApiOutputFormatter
                     t.Kind,
                     FormatGenericFullName(t),
                     t.Members.Count.ToString(),
-                    ApiViewText.OptionalField(desc));
+                    ApiViewText.OptionalEncodedField(desc));
             })
             .ToList();
 

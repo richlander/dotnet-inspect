@@ -81,9 +81,20 @@ internal static class CSharpIdentifierCore
     /// </para>
     /// </remarks>
     public static string ContainIdentifier(string name, Func<string, bool> requiresEscape)
-        => RequiresContainment(name)
+        => ContainsLineTerminator(name) || name.Any(IsRenderingHazard)
             ? SanitizeUnspellable(name, requiresEscape)
-            : (requiresEscape(name) ? "@" + name : name);
+            : EscapeBackslashes(name, requiresEscape);
+
+    private static string EscapeBackslashes(
+        string name,
+        Func<string, bool> requiresEscape)
+    {
+        string contained = name.Replace(
+            "\\",
+            "\\\\",
+            StringComparison.Ordinal);
+        return requiresEscape(contained) ? "@" + contained : contained;
+    }
 
     /// <summary>
     /// Whether containment will respell <paramref name="name"/> — that is, whether
@@ -102,7 +113,9 @@ internal static class CSharpIdentifierCore
     /// class of drift unrepresentable rather than merely fixed.
     /// </remarks>
     public static bool RequiresContainment(string name)
-        => ContainsLineTerminator(name) || name.Any(IsRenderingHazard);
+        => name.Contains('\\')
+            || ContainsLineTerminator(name)
+            || name.Any(IsRenderingHazard);
 
     /// <summary>
     /// Whether a character must not appear raw inside a rendered C# literal.
@@ -156,7 +169,9 @@ internal static class CSharpIdentifierCore
     /// an explicit interface implementation's dots, a generic instantiation's angle
     /// brackets, <c>.ctor</c> — and so cannot be spelled as a simple identifier.
     /// Folds the line terminators that would let it break out of a code fence, a
-    /// table row, or a tree gutter, and changes nothing else (issue #3319).
+    /// table row, or a tree gutter, contains rendering hazards, and disambiguates
+    /// literal backslashes from generated escape spellings (issues #3319 and
+    /// #4613).
     /// </summary>
     /// <remarks>
     /// This is the weakest containment in this file, and it is the right one here:
@@ -171,17 +186,21 @@ internal static class CSharpIdentifierCore
     public static string ContainComposedName(string name)
     {
         var folded = name.ReplaceLineEndings(" ");
-        if (!folded.Any(IsRenderingHazard))
+        if (!folded.Contains('\\') && !folded.Any(IsRenderingHazard))
             return folded;
 
         // A visible \uXXXX keeps the identity legible, which matters more here than
         // it does for an identifier: this text is already not compilable C#, so
         // there is nothing to be gained by folding it to identifier characters and
-        // something to be lost by dropping the real bytes of the name.
-        var builder = new StringBuilder(folded.Length);
+        // something to be lost by dropping the real bytes of the name. Escape raw
+        // backslashes before adding those generated spellings so the two origins
+        // remain distinguishable.
+        var builder = new StringBuilder(folded.Length + 1);
         foreach (var ch in folded)
         {
-            if (IsRenderingHazard(ch))
+            if (ch == '\\')
+                builder.Append(@"\\");
+            else if (IsRenderingHazard(ch))
                 builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
             else
                 builder.Append(ch);

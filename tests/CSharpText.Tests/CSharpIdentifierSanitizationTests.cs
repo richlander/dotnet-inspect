@@ -75,6 +75,13 @@ public sealed class CSharpIdentifierSanitizationTests
     public void ContainComposedName_PreservesStructuralPunctuation(string name)
         => Assert.Equal(name, CSharpIdentifierCore.ContainComposedName(name));
 
+    [Fact]
+    public void ContainComposedName_DisambiguatesLiteralEscapeSpelling()
+        => Assert.Equal(
+            @"System.IFoo.Meth\\u0041",
+            CSharpIdentifierCore.ContainComposedName(
+                @"System.IFoo.Meth\u0041"));
+
     /// <summary>
     /// The decompiler's contract for an unspellable-but-harmless name is to keep
     /// identity visible and report the problem through the fidelity marker, not to
@@ -256,6 +263,13 @@ public sealed class CSharpIdentifierSanitizationTests
         Assert.Contains("\\u", contained, StringComparison.Ordinal);
         Assert.StartsWith("Meth", contained, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ContainIdentifier_DisambiguatesLiteralUnicodeEscapeSpelling()
+        => Assert.Equal(
+            @"Meth\\u0041rest",
+            CSharpIdentifier.ContainIdentifierForDeclaration(
+                @"Meth\u0041rest"));
 
     /// <summary>
     /// Tab is legal in the rendered channels and renders as a space, so containing

@@ -1439,10 +1439,9 @@ public class InertStringTests
         string[] expected =
         [
             Path.Combine("src", "DotnetInspector.MetadataRendering", "MetadataProjectionRenderer.cs"),
+            Path.Combine("src", "ILInspector.Metadata", "ApiSurface.cs"),
             Path.Combine("src", "InertText", "InertString.cs"),
             Path.Combine("src", "InertText", "VisualEncoder.cs"),
-            Path.Combine("src", "dotnet-inspect", "Models", "ApiArtifactJson.cs"),
-            Path.Combine("src", "dotnet-inspect", "Views", "ApiViews.cs"),
         ];
 
         Assert.Equal(expected.Order(StringComparer.Ordinal), actual);
