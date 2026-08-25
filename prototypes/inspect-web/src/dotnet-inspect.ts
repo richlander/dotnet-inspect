@@ -151,6 +151,7 @@ import {
 } from "./graph-mermaid.ts";
 import {
   AnnotatedSourceExplorerRenderCoordinator,
+  annotatedSourceExplorerFocusDataset,
   bindAnnotatedSourceEntry,
   bindAnnotatedSourceExplorer,
   createAnnotatedSourceExplorerState,
@@ -4190,20 +4191,9 @@ function annotatedSourceExplorerFocusSelector() {
     return `#${active.id}`;
   }
   if (active.matches(".ase-code-scroll")) return ".ase-code-scroll";
-  for (const name of [
-    "aseMedium",
-    "aseKind",
-    "aseRegion",
-    "aseCapture",
-    "aseFact",
-    "aseNode",
-    "aseOffset",
-    "aseCodelensNode",
-  ]) {
-    if (active.dataset?.[name] !== undefined) {
-      const attribute = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
-      return `[data-${attribute}="${cssEscape(active.dataset[name])}"]`;
-    }
+  const focus = annotatedSourceExplorerFocusDataset(active.dataset);
+  if (focus) {
+    return `[data-${focus.attribute}="${cssEscape(focus.value)}"]`;
   }
   return "";
 }

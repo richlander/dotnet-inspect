@@ -100,8 +100,13 @@ The projection owns everything a host must not re-invent in JavaScript:
   Synthetic and same-assembly trees predating catalog evidence remain accepted.
   For those inputs the projection uses Analysis's typed structural fallback for
   the *entire* projection. It never mixes catalog and structural identities in
-  one result. Shared callees, cycles, and the target as both caller and callee
-  collapse to one node in either domain.
+  one result. The structural graph key retains a decoded named type's exact
+  assembly-reference or current-assembly identity independently of `TypeRef`
+  shape equality, so otherwise identical references to different assembly
+  versions remain distinct. Shared callees, cycles, and the target as both
+  caller and callee collapse to one node in either domain.
+  `StructuralProjectionKeepsVersionedAssemblyReferencesDistinct` gates the
+  version boundary.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   A catalog-resolved node also carries the exact defining assembly identity

@@ -106,6 +106,36 @@ export interface CSharpSyntaxToken {
   classes: readonly string[];
 }
 
+const FOCUS_DATASET_NAMES = [
+  "aseMedium",
+  "aseKind",
+  "aseRegion",
+  "aseCapture",
+  "aseFact",
+  "aseNode",
+  "aseOffset",
+  "aseInvocation",
+  "aseCodelensNode",
+] as const;
+
+export function annotatedSourceExplorerFocusDataset(
+  dataset: Readonly<Record<string, string | undefined>>,
+): { attribute: string; value: string } | null {
+  for (const name of FOCUS_DATASET_NAMES) {
+    const value = dataset[name];
+    if (value !== undefined) {
+      return {
+        attribute: name.replace(
+          /[A-Z]/g,
+          letter => `-${letter.toLowerCase()}`,
+        ),
+        value,
+      };
+    }
+  }
+  return null;
+}
+
 type CSharpTokenizer = (value: string) => readonly CSharpSyntaxToken[];
 
 export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOptions {

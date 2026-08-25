@@ -416,6 +416,7 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
     GraphStructuralTypeShape(
         TypeRefKind kind,
         string assembly,
+        AssemblyReferenceIdentity? assemblyIdentity,
         string @namespace,
         string name,
         int rank,
@@ -430,6 +431,7 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
     {
         Kind = kind;
         Assembly = assembly;
+        AssemblyIdentity = assemblyIdentity;
         Namespace = @namespace;
         Name = name;
         Rank = rank;
@@ -445,6 +447,7 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
 
     TypeRefKind Kind { get; }
     string Assembly { get; }
+    AssemblyReferenceIdentity? AssemblyIdentity { get; }
     string Namespace { get; }
     string Name { get; }
     int Rank { get; }
@@ -467,6 +470,7 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
             return new(
                 TypeRefKind.Unsupported,
                 "",
+                null,
                 "",
                 "",
                 0,
@@ -520,6 +524,7 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         return new(
             type.Kind,
             type.Assembly,
+            ExactAssemblyIdentity(type),
             type.Namespace,
             type.Name,
             type.Rank,
@@ -533,11 +538,22 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
             components);
     }
 
+    static AssemblyReferenceIdentity? ExactAssemblyIdentity(TypeRef type) =>
+        type.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.AssemblyReference reference =>
+                reference.Assembly,
+            TypeReferenceOrigin.CurrentAssembly current =>
+                current.Assembly,
+            _ => null,
+        };
+
     public bool Equals(GraphStructuralTypeShape? other)
     {
         if (other is null
             || Kind != other.Kind
             || !string.Equals(Assembly, other.Assembly, StringComparison.Ordinal)
+            || AssemblyIdentity != other.AssemblyIdentity
             || !string.Equals(Namespace, other.Namespace, StringComparison.Ordinal)
             || !string.Equals(Name, other.Name, StringComparison.Ordinal)
             || Rank != other.Rank
@@ -573,6 +589,7 @@ sealed class GraphStructuralTypeShape : IEquatable<GraphStructuralTypeShape>
         var hash = new HashCode();
         hash.Add(Kind);
         hash.Add(Assembly, StringComparer.Ordinal);
+        hash.Add(AssemblyIdentity);
         hash.Add(Namespace, StringComparer.Ordinal);
         hash.Add(Name, StringComparer.Ordinal);
         hash.Add(Rank);

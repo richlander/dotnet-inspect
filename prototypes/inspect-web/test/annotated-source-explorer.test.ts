@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   AnnotatedSourceExplorerRenderCoordinator,
+  annotatedSourceExplorerFocusDataset,
   bindAnnotatedSourceEntry,
   bindAnnotatedSourceExplorer,
   createAnnotatedSourceExplorerState,
@@ -330,6 +331,24 @@ test("invocation targets reject missing, indirect, and duplicate nodes", () => {
         invocationTarget,
       ]),
     /node 1 is duplicated/);
+});
+
+test("invocation affordances retain a typed focus selector across rerenders", () => {
+  assert.deepEqual(
+    annotatedSourceExplorerFocusDataset({
+      aseInvocation: "17",
+    }),
+    {
+      attribute: "ase-invocation",
+      value: "17",
+    },
+  );
+  assert.equal(
+    annotatedSourceExplorerFocusDataset({
+      unrelated: "17",
+    }),
+    null,
+  );
 });
 
 test("CodeLens preview state survives rerenders until the six-second animation ends", () => {
@@ -1475,10 +1494,12 @@ test("all explorer renders preserve focus and scroll while home invalidates the 
     appSource,
     /document\.querySelector<HTMLElement>\(renderState\.focusSelector\)\?\.focus/,
   );
-  assert.match(appSource, /"aseKind"/);
-  assert.match(appSource, /"aseRegion"/);
-  assert.match(appSource, /"aseCapture"/);
-  assert.doesNotMatch(appSource, /"ase-node-kind"/);
+  assert.match(explorerSource, /"aseKind"/);
+  assert.match(explorerSource, /"aseRegion"/);
+  assert.match(explorerSource, /"aseCapture"/);
+  assert.match(explorerSource, /"aseInvocation"/);
+  assert.match(appSource, /annotatedSourceExplorerFocusDataset\(active\.dataset\)/);
+  assert.doesNotMatch(explorerSource, /"ase-node-kind"/);
   assert.match(
     appSource,
     /annotatedSourceExplorerRenderCoordinator\.isCurrent\(renderGeneration\)/,

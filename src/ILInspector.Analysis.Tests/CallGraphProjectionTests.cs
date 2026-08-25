@@ -25,6 +25,29 @@ public class CallGraphProjectionTests
     static MemberRef Member(string typeName, string method, params TypeRef[] parameters)
         => new(Type(typeName), method, [.. parameters], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
 
+    static MemberRef VersionedMember(AssemblyReferenceIdentity identity)
+    {
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Service"]))
+                .Name;
+        TypeRef type = TypeRef.Definition(
+            identity.Name,
+            "Sample",
+            "Service",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(identity),
+                name));
+        return new MemberRef(
+            type,
+            "Do",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+    }
+
     static CallTreePerf Perf(bool inLoop, string? loopHint)
         => new(0, 0, 1, inLoop, loopHint);
 
@@ -173,6 +196,66 @@ public class CallGraphProjectionTests
         Assert.Equal(3, projection.Nodes.Length);
         Assert.Equal(2, projection.Nodes.Count(node =>
             node.Member.Name == "Do"));
+    }
+
+    [Fact]
+    public void StructuralProjectionKeepsVersionedAssemblyReferencesDistinct()
+    {
+        MemberRef focus = Member("Target", "Run");
+        MemberRef version1 = VersionedMember(
+            new AssemblyReferenceIdentity(
+                "Contracts",
+                new Version(1, 0, 0, 0),
+                null,
+                null));
+        MemberRef version2 = VersionedMember(
+            new AssemblyReferenceIdentity(
+                "Contracts",
+                new Version(2, 0, 0, 0),
+                null,
+                null));
+        DirectCall first = Call(focus, version1, 4);
+        DirectCall second = Call(focus, version2, 8);
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(version1) with
+                        {
+                            ParentEdgeCallSites = [first],
+                        },
+                        Leaf(version2) with
+                        {
+                            ParentEdgeCallSites = [second],
+                        },
+                    ]));
+
+        Assert.Equal(3, projection.Nodes.Length);
+        Assert.Equal(
+            CallGraphRowMatch.Found,
+            projection.FindFocusCalleeRow(
+                first,
+                out CallGraphRow firstRow));
+        Assert.Equal(
+            CallGraphRowMatch.Found,
+            projection.FindFocusCalleeRow(
+                second,
+                out CallGraphRow secondRow));
+        Assert.NotEqual(firstRow.Edge.To, secondRow.Edge.To);
+        Assert.Equal(
+            new Version(1, 0, 0, 0),
+            Assert.IsType<TypeReferenceOrigin.AssemblyReference>(
+                    projection.Nodes[firstRow.Edge.To]
+                        .Member.DeclaringType.Resolution!.Origin)
+                .Assembly.Version);
+        Assert.Equal(
+            new Version(2, 0, 0, 0),
+            Assert.IsType<TypeReferenceOrigin.AssemblyReference>(
+                    projection.Nodes[secondRow.Edge.To]
+                        .Member.DeclaringType.Resolution!.Origin)
+                .Assembly.Version);
     }
 
     [Fact]
