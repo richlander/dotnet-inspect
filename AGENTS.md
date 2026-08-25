@@ -224,13 +224,20 @@ current product behavior and tests over design history. When current sources
 disagree, stop and resolve which owner is authoritative rather than silently
 choosing one.
 
-When adding a focused skill, register it in `SkillCommand.Skills` **and** add an
-`EmbeddedResource` line for it in `src/dotnet-inspect/dotnet-inspect.csproj`;
-the embeds are enumerated per skill.
-`FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
-directories, runtime registry, and embedded resources equal. Its YAML
-frontmatter `description:` is the single source of truth for the generated
-skill listing.
+Keep user-facing product skills and repository-maintainer skills separate:
+
+- `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
+  When adding a focused product skill, register it in `SkillCommand.Skills` and
+  add an `EmbeddedResource` line for it in
+  `src/dotnet-inspect/dotnet-inspect.csproj`; the embeds are enumerated per
+  skill. `FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
+  directories, runtime registry, and embedded resources equal. Its YAML
+  frontmatter `description:` is the single source of truth for the generated
+  skill listing.
+- `.github/skills/` and `.claude/skills/` contain repo-local guidance for
+  contributors and agents. Do not register or embed them in the product. Keep
+  release, CI, corpus maintenance, and other repository operations out of the
+  user-facing `skills/` tree.
 
 ## Repository-wide engineering constraints
 
@@ -354,8 +361,10 @@ per-change targeting advice live in `docs/decompiler-correctness-pipeline.md`.
 
 Only tool projects set `IsPackable=true`; `IsTool` also makes them available to
 solution-level publish. Internal library APIs are not external compatibility
-surfaces. Changing `VersionPrefix` is a release: follow
-`docs/release-workflow.md` and update the shipped `README.md` and skills.
+surfaces. Changing `VersionPrefix` is a coordinated package-and-site release:
+follow `docs/release-workflow.md`, publish dotnet-inspect and
+`https://dotnet-inspect.net` from the same commit, and update the shipped
+`README.md` and skills.
 
 ### Package acquisition when nuget.org is disabled
 

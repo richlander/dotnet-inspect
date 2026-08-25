@@ -1,10 +1,15 @@
 # Release workflow
 
-This document explains how a tested commit becomes published packages.
-Repository development, worktree, build, and test rules live in
-[AGENTS.md](../AGENTS.md). The executable source of truth for publishing is
-[release.yml](../.github/workflows/release.yml); update this document when that
-workflow changes.
+This document explains how a tested commit becomes one coordinated release of
+the dotnet-inspect packages and the production site at
+`https://dotnet-inspect.net`. Repository development, worktree, build, and test
+rules live in [AGENTS.md](../AGENTS.md). The executable sources of truth are
+[release.yml](../.github/workflows/release.yml),
+[deploy-inspect-web.yml](../.github/workflows/deploy-inspect-web.yml), and
+[promote-inspect-web.yml](../.github/workflows/promote-inspect-web.yml); update
+this document when those workflows change. The repo-local
+[release skill](../.github/skills/release/SKILL.md) is the operator playbook and
+must stay aligned with this contract.
 
 ## Release boundary
 
@@ -16,6 +21,8 @@ responsibilities:
 | `ci.yml` | Pull requests and pushes to `main` | Validate the changed commit |
 | `deep-inspect.yml` | Daily schedule or manual `lane=test` dispatch | Certify one `main` commit with the full slow test and corpus gates |
 | `release.yml` | Manual dispatch | Verify certification, rebuild packages, and publish one selected commit |
+| `deploy-inspect-web.yml` | Pushes to `main` | Build and deploy a staging site artifact for the pushed commit |
+| `promote-inspect-web.yml` | Manual dispatch | Verify and promote one staged artifact to `https://dotnet-inspect.net` |
 
 The publish workflow accepts a successful `main` CI run ID to resolve the exact
 commit SHA and a Deep Inspect run ID as its heavy-validation evidence. It does
@@ -34,6 +41,33 @@ test jobs are PR-only, so it does not certify the intervening changes. The
 workflow proves that the target descends from the certified commit, but the
 operator owns the decision that those changes do not require another slow run.
 Divergent and older commits are never accepted.
+
+## Lockstep release identity
+
+A release is one exact pair: the full commit SHA and the `VersionPrefix` read
+from that commit. The packages, GitHub release, and production site are one
+release unit:
+
+- `release.yml` rebuilds and publishes the packages from the commit selected by
+  the successful `main` CI run.
+- `deploy-inspect-web.yml` builds the staging site from a `main` push, embedding
+  that commit's `VersionPrefix`, full source SHA, and build timestamp.
+- `promote-inspect-web.yml` promotes that exact staged artifact without
+  rebuilding it.
+
+Publish and promote together. Do not publish a new package version without
+promoting its matching site, and do not promote a site from a commit that is
+not the package release commit. The staging run's `head_sha` must exactly equal
+the target CI run's `head_sha`; ancestry is not sufficient. Enabling
+`allow_later_commit` changes the package target and therefore requires a
+staging run for that later exact commit.
+
+The individual workflows validate their own evidence:
+`validate-release-evidence.sh` fixes the package target SHA, and
+`validate-inspect-web-promotion.sh` fixes the staging SHA, run attempt,
+artifact ID, and digest. Comparing the two resolved SHAs remains an explicit
+operator gate; no single workflow currently verifies the cross-workflow
+equality.
 
 ## Packages
 
@@ -77,12 +111,16 @@ Before dispatching a release:
 1. Select a successful CI run for the exact commit to publish.
 2. Select a successful Deep Inspect `test` run completed within the last 36
    hours. Prefer an exact-SHA match.
-3. If publishing a later commit, review every intervening commit and decide
+3. Select the successful `deploy-inspect-web.yml` **push** run for the exact
+   commit to publish. Manual staging runs are not promotable.
+4. Compare the CI and staging runs' full 40-character `head_sha` values. Stop
+   if they differ.
+5. If publishing a later commit, review every intervening commit and decide
    whether carrying the ancestor's certification is justified.
-4. Confirm that the commit contains the intended `VersionPrefix` and release
+6. Confirm that the commit contains the intended `VersionPrefix` and release
    notes.
-5. Confirm that the version has not already been published.
-6. Reconcile the shipped documentation with what the release actually does —
+7. Confirm that the version has not already been published.
+8. Reconcile the shipped documentation with what the release actually does —
    see [Shipped documentation](#shipped-documentation).
 
 ## Shipped documentation
@@ -127,14 +165,32 @@ both before dispatching, and expect to update them:
 1. Open the selected successful `main` CI run and copy its run ID.
 2. Open the daily or manually dispatched Deep Inspect `test` run and copy its
    run ID.
-3. Open the **Publish** workflow and choose **Run workflow**.
-4. Enter both run IDs and type `publish` in the confirmation field.
-5. Leave `allow_later_commit` disabled for an exact certification. Enable it
-   only after reviewing the commits between the certified and target SHAs.
-6. Confirm that the resolve job reports both expected SHAs before the package
-   jobs proceed.
+3. Open the matching successful `deploy-inspect-web.yml` push run and copy its
+   run ID.
+4. Compare the CI and staging run `head_sha` values. Both must name the exact
+   release commit:
 
-The workflow then:
+   ```bash
+   ci_sha=$(gh run view "$ci_run_id" --json headSha --jq .headSha)
+   site_sha=$(gh run view "$staging_run_id" --json headSha --jq .headSha)
+   test "$ci_sha" = "$site_sha"
+   printf 'release SHA: %s\n' "$ci_sha"
+   ```
+
+5. Open the **Publish** and **Promote inspect-web** workflows in separate tabs
+   and choose **Run workflow** for both.
+6. In **Publish**, enter the CI and certification run IDs and type `publish` in
+   the confirmation field.
+7. In **Promote inspect-web**, enter the staging run ID and type `promote` in
+   the confirmation field.
+8. Leave `allow_later_commit` disabled for an exact certification. Enable it
+   only after reviewing the commits between the certified and target SHAs.
+9. Dispatch both workflows as one operator action. Do not substitute a newer
+   run for either side after the exact-SHA comparison.
+10. Confirm that both resolve jobs report the expected release SHA before
+    approving either protected publishing environment.
+
+The package workflow then:
 
 1. Verifies the normal CI run, the fresh Deep Inspect certification, and their
    commit relationship.
@@ -152,6 +208,14 @@ The workflow then:
 
 The pointer is deliberately published last because it references the
 runtime-specific packages.
+
+In parallel, the site promotion workflow revalidates the staging run and
+artifact identity, downloads the exact staged artifact with digest verification,
+and deploys it to `https://dotnet-inspect.net`.
+
+The release is complete only when both workflows succeed. Verify that the
+published package and GitHub release use the intended version and commit, then
+check the production site's status bar for the same version and linked commit.
 
 ## Failure handling
 
@@ -175,3 +239,10 @@ runtime-specific packages.
 - **A partially published release is retried:** the workflow uses
   `--skip-duplicate`, but verify the complete package set and GitHub release
   before treating the release as complete.
+- **The package workflow fails after site promotion:** retry package publication
+  with the same CI and certification run IDs. Do not promote a newer site.
+- **Site promotion fails after package publication:** retry promotion with the
+  same staging run ID. Do not advance the package version or staging SHA.
+- **Either side resolves a different SHA:** cancel before approving publication
+  and select matching evidence. Do not treat ancestry or an equal version string
+  as a match.
