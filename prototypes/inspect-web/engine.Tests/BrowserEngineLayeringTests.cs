@@ -34,10 +34,17 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
+        Assert.Contains("T:ILInspector.Metadata.IAssemblyReferenceResolver", banned);
+        Assert.Contains("T:ILInspector.Metadata.AssemblyReferenceBindingPolicy", banned);
         Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup",
+                StringComparison.Ordinal));
         Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
