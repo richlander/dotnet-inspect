@@ -390,7 +390,7 @@ public static class PackageSourceClientFactory
                 "index.json",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return path.EndsWith('/', StringComparison.Ordinal)
+            return path.EndsWith("/", StringComparison.Ordinal)
                 ? new Uri(
                     $"{path.TrimEnd('/')}{suffix}",
                     UriKind.Absolute)
