@@ -82,6 +82,9 @@ public static class WorkspaceStateCommand
         string input;
         if (file is not null)
         {
+            if (file.Length == 0)
+                throw new InvalidDataException("Workspace-state file path cannot be empty.");
+
             await using var stream = new FileStream(
                 file,
                 FileMode.Open,

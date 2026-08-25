@@ -117,6 +117,23 @@ public sealed class WorkspaceStateCommandTests
     }
 
     [Fact]
+    public async Task Encode_RejectsEmptyFilePathWithoutStackTrace()
+    {
+        var result = await RunCliAsync(
+            "workspace-state",
+            "encode",
+            "--file",
+            "");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            "Error: Workspace-state file path cannot be empty.",
+            result.Error.Trim());
+        Assert.DoesNotContain("System.ArgumentException", result.Error);
+    }
+
+    [Fact]
     public async Task Dash_ReadsBoundedStandardInputInBothDirections()
     {
         var encoded = await ConsoleCapture.RunAsync(
