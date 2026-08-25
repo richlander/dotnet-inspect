@@ -371,13 +371,6 @@ public static class PackageSourceClientFactory
 
     internal static Uri NormalizeServiceIndexEndpoint(Uri endpoint)
     {
-        if (endpoint.AbsolutePath.TrimEnd('/').EndsWith(
-                "index.json",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return endpoint;
-        }
-
         string original = endpoint.OriginalString;
         int query = original.IndexOf('?');
         int fragment = original.IndexOf('#');
@@ -392,6 +385,18 @@ public static class PackageSourceClientFactory
         string suffix = suffixStart < 0
             ? ""
             : original[suffixStart..];
+
+        if (endpoint.AbsolutePath.TrimEnd('/').EndsWith(
+                "index.json",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return path.EndsWith('/', StringComparison.Ordinal)
+                ? new Uri(
+                    $"{path.TrimEnd('/')}{suffix}",
+                    UriKind.Absolute)
+                : endpoint;
+        }
+
         return new Uri(
             $"{path.TrimEnd('/')}/v3/index.json{suffix}",
             UriKind.Absolute);

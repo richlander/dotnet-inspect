@@ -347,9 +347,17 @@ public static class PackageExtractor
             authorizedSources = resolved.Coordinate.Sources;
         }
 
-        // Normalize to lowercase for NuGet API
-        string normalizedName = packageName.ToLowerInvariant();
-        string normalizedVersion = version.ToLowerInvariant();
+        if (PackageCoordinateResolver.Validate(
+                new PackageCoordinate(packageName, version)) is { } invalid)
+        {
+            return PackageExtractionOutcome.Error(invalid.Message);
+        }
+
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageName, version);
+        string normalizedName = coordinate.PackageId;
+        string normalizedVersion = coordinate.Version;
+        version = normalizedVersion;
 
         IReadOnlyList<string> authorizedProducerKeys =
             NuGetSourceResolver.SourceKeys(authorizedSources);
@@ -366,8 +374,7 @@ public static class PackageExtractor
                 client,
                 packageName,
                 version,
-                normalizedName,
-                normalizedVersion,
+                coordinate,
                 authorizedSources,
                 sourceOptions,
                 log),
@@ -410,8 +417,7 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         string version,
-        string normalizedName,
-        string normalizedVersion,
+        PackageSourceCoordinate coordinate,
         IReadOnlyList<NuGetSource> sources,
         NuGetSourceOptions? sourceOptions,
         Action<string>? log)
@@ -422,8 +428,8 @@ public static class PackageExtractor
             NuGetSourceResolver.SourceKeys(sources);
         PackageContentAdmission.Outcome? lastCacheRejection = null;
         foreach (IPackageContent cached in s_packageStore.EnumerateCached(
-                     normalizedName,
-                     normalizedVersion,
+                     coordinate.PackageId,
+                     coordinate.Version,
                      producerKeys,
                      log))
         {
@@ -490,9 +496,7 @@ public static class PackageExtractor
             PackageSourcePayloadResult sourceResult =
                 await PackagePayloadAcquisition.AcquireFromSourceAsync(
                     sourceClient,
-                    PackageSourceCoordinate.Create(
-                        normalizedName,
-                        normalizedVersion),
+                    coordinate,
                     s_packageStore,
                     log,
                     PackagePayloadLimits.Default,
@@ -1816,16 +1820,13 @@ public static class PackageExtractor
         string packageName,
         NuGetSource source,
         Action<string>? log,
-        CancellationToken cancellationToken = default,
-        Func<NuGetSource, IPackageSourceClient>?
-            borrowedSourceClientFactory = null)
+        CancellationToken cancellationToken = default)
     {
         using var failureScope = FeedFailureTelemetry.Scope();
         log?.Invoke(
             $"Fetching versions from: {PackageSourceDisplay.ForDiagnostics(source)}");
-        IPackageSourceClient sourceClient =
-            borrowedSourceClientFactory?.Invoke(source)
-            ?? PackageSourceClientProvider.Create(source, client);
+        using IPackageSourceClient sourceClient =
+            PackageSourceClientProvider.Create(source, client);
         using var trafficScope =
             NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
         PackageSourceOperationResult<PackageVersionResult> operation;
@@ -1840,11 +1841,6 @@ public static class PackageExtractor
         {
             log?.Invoke("Network access is disabled (--offline mode).");
             return SourceVersionList.Failure;
-        }
-        finally
-        {
-            if (borrowedSourceClientFactory is null)
-                sourceClient.Dispose();
         }
         if (operation
             is PackageSourceOperationResult<PackageVersionResult>.Failed failed)
@@ -2190,22 +2186,29 @@ public static class PackageExtractor
 
         if (borrowedSourceClientFactory is not null)
         {
-            SourceVersionList typedLookup =
-                await FetchAllVersionsFromSourceAsync(
+            var (listings, authoritative, failed, sourceMissing) =
+                await FetchVersionListingsFromSourceAsync(
                     client,
                     packageName,
                     source,
                     log,
                     cancellationToken,
                     borrowedSourceClientFactory).ConfigureAwait(false);
-            if (typedLookup.Versions is not { } typedVersions)
+            if (!authoritative)
+                return SourceLatestVersion.Failure;
+
+            if (listings is not { } typedListings)
             {
-                return typedLookup.Failed || typedLookup.SourceMissing
+                return failed || sourceMissing
                     ? SourceLatestVersion.Failure
                     : SourceLatestVersion.Absent;
             }
 
-            return PickLatest(typedVersions, includePrerelease) is { } typed
+            return PickLatest(
+                    typedListings
+                        .Where(static listing => listing.Listed)
+                        .Select(static listing => listing.Version),
+                    includePrerelease) is { } typed
                 ? SourceLatestVersion.Found(typed)
                 : SourceLatestVersion.Absent;
         }
@@ -3057,8 +3060,9 @@ public static class PackageExtractor
                     .. result.Candidates.Select(candidate =>
                         new PackageVersionInfo(
                             candidate.Coordinate.Version,
-                            candidate.ListingState
-                                != PackageListingState.Unlisted)),
+                            candidate.ListingState is
+                                PackageListingState.Listed
+                                or PackageListingState.NotApplicable)),
                 ],
                 result.HasAuthoritativeListingState,
                 Failed: !result.HasAuthoritativeListingState,

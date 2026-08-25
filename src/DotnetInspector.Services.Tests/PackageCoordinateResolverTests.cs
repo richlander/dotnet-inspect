@@ -66,6 +66,51 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Fact]
+    public async Task BorrowedFloatingCoordinate_ExcludesUnlistedVersion()
+    {
+        var sourceClient = new VersionSourceClient(
+            authoritative: true,
+            ("1.0.0", PackageListingState.Listed),
+            ("2.0.0", PackageListingState.Unlisted));
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example"),
+                [NuGetOrg],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                borrowedSourceClientFactory: _ => sourceClient);
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+
+        Assert.Equal("1.0.0", resolved.Coordinate.Version);
+    }
+
+    [Fact]
+    public async Task BorrowedFloatingCoordinate_PartialListingFailsClosed()
+    {
+        var sourceClient = new VersionSourceClient(
+            authoritative: false,
+            ("2.0.0", PackageListingState.Unknown));
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example"),
+                [NuGetOrg],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                borrowedSourceClientFactory: _ => sourceClient);
+
+        Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+    }
+
+    [Fact]
     public async Task ExactCoordinate_PreservesUnlistedVersionWithoutDiscovery()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -1925,5 +1970,66 @@ public sealed class PackageCoordinateResolverTests
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException(
                 $"Exact package coordinate performed discovery: {request.RequestUri}");
+    }
+
+    sealed class VersionSourceClient(
+        bool authoritative,
+        params (string Version, PackageListingState ListingState)[] versions)
+        : IPackageSourceClient
+    {
+        public PackageSourceIdentity Identity =>
+            PackageSourceIdentity.NuGetOrg;
+
+        public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
+
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.VersionEnumeration;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
+            string query,
+            int take = 20,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
+            string packageId,
+            CancellationToken cancellationToken = default)
+        {
+            PackageCandidateObservation[] candidates =
+            [
+                .. versions.Select(version =>
+                    new PackageCandidateObservation(
+                        PackageSourceCoordinate.Create(
+                            packageId,
+                            version.Version),
+                        Identity,
+                        PackageDiscoveryContract.CompleteVersionEnumeration,
+                        version.ListingState)),
+            ];
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageVersionResult>>(
+                new PackageSourceOperationResult<PackageVersionResult>
+                    .Succeeded(
+                        new PackageVersionResult(
+                            candidates,
+                            authoritative)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
     }
 }

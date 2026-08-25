@@ -97,6 +97,26 @@ public class PackageVersionTests
         Assert.DoesNotContain("Stack Trace", error);
     }
 
+    [Theory]
+    [InlineData("foo bar")]
+    [InlineData("foo+bar")]
+    [InlineData("foo--bar")]
+    [InlineData("foo.")]
+    public async Task ExactPin_InvalidPackageId_ReturnsCleanDiagnostic(
+        string packageId)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = ["package", $"{packageId}@1.0.0"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("A package coordinate requires a package id", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("Stack Trace", error);
+    }
+
     [Fact]
     public async Task Versions_WithRange_ListsTheInclusiveAddressVector()
     {

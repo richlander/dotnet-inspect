@@ -621,6 +621,8 @@ private-origin exception and feed-directed destination rejection.
 configured origins.
 `DefaultV3TransportNormalizesPathlessServiceIndexRoot` gates the implicit root
 path on the desktop wire, while
+`V3SearchCanonicalIndexRemovesTrailingSlashBeforeSignedQuery` gates canonical
+index spelling without rewriting signed query bytes,
 `V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
 an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
 resource normalization.

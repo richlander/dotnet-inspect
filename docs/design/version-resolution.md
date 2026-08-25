@@ -90,12 +90,21 @@ Every advertised `PackageBaseAddress` resource is validated before one is
 selected, including siblings named by an array-valued JSON-LD `@type`, so an
 unusable or credential-bearing sibling still makes the source incomplete.
 Configured base sources are normalized to `/v3/index.json` while signed query
-bytes remain unchanged. Service-index, version-index, and exact-package
+bytes remain unchanged, including when a trailing slash must be removed from an
+otherwise canonical index path. Exact package pins are normalized once before
+cache lookup and payload acquisition. Borrowed clients retain authoritative
+listing state for floating selection, exclude unlisted candidates, and reject
+partial answers.
+Service-index, version-index, and exact-package
 requests use the
 source-owned bounded transient retry policy within one operation deadline;
 absence and authentication failures are not retried.
 `PackageCoordinateResolverTests`,
 `PackagePayloadAcquisitionTests`,
+`PackageExtractorOfflineTests.ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate`,
+`PackageVersionTests.ExactPin_InvalidPackageId_ReturnsCleanDiagnostic`,
+`PackageCoordinateResolverTests.BorrowedFloatingCoordinate_ExcludesUnlistedVersion`,
+`PackageCoordinateResolverTests.BorrowedFloatingCoordinate_PartialListingFailsClosed`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
 and
 `PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,

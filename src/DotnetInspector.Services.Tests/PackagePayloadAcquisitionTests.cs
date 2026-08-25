@@ -670,6 +670,48 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    [Fact]
+    public void SignedGlobalPackageMetadata_AuthorizesStableProducerOffline()
+    {
+        string cacheRoot = TempDirectory();
+        string globalRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            const string stableSource =
+                "https://feed.test/v3/index.json";
+            string sourceKey = NuGetCache.GetSourceKey(stableSource);
+            string globalDir = Path.Combine(
+                globalRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(globalDir);
+            File.WriteAllText(
+                Path.Combine(globalDir, ".nupkg.metadata"),
+                """{"source":"https://feed.test/v3/index.json?sig=rotating#transport"}""");
+
+            CachedPackage? cached =
+                NuGetCache.TryGetGlobalPackageContent(
+                    globalRoot,
+                    PackageId.ToLowerInvariant(),
+                    Version.ToLowerInvariant(),
+                    [sourceKey]);
+
+            Assert.NotNull(cached);
+            Assert.Equal(sourceKey, cached.ProducerKey);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(globalRoot))
+                Directory.Delete(globalRoot, recursive: true);
+        }
+    }
+
     /// <summary>
     /// A retained nupkg with no extracted package layout must not admit as
     /// foreign/global-packages content — filesystem consumers never fall back
@@ -2165,8 +2207,9 @@ public sealed class PackagePayloadAcquisitionTests
     /// <summary>
     /// A feed-declared package URL can carry the credential in its query, under
     /// a parameter name the feed also chooses. The request must use it exactly;
-    /// nothing that prints may — and the unfamiliar name is the point, because
-    /// recognizing familiar ones is what a redaction can do and still leak.
+    /// the payload layer emits no success diagnostics that could expose it.
+    /// The unfamiliar name is the point, because recognizing familiar ones is
+    /// what a redaction can do and still leak.
     /// </summary>
     [Fact]
     public async Task SignedPackageUrl_NeverReachesALogLine()
@@ -2200,13 +2243,7 @@ public sealed class PackagePayloadAcquisitionTests
             handler.Requests,
             url => url.Contains(secret, StringComparison.Ordinal));
 
-        // And nowhere else.
-        Assert.All(
-            logs,
-            line => Assert.DoesNotContain(
-                secret,
-                line,
-                StringComparison.Ordinal));
+        Assert.Empty(logs);
     }
 
     /// <summary>

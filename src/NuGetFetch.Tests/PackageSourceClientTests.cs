@@ -1672,6 +1672,43 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task V3SearchCanonicalIndexRemovesTrailingSlashBeforeSignedQuery()
+    {
+        const string slashIndex =
+            "https://feed.example/v3/index.json/?s%69g=%73ource";
+        const string normalizedIndex =
+            "https://feed.example/v3/index.json?s%69g=%73ource";
+        var handler = new RecordingHandler
+        {
+            [normalizedIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{SearchEndpoint}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [SearchRequest] = """{"data":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("slash-signed", slashIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(result.Matches);
+        Assert.Equal([normalizedIndex, SearchRequest], handler.Requested);
+    }
+
+    [Fact]
     public async Task V3SearchInvalidRawServiceIndexIsTypedInvalidResponse()
     {
         const string malformedIndex =

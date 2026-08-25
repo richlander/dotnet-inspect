@@ -399,7 +399,8 @@ public static class NuGetCache
                 return false;
             }
 
-            sourceKey = GetSourceKey(source.GetString());
+            sourceKey = PackageSourceClientProvider.ProducerKey(
+                source.GetString()!);
             return true;
         }
         catch (Exception ex) when (ex is

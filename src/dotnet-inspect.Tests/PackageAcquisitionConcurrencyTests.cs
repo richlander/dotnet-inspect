@@ -204,6 +204,37 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_InvalidToolWrapperRedirectReturnsTypedError()
+    {
+        const string WrapperPackage = "Wrapper.Invalid";
+        const string InvalidRedirect = "invalid package";
+        const string Version = "1.0.0";
+        var handler = new QueuePackageHandler(
+            CreateToolWrapperArchive(
+                WrapperPackage,
+                Version,
+                redirectPackageName: InvalidRedirect));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                WrapperPackage,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            outcome.ErrorMessage);
+        Assert.DoesNotContain(
+            InvalidRedirect,
+            outcome.ErrorMessage,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_RestoresActiveSourcesForPinnedRedirectTarget()
     {
         string suffix = Guid.NewGuid().ToString("N");

@@ -110,7 +110,8 @@ transport-scoped version metadata continues to use the configured endpoint
 identity. Portable descriptors reject queries and fragments. Two immutable
 content domains that need distinct producer identities require distinct
 endpoint paths rather than a query-only distinction.
-`PackagePayloadAcquisitionTests.SignedSourceAlias_CommitsUnderProducerIdentity`
+`PackagePayloadAcquisitionTests.SignedSourceAlias_CommitsUnderProducerIdentity`,
+`PackagePayloadAcquisitionTests.SignedGlobalPackageMetadata_AuthorizesStableProducerOffline`,
 and
 `SourceScopedRoutingTests.SignedSourceRestrictionAuthorizesStableProducerIdentity`
 gate payload admission, cache publication, and authorization at that producer
