@@ -4664,10 +4664,12 @@ function handleTypeKeys(event: KeyboardEvent) {
     } else if (event.key === "ArrowUp" || event.key === "k") {
       event.preventDefault();
       stepMemberNav(-1, true);
-    } else if (event.key === "ArrowLeft") {
+    } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture (see the document keydown
+      // handler); leave it unclaimed here so it isn't swallowed as in-page stepping.
       event.preventDefault();
       stepHorizontal(-1);
-    } else if (event.key === "ArrowRight") {
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       event.preventDefault();
       stepHorizontal(1);
     }
@@ -8690,14 +8692,16 @@ document.addEventListener("keydown", event => {
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     focusFilter();
-  } else if (!event.metaKey && !event.ctrlKey && event.key === "ArrowLeft"
+  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowLeft"
       && (event.altKey || (event.shiftKey && !typing))) {
     // Alt+←/→ always drives back/forward. Shift+←/→ is the same gesture, gated on
     // `!typing` so it doesn't steal native text-selection (Shift+Arrow) inside inputs.
-    // Shift+↑/↓ stays unclaimed for now.
+    // `!event.defaultPrevented` defers to any element-scoped handler (e.g. the type
+    // list's in-page stepHorizontal, the graph viewport's pan) that already claimed
+    // this key. Shift+↑/↓ stays unclaimed for now.
     event.preventDefault();
     navBack();
-  } else if (!event.metaKey && !event.ctrlKey && event.key === "ArrowRight"
+  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowRight"
       && (event.altKey || (event.shiftKey && !typing))) {
     event.preventDefault();
     navForward();
