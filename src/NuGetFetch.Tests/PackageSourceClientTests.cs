@@ -614,6 +614,9 @@ public sealed class PackageSourceClientTests
         string signedPackage =
             "https://feed.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg"
             + expectedQuery;
+        string signedManifest =
+            "https://feed.example/v3/flat/contoso/1.0.0/contoso.nuspec"
+            + expectedQuery;
         var handler = new RecordingHandler
         {
             [ServiceIndex] = $$"""
@@ -628,6 +631,7 @@ public sealed class PackageSourceClientTests
                 }
                 """,
             [signedVersions] = """{"versions":["1.0.0"]}""",
+            [signedManifest] = "<package />",
             [signedPackage] = "package bytes",
         };
         HttpMessageHandler client = handler;
@@ -642,6 +646,11 @@ public sealed class PackageSourceClientTests
                     "contoso",
                     TestContext.Current.CancellationToken))
                 .Candidates);
+        Succeeded(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
         PackageSourcePayload payload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -654,13 +663,15 @@ public sealed class PackageSourceClientTests
                 ServiceIndex,
                 signedVersions,
                 ServiceIndex,
+                signedManifest,
+                ServiceIndex,
                 signedPackage,
             ],
             handler.Requested);
     }
 
     [Fact]
-    public async Task V3VersionAndPackageDoNotSendCredentialCrossOrigin()
+    public async Task V3VersionManifestAndPackageDoNotSendCredentialCrossOrigin()
     {
         const string crossOriginBase =
             "https://packages.example/flat/";
@@ -668,6 +679,8 @@ public sealed class PackageSourceClientTests
             "https://packages.example/flat/contoso/index.json";
         const string crossOriginPackage =
             "https://packages.example/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+        const string crossOriginManifest =
+            "https://packages.example/flat/contoso/1.0.0/contoso.nuspec";
         var handler = new RecordingHandler
         {
             [ServiceIndex] = $$"""
@@ -682,6 +695,7 @@ public sealed class PackageSourceClientTests
                 }
                 """,
             [crossOriginVersions] = """{"versions":["1.0.0"]}""",
+            [crossOriginManifest] = "<package />",
             [crossOriginPackage] = "package bytes",
         };
         HttpMessageHandler client = handler;
@@ -699,6 +713,11 @@ public sealed class PackageSourceClientTests
                     "contoso",
                     TestContext.Current.CancellationToken))
                 .Candidates);
+        Succeeded(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
         PackageSourcePayload payload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -707,7 +726,14 @@ public sealed class PackageSourceClientTests
         await payload.Content.DisposeAsync();
 
         Assert.Equal(
-            ["user:token", null, "user:token", null],
+            [
+                "user:token",
+                null,
+                "user:token",
+                null,
+                "user:token",
+                null,
+            ],
             handler.Authentication.Select(DecodeBasic));
     }
 

@@ -568,7 +568,8 @@ The existing NuGetFetch shape is a useful base:
 - it resolves multiple configured sources;
 - it implements package source mapping;
 - it source-scopes candidates and payload provenance; and
-- its v3 primitives already own service-index, version, and package requests.
+- its v3 primitives already own service-index, version, manifest, and package
+  requests.
 
 The first two implementation slices establish the typed source identity,
 credential-free descriptor, capability, runtime-client, and factory contracts
@@ -728,9 +729,9 @@ reservation, archive limits, producer authorization, and publication are not
 reimplemented in the host. Desktop package-resolution consumers remain on the
 compatibility path.
 
-The v3 compatibility adapter exposes search, version, and package-payload
-operations. It validates package coordinates before any service-index or
-payload request. Search discovers the highest supported
+The v3 compatibility adapter exposes search, version, manifest, and
+package-payload operations. It validates package coordinates before any
+service-index or payload request. Search discovers the highest supported
 `SearchQueryService` capability from the source's service index, preserves
 equivalent endpoint order for failover, scopes credentials to the service-index
 origin, stops endpoint failover on authentication rejection, and retains signed
@@ -797,7 +798,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3InvalidVersionMetadataIsTypedFailure`,
 `V3UnusablePackageBaseAddressIsInvalidResponse`,
 `V3SignedPackageBaseAddressPreservesQuery`,
-`V3VersionAndPackageDoNotSendCredentialCrossOrigin`,
+`V3VersionManifestAndPackageDoNotSendCredentialCrossOrigin`,
 `V3MissingPackageIsTypedAbsence`,
 `V3EscapesUnicodePackageIdsAsPathSegments`,
 `V3NormalizesIdnPackageBaseAddress`,

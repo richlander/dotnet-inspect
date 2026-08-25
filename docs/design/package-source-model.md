@@ -494,11 +494,11 @@ operation result has already completed. These transport results do not yet
 perform multi-source aggregation and are not environment availability
 observations.
 The v3 source client owns service-index `PackageBaseAddress` discovery plus
-version-index and exact-package URL construction. The legacy `NuGetClient`
-delegates to that source-owned primitive and retains only its compatibility
-choice to bypass canonical NuGet.org service-index discovery. V3 symbol
-payload remains unsupported because the protocol has no package-base-relative
-symbol download contract.
+version-index, exact-manifest, and exact-package URL construction. The legacy
+`NuGetClient` delegates to that source-owned primitive and retains only its
+compatibility choice to bypass canonical NuGet.org service-index discovery.
+V3 symbol payload remains unsupported because the protocol has no
+package-base-relative symbol download contract.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the

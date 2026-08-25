@@ -821,16 +821,25 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             Identity,
             Kind,
             PackageSourceCapabilities.Manifest,
-            async () => new PackageSourceManifest(
-                coordinate,
-                Identity,
-                Kind,
-                await _nuget.GetManifestAsync(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    _endpoint.AbsoluteUri,
-                    _credential,
-                    cancellationToken).ConfigureAwait(false)),
+            async () =>
+            {
+                using var operation = new NuGetOperationDeadline(
+                    _options,
+                    _clientTimeout,
+                    cancellationToken);
+                return new PackageSourceManifest(
+                    coordinate,
+                    Identity,
+                    Kind,
+                    await _packageResources.GetManifestAsync(
+                        coordinate.PackageId,
+                        coordinate.Version,
+                        NuGetSourceRequest.EndpointUrl(_endpoint),
+                        _credential,
+                        _options,
+                        operation,
+                        useNuGetOrgShortcut: false).ConfigureAwait(false));
+            },
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
