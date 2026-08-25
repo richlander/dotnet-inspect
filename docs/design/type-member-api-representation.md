@@ -75,7 +75,7 @@ of repeated in every row.
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
-| `MethodCorrespondenceResult` | One source/target metadata-reader pair under a stated resolver projection | Exact target MethodDef, absence, ambiguity, or visible failure without treating row numbers as cross-image identity | Persistence, source provenance, or permission to substitute an ordinal |
+| `MethodCorrespondenceResult` | One source/target metadata-reader pair under a stated resolver projection | Exact target MethodDef, absence, ambiguity, or visible failure without treating row numbers as cross-image identity; API correspondence retains external defining scope while normalizing generic names and reference versions | Persistence, source provenance, or permission to substitute an ordinal |
 
 #### `DotnetInspector.Queries`
 

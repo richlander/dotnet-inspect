@@ -69,6 +69,9 @@ public static class MetadataSafetyPolicy
     /// correspondence scan. Gated by
     /// <c>ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget</c>,
     /// <c>ResolveApiMember_RepeatedIdentityMaterializationFailsWithinOperationBudget</c>,
+    /// <c>ResolveApiMember_TypeExtensionAttributesAreChargedOnce</c>,
+    /// <c>ResolveApiMember_MethodExtensionAttributesRespectOperationBudget</c>,
+    /// <c>ResolveApiMember_NestedFunctionPointerCorrespondenceRespectsAnchorLimit</c>,
     /// and
     /// <c>ResolveApiMember_RepeatedNonmatchingNamesFailWithinOperationBudget</c>.
     /// </summary>

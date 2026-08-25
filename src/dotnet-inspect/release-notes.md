@@ -53,10 +53,11 @@
   uses a different runtime image (#4588).
 - Cross-image member source lookup now matches the selected MethodDef by its
   stable API-member identity and complete normalized method semantics,
-  including required modifiers and function-pointer conventions, so reversed
-  reference/runtime overload order cannot select another member. Absent,
-  ambiguous, malformed, or over-budget correspondence fails visibly instead
-  of guessing by ordinal (#4603).
+  including external defining scope, positional generic parameters, required
+  modifiers, and function-pointer conventions, so reversed reference/runtime
+  overload order or same-named dependency types cannot select another member.
+  Absent, ambiguous, malformed, or over-budget correspondence fails visibly
+  instead of guessing by ordinal (#4603).
 
 ### Package acquisition and audit
 

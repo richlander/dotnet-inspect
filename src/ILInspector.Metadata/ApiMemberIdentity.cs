@@ -33,6 +33,7 @@ internal sealed record MethodAnchorDeclaringTypeContext(
 
 internal sealed record MethodCorrespondenceAnchorInfo(
     MethodAnchorInfo AnchorInfo,
+    bool IsExtensionMethod,
     byte SignatureHeader,
     int GenericParameterCount,
     int RequiredParameterCount,
@@ -154,11 +155,38 @@ public static class ApiMemberIdentity
         }
     }
 
-    sealed class EncodedAnchorSignatureType(string text)
-        : AnchorSignatureType(text.Length)
+    sealed class EncodedAnchorSignatureType
+        : AnchorSignatureType
     {
+        readonly string _text;
+        readonly string? _correspondence;
+
+        internal EncodedAnchorSignatureType(
+            string text,
+            string? correspondence = null)
+            : base(text.Length)
+        {
+            _text = text;
+            _correspondence = correspondence;
+        }
+
         internal override void AppendTo(StringBuilder builder)
-            => builder.Append(text);
+            => builder.Append(_text);
+
+        internal override bool HasCorrespondenceDetails =>
+            _correspondence is not null;
+
+        internal override int CorrespondenceLength =>
+            _correspondence?.Length ?? Length;
+
+        internal override int GetCorrespondenceLength(
+            bool includeOptionalModifiers)
+            => CorrespondenceLength;
+
+        internal override void AppendCorrespondenceTo(
+            StringBuilder builder,
+            bool includeOptionalModifiers)
+            => builder.Append(_correspondence ?? _text);
     }
 
     /// <summary>
@@ -172,22 +200,47 @@ public static class ApiMemberIdentity
         readonly MetadataReader _reader;
         readonly TypeReferenceHandle _handle;
         readonly Func<MetadataReader, TypeReferenceHandle, string> _format;
+        readonly Func<MetadataReader, TypeReferenceHandle, string>
+            _formatCorrespondence;
+        readonly int _correspondenceLength;
         string? _text;
+        string? _correspondence;
 
         internal LazyTypeReferenceAnchorSignatureType(
             MetadataReader reader,
             TypeReferenceHandle handle,
             int estimatedLength,
-            Func<MetadataReader, TypeReferenceHandle, string> format)
+            Func<MetadataReader, TypeReferenceHandle, string> format,
+            int correspondenceLength,
+            Func<MetadataReader, TypeReferenceHandle, string>
+                formatCorrespondence)
             : base(estimatedLength)
         {
             _reader = reader;
             _handle = handle;
             _format = format;
+            _correspondenceLength = correspondenceLength;
+            _formatCorrespondence = formatCorrespondence;
         }
 
         internal override void AppendTo(StringBuilder builder)
             => builder.Append(_text ??= _format(_reader, _handle));
+
+        internal override bool HasCorrespondenceDetails => true;
+
+        internal override int CorrespondenceLength =>
+            _correspondenceLength;
+
+        internal override int GetCorrespondenceLength(
+            bool includeOptionalModifiers)
+            => _correspondenceLength;
+
+        internal override void AppendCorrespondenceTo(
+            StringBuilder builder,
+            bool includeOptionalModifiers)
+            => builder.Append(
+                _correspondence ??=
+                    _formatCorrespondence(_reader, _handle));
     }
 
     /// <summary>
@@ -199,22 +252,47 @@ public static class ApiMemberIdentity
         readonly MetadataReader _reader;
         readonly TypeDefinitionHandle _handle;
         readonly Func<MetadataReader, TypeDefinitionHandle, string> _format;
+        readonly Func<MetadataReader, TypeDefinitionHandle, string>
+            _formatCorrespondence;
+        readonly int _correspondenceLength;
         string? _text;
+        string? _correspondence;
 
         internal LazyTypeDefinitionAnchorSignatureType(
             MetadataReader reader,
             TypeDefinitionHandle handle,
             int estimatedLength,
-            Func<MetadataReader, TypeDefinitionHandle, string> format)
+            Func<MetadataReader, TypeDefinitionHandle, string> format,
+            int correspondenceLength,
+            Func<MetadataReader, TypeDefinitionHandle, string>
+                formatCorrespondence)
             : base(estimatedLength)
         {
             _reader = reader;
             _handle = handle;
             _format = format;
+            _correspondenceLength = correspondenceLength;
+            _formatCorrespondence = formatCorrespondence;
         }
 
         internal override void AppendTo(StringBuilder builder)
             => builder.Append(_text ??= _format(_reader, _handle));
+
+        internal override bool HasCorrespondenceDetails => true;
+
+        internal override int CorrespondenceLength =>
+            _correspondenceLength;
+
+        internal override int GetCorrespondenceLength(
+            bool includeOptionalModifiers)
+            => _correspondenceLength;
+
+        internal override void AppendCorrespondenceTo(
+            StringBuilder builder,
+            bool includeOptionalModifiers)
+            => builder.Append(
+                _correspondence ??=
+                    _formatCorrespondence(_reader, _handle));
     }
 
     sealed class WrappedAnchorSignatureType
@@ -709,6 +787,10 @@ public static class ApiMemberIdentity
             }
         }
 
+        internal override int GetCorrespondenceLength(
+            bool includeOptionalModifiers)
+            => CorrespondenceLength;
+
         internal override void AppendCorrespondenceTo(
             StringBuilder builder,
             bool includeOptionalModifiers)
@@ -826,11 +908,17 @@ public static class ApiMemberIdentity
             // Gated by CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation.
             int estimatedLength = EstimateDefinitionNameLength(reader, handle);
             ChargeLeaf(estimatedLength);
+            int correspondenceLength =
+                EstimateDefinitionCorrespondenceLength(
+                    reader,
+                    handle);
             AnchorSignatureType encoded = new LazyTypeDefinitionAnchorSignatureType(
                 reader,
                 handle,
                 estimatedLength,
-                FormatDefinitionTypeName);
+                FormatDefinitionTypeName,
+                correspondenceLength,
+                FormatDefinitionCorrespondenceTypeName);
             _definitionCache.Add(handle, encoded);
             return encoded;
         }
@@ -849,11 +937,17 @@ public static class ApiMemberIdentity
 
             int estimatedLength = EstimateReferenceNameLength(reader, handle);
             ChargeLeaf(estimatedLength);
+            int correspondenceLength =
+                EstimateReferenceCorrespondenceLength(
+                    reader,
+                    handle);
             AnchorSignatureType encoded = new LazyTypeReferenceAnchorSignatureType(
                 reader,
                 handle,
                 estimatedLength,
-                FormatReferenceTypeName);
+                FormatReferenceTypeName,
+                correspondenceLength,
+                FormatReferenceCorrespondenceTypeName);
             _referenceCache.Add(handle, encoded);
             return encoded;
         }
@@ -909,22 +1003,32 @@ public static class ApiMemberIdentity
         public AnchorSignatureType GetGenericTypeParameter(
             GenericContext? context,
             int index)
-            => Encoded(
+        {
+            string display =
                 context is not null
                     && index >= 0
                     && index < context.TypeParameters.Count
                 ? context.TypeParameters[index]
-                : $"!{index}");
+                : $"!{index}";
+            return Encoded(
+                display,
+                $"var[{index}]");
+        }
 
         public AnchorSignatureType GetGenericMethodParameter(
             GenericContext? context,
             int index)
-            => Encoded(
+        {
+            string display =
                 context is not null
                     && index >= 0
                     && index < context.MethodParameters.Count
                 ? context.MethodParameters[index]
-                : $"!!{index}");
+                : $"!!{index}";
+            return Encoded(
+                display,
+                $"mvar[{index}]");
+        }
 
         public AnchorSignatureType GetFunctionPointerType(
             MethodSignature<AnchorSignatureType> signature)
@@ -1021,6 +1125,143 @@ public static class ApiMemberIdentity
                         reader.GetTypeReference(chain[i]).Name));
             }
             return length;
+        }
+
+        int EstimateDefinitionCorrespondenceLength(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0
+                || !terminal.IsNil)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid declaring-type chain.");
+            }
+
+            int length = 64;
+            var outer = reader.GetTypeDefinition(chain[0]);
+            length = AddEncodedComponentEstimate(
+                length,
+                StructuralUtf8Length(reader, outer.Namespace));
+            for (int i = 0; i < consumed; i++)
+            {
+                length = AddEncodedComponentEstimate(
+                    length,
+                    StructuralUtf8Length(
+                        reader,
+                        reader.GetTypeDefinition(chain[i]).Name));
+            }
+            return length;
+        }
+
+        int EstimateReferenceCorrespondenceLength(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid resolution-scope chain.");
+            }
+
+            int length = 64;
+            switch (terminal.Kind)
+            {
+                case HandleKind.AssemblyReference:
+                {
+                    var reference = reader.GetAssemblyReference(
+                        (AssemblyReferenceHandle)terminal);
+                    length = AddEncodedComponentEstimate(
+                        length,
+                        StructuralUtf8Length(reader, reference.Name));
+                    length = AddEncodedComponentEstimate(
+                        length,
+                        StructuralUtf8Length(reader, reference.Culture));
+                    int keyLength =
+                        reference.PublicKeyOrToken.IsNil
+                            ? 0
+                            : reader.GetBlobReader(
+                                reference.PublicKeyOrToken).Length;
+                    length = CheckedNameLength(length, keyLength);
+                    length = AddEncodedComponentEstimate(
+                        length,
+                        keyLength == 0 ? 0 : 16);
+                    break;
+                }
+                case HandleKind.ModuleReference:
+                    length = AddEncodedComponentEstimate(
+                        length,
+                        StructuralUtf8Length(
+                            reader,
+                            reader.GetModuleReference(
+                                (ModuleReferenceHandle)terminal).Name));
+                    break;
+                case HandleKind.ModuleDefinition:
+                    break;
+                default:
+                    if (!terminal.IsNil)
+                    {
+                        throw new BadImageFormatException(
+                            "The type reference has an unsupported resolution scope.");
+                    }
+                    break;
+            }
+
+            var outer = reader.GetTypeReference(chain[0]);
+            length = AddEncodedComponentEstimate(
+                length,
+                StructuralUtf8Length(reader, outer.Namespace));
+            for (int i = 0; i < consumed; i++)
+            {
+                length = AddEncodedComponentEstimate(
+                    length,
+                    StructuralUtf8Length(
+                        reader,
+                        reader.GetTypeReference(chain[i]).Name));
+            }
+            return length;
+        }
+
+        static int AddEncodedComponentEstimate(
+            int current,
+            int utf8Length)
+            => CheckedNameLength(
+                current,
+                CheckedNameLength(
+                    DecimalDigitCount(utf8Length),
+                    CheckedNameLength(1, utf8Length)));
+
+        static int DecimalDigitCount(int value)
+        {
+            int digits = 1;
+            while (value >= 10)
+            {
+                value /= 10;
+                digits++;
+            }
+            return digits;
         }
 
         static int StructuralUtf8Length(
@@ -1139,6 +1380,153 @@ public static class ApiMemberIdentity
             return builder.ToString();
         }
 
+        string FormatDefinitionCorrespondenceTypeName(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0
+                || !terminal.IsNil)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid declaring-type chain.");
+            }
+
+            var builder = new StringBuilder();
+            builder.Append("type[current|");
+            AppendCorrespondenceComponent(
+                builder,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetTypeDefinition(chain[0]).Namespace));
+            builder.Append(consumed);
+            builder.Append(':');
+            for (int i = 0; i < consumed; i++)
+            {
+                AppendCorrespondenceComponent(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetTypeDefinition(chain[i]).Name));
+            }
+            builder.Append(']');
+            return builder.ToString();
+        }
+
+        string FormatReferenceCorrespondenceTypeName(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid resolution-scope chain.");
+            }
+
+            var builder = new StringBuilder();
+            switch (terminal.Kind)
+            {
+                case HandleKind.AssemblyReference:
+                {
+                    AssemblyReferenceIdentity identity =
+                        AssemblyReferenceIdentity.From(
+                            reader,
+                            (AssemblyReferenceHandle)terminal);
+                    builder.Append("type[assembly|");
+                    AppendCorrespondenceComponent(
+                        builder,
+                        identity.Name.ToUpperInvariant());
+                    AppendCorrespondenceComponent(
+                        builder,
+                        NormalizeAssemblyCulture(
+                            identity.Culture).ToUpperInvariant());
+                    AppendCorrespondenceComponent(
+                        builder,
+                        (identity.PublicKeyToken ?? "")
+                            .ToUpperInvariant());
+                    builder.Append('|');
+                    break;
+                }
+                case HandleKind.ModuleReference:
+                    builder.Append("type[module|");
+                    AppendCorrespondenceComponent(
+                        builder,
+                        MetadataSafetyPolicy.ReadStructuralString(
+                            reader,
+                            reader.GetModuleReference(
+                                (ModuleReferenceHandle)terminal).Name));
+                    builder.Append('|');
+                    break;
+                case HandleKind.ModuleDefinition:
+                    builder.Append("type[current|");
+                    break;
+                default:
+                    if (!terminal.IsNil)
+                    {
+                        throw new BadImageFormatException(
+                            "The type reference has an unsupported resolution scope.");
+                    }
+                    builder.Append("type[current|");
+                    break;
+            }
+
+            AppendCorrespondenceComponent(
+                builder,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetTypeReference(chain[0]).Namespace));
+            builder.Append(consumed);
+            builder.Append(':');
+            for (int i = 0; i < consumed; i++)
+            {
+                AppendCorrespondenceComponent(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetTypeReference(chain[i]).Name));
+            }
+            builder.Append(']');
+            return builder.ToString();
+        }
+
+        static void AppendCorrespondenceComponent(
+            StringBuilder builder,
+            string value)
+        {
+            builder.Append(value.Length);
+            builder.Append(':');
+            builder.Append(value);
+        }
+
+        static string NormalizeAssemblyCulture(string? value)
+            => string.IsNullOrEmpty(value)
+                || value.Equals(
+                    "neutral",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : value;
+
         static void AppendSignatureTypeName(
             StringBuilder builder,
             string value)
@@ -1153,13 +1541,17 @@ public static class ApiMemberIdentity
             builder.Append(value);
         }
 
-        AnchorSignatureType Encoded(string text)
+        AnchorSignatureType Encoded(
+            string text,
+            string? correspondence = null)
         {
             // Charge every occurrence, including the short-leaf floor. Gated by
             // CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation and
             // CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation.
             ChargeLeaf(text.Length);
-            return new EncodedAnchorSignatureType(text);
+            return new EncodedAnchorSignatureType(
+                text,
+                correspondence);
         }
 
         void ChargeLeaf(int length)
@@ -1533,6 +1925,7 @@ public static class ApiMemberIdentity
             MethodAnchorShape shape)
         => new(
             CreateMethodAnchorInfo(shape),
+            shape.IsExtensionMethod,
             shape.SignatureHeader,
             shape.GenericParameterCount,
             shape.RequiredParameterCount,
@@ -1642,6 +2035,7 @@ public static class ApiMemberIdentity
         ImmutableArray<string> ParameterTypes,
         string CorrespondenceReturnType,
         ImmutableArray<string> CorrespondenceParameterTypes,
+        bool IsExtensionMethod,
         byte SignatureHeader,
         int GenericParameterCount,
         int RequiredParameterCount);
@@ -1745,6 +2139,7 @@ public static class ApiMemberIdentity
             parameterTypes,
             correspondenceReturnType,
             correspondenceParameterTypes,
+            isExtensionMethod,
             signature.Header.RawValue,
             signature.GenericParameterCount,
             signature.RequiredParameterCount);

@@ -34,14 +34,18 @@ public static class MethodCorrespondenceResolver
     /// <summary>
     /// Resolves by the stable API-member anchor used by selectors and API
     /// inventories, with normalized signature shape, required custom
-    /// modifiers, nested function-pointer conventions, encoded arity, and
-    /// parameter-direction semantics as close negatives. Assembly-reference
-    /// versions, optional modifiers outside function pointers, and
-    /// TypeDef/TypeRef storage roles therefore do not become API identity.
+    /// modifiers, nested function-pointer conventions, defining scope,
+    /// positional generic parameters, encoded arity, and parameter-direction
+    /// semantics as close negatives. Assembly-reference versions, generic
+    /// parameter names, optional modifiers outside function pointers, and
+    /// equivalent current-scope TypeDef/TypeRef storage roles therefore do not
+    /// become API identity.
     /// <c>CommandExecutionTests.Member_PdbSource_CrossImageDependencyVersionUsesStableApiIdentity</c>
     /// gates the assembly-version distinction;
     /// <c>ResolveApiMember_ParameterDirectionMismatchIsAbsent</c>,
     /// <c>ResolveApiMember_ReturnTypeMismatchIsAbsent</c>,
+    /// <c>ResolveApiMember_DifferentDefiningAssemblyIsAbsent</c>,
+    /// <c>ResolveApiMember_RenamedMethodGenericParameterRemainsExact</c>,
     /// <c>ResolveApiMember_RequiredReturnModifierMismatchIsAbsent</c>,
     /// <c>ResolveApiMember_FunctionPointerCallingConventionMismatchIsAbsent</c>,
     /// and <c>ResolveApiMember_InstanceMismatchIsAbsent</c> gate the close
@@ -90,13 +94,32 @@ public static class MethodCorrespondenceResolver
                 GetTypeComparisonWork(sourceTypeName);
             int methodNameComparisonWork =
                 Math.Max(sourceMetadataName.Length, 64);
+            int correspondenceWorkRemaining =
+                MetadataSafetyPolicy.MaxCorrespondenceAnchorWorkChars;
+            bool? sourceTypeHasExtensionAttribute = null;
+            bool sourceIsExtensionMethod =
+                IsExtensionMethod(
+                    sourceReader,
+                    sourceType,
+                    sourceMethod,
+                    ref correspondenceWorkRemaining,
+                    ref sourceTypeHasExtensionAttribute);
+            MethodAnchorDeclaringTypeContext sourceDeclaringType =
+                ApiMemberIdentity
+                    .CreateMethodAnchorDeclaringTypeContext(
+                        sourceReader,
+                        sourceTypeHandle,
+                        ref correspondenceWorkRemaining);
             MethodCorrespondenceAnchorInfo sourceAnchor =
                 ApiMemberIdentity
                 .CreateMethodCorrespondenceAnchorInfo(
-                sourceReader,
-                sourceTypeHandle,
-                sourceMethod,
-                IsExtensionMethod(sourceReader, sourceType, sourceMethod));
+                    sourceReader,
+                    sourceTypeHandle,
+                    sourceMethod,
+                    sourceDeclaringType,
+                    sourceMetadataName,
+                    ref correspondenceWorkRemaining,
+                    sourceIsExtensionMethod);
             MemberAnchor anchor =
                 sourceAnchor.AnchorInfo.Anchor;
             ApiMethodSemantics sourceSemantics =
@@ -106,13 +129,12 @@ public static class MethodCorrespondenceResolver
                     sourceAnchor);
 
             List<MetadataMethodAddress> candidates = [];
-            int targetAnchorWorkRemaining =
-                MetadataSafetyPolicy.MaxCorrespondenceAnchorWorkChars;
             TypeDefinitionHandle previousTargetTypeHandle = default;
             MetadataTypeDefinitionNameMatch previousTypeMatch =
                 MetadataTypeDefinitionNameMatch.NoMatch;
             MethodAnchorDeclaringTypeContext?
                 targetDeclaringType = null;
+            bool? targetTypeHasExtensionAttribute = null;
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod =
@@ -122,7 +144,7 @@ public static class MethodCorrespondenceResolver
                 if (targetTypeHandle != previousTargetTypeHandle)
                 {
                     if (!TryCharge(
-                            ref targetAnchorWorkRemaining,
+                            ref correspondenceWorkRemaining,
                             typeComparisonWork))
                     {
                         return Failed(
@@ -130,6 +152,7 @@ public static class MethodCorrespondenceResolver
                     }
                     previousTargetTypeHandle = targetTypeHandle;
                     targetDeclaringType = null;
+                    targetTypeHasExtensionAttribute = null;
                     previousTypeMatch =
                         MetadataTypeDefinitionNameReader.Matches(
                             targetReader,
@@ -148,7 +171,7 @@ public static class MethodCorrespondenceResolver
                     continue;
 
                 if (!TryCharge(
-                        ref targetAnchorWorkRemaining,
+                        ref correspondenceWorkRemaining,
                         methodNameComparisonWork))
                 {
                     return Failed(
@@ -171,15 +194,14 @@ public static class MethodCorrespondenceResolver
                             .CreateMethodAnchorDeclaringTypeContext(
                                 targetReader,
                                 targetTypeHandle,
-                                ref targetAnchorWorkRemaining);
-                    if (!StringComparer.Ordinal.Equals(
-                            targetDeclaringType.FullName,
-                            anchor.TypeFullName))
-                    {
-                        previousTypeMatch =
-                            MetadataTypeDefinitionNameMatch.NoMatch;
-                        continue;
-                    }
+                                ref correspondenceWorkRemaining);
+                    bool targetIsExtensionMethod =
+                        IsExtensionMethod(
+                            targetReader,
+                            targetType,
+                            targetMethod,
+                            ref correspondenceWorkRemaining,
+                            ref targetTypeHasExtensionAttribute);
                     targetAnchor =
                         ApiMemberIdentity
                             .CreateMethodCorrespondenceAnchorInfo(
@@ -188,14 +210,11 @@ public static class MethodCorrespondenceResolver
                                 targetMethod,
                                 targetDeclaringType,
                                 sourceMetadataName,
-                                ref targetAnchorWorkRemaining,
-                                IsExtensionMethod(
-                                    targetReader,
-                                    targetType,
-                                    targetMethod));
+                                ref correspondenceWorkRemaining,
+                                targetIsExtensionMethod);
                 }
                 catch (BadImageFormatException ex)
-                    when (targetAnchorWorkRemaining <= 0
+                    when (correspondenceWorkRemaining <= 0
                         || ex.Message.Contains(
                             "classification scan work budget",
                             StringComparison.Ordinal))
@@ -203,7 +222,8 @@ public static class MethodCorrespondenceResolver
                     return Failed(
                         "target methods exceed the correspondence anchor work budget");
                 }
-                if (targetAnchor.AnchorInfo.Anchor != anchor
+                if (targetAnchor.IsExtensionMethod
+                        != sourceAnchor.IsExtensionMethod
                     || !StringComparer.Ordinal.Equals(
                         targetAnchor.CorrespondenceReturnType,
                         sourceAnchor.CorrespondenceReturnType)
@@ -449,6 +469,96 @@ public static class MethodCorrespondenceResolver
            && method.Attributes.HasFlag(MethodAttributes.Static)
            && AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes())
            && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
+
+    static bool IsExtensionMethod(
+        MetadataReader reader,
+        TypeDefinition type,
+        MethodDefinition method,
+        ref int correspondenceWorkRemaining,
+        ref bool? typeHasExtensionAttribute)
+    {
+        if (!type.Attributes.HasFlag(TypeAttributes.Abstract)
+            || !type.Attributes.HasFlag(TypeAttributes.Sealed)
+            || !method.Attributes.HasFlag(MethodAttributes.Static))
+        {
+            return false;
+        }
+
+        typeHasExtensionAttribute ??=
+            HasExtensionAttribute(
+                reader,
+                type.GetCustomAttributes(),
+                ref correspondenceWorkRemaining);
+        return typeHasExtensionAttribute.Value
+            && HasExtensionAttribute(
+                reader,
+                method.GetCustomAttributes(),
+                ref correspondenceWorkRemaining);
+    }
+
+    static bool HasExtensionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        ref int correspondenceWorkRemaining)
+    {
+        int rowWork;
+        try
+        {
+            rowWork = checked(
+                attributes.Count * AttributeRowWorkUnits);
+        }
+        catch (OverflowException)
+        {
+            correspondenceWorkRemaining = 0;
+            throw CorrespondenceWorkBudgetExceeded();
+        }
+        if (!TryCharge(
+                ref correspondenceWorkRemaining,
+                rowWork))
+        {
+            throw CorrespondenceWorkBudgetExceeded();
+        }
+
+        var materializationBudget =
+            new CorrespondenceMaterializationBudget(
+                correspondenceWorkRemaining);
+        try
+        {
+            return AttributeReader.HasExtensionAttribute(
+                reader,
+                attributes,
+                materializationBudget.Charge);
+        }
+        finally
+        {
+            correspondenceWorkRemaining =
+                materializationBudget.Remaining;
+        }
+    }
+
+    static BadImageFormatException
+        CorrespondenceWorkBudgetExceeded()
+        => new(
+            "The assembly exceeds the classification scan work budget.");
+
+    sealed class CorrespondenceMaterializationBudget(int remaining)
+    {
+        int _remaining = remaining;
+
+        internal int Remaining => _remaining;
+
+        internal void Charge(int work)
+        {
+            if (work < 0 || work > _remaining)
+            {
+                _remaining = 0;
+                throw CorrespondenceWorkBudgetExceeded();
+            }
+            _remaining -= work;
+        }
+    }
+
+    const int AttributeRowWorkUnits = 64;
 
     static ApiMethodSemantics ReadApiMethodSemantics(
         MetadataReader reader,

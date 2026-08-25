@@ -566,6 +566,189 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_DifferentDefiningAssemblyIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage("Dependency.A"),
+            BuildScopedTypeMethodImage("Dependency.B"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_AssemblyReferenceVersionRemainsNormalized()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                version: new Version(1, 0, 0, 0)),
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                version: new Version(2, 0, 0, 0)));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_CurrentTypeDefAndTypeRefRemainEquivalent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentScopedTypeMethodImage(
+                useTypeReference: false),
+            BuildCurrentScopedTypeMethodImage(
+                useTypeReference: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_NamedTypeSegmentsDoNotCollide()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                @namespace: "N",
+                typeName: "T.U"),
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                @namespace: "N.T",
+                typeName: "U"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_RenamedMethodGenericParameterRemainsExact()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildGenericMethodImage(
+                parameterName: "T",
+                useGenericParameter: true),
+            BuildGenericMethodImage(
+                parameterName: "U",
+                useGenericParameter: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_RenamedTypeGenericParameterRemainsExact()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildTypeGenericMethodImage("T"),
+            BuildTypeGenericMethodImage("U"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_TypeExtensionAttributesAreChargedOnce()
+    {
+        byte[] sourceImage =
+            BuildExtensionAttributeImage(
+                methodCount: 1,
+                typeAttributeCount: 0,
+                methodAttributeCount: 0,
+                attributeNameLength: 8,
+                includeTypeExtensionMarker: false,
+                includeMethodExtensionMarkers: false);
+        byte[] targetImage =
+            BuildExtensionAttributeImage(
+                methodCount: 500,
+                typeAttributeCount: 500,
+                methodAttributeCount: 0,
+                attributeNameLength: 500,
+                includeTypeExtensionMarker: false,
+                includeMethodExtensionMarkers: false);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(sourceImage, targetImage);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Ambiguous, result.Status);
+        Assert.Equal(500, result.Candidates.Count);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Type-attribute classification allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void ResolveApiMember_MethodExtensionAttributesRespectOperationBudget()
+    {
+        byte[] sourceImage =
+            BuildExtensionAttributeImage(
+                methodCount: 1,
+                typeAttributeCount: 0,
+                methodAttributeCount: 0,
+                attributeNameLength: 8,
+                includeTypeExtensionMarker: true,
+                includeMethodExtensionMarkers: false);
+        byte[] targetImage =
+            BuildExtensionAttributeImage(
+                methodCount: 1,
+                typeAttributeCount: 0,
+                methodAttributeCount: 70_000,
+                attributeNameLength: 32,
+                includeTypeExtensionMarker: true,
+                includeMethodExtensionMarkers: false);
+        using (var targetPe =
+            new PEReader(new MemoryStream(targetImage)))
+        {
+            MetadataReader reader =
+                targetPe.GetMetadataReader();
+            TypeDefinition type =
+                reader.GetTypeDefinition(
+                    MetadataTokens.TypeDefinitionHandle(2));
+            Assert.True(
+                AttributeReader.HasExtensionAttribute(
+                    reader,
+                    type.GetCustomAttributes()));
+            Assert.Equal(
+                70_000,
+                reader.MethodDefinitions.Sum(
+                    handle => reader.GetMethodDefinition(handle)
+                        .GetCustomAttributes().Count));
+        }
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(sourceImage, targetImage);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("work budget", result.Failure);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Method-attribute rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void ResolveApiMember_NestedFunctionPointerUsesCorrespondenceLength()
+    {
+        byte[] image =
+            BuildNestedFunctionPointerBudgetImage(
+                modifierCount: 2_500,
+                modifierNameLength: 500);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("encoded-character budget", result.Failure);
+    }
+
+    [Fact]
     public void ResolveApiMember_RepeatedNearLimitCandidatesFailWithinOperationBudget()
     {
         byte[] sourceImage =
@@ -1361,14 +1544,22 @@ public sealed class MethodCorrespondenceResolverTests
 
     static byte[] BuildGenericMethodImage(
         int encodedArity = 1,
-        int rowCount = 1)
+        int rowCount = 1,
+        string parameterName = "T",
+        bool useGenericParameter = false)
     {
         var metadata = CreateSingleTypeMetadata("MethodSignature");
         var signature = new BlobBuilder();
         signature.WriteByte(0x10);
         signature.WriteCompressedInteger(encodedArity);
-        signature.WriteCompressedInteger(0);
+        signature.WriteCompressedInteger(
+            useGenericParameter ? 1 : 0);
         signature.WriteByte(0x01);
+        if (useGenericParameter)
+        {
+            signature.WriteByte(0x1e);
+            signature.WriteCompressedInteger(0);
+        }
         MethodDefinitionHandle method =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
@@ -1383,9 +1574,118 @@ public sealed class MethodCorrespondenceResolverTests
                 method,
                 GenericParameterAttributes.None,
                 metadata.GetOrAddString(
-                    i == 0 ? "T" : $"T{i}"),
+                    i == 0
+                        ? parameterName
+                        : $"{parameterName}{i}"),
                 index: i);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTypeGenericMethodImage(
+        string parameterName)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "TypeGeneric",
+                "C`1",
+                out TypeDefinitionHandle type);
+        metadata.AddGenericParameter(
+            type,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString(parameterName),
+            index: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0x00, 0x01, 0x01, 0x13, 0x00,
+                }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildScopedTypeMethodImage(
+        string assemblyName,
+        Version? version = null,
+        string @namespace = "N",
+        string typeName = "T")
+    {
+        var metadata =
+            CreateSingleTypeMetadata("ScopedType");
+        AssemblyReferenceHandle scope =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(assemblyName),
+                version ?? new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            scope,
+            metadata.GetOrAddString(@namespace),
+            metadata.GetOrAddString(typeName));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0x00, 0x01, 0x01, 0x12, 0x05,
+                }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCurrentScopedTypeMethodImage(
+        bool useTypeReference)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("CurrentScopedType");
+        int codedIndex;
+        if (useTypeReference)
+        {
+            TypeReferenceHandle type =
+                metadata.AddTypeReference(
+                    MetadataTokens.EntityHandle(0x00000001),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("T"));
+            codedIndex =
+                (MetadataTokens.GetRowNumber(type) << 2) | 1;
+        }
+        else
+        {
+            TypeDefinitionHandle type =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("T"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2));
+            codedIndex =
+                MetadataTokens.GetRowNumber(type) << 2;
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(codedIndex);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
         return Serialize(metadata);
     }
 
@@ -1481,6 +1781,170 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.GetOrAddBlob(signature),
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedFunctionPointerBudgetImage(
+        int modifierCount,
+        int modifierNameLength)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "NestedFunctionPointerBudget");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(
+                new string('T', modifierNameLength)));
+
+        var inner = new BlobBuilder();
+        inner.WriteByte(0x00);
+        inner.WriteCompressedInteger(modifierCount);
+        inner.WriteByte(0x01);
+        for (int i = 0; i < modifierCount; i++)
+        {
+            inner.WriteByte(0x20);
+            inner.WriteCompressedInteger((1 << 2) | 1);
+            inner.WriteByte(0x08);
+        }
+
+        var outerFunctionPointer = new BlobBuilder();
+        outerFunctionPointer.WriteByte(0x00);
+        outerFunctionPointer.WriteCompressedInteger(0);
+        outerFunctionPointer.WriteByte(0x1b);
+        outerFunctionPointer.LinkSuffix(inner);
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1b);
+        signature.LinkSuffix(outerFunctionPointer);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildExtensionAttributeImage(
+        int methodCount,
+        int typeAttributeCount,
+        int methodAttributeCount,
+        int attributeNameLength,
+        bool includeTypeExtensionMarker,
+        bool includeMethodExtensionMarkers)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "ExtensionAttributes",
+                "C",
+                out TypeDefinitionHandle type,
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed);
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        BlobHandle constructorSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x01 });
+        BlobHandle value =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        TypeReferenceHandle noiseAttribute =
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    new string('A', attributeNameLength)));
+        MemberReferenceHandle noiseConstructor =
+            metadata.AddMemberReference(
+                noiseAttribute,
+                metadata.GetOrAddString(".ctor"),
+                constructorSignature);
+        TypeReferenceHandle extensionAttribute =
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    "ExtensionAttribute"));
+        MemberReferenceHandle extensionConstructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                constructorSignature);
+
+        BlobHandle signature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 });
+        var methods =
+            new List<MethodDefinitionHandle>(
+                methodCount);
+        for (int i = 0; i < methodCount; i++)
+        {
+            methods.Add(
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("M"),
+                    signature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1)));
+        }
+
+        for (int i = 0; i < typeAttributeCount; i++)
+        {
+            metadata.AddCustomAttribute(
+                type,
+                noiseConstructor,
+                value);
+        }
+        if (includeTypeExtensionMarker)
+        {
+            metadata.AddCustomAttribute(
+                type,
+                extensionConstructor,
+                value);
+        }
+
+        foreach (MethodDefinitionHandle method in methods)
+        {
+            for (int i = 0;
+                i < methodAttributeCount;
+                i++)
+            {
+                metadata.AddCustomAttribute(
+                    method,
+                    noiseConstructor,
+                    value);
+            }
+            if (includeMethodExtensionMarkers)
+            {
+                metadata.AddCustomAttribute(
+                    method,
+                    extensionConstructor,
+                    value);
+            }
+        }
         return Serialize(metadata);
     }
 
@@ -2062,7 +2526,9 @@ public sealed class MethodCorrespondenceResolverTests
     static MetadataBuilder CreateSingleTypeMetadata(
         string name,
         string typeName,
-        out TypeDefinitionHandle type)
+        out TypeDefinitionHandle type,
+        TypeAttributes typeAttributes =
+            TypeAttributes.Public)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2086,7 +2552,7 @@ public sealed class MethodCorrespondenceResolverTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
         type = metadata.AddTypeDefinition(
-            TypeAttributes.Public,
+            typeAttributes,
             default,
             metadata.GetOrAddString(typeName),
             default,
