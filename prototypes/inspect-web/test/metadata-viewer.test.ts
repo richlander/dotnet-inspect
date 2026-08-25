@@ -232,6 +232,44 @@ test("focus bindings dispatch lightbox controls and keep inner clicks contained"
   }
 });
 
+test("metadata explorer ignores malformed table and row indexes", () => {
+  const root = new FakeRoot();
+  const chips = [
+    new FakeElement({ mdeChip: "-1" }),
+    new FakeElement({ mdeChip: "1.5" }),
+    new FakeElement({ mdeChip: "9007199254740992" }),
+  ];
+  root.addAll("[data-mde-chip]", ...chips);
+  const jumps = [
+    new FakeElement({ mdeJump: "2:4:garbage" }),
+    new FakeElement({ mdeJump: "-1:4" }),
+    new FakeElement({ mdeJump: "2:-4" }),
+    new FakeElement({ mdeJump: "2:0" }),
+  ];
+  root.addAll("[data-mde-jump]", ...jumps);
+  const pages = [
+    new FakeElement({ mdePage: "2" }),
+    new FakeElement({ mdePage: "2:" }),
+  ];
+  root.addAll("[data-mde-page]", ...pages);
+  const rows = [
+    new FakeElement({ mdeRow: "-3:-9" }),
+    new FakeElement({ mdeRow: ":9" }),
+  ];
+  root.addAll(".mde-focus .mde-row[data-mde-row]", ...rows);
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    fakeDom.parentNode(root),
+    { overview: false },
+    recordingActions(calls));
+
+  for (const element of [...chips, ...jumps, ...pages, ...rows]) {
+    element.dispatch("click", fakeDom.event({ stopPropagation: () => {} }));
+  }
+
+  assert.deepEqual(calls, []);
+});
+
 test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
   const table = new FakeElement({

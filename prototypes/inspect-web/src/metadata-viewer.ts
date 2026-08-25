@@ -212,7 +212,7 @@ export interface MetadataExplorerBindingActions {
 }
 
 function parseMetadataExplorerIndex(value: string | undefined): number | null {
-  if (value === undefined) return null;
+  if (value === undefined || !/^\d+$/.test(value)) return null;
   const index = Number(value);
   return Number.isSafeInteger(index) ? index : null;
 }
@@ -221,11 +221,11 @@ function parseMetadataExplorerPair(
   value: string | undefined,
 ): [number, number] | null {
   if (value === undefined) return null;
-  const [indexText, rowIdText] = value.split(":");
-  if (indexText === undefined || rowIdText === undefined) return null;
-  const index = Number(indexText);
-  const rowId = Number(rowIdText);
-  return Number.isSafeInteger(index) && Number.isSafeInteger(rowId)
+  const separator = value.indexOf(":");
+  if (separator <= 0 || separator !== value.lastIndexOf(":")) return null;
+  const index = parseMetadataExplorerIndex(value.slice(0, separator));
+  const rowId = parseMetadataExplorerIndex(value.slice(separator + 1));
+  return index !== null && rowId !== null && rowId > 0
     ? [index, rowId]
     : null;
 }

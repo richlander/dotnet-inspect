@@ -610,7 +610,7 @@ The TypeScript gate checks product and test projects with `strict`,
 `noUncheckedIndexedAccess`. Indexed reads must prove that an entry exists or
 preserve absence as an explicit result. The `npm test` cases `closing a package
 removes its coordinate and selects the adjacent tab` and `call graph navigation
-resolves accessor selectors across image-local token differences` provide
+resolves accessor selectors across image-local token skew` provide
 close negative coverage for sparse workspace packages and graph member groups.
 `npm run analyze` then runs Oxlint with its tsgolint backend against the same
 TypeScript 7.0.2 toolchain used to build the product. Correctness and suspicious
