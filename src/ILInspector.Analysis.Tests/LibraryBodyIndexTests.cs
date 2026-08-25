@@ -11651,6 +11651,68 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        const string unresolvedOwner =
+            "<ABCDEFGHIJKLMNOPQRSTUVWX>b__0_0";
+        ReplaceAscii(
+            image,
+            nameof(OptimizationOpportunityFixtures
+                .GenericObjectEqualsLocalFunction),
+            unresolvedOwner,
+            expectedReplacements: 2);
+
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+        MethodIdentity intermediate = Assert.Single(
+            full.Methods,
+            method => method.Name == unresolvedOwner);
+        MethodIdentity evidence = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{unresolvedOwner}>g__EqualsCore|",
+                StringComparison.Ordinal));
+
+        Assert.Null(full.ResolveDeclaredMethod(evidence));
+        foreach (LibraryBodyIndex index in new[]
+        {
+            full,
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    intermediate.MetadataToken,
+                }),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        intermediate.DeclaringType)),
+        })
+        {
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "generic-parameter-object-box"
+                    && opportunity.Method.MetadataToken
+                        == evidence.MetadataToken);
+        }
+    }
+
+    [Fact]
     public void DirectCalls_AttributeLiftedBodiesButNotIterators()
     {
         var index = LibraryBodyIndex.Open(
@@ -14305,6 +14367,17 @@ public class LibraryBodyIndexTests
         byte[] image,
         string oldValue,
         string newValue)
+        => ReplaceAscii(
+            image,
+            oldValue,
+            newValue,
+            expectedReplacements: 1);
+
+    static void ReplaceAscii(
+        byte[] image,
+        string oldValue,
+        string newValue,
+        int expectedReplacements)
     {
         Assert.Equal(oldValue.Length, newValue.Length);
         byte[] oldBytes = System.Text.Encoding.ASCII.GetBytes(oldValue);
@@ -14319,7 +14392,7 @@ public class LibraryBodyIndexTests
             replacements++;
         }
 
-        Assert.Equal(1, replacements);
+        Assert.Equal(expectedReplacements, replacements);
     }
 
     static int MetadataStreamOffset(

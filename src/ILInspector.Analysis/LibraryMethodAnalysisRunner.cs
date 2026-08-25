@@ -541,13 +541,16 @@ internal sealed class LibraryMethodAnalysisRunner(
                             methodAnalysisResolver);
                 }
                 else if (collectScopedOpportunities
+                    && opportunityOwnershipResolved
+                    && result.DeclaredSource is { } opportunitySourceOwner
                     && !sourceGenerated
                     && !typeSourceGenerated
                     && compilerGenerated
                     && hasSourceOwner
                     && sourceOwner is not null
                     && !IsBlazorRenderMethod(caller)
-                    && !IsBlazorRenderMethod(sourceOwner))
+                    && !IsBlazorRenderMethod(sourceOwner)
+                    && !IsBlazorRenderMethod(opportunitySourceOwner))
                 {
                     result.Opportunities =
                     [
@@ -559,7 +562,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 == "generic-parameter-object-box")
                         .Select(opportunity => opportunity with
                         {
-                            SourceOwner = sourceOwner,
+                            SourceOwner = opportunitySourceOwner,
                         }),
                     ];
                 }

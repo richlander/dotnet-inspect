@@ -895,6 +895,9 @@ Research overlay bridge, and the application layer:
   gates the unscoped immediate-source fallback and fail-closed scoped
   ownership-derived recommendations while preserving full-scope
   body-intrinsic opportunities.
+  `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
+  gates generated generic-box projection on an authenticated ultimate owner in
+  full, method, and type scopes.
   `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
   `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
   multi-hop caller projection for unresolved and recoverable-failure paths;

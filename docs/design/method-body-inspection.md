@@ -357,7 +357,10 @@ Async execution sources and owner chains reject malformed generated-like names
 while ordinary compiler-generated owners, including async owners, retain
 established attribution. Rejected identities cannot expand scoped acquisition.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
-gates that boundary, while
+and
+`OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
+gate that boundary for async-sibling and generated generic-box recommendations,
+while
 `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
 `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
 multi-hop caller projection for unresolved and recoverable-failure paths;
