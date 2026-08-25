@@ -52,7 +52,8 @@ public class NuGetClient(HttpClient client)
             credential,
             _options,
             operation,
-            useNuGetOrgShortcut: true).ConfigureAwait(false);
+            useNuGetOrgShortcut: true,
+            retryTransientRequests: false).ConfigureAwait(false);
 
     /// <summary>
     /// Gets the latest version for a package. Uses the search API for nuget.org (faster).
@@ -144,7 +145,8 @@ public class NuGetClient(HttpClient client)
                     credential,
                     _options,
                     operation,
-                    useNuGetOrgShortcut: true).ConfigureAwait(false);
+                    useNuGetOrgShortcut: true,
+                    retryTransientRequests: false).ConfigureAwait(false);
             return content;
         }
         catch
@@ -174,7 +176,8 @@ public class NuGetClient(HttpClient client)
             serviceIndexUrl,
             credential: null,
             _options,
-            operation).ConfigureAwait(false);
+            operation,
+            retryTransientRequests: false).ConfigureAwait(false);
     }
 
     /// <summary>

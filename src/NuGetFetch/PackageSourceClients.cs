@@ -338,6 +338,38 @@ public static class PackageSourceClientFactory
     }
 
     /// <summary>
+    /// Adapts the existing desktop source model to a typed runtime client
+    /// using a caller-owned transport.
+    /// </summary>
+    /// <remarks>
+    /// The returned source client does not dispose <paramref name="client"/>.
+    /// The caller must keep it alive until every payload stream returned by
+    /// the source client has been disposed.
+    /// </remarks>
+    internal static IPackageSourceClient Create(
+        PackageSource source,
+        HttpClient client,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(client);
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+
+        return new NuGetV3PackageSourceClient(
+            PackageSourceIdentity.ForProducerEndpoint(endpoint),
+            endpoint,
+            client,
+            options ?? new NuGetFetchOptions(),
+            source.Credential,
+            ownsClient: false);
+    }
+
+    /// <summary>
     /// Creates a runtime client from credential-free configuration and optional
     /// ephemeral credentials.
     /// </summary>
@@ -571,18 +603,21 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     private readonly NuGetV3PackageResourceClient _packageResources;
     private readonly NuGetFetchOptions _options;
     private readonly TimeSpan _clientTimeout;
+    private readonly bool _ownsClient;
 
     public NuGetV3PackageSourceClient(
         PackageSourceDescriptor descriptor,
         HttpClient client,
         NuGetFetchOptions options,
-        PackageSourceCredential? credential)
+        PackageSourceCredential? credential,
+        bool ownsClient = true)
         : this(
             descriptor.Identity,
             descriptor.Endpoint!,
             client,
             options,
-            credential)
+            credential,
+            ownsClient)
     {
     }
 
@@ -591,7 +626,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         Uri endpoint,
         HttpClient client,
         NuGetFetchOptions options,
-        PackageSourceCredential? credential)
+        PackageSourceCredential? credential,
+        bool ownsClient = true)
     {
         _identity = identity;
         _endpoint = endpoint;
@@ -600,6 +636,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         _options = NuGetFetchOptions.Validate(options);
         _clientTimeout = client.Timeout;
         _packageResources = new NuGetV3PackageResourceClient(client);
+        _ownsClient = ownsClient;
     }
 
     public PackageSourceIdentity Identity => _identity;
@@ -719,7 +756,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         _credential,
                         _options,
                         operation,
-                        useNuGetOrgShortcut: false).ConfigureAwait(false);
+                        useNuGetOrgShortcut: false,
+                        retryTransientRequests: true).ConfigureAwait(false);
                 return PackageSourceProjection.ProjectVersions(
                     packageId,
                     versions,
@@ -759,7 +797,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                             _credential,
                             _options,
                             operation,
-                            useNuGetOrgShortcut: false).ConfigureAwait(false);
+                            useNuGetOrgShortcut: false,
+                            retryTransientRequests: true).ConfigureAwait(false);
                     return new PackageSourcePayload(
                         coordinate,
                         Identity,
@@ -795,7 +834,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 
     public void Dispose()
     {
-        _client.Dispose();
+        if (_ownsClient)
+            _client.Dispose();
     }
 
     private static bool CanFailOverSearchEndpoint(Exception exception) =>

@@ -106,6 +106,8 @@ does not change the stricter endpoint identity used for credential adoption or
 legacy caches. Portable descriptors reject queries and fragments. Two immutable
 content domains that need distinct producer identities require distinct
 endpoint paths rather than a query-only distinction.
+`PackagePayloadAcquisitionTests.SignedSourceAlias_CommitsUnderProducerIdentity`
+gates payload admission and cache publication at that producer boundary.
 
 Package-source identity is broader than a NuGet v3 service-index URL. A
 standard v3 feed, the built-in NuGet Gallery browser implementation, and a
@@ -498,6 +500,31 @@ delegates to that source-owned primitive and retains only its compatibility
 choice to bypass canonical NuGet.org service-index discovery. V3 symbol
 payload remains unsupported because the protocol has no package-base-relative
 symbol download contract.
+
+Desktop version discovery, floating resolution, workspace payload acquisition,
+and ordinary package extraction adapt each authorized HTTP source to that typed
+client. The package layer supplies a host-owned transport rather than allowing
+the protocol factory to accept an arbitrary shared `HttpClient`: production
+selects the per-origin client owned by `HttpClientFactory`, while tests may
+retain an explicitly injected transport. Typed failures are projected into the
+existing feed-failure diagnostics during this compatibility migration. The
+typed v3 resource owner retries transient service-index, version-index, and
+exact-package requests within one bounded operation deadline; package-layer
+aggregation does not add another retry loop.
+NuGet.org registration enrichment remains a separate package-layer capability;
+raw v3 candidate results do not claim authoritative listing state. The first
+cache pass still receives the complete ordered producer set before any network
+request, and exact payload attempts retain typed producer identity through
+admission and commit.
+`PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`,
+`PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
+`PackageSourceClientTests.V3ServiceIndexVersionAndPackageRetryTransientResponses`,
+`PackageSourceClientTests.V3TransientRetriesAreBounded`,
+`HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`,
+`SourcePrecedenceTests`, `VersionCacheTests`,
+`PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`, and
+`PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`
+gate these statements.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the

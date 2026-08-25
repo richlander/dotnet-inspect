@@ -269,11 +269,11 @@ public class PackageVersionVectorTests
             {
                 IndexUrl =>
                     $$"""
-                    {"resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    {"version":"3.0.0","resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
                     """,
                 FailingIndexUrl =>
                     $$"""
-                    {"resources":[{"@id":"{{FailingFlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    {"version":"3.0.0","resources":[{"@id":"{{FailingFlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
                     """,
                 $"{FlatContainer}example/index.json" =>
                     """{"versions":["1.0.0","2.0.0"]}""",

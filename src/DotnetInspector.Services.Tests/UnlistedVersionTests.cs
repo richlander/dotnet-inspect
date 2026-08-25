@@ -332,7 +332,17 @@ public class UnlistedVersionTests : IDisposable
             string url = request.RequestUri!.ToString();
             string? body = null;
 
-            if (string.Equals(url, $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(
+                url,
+                NuGetOrgSource.Url,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                body =
+                    """
+                    {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                    """;
+            }
+            else if (string.Equals(url, $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
             {
                 // Simulate a transient (non-retryable 404) failure on the first read so a caller
                 // that wrongly falls through would see the endpoint recover on a later read.

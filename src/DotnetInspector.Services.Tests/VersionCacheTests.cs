@@ -620,7 +620,7 @@ public class VersionCacheTests : IDisposable
             if (string.Equals(url, serviceIndexUrl, StringComparison.OrdinalIgnoreCase))
             {
                 body = $$"""
-                {"resources":[{"@id":"{{flatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
+                {"version":"3.0.0","resources":[{"@id":"{{flatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
                 """;
             }
             else if (string.Equals(url, $"{flatContainerBase}{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
@@ -656,7 +656,7 @@ public class VersionCacheTests : IDisposable
                 _ when url.Equals(
                     source.Url,
                     StringComparison.OrdinalIgnoreCase) => $$"""
-                    {"resources":[{"@id":"{{FlatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    {"version":"3.0.0","resources":[{"@id":"{{FlatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
                     """,
                 _ when url.Equals(
                     $"{FlatContainerBase}{packageId}/index.json",

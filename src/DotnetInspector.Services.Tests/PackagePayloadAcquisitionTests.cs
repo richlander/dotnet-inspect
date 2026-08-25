@@ -1929,6 +1929,43 @@ public sealed class PackagePayloadAcquisitionTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task SignedSourceAlias_CommitsUnderProducerIdentity()
+    {
+        const string SignedSource =
+            "https://primary.test/v3/index.json?sourceToken=one";
+        string nupkgUrl =
+            $"https://primary.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg";
+        byte[] nupkg =
+            TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var source = new PackageSource("signed", SignedSource);
+        var store = new InMemoryPackageStore();
+        var handler = new ServiceIndexHandler(
+            baseAddress: "https://primary.test/flat/",
+            nupkgUrl,
+            nupkg,
+            serviceIndexUrl: SignedSource);
+        using var client = new HttpClient(handler);
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(source),
+                store,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        AcquiredPackagePayload payload = Acquired(result);
+        string producerKey = NuGetCache.GetSourceKey(
+            "https://primary.test/v3/index.json");
+        Assert.Equal(producerKey, payload.ProducerKey);
+        Assert.NotNull(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [producerKey]));
+    }
+
     [Theory]
     [InlineData("/relative/flat")]
     [InlineData("ftp://primary.test/flat")]
@@ -2164,7 +2201,6 @@ public sealed class PackagePayloadAcquisitionTests
             url => url.Contains(secret, StringComparison.Ordinal));
 
         // And nowhere else.
-        Assert.NotEmpty(logs);
         Assert.All(
             logs,
             line => Assert.DoesNotContain(
@@ -2204,10 +2240,7 @@ public sealed class PackagePayloadAcquisitionTests
                 cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.IsType<PackagePayloadResult.Unavailable>(result);
-        Assert.Contains(
-            logs,
-            line => line.Contains("retryable", StringComparison.Ordinal)
-                || line.Contains("Max retries", StringComparison.Ordinal));
+        Assert.NotEmpty(logs);
         Assert.All(
             logs,
             line => Assert.DoesNotContain(
@@ -2230,10 +2263,11 @@ public sealed class PackagePayloadAcquisitionTests
             "primary",
             Primary.Url,
             new PackageSourceCredential("user", "pass"));
+        string packageUrl =
+            $"https://elsewhere.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}";
         var handler = new ServiceIndexHandler(
             baseAddress: $"https://elsewhere.test/flat?x={secret}",
-            nupkgUrl:
-                $"https://elsewhere.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg?x={secret}",
+            nupkgUrl: packageUrl,
             nupkg);
         using var client = new HttpClient(handler);
         List<string> logs = [];
@@ -2251,9 +2285,7 @@ public sealed class PackagePayloadAcquisitionTests
                 cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.IsType<PackagePayloadResult.Acquired>(result);
-        Assert.Contains(
-            logs,
-            line => line.Contains("Withholding credentials", StringComparison.Ordinal));
+        Assert.Null(handler.AuthenticationFor(packageUrl));
         Assert.All(
             logs,
             line => Assert.DoesNotContain(
@@ -2300,7 +2332,6 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.Contains(
             handler.Requests,
             url => url.Contains(secret, StringComparison.Ordinal));
-        Assert.NotEmpty(logs);
         Assert.All(
             logs,
             line => Assert.DoesNotContain(secret, line, StringComparison.Ordinal));
@@ -2634,6 +2665,20 @@ public sealed class PackagePayloadAcquisitionTests
                 _requests.Add(url);
 
             if (url.Equals(
+                NuGetOrg.Url,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            $$"""
+                            {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                            """),
+                    });
+            }
+
+            if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/{Version}/{PackageId}.{Version}.nupkg",
                 StringComparison.OrdinalIgnoreCase))
             {
@@ -2670,14 +2715,25 @@ public sealed class PackagePayloadAcquisitionTests
         HttpStatusCode payloadStatus = HttpStatusCode.OK,
         string? serviceIndexUrl = null) : HttpMessageHandler
     {
-        readonly List<string> _requests = [];
+        readonly List<(string Url, string? Authentication)> _requests = [];
 
         internal IReadOnlyList<string> Requests
         {
             get
             {
                 lock (_requests)
-                    return [.. _requests];
+                    return [.. _requests.Select(request => request.Url)];
+            }
+        }
+
+        internal string? AuthenticationFor(string url)
+        {
+            lock (_requests)
+            {
+                return _requests.Single(
+                    request => request.Url.Equals(
+                        url,
+                        StringComparison.Ordinal)).Authentication;
             }
         }
 
@@ -2687,7 +2743,10 @@ public sealed class PackagePayloadAcquisitionTests
         {
             string url = request.RequestUri!.ToString();
             lock (_requests)
-                _requests.Add(url);
+            {
+                _requests.Add(
+                    (url, request.Headers.Authorization?.Parameter));
+            }
 
             if (url.Equals(
                 serviceIndexUrl ?? Primary.Url,
@@ -2698,7 +2757,7 @@ public sealed class PackagePayloadAcquisitionTests
                     {
                         Content = new StringContent(
                             $$"""
-                            {"resources":[{"@id":"{{baseAddress}}","@type":"PackageBaseAddress/3.0.0"}]}
+                            {"version":"3.0.0","resources":[{"@id":"{{baseAddress}}","@type":"PackageBaseAddress/3.0.0"}]}
                             """),
                     });
             }
@@ -2872,7 +2931,17 @@ public sealed class PackagePayloadAcquisitionTests
         {
             string url = request.RequestUri!.ToString();
             return Task.FromResult(
-                url.Equals(NupkgUrl, StringComparison.OrdinalIgnoreCase)
+                url.Equals(
+                    NuGetOrg.Url,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            $$"""
+                            {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                            """),
+                    }
+                : url.Equals(NupkgUrl, StringComparison.OrdinalIgnoreCase)
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = content(),
@@ -3150,7 +3219,7 @@ public sealed class PackagePayloadAcquisitionTests
                     {
                         Content = new StringContent(
                             """
-                            {"resources":[{"@id":"https://primary.test/flat/","@type":"PackageBaseAddress/3.0.0"}]}
+                            {"version":"3.0.0","resources":[{"@id":"https://primary.test/flat/","@type":"PackageBaseAddress/3.0.0"}]}
                             """),
                     });
             }
@@ -3167,7 +3236,17 @@ public sealed class PackagePayloadAcquisitionTests
             }
 
             return Task.FromResult(
-                url.Equals(NupkgUrl, StringComparison.OrdinalIgnoreCase)
+                url.Equals(
+                    NuGetOrg.Url,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            $$"""
+                            {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                            """),
+                    }
+                : url.Equals(NupkgUrl, StringComparison.OrdinalIgnoreCase)
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new ByteArrayContent(nuGetOrgContent),

@@ -160,7 +160,8 @@ public static class NuGetSourceResolver
         var keys = new List<string>();
         foreach (var source in sources)
         {
-            var key = NuGetCache.GetSourceKey(source.Url);
+            string key =
+                PackageSourceClientProvider.ProducerKey(source);
             if (seen.Add(key))
                 keys.Add(key);
         }

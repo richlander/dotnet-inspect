@@ -872,12 +872,13 @@ public sealed class PackageCoordinateResolverTests
     }
 
     /// <summary>
-    /// After an authoritative nuget.org flat-container 404, a later service-index
-    /// outage must not convert absence into Failure. Discovery must stop at the
-    /// clean 404 rather than consulting SI.
+    /// Typed source enumeration discovers nuget.org's advertised
+    /// PackageBaseAddress. A service-index outage therefore makes the source
+    /// incomplete even when the well-known flat-container URL would report
+    /// absence.
     /// </summary>
     [Fact]
-    public async Task FloatingCoordinate_IgnoresNuGetOrgServiceIndexOutageAfterFlatContainer404()
+    public async Task FloatingCoordinate_TreatsNuGetOrgServiceIndexOutageAsCompleteSourceFailure()
     {
         using var client = new HttpClient(
             new NuGetOrgAbsentPrivatePresentHandler(serviceIndexOutage: true));
@@ -895,12 +896,12 @@ public sealed class PackageCoordinateResolverTests
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        var resolved =
-            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
-        Assert.Equal("1.0.0", resolved.Coordinate.Version);
-        Assert.Equal(
-            NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
-            Assert.Single(resolved.Coordinate.Sources));
+        var unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1430,6 +1431,16 @@ public sealed class PackageCoordinateResolverTests
             Interlocked.Increment(ref _requestCount);
             string url = request.RequestUri!.ToString();
             if (url.Equals(
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Json(
+                    """
+                    {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                    """);
+            }
+
+            if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json",
                 StringComparison.OrdinalIgnoreCase))
             {
@@ -1500,7 +1511,7 @@ public sealed class PackageCoordinateResolverTests
             {
                 return Json(
                     $$"""
-                    {"resources":[{"@id":"https://feed.test/flat?sig={{_signature}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    {"version":"3.0.0","resources":[{"@id":"https://feed.test/flat?sig={{_signature}}","@type":"PackageBaseAddress/3.0.0"}]}
                     """);
             }
 
@@ -1535,10 +1546,10 @@ public sealed class PackageCoordinateResolverTests
             {
                 "https://preview.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://preview.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://preview.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://stable.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://stable.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://stable.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://preview.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["2.0.0-beta"]}"""),
                 $"https://stable.test/flat/{PackageId}/index.json" =>
@@ -1588,11 +1599,11 @@ public sealed class PackageCoordinateResolverTests
                 "https://incomplete.test/v3/index.json"
                     when malformedPackageBaseAddress =>
                     Json(
-                        """{"resources":[{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
                     when mixedMalformedPackageBaseAddress =>
                     Json(
-                        """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
                     when credentialBearingPackageBaseAddress =>
                     Json(CredentialResources(
@@ -1606,7 +1617,7 @@ public sealed class PackageCoordinateResolverTests
                             HttpStatusCode.ServiceUnavailable)),
                 "https://incomplete.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://incomplete.test/flat/{PackageId}/index.json" =>
                     mixedMalformedPackageBaseAddress
                         || credentialBearingPackageBaseAddress
@@ -1620,7 +1631,7 @@ public sealed class PackageCoordinateResolverTests
                         : Json("""{"versions":"not-an-array"}"""),
                 "https://available.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://available.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 _ => Task.FromResult(
@@ -1645,8 +1656,8 @@ public sealed class PackageCoordinateResolverTests
                         ? """{"@id":"https://user:pass@incomplete.test/poison","@type":["SearchQueryService/3.5.0","PackageBaseAddress/3.0.0"]}"""
                         : """{"@id":"https://user:pass@incomplete.test/poison","@type":"PackageBaseAddress/3.0.0"}""";
                 return credentialFirst
-                    ? $$"""{"resources":[{{credential}},{{valid}}]}"""
-                    : $$"""{"resources":[{{valid}},{{credential}}]}""";
+                    ? $$"""{"version":"3.0.0","resources":[{{credential}},{{valid}}]}"""
+                    : $$"""{"version":"3.0.0","resources":[{{valid}},{{credential}}]}""";
             }
         }
     }
@@ -1689,7 +1700,7 @@ public sealed class PackageCoordinateResolverTests
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
-                        $$"""{"resources":[{{resource}}]}"""),
+                        $$"""{"version":"3.0.0","resources":[{{resource}}]}"""),
                 });
         }
     }
@@ -1711,12 +1722,12 @@ public sealed class PackageCoordinateResolverTests
             {
                 "https://healthy.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://healthy.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://healthy.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://healthy.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 "https://poison.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"},{"@id":"not-a-registration","@type":"RegistrationsBaseUrl/3.6.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"},{"@id":"not-a-registration","@type":"RegistrationsBaseUrl/3.6.0"}]}"""),
                 $"https://poison.test/flat/{PackageId}/index.json" =>
                     Task.FromResult(
                         new HttpResponseMessage(HttpStatusCode.NotFound)),
@@ -1764,7 +1775,7 @@ public sealed class PackageCoordinateResolverTests
                             new HttpResponseMessage(
                                 HttpStatusCode.ServiceUnavailable))
                         : Json(
-                            """{"resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
+                            """{"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json" =>
                     Task.FromResult(
                         new HttpResponseMessage(
@@ -1773,7 +1784,7 @@ public sealed class PackageCoordinateResolverTests
                                 : HttpStatusCode.NotFound)),
                 "https://private.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://private.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://private.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://private.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 _ => Task.FromResult(
@@ -1803,6 +1814,17 @@ public sealed class PackageCoordinateResolverTests
             string url = request.RequestUri!.ToString();
             string? body;
             if (url.Equals(
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                body =
+                    """
+                    {"version":"3.0.0","resources":[
+                      {"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}
+                    ]}
+                    """;
+            }
+            else if (url.Equals(
                 "https://api.nuget.org/v3-flatcontainer/unlistedpkg/index.json",
                 StringComparison.OrdinalIgnoreCase))
             {

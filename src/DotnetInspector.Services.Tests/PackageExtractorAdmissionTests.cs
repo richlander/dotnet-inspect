@@ -351,9 +351,9 @@ public sealed class PackageExtractorAdmissionTests
                 url switch
                 {
                     SourceA => Json(
-                        """{"resources":[{"@id":"https://a.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://a.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                     SourceB => Json(
-                        """{"resources":[{"@id":"https://b.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://b.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                     $"https://a.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg" =>
                         Package(sourceAArchive),
                     $"https://b.test/flat/{PackageId}/{Version}/{PackageId}.{Version}.nupkg" =>

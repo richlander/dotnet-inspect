@@ -2067,6 +2067,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsoluteUri.Equals(
+                    NuGetFetch.PackageSource.NuGetOrg.Url,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return NuGetOrgServiceIndex();
+            }
+
             Interlocked.Increment(ref _requestCount);
             _requestStarted.TrySetResult(true);
             await _release.Task.WaitAsync(cancellationToken);
@@ -2089,6 +2096,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsoluteUri.Equals(
+                    NuGetFetch.PackageSource.NuGetOrg.Url,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(NuGetOrgServiceIndex());
+            }
+
             Interlocked.Increment(ref _requestCount);
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)
@@ -2118,13 +2132,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             if (url == "https://feed-a.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == "https://feed-b.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == $"https://content-a.invalid/flat/{_normalizedName}/index.json")
@@ -2166,13 +2180,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             if (url == "https://feed-a.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == "https://feed-b.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == NupkgUrl("content-a", wrapperPackage))
@@ -2208,6 +2222,15 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             => throw new InvalidOperationException(
                 $"Unexpected network request: {request.RequestUri}");
     }
+
+    private static HttpResponseMessage NuGetOrgServiceIndex() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                """),
+        };
 
     private sealed class NotFoundHandler : HttpMessageHandler
     {

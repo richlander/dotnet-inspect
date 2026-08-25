@@ -370,7 +370,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task BareVersion_PreviewDoesNotUseStableOnlyCandidateOffline()
+    public async Task BareVersion_PreviewWithoutCandidateReportsOffline()
     {
         string packageName = $"OfflineStableOnly{Guid.NewGuid():N}";
         SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
@@ -387,7 +387,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "Network access is disabled",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -553,7 +556,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task PackageVersionQuery_PreservesNotFoundForA404(
+    public async Task PackageVersionQuery_ServiceIndex404IsSourceFailure(
         bool range)
     {
         string packageName = $"MissingVersion{Guid.NewGuid():N}";
@@ -575,9 +578,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("source", error, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("requires credentials", error);
-        Assert.DoesNotContain("Could not retrieve versions", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1026,7 +1029,19 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 $"https://api.nuget.org/v3/registration5-gz-semver2/{packageName.ToLowerInvariant()}/index.json";
 
             HttpResponseMessage response;
-            if (url.Equals(flatContainer, StringComparison.OrdinalIgnoreCase))
+            if (url.Equals(
+                NuGetFetch.PackageSource.NuGetOrg.Url,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                        """),
+                };
+            }
+            else if (url.Equals(flatContainer, StringComparison.OrdinalIgnoreCase))
             {
                 string body = "{\"versions\":["
                     + string.Join(",", versions.Select(version => $"\"{version}\""))

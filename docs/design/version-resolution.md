@@ -77,6 +77,25 @@ another authorized producer's cached payload to answer. Payload acquisition
 then uses the ordinary host-supplied package store, and the realized platform
 coordinate retains the serving producer for exact re-acquisition.
 
+HTTP version enumeration and exact package payload requests use
+`IPackageSourceClient`. The desktop adapter chooses the application-owned
+per-origin transport for production and preserves an injected transport for
+tests; multi-source semantic-version selection, NuGet.org registration
+enrichment, cache authority, and source failover remain package-layer policy.
+Every advertised `PackageBaseAddress` resource is validated before one is
+selected, so an unusable or credential-bearing sibling still makes the source
+incomplete. Service-index, version-index, and exact-package requests use the
+source-owned bounded transient retry policy within one operation deadline;
+absence and authentication failures are not retried.
+`PackageCoordinateResolverTests`,
+`PackagePayloadAcquisitionTests`,
+`PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
+and
+`PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
+`V3ServiceIndexVersionAndPackageRetryTransientResponses`, and
+`V3TransientRetriesAreBounded`
+gate this path.
+
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 

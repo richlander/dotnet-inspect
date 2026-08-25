@@ -713,8 +713,26 @@ unlisted versions and fails closed when listing authority is absent. The typed
 payload's advertised length flows through the shared
 `PackagePayloadAcquisition` admission and store pipeline, so Browser cache
 reservation, archive limits, producer authorization, and publication are not
-reimplemented in the host. Desktop package-resolution consumers remain on the
-compatibility path.
+reimplemented in the host.
+
+Desktop version discovery and exact package acquisition now cross the same
+typed source-client boundary. `PackageSourceClientProvider` adapts the desktop
+host transport: the process-wide shared client selects
+`HttpClientFactory.GetPackageSourceClient` for each configured source origin,
+retaining authentication plugins, offline behavior, telemetry, and the
+configured-origin destination policy, while an explicitly injected test client
+remains authoritative. The typed client borrows that host transport and does
+not dispose it. Package-layer aggregation still owns source order, reporting
+feeds, NuGet.org listing enrichment, complete-source requirements, the
+cache-first authorized-producer pass, payload admission, and source failover.
+`SourcePrecedenceTests`, `VersionCacheTests`,
+`PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`,
+`PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
+`PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`, and
+`PackageSourceClientTests.RuntimeFactoriesDoNotAcceptSharedHttpClient`, and
+`HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`
+gate
+those boundaries.
 
 The v3 compatibility adapter exposes search, version, and package-payload
 operations. It validates package coordinates before any service-index or
@@ -728,7 +746,9 @@ returns typed `Unsupported` from that operation. The adapter does not restore
 the retired NuGet.org-only search shortcut.
 `NuGetV3PackageResourceClient` owns `PackageBaseAddress` discovery,
 normalization, version-index URL construction, and exact package URL
-construction for the v3 source client. The canonical NuGet.org v3 client
+construction for the v3 source client. It applies bounded retries to transient
+service-index, version-index, and exact-package responses under the shared
+operation deadline. The canonical NuGet.org v3 client
 discovers the advertised package base instead of substituting the legacy
 flat-container constant. Legacy `NuGetClient` delegates those operations to
 the same source-owned primitive while retaining its canonical shortcut until
@@ -741,6 +761,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
+`V3ServiceIndexVersionAndPackageRetryTransientResponses`,
+`V3TransientRetriesAreBounded`,
 `CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
 `CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress`,
 `LegacyNuGetClientRetainsCanonicalFlatContainerShortcut`,
@@ -784,6 +806,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryRequestsUseLibraryDeadlines`,
 `V3InvalidVersionMetadataIsTypedFailure`,
 `V3UnusablePackageBaseAddressIsInvalidResponse`,
+`V3VersionRejectsAnyUnusablePackageBaseAddress`,
 `V3SignedPackageBaseAddressPreservesQuery`,
 `V3VersionAndPackageDoNotSendCredentialCrossOrigin`,
 `V3MissingPackageIsTypedAbsence`,
@@ -808,18 +831,16 @@ optional registration stalls.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
-The remaining structural problem is that existing package-resolution consumers
-still largely equate a source with a v3 service-index URL. The implementation
-should:
+The remaining structural work is to:
 
-1. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
-   the source-client boundary.
-2. Add environment-scoped availability observations without mutating durable
+1. Add environment-scoped availability observations without mutating durable
    candidate observations.
-3. Let desktop and browser hosts choose transport implementations without
+2. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-4. Replace the browser's singleton `default versus mirror` state with a source
+3. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
+4. Migrate search, standalone nuspec, and symbol compatibility consumers that
+   still operate below the typed source-client boundary.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,

@@ -3,7 +3,6 @@
 
 using System.IO.Compression;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -148,7 +147,6 @@ public static class PackageExtractor
                     client,
                     currentPackageSource,
                     log,
-                    tempDirPrefix,
                     currentSourceOptions,
                     currentVersion,
                     currentForceLatest,
@@ -237,7 +235,6 @@ public static class PackageExtractor
         HttpClient client,
         string packageSource,
         Action<string>? log,
-        string tempDirPrefix,
         NuGetSourceOptions? sourceOptions,
         string? explicitVersion = null,
         bool forceLatest = false,
@@ -373,8 +370,7 @@ public static class PackageExtractor
                 normalizedVersion,
                 authorizedSources,
                 sourceOptions,
-                log,
-                tempDirPrefix),
+                log),
             // This is an in-flight registry. The committed filesystem entry is
             // authoritative and is revalidated by every later request.
             static _ => false).ConfigureAwait(false);
@@ -418,8 +414,7 @@ public static class PackageExtractor
         string normalizedVersion,
         IReadOnlyList<NuGetSource> sources,
         NuGetSourceOptions? sourceOptions,
-        Action<string>? log,
-        string tempDirPrefix)
+        Action<string>? log)
     {
         // Full producer list in one EnumerateCached so app-cache slots for
         // every authorized source precede any global-packages tier.
@@ -476,216 +471,106 @@ public static class PackageExtractor
                 $"Package '{packageName}' version '{version}' is not available offline; {offlineReason}.");
         }
 
-        string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
-
-        try
+        bool sourceSuppliedUnusablePayload = false;
+        foreach (NuGetSource source in sources)
         {
-            // Try each source in order. The bounded download lands in this
-            // temporary file; its bytes are admitted before publication.
-            string nupkgPath = Path.Combine(
-                tempDir,
-                $"{packageName}.{version}.nupkg");
-            bool sourceSuppliedUnusablePayload = false;
-            foreach (var source in sources)
+            if (!Uri.TryCreate(
+                    source.Url,
+                    UriKind.Absolute,
+                    out Uri? endpoint)
+                || endpoint.Scheme is not ("http" or "https"))
             {
-                var nupkgUrl = await GetPackageDownloadUrlAsync(
-                    client,
-                    source,
-                    normalizedName,
-                    normalizedVersion,
-                    log).ConfigureAwait(false);
-                if (nupkgUrl == null)
-                    continue;
+                continue;
+            }
 
+            using IPackageSourceClient sourceClient =
+                PackageSourceClientProvider.Create(source, client);
+            using var trafficScope =
+                NetworkTelemetry.Scope(NetworkTrafficKind.PackageDownload);
+            PackageSourcePayloadResult sourceResult =
+                await PackagePayloadAcquisition.AcquireFromSourceAsync(
+                    sourceClient,
+                    PackageSourceCoordinate.Create(
+                        normalizedName,
+                        normalizedVersion),
+                    s_packageStore,
+                    log,
+                    PackagePayloadLimits.Default,
+                    transferPolicy: null,
+                    CancellationToken.None).ConfigureAwait(false);
+            if (sourceResult
+                is PackageSourcePayloadResult.Acquired acquired)
+            {
+                IPackageContent content = acquired.Payload.Content;
                 log?.Invoke(
-                    $"Downloading: {packageName} {version} from {PackageSourceDisplay.ForDiagnostics(source)}");
-
-                try
-                {
-                    HttpRetryHelper.DownloadToFileResult download =
-                        await HttpRetryHelper.DownloadToFileWithRetryAsync(
-                            client,
-                            nupkgUrl,
-                            nupkgPath,
-                            log: log,
-                            auth: NuGetCredentialScope.AuthFor(source, nupkgUrl, log),
-                            trafficKind: NetworkTrafficKind.PackageDownload)
-                            .ConfigureAwait(false);
-                    if (download
-                        is HttpRetryHelper.DownloadToFileResult.RejectedPayload)
-                    {
-                        sourceSuppliedUnusablePayload = true;
-                        log?.Invoke(
-                            $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
-                        continue;
-                    }
-
-                    if (download is HttpRetryHelper.DownloadToFileResult.Succeeded)
-                    {
-                        // Re-admit through the same bounded reader used on the
-                        // host-neutral path so a raced or swapped on-disk file
-                        // cannot bypass MaxArchiveBytes via ReadAllBytesAsync.
-                        byte[]? archive;
-                        await using (FileStream onDisk = new(
-                            nupkgPath,
-                            FileMode.Open,
-                            FileAccess.Read,
-                            FileShare.Read,
-                            bufferSize: 81920,
-                            FileOptions.Asynchronous | FileOptions.SequentialScan))
-                        {
-                            archive = await PackageContentAdmission.ReadBoundedAsync(
-                                    onDisk,
-                                    PackagePayloadLimits.Default.MaxArchiveBytes,
-                                    CancellationToken.None)
-                                .ConfigureAwait(false);
-                        }
-
-                        if (archive is null)
-                        {
-                            sourceSuppliedUnusablePayload = true;
-                            log?.Invoke(
-                                $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
-                            continue;
-                        }
-
-                        if (PackageArchiveValidator.Validate(archive)
-                            is PackageArchiveValidation.Rejected rejection)
-                        {
-                            sourceSuppliedUnusablePayload = true;
-                            log?.Invoke(
-                                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload: "
-                                + rejection.Reason);
-                            continue;
-                        }
-
-                        using var archiveStream = new MemoryStream(
-                            archive,
-                            writable: false);
-                        IPackageContent content = await s_packageStore.CommitAsync(
-                                packageName,
-                                version,
-                                NuGetCache.GetSourceKey(source.Url),
-                                archiveStream)
-                            .ConfigureAwait(false);
-                        if (!await PackageContentAdmission.IsAdmissibleAsync(
-                                content,
-                                PackagePayloadLimits.Default,
-                                CancellationToken.None).ConfigureAwait(false))
-                        {
-                            sourceSuppliedUnusablePayload = true;
-                            log?.Invoke(
-                                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not publish content satisfying the current payload limits.");
-                            continue;
-                        }
-
-                        log?.Invoke(
-                            $"Package downloaded successfully from {PackageSourceDisplay.ForDiagnostics(source)}.");
-                        log?.Invoke($"Cached to: {content.RootPath}");
-                        return new PackageExtractionResult(
-                            content.RootPath!,
-                            TempDir: null,
-                            packageName,
-                            version,
-                            content.NupkgPath,
-                            FromCache: true,
-                            content.ProducerKey);
-                    }
-                }
-                catch (HttpRequestException ex)
-                {
-                    // The transport's message embeds the request URI, and that
-                    // URI came from a feed-declared flat-container base.
-                    log?.Invoke(
-                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} failed: "
-                        + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
-                }
-                catch (Exception ex) when (
-                    ex is IOException
-                        or InvalidDataException
-                        or NotSupportedException
-                        or UnauthorizedAccessException
-                        or OperationCanceledException)
-                {
-                    // Body timeout, mid-body stall, unreadable archive, or
-                    // persistence failure is this source failing — not a
-                    // reason to stop trying every other authorized source.
-                    // This path has no caller CancellationToken; any OCE here
-                    // is the transport body timer (see DownloadToFileWithRetryAsync).
-                    sourceSuppliedUnusablePayload = true;
-                    log?.Invoke(
-                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
-                }
+                    $"Package downloaded successfully from {PackageSourceDisplay.ForDiagnostics(source)}.");
+                log?.Invoke($"Cached to: {content.RootPath}");
+                return new PackageExtractionResult(
+                    content.RootPath!,
+                    TempDir: null,
+                    packageName,
+                    version,
+                    content.NupkgPath,
+                    FromCache: true,
+                    content.ProducerKey);
             }
 
-            if (sourceSuppliedUnusablePayload)
+            if (sourceResult
+                is PackageSourcePayloadResult.Failed failed)
             {
-                return PackageExtractionOutcome.Error(
-                    $"Package '{packageName}@{version}' was rejected before caching because no authorized source supplied usable content.");
+                PackageSourceClientProvider.RecordFailure(
+                    source,
+                    failed.Failure,
+                    NetworkTrafficKind.PackageDownload);
+                log?.Invoke(
+                    $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a package payload: "
+                    + failed.Failure.Message);
             }
-
-            // Differentiate "package doesn't exist" from "version doesn't exist"
-            // from "some authorized source never answered". A nonempty listing
-            // from one feed must not suppress failures on another — the missing
-            // pin may live only on the unreadable source.
-            var knownVersions = await GetVersionsAsync(
-                client,
-                packageName,
-                includePrerelease: true,
-                limit: null,
-                log: null,
-                sourceOptions: sourceOptions).ConfigureAwait(false);
-            if (FeedFailureTelemetry.Current is { HasFailures: true } hopFailures)
+            else if (((PackageSourcePayloadResult.Unavailable)sourceResult).Kind
+                != PackageSourcePayloadUnavailableKind.NotFound)
             {
-                return PackageExtractionOutcome.Error(
-                    (hopFailures.DescribeFailure(packageName)
-                        ?? InertString.Format(
-                            TextPolicy.Field,
-                            $"Package '{packageName}' could not be fully resolved from every authorized source."))
-                        .ToString());
+                sourceSuppliedUnusablePayload = true;
             }
+        }
 
-            if (knownVersions == null || knownVersions.Count == 0)
-            {
-                return PackageExtractionOutcome.Error(
-                    InertString.Format(
-                        TextPolicy.Field,
-                        $"Package '{packageName}' not found.")
-                        .ToString());
-            }
-
+        if (sourceSuppliedUnusablePayload)
+        {
             return PackageExtractionOutcome.Error(
-                $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
+                $"Package '{packageName}@{version}' was rejected before caching because no authorized source supplied usable content.");
         }
-        catch (IOException ex)
+
+        // Differentiate "package doesn't exist" from "version doesn't exist"
+        // from "some authorized source never answered". A nonempty listing
+        // from one feed must not suppress failures on another — the missing
+        // pin may live only on the unreadable source.
+        var knownVersions = await GetVersionsAsync(
+            client,
+            packageName,
+            includePrerelease: true,
+            limit: null,
+            log: null,
+            sourceOptions: sourceOptions).ConfigureAwait(false);
+        if (FeedFailureTelemetry.Current is { HasFailures: true } hopFailures)
         {
-            return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
+            return PackageExtractionOutcome.Error(
+                (hopFailures.DescribeFailure(packageName)
+                    ?? InertString.Format(
+                        TextPolicy.Field,
+                        $"Package '{packageName}' could not be fully resolved from every authorized source."))
+                    .ToString());
         }
-        catch (InvalidDataException ex)
+
+        if (knownVersions == null || knownVersions.Count == 0)
         {
-            return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
+            return PackageExtractionOutcome.Error(
+                InertString.Format(
+                    TextPolicy.Field,
+                    $"Package '{packageName}' not found.")
+                    .ToString());
         }
-        catch (UnauthorizedAccessException ex)
-        {
-            return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(tempDir, recursive: true);
-            }
-            catch (IOException)
-            {
-                // The committed cache entry is independent of this temporary
-                // download workspace.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // The committed cache entry is independent of this temporary
-                // download workspace.
-            }
-        }
+
+        return PackageExtractionOutcome.Error(
+            $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
     }
 
     /// <summary>
@@ -1931,133 +1816,51 @@ public static class PackageExtractor
         CancellationToken cancellationToken = default)
     {
         using var failureScope = FeedFailureTelemetry.Scope();
-        bool attemptedAuthoritativeLookup = false;
-
-        // Try flat-container index first
-        if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
-            is { } wellKnownIndexUrl)
-        {
-            attemptedAuthoritativeLookup = true;
-            // nuget.org's well-known flat-container is authoritative for
-            // presence. Do not consult the service index after a clean 404, or
-            // a later service-index outage would convert absence into failure.
-            SourceVersionList versions = await FetchVersionListAsync(
-                client,
-                wellKnownIndexUrl,
-                log,
-                NuGetCredentialScope.AuthFor(source, wellKnownIndexUrl, log),
-                cancellationToken).ConfigureAwait(false);
-            if (versions.Versions is not null || versions.Failed)
-                return versions;
-
-            if (source.IsNuGetOrg)
-                return SourceVersionList.Absent;
-        }
-
-        // Fall back to V3 service index discovery
-        int discoveryFailuresBefore =
-            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-        ServiceIndexResourceResult baseAddress =
-            await GetPackageBaseAddressResultAsync(
-            client,
-            source,
-            log,
-            cancellationToken).ConfigureAwait(false);
-        if (baseAddress.HasMalformedCriticalResource)
-            return SourceVersionList.Failure;
-
-        if (GetVersionIndexUrl(baseAddress.Id, packageName) is { } indexUrl)
-        {
-            attemptedAuthoritativeLookup = true;
-            SourceVersionList versions = await FetchVersionListAsync(
-                client,
-                indexUrl,
-                log,
-                NuGetCredentialScope.AuthFor(source, indexUrl, log),
-                cancellationToken).ConfigureAwait(false);
-            return versions;
-        }
-
-        if (attemptedAuthoritativeLookup)
-            return SourceVersionList.Absent;
-
-        int discoveryFailuresAfter =
-            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-        return discoveryFailuresAfter > discoveryFailuresBefore
-            ? SourceVersionList.Failure
-            : SourceVersionList.MissingSource;
-    }
-
-    private static async Task<SourceVersionList> FetchVersionListAsync(
-        HttpClient client, string indexUrl, Action<string>? log,
-        AuthenticationHeaderValue? auth = null,
-        CancellationToken cancellationToken = default)
-    {
         log?.Invoke(
-            $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
-        int failuresBefore =
-            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-            client, indexUrl, auth: auth,
-            cancellationToken: cancellationToken,
-            trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
-        if (json == null)
-        {
-            int failuresAfter =
-                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-            return failuresAfter > failuresBefore
-                ? SourceVersionList.Failure
-                : SourceVersionList.Absent;
-        }
-
+            $"Fetching versions from: {PackageSourceDisplay.ForDiagnostics(source)}");
+        using IPackageSourceClient sourceClient =
+            PackageSourceClientProvider.Create(source, client);
+        using var trafficScope =
+            NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
+        PackageSourceOperationResult<PackageVersionResult> operation;
         try
         {
-            using var doc = HardenedJson.Parse(json);
-            if (!doc.RootElement.TryGetProperty(
-                    "versions",
-                    out var versions)
-                || versions.ValueKind
-                    != System.Text.Json.JsonValueKind.Array)
-            {
-                FeedFailureTelemetry.Record(
-                    indexUrl,
-                    HttpStatusCode.OK);
-                return SourceVersionList.Failure;
-            }
-
-            List<string> result = [];
-            foreach (var element in versions.EnumerateArray())
-            {
-                if (element.ValueKind
-                        != System.Text.Json.JsonValueKind.String
-                    || NormalizeCandidateVersion(
-                        element.GetString()) is not string candidate)
-                {
-                    FeedFailureTelemetry.Record(
-                        indexUrl,
-                        HttpStatusCode.OK);
-                    return SourceVersionList.Failure;
-                }
-
-                result.Add(candidate);
-            }
-
-            return result.Count == 0
-                ? SourceVersionList.Absent
-                : SourceVersionList.Found(result);
+            operation = await sourceClient.GetVersionsAsync(
+                    packageName,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is
-            System.Text.Json.JsonException
-            or InvalidOperationException)
+        catch (OfflineException)
         {
-            // Ignore parse errors
-            FeedFailureTelemetry.Record(
-                indexUrl,
-                HttpStatusCode.OK);
+            log?.Invoke("Network access is disabled (--offline mode).");
+            return SourceVersionList.Failure;
+        }
+        if (operation
+            is PackageSourceOperationResult<PackageVersionResult>.Failed failed)
+        {
+            RecordVersionSourceFailure(source, failed.Failure);
+            return failed.Failure.Kind == PackageSourceFailureKind.Unsupported
+                ? SourceVersionList.MissingSource
+                : SourceVersionList.Failure;
         }
 
-        return SourceVersionList.Failure;
+        PackageVersionResult versions =
+            ((PackageSourceOperationResult<PackageVersionResult>.Succeeded)
+                operation).Value;
+        return versions.Candidates.Count == 0
+            ? SourceVersionList.Absent
+            : SourceVersionList.Found(
+                [.. versions.Candidates.Select(
+                    candidate => candidate.Coordinate.Version)]);
     }
+
+    private static void RecordVersionSourceFailure(
+        NuGetSource source,
+        PackageSourceFailure failure) =>
+        PackageSourceClientProvider.RecordFailure(
+            source,
+            failure,
+            NetworkTrafficKind.PackageVersionList);
 
     // nuget.org registration index — the only nuget.org endpoint that carries the
     // per-version `catalogEntry.listed` flag. The flat-container index.json omits it.
@@ -2423,59 +2226,22 @@ public static class PackageExtractor
             return SourceLatestVersion.Failure;
         }
 
-        bool attemptedAuthoritativeLookup = false;
-
-        // Fall back to flat-container index (enumerates all versions)
-        if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
-            is { } wellKnownIndexUrl)
+        SourceVersionList lookup = await FetchAllVersionsFromSourceAsync(
+            client,
+            packageName,
+            source,
+            log,
+            cancellationToken).ConfigureAwait(false);
+        if (lookup.Versions is not { } versions)
         {
-            log?.Invoke(
-                $"Fetching versions from: {UrlRedaction.ForDiagnostics(wellKnownIndexUrl)}");
-
-            attemptedAuthoritativeLookup = true;
-            var wellKnown = await ParseVersionIndexResultAsync(
-                client,
-                wellKnownIndexUrl,
-                NuGetCredentialScope.AuthFor(source, wellKnownIndexUrl, log),
-                includePrerelease,
-                cancellationToken).ConfigureAwait(false);
-            if (wellKnown.Version is not null || wellKnown.Failed)
-                return wellKnown;
+            return lookup.Failed || lookup.SourceMissing
+                ? SourceLatestVersion.Failure
+                : SourceLatestVersion.Absent;
         }
 
-        // Fall back to V3 service index discovery
-        ServiceIndexResourceResult baseAddress =
-            await GetPackageBaseAddressResultAsync(
-                client,
-                source,
-                log,
-                cancellationToken).ConfigureAwait(false);
-        if (baseAddress.HasMalformedCriticalResource)
-            return SourceLatestVersion.Failure;
-
-        if (GetVersionIndexUrl(baseAddress.Id, packageName) is { } indexUrl)
-        {
-            log?.Invoke(
-                $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
-
-            attemptedAuthoritativeLookup = true;
-            var discovered = await ParseVersionIndexResultAsync(
-                client,
-                indexUrl,
-                NuGetCredentialScope.AuthFor(source, indexUrl, log),
-                includePrerelease,
-                cancellationToken).ConfigureAwait(false);
-            if (discovered.Version is not null || discovered.Failed)
-                return discovered;
-        }
-
-        // Never found a version index URL to query (missing/malformed critical
-        // PackageBaseAddress, etc.). Attempted lookups already returned their
-        // own typed Absent/Failed above without consulting ambient leftovers.
-        if (!attemptedAuthoritativeLookup)
-            return SourceLatestVersion.Failure;
-
-        return SourceLatestVersion.Absent;
+        return PickLatest(versions, includePrerelease) is { } selected
+            ? SourceLatestVersion.Found(selected)
+            : SourceLatestVersion.Absent;
     }
 
     private static async Task<string?> GetLatestVersionFromSearchAsync(
@@ -2535,98 +2301,6 @@ public static class PackageExtractor
         }
 
         return null;
-    }
-
-    private static async Task<string?> ParseVersionIndexAsync(
-        HttpClient client, string indexUrl,
-        AuthenticationHeaderValue? auth = null,
-        bool includePrerelease = false,
-        CancellationToken cancellationToken = default)
-    {
-        SourceLatestVersion result = await ParseVersionIndexResultAsync(
-            client,
-            indexUrl,
-            auth,
-            includePrerelease,
-            cancellationToken).ConfigureAwait(false);
-        return result.Version;
-    }
-
-    private static async Task<SourceLatestVersion> ParseVersionIndexResultAsync(
-        HttpClient client,
-        string indexUrl,
-        AuthenticationHeaderValue? auth = null,
-        bool includePrerelease = false,
-        CancellationToken cancellationToken = default)
-    {
-        // Attribute transport failure to *this* request only. Ambient
-        // HasFailures can include an earlier optional resource warning or a
-        // superseded sibling path; those must not turn a plain 404 into Failed.
-        int failuresBefore =
-            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-            client, indexUrl, auth: auth,
-            cancellationToken: cancellationToken,
-            trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
-        if (json == null)
-        {
-            int failuresAfter =
-                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-            return failuresAfter > failuresBefore
-                ? SourceLatestVersion.Failure
-                : SourceLatestVersion.Absent;
-        }
-
-        try
-        {
-            using var doc = HardenedJson.Parse(json);
-            if (!doc.RootElement.TryGetProperty(
-                    "versions",
-                    out var versions)
-                || versions.ValueKind
-                    != System.Text.Json.JsonValueKind.Array)
-            {
-                FeedFailureTelemetry.Record(
-                    indexUrl,
-                    HttpStatusCode.OK);
-                return SourceLatestVersion.Failure;
-            }
-
-            if (versions.GetArrayLength() == 0)
-                return SourceLatestVersion.Absent;
-
-            var candidates = new List<string>();
-            foreach (var element in versions.EnumerateArray())
-            {
-                if (element.ValueKind
-                        != System.Text.Json.JsonValueKind.String
-                    || NormalizeCandidateVersion(
-                        element.GetString()) is not string candidate)
-                {
-                    FeedFailureTelemetry.Record(
-                        indexUrl,
-                        HttpStatusCode.OK);
-                    return SourceLatestVersion.Failure;
-                }
-
-                candidates.Add(candidate);
-            }
-
-            // Use NuGetVersion for proper comparison — feeds may return
-            // versions in any order (nuget.org ascending, Azure DevOps descending).
-            return PickLatest(candidates, includePrerelease) is { } picked
-                ? SourceLatestVersion.Found(picked)
-                : SourceLatestVersion.Absent;
-        }
-        catch (Exception ex) when (ex is
-            System.Text.Json.JsonException
-            or InvalidOperationException)
-        {
-            FeedFailureTelemetry.Record(
-                indexUrl,
-                HttpStatusCode.OK);
-            return SourceLatestVersion.Failure;
-        }
     }
 
     /// <summary>

@@ -367,6 +367,163 @@ public sealed class PackageSourceClientTests
         Assert.DoesNotContain(NuGetOrgVersions, handler.Requested);
     }
 
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("https://user:secret@packages.example/flat/")]
+    public async Task V3VersionRejectsAnyUnusablePackageBaseAddress(
+        string unusableBaseAddress)
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    },
+                    {
+                      "@id": "{{unusableBaseAddress}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3ServiceIndexVersionAndPackageRetryTransientResponses()
+    {
+        int serviceIndexAttempts = 0;
+        int versionAttempts = 0;
+        int packageAttempts = 0;
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            ServiceIndex,
+            _ => ++serviceIndexAttempts == 1
+                ? new HttpResponseMessage(
+                    HttpStatusCode.ServiceUnavailable)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """),
+                });
+        handler.SetResponse(
+            Versions,
+            _ => ++versionAttempts == 1
+                ? new HttpResponseMessage(
+                    HttpStatusCode.ServiceUnavailable)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"versions":["1.0.0"]}"""),
+                });
+        handler.SetResponse(
+            Package,
+            _ => ++packageAttempts == 1
+                ? new HttpResponseMessage(
+                    HttpStatusCode.ServiceUnavailable)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("package bytes"),
+                });
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await payload.Content.DisposeAsync();
+
+        Assert.Equal(2, serviceIndexAttempts);
+        Assert.Equal(2, versionAttempts);
+        Assert.Equal(2, packageAttempts);
+    }
+
+    [Theory]
+    [InlineData("versions", Versions)]
+    [InlineData("package", Package)]
+    public async Task V3TransientRetriesAreBounded(
+        string operation,
+        string endpoint)
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        handler.SetResponse(
+            endpoint,
+            _ => new HttpResponseMessage(
+                HttpStatusCode.ServiceUnavailable));
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = operation == "versions"
+            ? Failed(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+            : Failed(
+                await runtime.GetPackageAsync(
+                    "contoso",
+                    "1.0.0",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Transport, failure.Kind);
+        Assert.Equal(4, handler.Requested.Count(url => url == endpoint));
+    }
+
     [Fact]
     public async Task LegacyNuGetClientRetainsCanonicalFlatContainerShortcut()
     {
@@ -529,7 +686,13 @@ public sealed class PackageSourceClientTests
             PackageSourceFailureKind.Transport,
             failure.Kind);
         Assert.Equal(
-            [ServiceIndex, Versions],
+            [
+                ServiceIndex,
+                Versions,
+                Versions,
+                Versions,
+                Versions,
+            ],
             handler.Requested);
     }
 
@@ -3522,6 +3685,21 @@ public sealed class PackageSourceClientTests
         runtime.Dispose();
 
         Assert.True(handler.Disposed);
+    }
+
+    [Fact]
+    public void V3BorrowedHttpClientIsNotDisposedWithClient()
+    {
+        var handler = new RecordingHandler();
+        using var transport = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                transport);
+
+        runtime.Dispose();
+
+        Assert.False(handler.Disposed);
     }
 
     [Fact]

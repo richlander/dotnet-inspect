@@ -192,6 +192,30 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public void PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient()
+    {
+        var source = new NuGetFetch.PackageSource(
+            "private",
+            "https://private.example/v3/index.json");
+        using var injected = new HttpClient();
+
+        HttpClient selected =
+            PackageSourceClientProvider.SelectTransport(
+                source,
+                HttpClientFactory.Shared);
+
+        Assert.Same(
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                source.Url),
+            selected);
+        Assert.Same(
+            injected,
+            PackageSourceClientProvider.SelectTransport(
+                source,
+                injected));
+    }
+
+    [Fact]
     public async Task PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
