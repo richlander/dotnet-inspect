@@ -98,7 +98,7 @@ package dependency closure.
 | Concept | Meaning | Owns | Must not own |
 | --- | --- | --- | --- |
 | Storage | Retention and retrieval of opaque bytes | cache keys, publication, eviction, content leases | package selection, PE identity, workspace binding |
-| Artifact | One immutable inspectable content item | logical identity, media/kind hint, digest, owner-mediated content access | package or assembly policy |
+| Artifact | One immutable inspectable content item | logical identity, media/kind hint, content digest when requested, owner-mediated content access | package or assembly policy |
 | Artifact acquisition | One adapter's typed attempt to contribute artifacts | outcomes, diagnostics, provenance, content leases | workspace binding |
 | Artifact source adapter | Resolves one source-specific coordinate | source protocol, authorization, listing, archive rules | inspection queries |
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
@@ -213,13 +213,27 @@ artifact's exact logical bytes are materialized into an immutable retained
 snapshot or content-addressed store. Archive entries are expanded into their
 selected logical artifacts at this boundary, not on a later query open.
 
-The owner independently validates artifact identity, count, digest, and every
-byte dimension before publication. An identity mismatch or reservation overrun
-is a typed admission failure, never an over-commit. The admission lease then
-opens those retained bytes, decodes managed metadata, and creates every
-assembly participant required by the context. A missing, colliding,
-non-projectable, or binding-incompatible required participant fails admission;
-the workspace publishes neither a shortened group nor a partial session.
+The owner independently validates artifact identity, count, any source-declared
+digest, and every byte dimension before publication. An identity mismatch or
+reservation overrun is a typed admission failure, never an over-commit. The
+admission lease then opens those retained bytes, decodes managed metadata, and
+creates every assembly participant required by the context. A missing,
+colliding, non-projectable, or binding-incompatible required participant fails
+admission; the workspace publishes neither a shortened group nor a partial
+session.
+
+The owner is the sole authority that may produce a content digest for an
+artifact. When a consumer requires one, the owner computes and may memoize it
+from the retained immutable bytes and charges the requesting operation that
+causes the one cold linear pass; later authorized reuse of the memoized digest
+does not recharge. It never rehashes the mutable source. A persistent
+derived-result cache that keys on that digest must run its cold gate and
+producer over the same snapshot and publish under the snapshot's digest; it may
+not hash a mutable source path, reopen it for production, and hash it again.
+Equal bracketing hashes do not exclude a W-to-S-to-W replacement. This is gated
+for the library effective catalog by `MDP017` in
+[member inspection planning and Metadata
+projection](member-inspection-planning-and-metadata-projection.md).
 
 Publication atomically commits the sealed catalog, all projected participants,
 the artifact-count charge, and actual retained-byte charges. It releases the
@@ -387,12 +401,14 @@ opens local content without acquiring package or remote-storage dependencies.
 Directory enumeration and path containment remain local-adapter concerns.
 
 Before sealing, it copies every admitted file into an immutable retained or
-content-addressed snapshot under explicit entry and byte budgets, then computes
-identity from those exact bytes. Consumers never receive a mutable source-file
-stream after a separate digest check. Rebuild, replacement, symlink retargeting,
-or deletion after admission cannot substitute new bytes into the retained
-snapshot. Directory admission snapshots only the selected, bounded entries,
-not an unbounded tree.
+content-addressed snapshot under explicit entry and byte budgets, then mints
+logical identity from those exact retained bytes. A content-addressed store
+necessarily computes its address during admission; an ordinary retained
+snapshot computes a content digest only when a consumer requests one. Consumers
+never receive a mutable source-file stream after a separate digest check.
+Rebuild, replacement, symlink retargeting, or deletion after admission cannot
+substitute new bytes into the retained snapshot. Directory admission snapshots
+only the selected, bounded entries, not an unbounded tree.
 
 This adapter is the proof that the abstraction is independently useful. A
 local-only host composes:
