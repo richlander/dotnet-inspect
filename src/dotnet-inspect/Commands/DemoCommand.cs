@@ -181,43 +181,42 @@ public static class DemoScenarioRunner
         options = null!;
         error = null;
 
+        ProductDemoRunPlan plan;
         try
         {
-            ProductDemoSections.EnsureHomeDemoBinding(resolved);
+            plan = ProductDemoRunPlan.Create(resolved);
         }
         catch (InspectionDefinitionException ex)
         {
             error = ex.Message;
             return false;
         }
-
         var view = resolved.View!;
-        var section = view.Section!;
-        if (view.Type is not { Length: > 0 })
-        {
-            error = $"Home demo '{resolved.ScenarioId}' view must set type.";
-            return false;
-        }
-
-        var context = resolved.SelectedContext;
-        if (context is null)
-        {
-            error = $"Home demo '{resolved.ScenarioId}' has no selected workspace context.";
-            return false;
-        }
-
-        var isMemberDemo = view.MemberAnchor is { Length: > 0 }
-            || view.MemberSignature is { Length: > 0 }
-            || view.MemberKey is { Length: > 0 };
-
-        if (isMemberDemo)
+        if (plan.Member is { } member)
         {
             return TryCreateMemberOptions(
-                resolved, view, section, context, format, noHeader, embeddedMermaid, out options, out error);
+                resolved,
+                view,
+                member,
+                plan.Section,
+                plan.Context,
+                format,
+                noHeader,
+                embeddedMermaid,
+                out options,
+                out error);
         }
 
         return TryCreateTypeOptions(
-            resolved, view, section, context, format, noHeader, embeddedMermaid, out options, out error);
+            resolved,
+            view,
+            plan.Section,
+            plan.Context,
+            format,
+            noHeader,
+            embeddedMermaid,
+            out options,
+            out error);
     }
 
     private static bool TryCreateTypeOptions(
@@ -263,6 +262,7 @@ public static class DemoScenarioRunner
     private static bool TryCreateMemberOptions(
         ResolvedScenario resolved,
         ViewDefinition view,
+        ProductDemoMemberSelection selection,
         string section,
         ResolvedWorkspaceContext context,
         OutputFormat format,
@@ -274,26 +274,17 @@ public static class DemoScenarioRunner
         options = null!;
         error = null;
 
-        if (!TryParseMemberKey(view.MemberKey, out var memberName, out var kind, out error))
-            return false;
-
-        if (memberName is null && view.MemberAnchor is null && view.MemberSignature is null)
-        {
-            error = $"Home demo '{resolved.ScenarioId}' member view needs memberKey, memberAnchor, or memberSignature.";
-            return false;
-        }
-
-        // Anchor demos still need a member name for the CLI selector; prefer memberKey.
-        if (memberName is null)
-        {
-            error = $"Home demo '{resolved.ScenarioId}' member view must set memberKey (kind:name) for CLI run.";
-            return false;
-        }
-
-        var memberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { memberName };
-        var kindFilter = kind is null
+        var memberFilter =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                selection.Name,
+            };
+        var kindFilter = selection.Kind is null
             ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { kind };
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                selection.Kind,
+            };
 
         if (!TryResolveSource(resolved, view, context, out var source, out error))
             return false;
@@ -310,7 +301,7 @@ public static class DemoScenarioRunner
             TypeName = view.Type,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            MemberDigest = view.MemberAnchor,
+            MemberDigest = selection.Anchor,
             Select = [.. runSections],
             IncludeSections = ToIncludeSet(runSections),
             TipLevel = TipLevel.Quiet,
@@ -485,36 +476,6 @@ public static class DemoScenarioRunner
         // Platform-only extras are not expressible as --caller-package; ignore for this encoding.
         _ = resolved;
         callers = list.ToArray();
-        return true;
-    }
-
-    private static bool TryParseMemberKey(
-        string? memberKey,
-        out string? memberName,
-        out string? kind,
-        out string? error)
-    {
-        memberName = null;
-        kind = null;
-        error = null;
-        if (string.IsNullOrWhiteSpace(memberKey))
-            return true;
-
-        var colon = memberKey.IndexOf(':');
-        if (colon <= 0 || colon >= memberKey.Length - 1)
-        {
-            memberName = memberKey;
-            return true;
-        }
-
-        kind = memberKey[..colon];
-        memberName = memberKey[(colon + 1)..];
-        if (string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(memberName))
-        {
-            error = $"Invalid memberKey '{memberKey}' (expected kind:name).";
-            return false;
-        }
-
         return true;
     }
 

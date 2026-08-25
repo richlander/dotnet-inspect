@@ -200,10 +200,12 @@ export function bindGraphPanZoom(
       zoomAt(rect.width / 2, rect.height / 2, 0.8);
     else if (event.key === "0")
       fit();
-    else if (event.key === "ArrowLeft") {
+    else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture; leave it unclaimed so
+      // panning doesn't swallow document-level history navigation.
       view.x += step;
       apply();
-    } else if (event.key === "ArrowRight") {
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       view.x -= step;
       apply();
     } else if (event.key === "ArrowUp") {
