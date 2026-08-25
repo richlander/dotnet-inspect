@@ -36,13 +36,13 @@ public static class ArtifactAcquisitionLeases
 /// Cancellation is deliberately not an outcome arm; adapters propagate
 /// cancellation as cancellation.
 /// </remarks>
-public abstract record ArtifactAcquisitionOutcome
+public abstract class ArtifactAcquisitionOutcome
 {
     private protected ArtifactAcquisitionOutcome()
     {
     }
 
-    public sealed record Acquired : ArtifactAcquisitionOutcome
+    public sealed class Acquired : ArtifactAcquisitionOutcome
     {
         public Acquired(
             IEnumerable<ArtifactContribution> artifacts,
@@ -58,7 +58,7 @@ public abstract record ArtifactAcquisitionOutcome
                     nameof(artifacts));
             }
 
-            Artifacts = snapshot;
+            Artifacts = Array.AsReadOnly(snapshot);
             Lease = lease;
         }
 
@@ -67,7 +67,7 @@ public abstract record ArtifactAcquisitionOutcome
     }
 
     /// <summary>The source has no content for the requested coordinate.</summary>
-    public sealed record Unavailable : ArtifactAcquisitionOutcome
+    public sealed class Unavailable : ArtifactAcquisitionOutcome
     {
         public Unavailable(IArtifactAcquisitionDiagnostic diagnostic)
         {
@@ -78,7 +78,7 @@ public abstract record ArtifactAcquisitionOutcome
     }
 
     /// <summary>Policy rejected the requested acquisition.</summary>
-    public sealed record Rejected : ArtifactAcquisitionOutcome
+    public sealed class Rejected : ArtifactAcquisitionOutcome
     {
         public Rejected(IArtifactAcquisitionDiagnostic diagnostic)
         {
@@ -89,7 +89,7 @@ public abstract record ArtifactAcquisitionOutcome
     }
 
     /// <summary>The source attempted acquisition and failed.</summary>
-    public sealed record Failed : ArtifactAcquisitionOutcome
+    public sealed class Failed : ArtifactAcquisitionOutcome
     {
         public Failed(IArtifactAcquisitionDiagnostic diagnostic)
         {

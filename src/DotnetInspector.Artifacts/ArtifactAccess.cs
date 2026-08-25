@@ -298,6 +298,7 @@ public sealed class ArtifactGenerationAuthority
 
             _admissionCompleted = true;
             authorization.Revoke();
+            _authorizations.Remove(authorization);
         }
     }
 
@@ -326,6 +327,7 @@ public sealed class ArtifactGenerationAuthority
             EnsureOwned(previous);
             previous.ThrowIfRevoked();
             previous.Revoke();
+            _authorizations.Remove(previous);
 
             var replacement = new ArtifactQueryAuthorization(this);
             _authorizations.Add(replacement);
@@ -353,6 +355,7 @@ public sealed class ArtifactGenerationAuthority
         {
             EnsureOwned(authorization);
             authorization.Revoke();
+            _authorizations.Remove(authorization);
         }
     }
 
@@ -367,6 +370,7 @@ public sealed class ArtifactGenerationAuthority
             Volatile.Write(ref _ended, 1);
             foreach (ArtifactAuthorization authorization in _authorizations)
                 authorization.Revoke();
+            _authorizations.Clear();
         }
     }
 

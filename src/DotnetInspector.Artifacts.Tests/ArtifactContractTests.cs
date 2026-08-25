@@ -272,6 +272,7 @@ public sealed class ArtifactContractTests
         source.Clear();
 
         ArtifactContribution preserved = Assert.Single(acquired.Artifacts);
+        Assert.IsNotType<ArtifactContribution[]>(acquired.Artifacts);
         Assert.IsType<Provenance>(
             preserved.Registration.Provenance);
         await acquired.Lease.DisposeAsync();
@@ -289,10 +290,61 @@ public sealed class ArtifactContractTests
 
         Assert.Equal(
             ["Acquired", "Failed", "Rejected", "Unavailable"],
-            typeof(ArtifactAcquisitionOutcome)
-                .GetNestedTypes(BindingFlags.Public)
+            typeof(ArtifactAcquisitionOutcome).Assembly
+                .GetTypes()
+                .Where(type =>
+                    type != typeof(ArtifactAcquisitionOutcome)
+                    && !type.IsAbstract
+                    && typeof(ArtifactAcquisitionOutcome)
+                        .IsAssignableFrom(type))
                 .Select(type => type.Name)
                 .Order(StringComparer.Ordinal));
+
+        ConstructorInfo constructor = Assert.Single(
+            typeof(ArtifactAcquisitionOutcome).GetConstructors(
+                BindingFlags.Instance | BindingFlags.NonPublic));
+        Assert.True(constructor.IsFamilyAndAssembly);
+    }
+
+    [Fact]
+    public void GenerationAuthority_RetainsOnlyActiveAuthorizations()
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        Assert.Equal(1, ActiveAuthorizationCount(owner));
+        owner.CompleteAdmission(admission);
+        Assert.Equal(0, ActiveAuthorizationCount(owner));
+
+        ArtifactQueryAuthorization first =
+            owner.CreateQueryAuthorization();
+        ArtifactQueryAuthorization sibling =
+            owner.CreateQueryAuthorization();
+        Assert.Equal(2, ActiveAuthorizationCount(owner));
+
+        ArtifactQueryAuthorization replacement =
+            owner.ReplaceQueryAuthorization(first);
+        Assert.Equal(2, ActiveAuthorizationCount(owner));
+        owner.Revoke(sibling);
+        Assert.Equal(1, ActiveAuthorizationCount(owner));
+
+        owner.EndGeneration();
+        Assert.Equal(0, ActiveAuthorizationCount(owner));
+        Assert.Throws<ObjectDisposedException>(
+            () => owner.IssueLease(replacement));
+    }
+
+    private static int ActiveAuthorizationCount(
+        ArtifactGenerationAuthority owner)
+    {
+        FieldInfo field =
+            typeof(ArtifactGenerationAuthority).GetField(
+                "_authorizations",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object authorizations = field.GetValue(owner)!;
+        return (int)authorizations.GetType()
+            .GetProperty("Count")!
+            .GetValue(authorizations)!;
     }
 
     private static MemoryStream StreamFor(byte[] content) =>
