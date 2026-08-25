@@ -1,4 +1,7 @@
-import { mergeInspectionErrors } from "./data.ts";
+import {
+  mergeInspectionErrorEntries,
+  renderInspectionErrors,
+} from "./data.ts";
 import type {
   BrowserAccessibilityDescriptor,
   BrowserAssemblySurface,
@@ -27,6 +30,7 @@ export interface AppPackage {
   totalTypes: number;
   totalMembers: number;
   documents: BrowserPackageDocument[];
+  inspectionErrors?: string[];
   inspectionError?: string;
   isRuntimePack: boolean;
 }
@@ -57,6 +61,14 @@ function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
     ...type,
     api: type.api ?? [],
   }));
+}
+
+function surfaceInspectionErrors(result: BrowserPackageSurface): string[] {
+  return result.inspectionErrors?.length
+    ? [...result.inspectionErrors]
+    : mergeInspectionErrorEntries([], result.inspectionError
+      ? [result.inspectionError]
+      : []);
 }
 
 // The two validations are separate because they belong on different paths, and round 6
@@ -115,6 +127,7 @@ export function createNuGetPackageModel(
   const assembly = defaultAssembly(
     result,
     "The package query did not return its selected assembly descriptor.");
+  const inspectionErrors = surfaceInspectionErrors(result);
   return {
     id: result.package,
     version: result.version,
@@ -131,7 +144,8 @@ export function createNuGetPackageModel(
       .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
     totalMembers: result.totalMembers,
     documents: result.documents ?? [],
-    inspectionError: result.inspectionError || "",
+    inspectionErrors,
+    inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: false,
   };
 }
@@ -169,6 +183,7 @@ function createRuntimePackageModelForAssembly(
   assembly: BrowserAssemblySurface,
 ): AppPackage {
   const types = packageTypes(result);
+  const inspectionErrors = surfaceInspectionErrors(result);
   return {
     id: result.package,
     version: result.version,
@@ -184,7 +199,8 @@ function createRuntimePackageModelForAssembly(
     totalTypes: types.length,
     totalMembers: result.totalMembers,
     documents: result.documents ?? [],
-    inspectionError: result.inspectionError || "",
+    inspectionErrors,
+    inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: true,
   };
 }
@@ -267,9 +283,11 @@ export function mergeRuntimePackageSurface(
       .filter(type => defaultAccessibilityIds.has(type.accessibilityId))
       .reduce((total, type) => total + type.members, 0);
   existing.totalMembers = (existing.totalMembers || 0) + acceptedMembers;
-  existing.inspectionError = mergeInspectionErrors(
-    existing.inspectionError,
-    result.inspectionError);
+  existing.inspectionErrors = mergeInspectionErrorEntries(
+    existing.inspectionErrors
+      ?? (existing.inspectionError ? [existing.inspectionError] : []),
+    surfaceInspectionErrors(result));
+  existing.inspectionError = renderInspectionErrors(existing.inspectionErrors);
   return existing;
 }
 

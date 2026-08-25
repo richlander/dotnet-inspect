@@ -80,6 +80,7 @@ function packageSurface(
     }],
     totalMembers: 2,
     documents: [],
+    inspectionErrors: [],
     inspectionError: null,
     ...overrides,
   };
@@ -318,8 +319,15 @@ test("a truncated platform surface merges instead of failing the whole load", as
       defaultAssemblyId: "missing",
       assemblies: [],
       types: [],
-      accessibility: [],
+      accessibility: [{
+        id: "public",
+        label: "Public",
+        order: 0,
+        isDefault: true,
+        count: 12,
+      }],
       totalMembers: 0,
+      inspectionErrors: ["System.Text.Json: extraction truncated."],
       inspectionError: "System.Text.Json: extraction truncated.",
     })),
     runtimePackage: () => resident,
@@ -338,6 +346,7 @@ test("a truncated platform surface merges instead of failing the whole load", as
   assert.deepEqual(
     resident.types.map(type => type.id),
     ["System.Object"]);
+  assert.equal(resident.accessibility[0]?.count, 1);
   assert.equal(
     resident.inspectionError,
     "System.Text.Json: extraction truncated.");
@@ -359,8 +368,15 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
       defaultAssemblyId: "missing",
       assemblies: [],
       types: [],
-      accessibility: [],
+      accessibility: [{
+        id: "public",
+        label: "Public",
+        order: 0,
+        isDefault: true,
+        count: 12,
+      }],
       totalMembers: 0,
+      inspectionErrors: ["System.Private.CoreLib: extraction truncated."],
       inspectionError: "System.Private.CoreLib: extraction truncated.",
     })),
     runtimePackage: () => resident,
@@ -376,6 +392,7 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
   assert.deepEqual(
     resident.types.map(type => type.id),
     ["Microsoft.AspNetCore.Http.HttpContext"]);
+  assert.equal(resident.accessibility[0]?.count, 1);
   assert.equal(resident.assemblyId, "aspnet");
   assert.equal(
     resident.inspectionError,
@@ -383,16 +400,24 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
 });
 
 test("repeating a partial surface merge does not inflate resident evidence", () => {
-  const resident = createRuntimePackageModel(
-    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
-  resident.inspectionError =
-    "System.Private.CoreLib: extraction truncated.; "
-      + "System.Text.Json: extraction truncated.";
+  const residentSurface =
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
+  residentSurface.inspectionErrors = [
+    "System.Private.CoreLib: extraction truncated; "
+      + "0 assembly(ies) were not projected.",
+    "System.Text.Json: extraction truncated; "
+      + "0 assembly(ies) were not projected.",
+  ];
+  residentSurface.inspectionError = residentSurface.inspectionErrors.join("; ");
+  const resident = createRuntimePackageModel(residentSurface);
   const partial = runtimeSurface(
     "json",
     "System.Text.Json",
     "System.Text.Json.JsonDocument");
-  partial.inspectionError = "System.Text.Json: extraction truncated.";
+  const partialNotice = residentSurface.inspectionErrors?.[1];
+  assert.ok(partialNotice);
+  partial.inspectionErrors = [partialNotice];
+  partial.inspectionError = partialNotice;
 
   mergeRuntimePackageSurface(resident, partial);
   mergeRuntimePackageSurface(resident, partial);
@@ -404,8 +429,7 @@ test("repeating a partial surface merge does not inflate resident evidence", () 
   assert.equal(resident.accessibility[0]?.count, 2);
   assert.equal(
     resident.inspectionError,
-    "System.Private.CoreLib: extraction truncated.; "
-      + "System.Text.Json: extraction truncated.");
+    residentSurface.inspectionError);
 });
 
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path

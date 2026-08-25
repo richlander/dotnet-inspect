@@ -624,7 +624,8 @@ public static partial class InspectionEngine
                 projected.Accessibility,
                 projected.TotalMembers,
                 Documents: [],
-                projected.InspectionError),
+                InspectionErrors: projected.InspectionErrors,
+                InspectionError: projected.InspectionError),
             BrowserJsonContext.Default.BrowserPackageSurface);
     }
 }

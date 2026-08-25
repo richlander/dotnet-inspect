@@ -4612,7 +4612,9 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     render();
   },
   onDismissPackageNotice: () => {
-    currentPackage().inspectionError = "";
+    const pkg = currentPackage();
+    pkg.inspectionErrors = [];
+    pkg.inspectionError = "";
     render();
   },
   onGoHome: goHome,
