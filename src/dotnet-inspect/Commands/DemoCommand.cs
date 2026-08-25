@@ -236,7 +236,14 @@ public static class DemoScenarioRunner
         if (!TryResolveSource(resolved, view, context, out var source, out error))
             return false;
 
-        if (!TryResolveRunSections(section, format, embeddedMermaid, out var runSections, out error))
+        // Methods demos have no caller scope.
+        if (!TryResolveRunSections(
+                section,
+                format,
+                embeddedMermaid,
+                hasCallerScope: false,
+                out var runSections,
+                out error))
             return false;
 
         // Select mirrors -S so HasSectionQuery is true and TypeCommand cannot
@@ -293,7 +300,13 @@ public static class DemoScenarioRunner
         if (!TryCollectCallerPackages(resolved, context, source.PackagePath, out var callers, out error))
             return false;
 
-        if (!TryResolveRunSections(section, format, embeddedMermaid, out var runSections, out error))
+        if (!TryResolveRunSections(
+                section,
+                format,
+                embeddedMermaid,
+                hasCallerScope: callers.Length > 0,
+                out var runSections,
+                out error))
             return false;
 
         MemberOptions member = new()
@@ -321,16 +334,19 @@ public static class DemoScenarioRunner
 
     /// <summary>
     /// Format-aware section expansion for a closed home-demo binding.
-    /// Markdown: Call Graph + Callers. Table/tsv/jsonl: Callers only (survives
-    /// MemberCommand's caller-scope Callers inject). Standalone mermaid: Call
-    /// Graph only. Embedded mermaid requires a Call Graph bind (member pipeline)
-    /// and keeps the Markdown companion set. Structured document JSON is rejected
-    /// for Call Graph/Callers binds until those sections project into that payload.
+    /// Markdown: Call Graph + Callers. Table/tsv/jsonl: Callers when the demo
+    /// has caller scope (survives MemberCommand's Callers inject); Call Graph
+    /// when it does not (package-local entry points with empty Callers).
+    /// Standalone mermaid: Call Graph only. Embedded mermaid requires a Call
+    /// Graph bind (member pipeline) and keeps the Markdown companion set.
+    /// Structured document JSON is rejected for Call Graph/Callers binds until
+    /// those sections project into that payload.
     /// </summary>
     private static bool TryResolveRunSections(
         string boundSection,
         OutputFormat format,
         bool embeddedMermaid,
+        bool hasCallerScope,
         out IReadOnlyList<string> runSections,
         out string? error)
     {
@@ -361,12 +377,15 @@ public static class DemoScenarioRunner
         {
             error =
                 "--json cannot represent Call Graph/Callers section output yet. "
-                + "Use default Markdown, --mermaid, or --table/--tsv/--jsonl (Callers rows).";
+                + "Use default Markdown, --mermaid, or --table/--tsv/--jsonl.";
             return false;
         }
 
         var singleSectionFormat = format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
-        runSections = ProductDemoSections.ExpandRunSections(boundSection, singleSectionFormat);
+        runSections = ProductDemoSections.ExpandRunSections(
+            boundSection,
+            singleSectionFormat,
+            hasCallerScope);
         return true;
     }
 
