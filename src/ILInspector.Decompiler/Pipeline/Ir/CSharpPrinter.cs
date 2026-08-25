@@ -563,6 +563,11 @@ public sealed partial class CSharpPrinter
     /// <summary>The empty-locals lambda currently sharing this printer's local scope.</summary>
     Lambda? _sharedScopeLambda;
 
+    TypeRef? _returnTypeOverride;
+
+    TypeRef CurrentReturnType
+        => _returnTypeOverride ?? _function.Signature.ReturnType;
+
     /// <summary>
     /// Text captured per expression node while
     /// <see cref="_printedRangeMetadata"/> is collecting, so
@@ -1161,7 +1166,7 @@ public sealed partial class CSharpPrinter
             StoreProperty store when ReferenceEquals(store.Value, load) => StorePropertyTargetType(store),
             StoreElement store when ReferenceEquals(store.Value, load) => store.ElementType,
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
-            Return ret when ReferenceEquals(ret.Value, load) => _function.Signature.ReturnType,
+            Return ret when ReferenceEquals(ret.Value, load) => CurrentReturnType,
             // A bool-in-int-slot load whose value flows into a boolean operator
             // or condition position (`!S`, `S && x`, `S ? a : b`, `if (S)`,
             // `while (S)`) has a boolean target — C# requires bool there. Without
@@ -2175,9 +2180,18 @@ public sealed partial class CSharpPrinter
                     AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
                 else
                 {
-                    AppendContainer(sb, localFunction.Body, indent + 1);
-                    if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
-                        sb.Append(new string(' ', (indent + 1) * 4)).AppendLf("return default;");
+                    var enclosingReturnType = _returnTypeOverride;
+                    _returnTypeOverride = localFunction.ReturnType;
+                    try
+                    {
+                        AppendContainer(sb, localFunction.Body, indent + 1);
+                        if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
+                            sb.Append(new string(' ', (indent + 1) * 4)).AppendLf("return default;");
+                    }
+                    finally
+                    {
+                        _returnTypeOverride = enclosingReturnType;
+                    }
                 }
                 sb.Append(pad).AppendLf("}");
             }
@@ -2198,7 +2212,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum));
+                sb.Append(SwitchArmText(arm, CurrentReturnType, labelEnum));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2218,7 +2232,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SynthesizedSwitchArmText(nullArm, _function.Signature.ReturnType));
+                sb.Append(SynthesizedSwitchArmText(nullArm, CurrentReturnType));
                 CaptureContextRange(nullArm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2226,7 +2240,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(UnionSwitchArmText(arm, _function.Signature.ReturnType));
+                sb.Append(UnionSwitchArmText(arm, CurrentReturnType));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2234,7 +2248,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SynthesizedSwitchArmText(defaultArm, _function.Signature.ReturnType));
+                sb.Append(SynthesizedSwitchArmText(defaultArm, CurrentReturnType));
                 CaptureContextRange(defaultArm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2257,7 +2271,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(PatternSwitchArmText(arm, _function.Signature.ReturnType));
+                sb.Append(PatternSwitchArmText(arm, CurrentReturnType));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2265,7 +2279,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SynthesizedSwitchArmText(defaultArm, _function.Signature.ReturnType));
+                sb.Append(SynthesizedSwitchArmText(defaultArm, CurrentReturnType));
                 CaptureContextRange(defaultArm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2288,7 +2302,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType));
+                sb.Append(TupleSwitchArmText(arm, componentTypes, CurrentReturnType));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2298,7 +2312,7 @@ public sealed partial class CSharpPrinter
             return;
         }
         if (node is Return { Value: StackAllocate stackAllocate }
-            && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
+            && CurrentReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
         {
             string localName = FreshSyntheticLocalName("__stackalloc");
             sb.Append(pad)
@@ -5250,9 +5264,9 @@ public sealed partial class CSharpPrinter
     /// value is not a single place (a ref ternary binds <c>ref</c> per arm).
     /// </summary>
     string ReturnText(IrExpression value)
-        => _function.Signature.ReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
+        => CurrentReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
             ? $"return ref {place};"
-            : $"return {CoerceText(value, _function.Signature.ReturnType)};";
+            : $"return {CoerceText(value, CurrentReturnType)};";
 
     /// <summary>
     /// Renders the initializer for a place whose static type is <paramref name="target"/>:

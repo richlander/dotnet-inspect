@@ -520,6 +520,10 @@ block-lambda nesting. `SharedScopeBlockLambda_UsesLambdaReturnType`,
 `SharedScopeBlockLambda_RebasesInlineExpressionRanges`, and
 `SiblingBlockLambdas_RestoreEnclosingIndent` pin the shared-scope lambda
 context restored around structural emission.
+`SharedScopeBlockLambda_NestedLocalFunctionUsesOwnReturnType`,
+`SharedScopeBlockLambda_PreservesPointerArithmeticKind`, and
+`SharedScopeBlockLambda_PreservesArrayPseudoMemberKind` cover nested
+function-like return context and retained syntax-kind metadata.
 `GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` and
 `GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock` cover generated-block
 state and separator placement. The coordinate-preservation gates are

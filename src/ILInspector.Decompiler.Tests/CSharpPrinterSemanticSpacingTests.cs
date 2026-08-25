@@ -651,6 +651,197 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void SharedScopeBlockLambda_NestedLocalFunctionUsesOwnReturnType()
+    {
+        var funcInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32]);
+        var localBlock = new Block(0);
+        localBlock.Add(new ExpressionStatement(new Constant(0, Int32)));
+        localBlock.Add(new Return(new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new Constant(1, Int32),
+            new Constant(0, Int32))));
+        var localBody = new BlockContainer();
+        localBody.Add(localBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            Boolean,
+            [],
+            isStatic: false,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(localFunction);
+        lambdaBlock.Add(new Return(new Constant(0, Int32)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            funcInt,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new StoreArgument(
+            0,
+            "callback",
+            funcInt,
+            lambda));
+        outerBlock.Add(new Return(new Constant(0, Int32)));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaLocalFunction",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("callback", funcInt)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "bool Local()\n" +
+            "    {\n" +
+            "        _ = 0;\n" +
+            "        return 1 != 0;\n" +
+            "    }",
+            output);
+        Assert.DoesNotContain("return 1 != 0 ? 1 : 0;", output);
+    }
+
+    [Fact]
+    public void SharedScopeBlockLambda_PreservesPointerArithmeticKind()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var delegateType = TypeRef.Definition(
+            "synthetic",
+            "",
+            "PointerCallback");
+        var pointerArithmetic = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "pointer", pointer),
+            new LoadArgument(1, "offset", Int32));
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Constant(0, Int32)));
+        lambdaBlock.Add(new Return(pointerArithmetic));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            delegateType,
+            [
+                new Parameter("pointer", pointer),
+                new Parameter("offset", Int32),
+            ],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new StoreArgument(
+            0,
+            "callback",
+            delegateType,
+            lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaPointerKind",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Void,
+                [new Parameter("callback", delegateType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        AssertRangeAndKind(
+            function,
+            pointerArithmetic,
+            "(int*)((byte*)pointer + offset)",
+            "ConversionExpression");
+    }
+
+    [Fact]
+    public void SharedScopeBlockLambda_PreservesArrayPseudoMemberKind()
+    {
+        var arrayType = TypeRef.MdArray(Int32, 2);
+        var tupleType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "ValueTuple`2"),
+            [Int32, Int32]);
+        var funcInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32]);
+        var load = new LoadElement(
+            Int32,
+            new LoadArgument(0, "array", arrayType),
+            new TupleExpression(
+                tupleType,
+                [
+                    new LoadLocal(0, Int32),
+                    new LoadLocal(0, Int32),
+                ]));
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Constant(0, Int32)));
+        lambdaBlock.Add(new Return(load));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            funcInt,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new StoreLocal(
+            0,
+            Int32,
+            new Constant(0, Int32)));
+        outerBlock.Add(new StoreArgument(
+            1,
+            "callback",
+            funcInt,
+            lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaArrayKind",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Void,
+                [
+                    new Parameter("array", arrayType),
+                    new Parameter("callback", funcInt),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            outerBody);
+
+        AssertRangeAndKind(
+            function,
+            load,
+            "array.Get(V_0, V_0)",
+            "InvocationExpression");
+    }
+
+    [Fact]
     public void InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact()
     {
         var (output, ranges) = Print(nameof(SemanticSpacingFixture.Grouped));
@@ -797,6 +988,26 @@ public class CSharpPrinterSemanticSpacingTests
             usesUpdatedMemorySafetyRules: false,
             skipLocalsInit: false,
             body);
+    }
+
+    static void AssertRangeAndKind(
+        IrFunction function,
+        IrNode node,
+        string expectedText,
+        string expectedKind)
+    {
+        var result = CSharpPrinter.Print(function, out var ranges);
+        string output = Assert.IsType<string>(result.Output);
+
+        Assert.True(ranges.TryGetRange(node, out var range));
+        Assert.Equal(expectedText, output[range]);
+        Assert.True(ranges.TryGetNodeKind(node, out string? kind));
+        Assert.Equal(expectedKind, kind);
+        Assert.True(ranges.TryGetExtent(node, out var extent));
+        var map = PrintedBodyMap.Create(ranges);
+        Assert.Equal(
+            expectedKind,
+            Assert.Single(map.Nodes, candidate => candidate.Extent == extent).Kind);
     }
 
     static string PrintLoopConditional(IrNode thenStatement)
