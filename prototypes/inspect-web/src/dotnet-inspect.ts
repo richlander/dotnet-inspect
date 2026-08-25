@@ -2362,8 +2362,8 @@ function render() {
         <section class="detail-pane">
           <header class="detail-head">
             <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
@@ -4594,7 +4594,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
     + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
@@ -8690,10 +8690,15 @@ document.addEventListener("keydown", event => {
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     focusFilter();
-  } else if (event.altKey && event.key === "ArrowLeft") {
+  } else if (!event.metaKey && !event.ctrlKey && event.key === "ArrowLeft"
+      && (event.altKey || (event.shiftKey && !typing))) {
+    // Alt+←/→ always drives back/forward. Shift+←/→ is the same gesture, gated on
+    // `!typing` so it doesn't steal native text-selection (Shift+Arrow) inside inputs.
+    // Shift+↑/↓ stays unclaimed for now.
     event.preventDefault();
     navBack();
-  } else if (event.altKey && event.key === "ArrowRight") {
+  } else if (!event.metaKey && !event.ctrlKey && event.key === "ArrowRight"
+      && (event.altKey || (event.shiftKey && !typing))) {
     event.preventDefault();
     navForward();
   } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {

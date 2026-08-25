@@ -724,7 +724,10 @@ Explorer, Settings, graph source, doc viewer, Spotlight) as one explicit
 ordered `KeydownLayer` list rather than an ad hoc if/else chain, so adding a
 new dismissable layer means adding one entry instead of re-deriving its
 priority. `dotnet-inspect.ts` retains asynchronous workspace restoration and
-its remaining DOM event binding. `test/workspace-navigation.test.ts` gates
+its remaining DOM event binding. Alt+←/→ always drive `navBack()`/
+`navForward()`; Shift+←/→ are the same gesture, gated on the shared `typing`
+check so they never steal native text-selection inside an input or filter
+field — Shift+↑/↓ stay unclaimed. `test/workspace-navigation.test.ts` gates
 history traversal, stale-entry removal, navigation cancellation, rich and
 legacy URL compatibility, visible invalid-state failures, sandboxed history
 errors, and the link-interception rule;
