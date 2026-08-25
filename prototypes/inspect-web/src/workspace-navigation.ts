@@ -61,6 +61,82 @@ export function workspaceViewSignature(view: WorkspaceView): string {
   });
 }
 
+// A duck-typed subset of a click on an `<a>`, so the interception rule is a pure
+// function testable without a DOM. The composition root is the single owner that
+// registers one delegated `click` listener and evaluates every in-app anchor click
+// against this rule instead of leaving each link to opt in (or be forgotten) one by one.
+export interface LinkNavigationClick {
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  defaultPrevented: boolean;
+  download: boolean;
+  target: string | null;
+  href: string | null;
+  origin: string | null;
+  currentOrigin: string;
+}
+
+// True when the owner should treat this as an in-app transition: take over the
+// navigation itself (pushState + apply) instead of letting the browser load a new
+// document. False for anything that should keep its native behavior — a modified
+// click (new tab/window), a download link, a link explicitly targeting another
+// browsing context, or a cross-origin destination.
+export function shouldInterceptLinkClick(click: LinkNavigationClick): boolean {
+  if (click.defaultPrevented) return false;
+  if (click.button !== 0) return false;
+  if (click.metaKey || click.ctrlKey || click.shiftKey || click.altKey) return false;
+  if (click.download) return false;
+  if (click.target && click.target !== "_self") return false;
+  if (!click.href) return false;
+  if (click.origin !== click.currentOrigin) return false;
+  return true;
+}
+
+export interface WorkspaceLinkNavigationDependencies {
+  currentOrigin(): string;
+  resolve(href: string): URL;
+  navigate(url: URL): void;
+}
+
+// Registers the single delegated click listener that owns every in-app anchor's
+// navigation: same-origin, unmodified left clicks take over here (pushState + apply)
+// instead of loading a new document. This is the one binder the composition root
+// calls, so `dotnet-inspect.ts` gains no new raw `addEventListener` call of its own —
+// a link that wants different behavior (new tab, download, cross-origin) opts out
+// through ordinary anchor semantics rather than bespoke per-link wiring.
+export function bindWorkspaceLinkNavigation(
+  root: Document,
+  dependencies: WorkspaceLinkNavigationDependencies,
+) {
+  root.addEventListener("click", event => {
+    if (event.defaultPrevented) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    const url = dependencies.resolve(anchor.href);
+    if (!shouldInterceptLinkClick({
+      button: event.button,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      defaultPrevented: event.defaultPrevented,
+      download: anchor.hasAttribute("download"),
+      target: anchor.target || null,
+      href: anchor.href || null,
+      origin: url.origin,
+      currentOrigin: dependencies.currentOrigin(),
+    })) {
+      return;
+    }
+    event.preventDefault();
+    dependencies.navigate(url);
+  });
+}
+
 export interface NavigationSequence {
   begin(): number;
   invalidate(): void;

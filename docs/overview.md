@@ -95,6 +95,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   workspace lifetimes, packages, and assembly inspection.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
+  proposed separation of type/member intent, section resolution, producer
+  authorization, shared declaration validation, and C# representability.
 - [Inspection graph document](design/inspection-graph-document.md): typed
   multi-subject graph projection for calls, metadata relationships,
   integrations, Findings, characteristics, and package/type lenses.

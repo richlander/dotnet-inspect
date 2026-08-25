@@ -1,4 +1,6 @@
 import { pdbSourceLimitationHtml } from "./data.ts";
+import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata, and source sections shown for the "type" scope) as pure,
@@ -93,7 +95,7 @@ export interface TypePanelBindingActions {
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
-  onListKeyDown: (event: KeyboardEvent) => void;
+  onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
   onMemberBack: () => void;
   onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
@@ -101,7 +103,7 @@ export interface TypePanelBindingActions {
   onMemberCompositionTraitSelect: (trait: string) => void;
   onMemberFilterChange: (value: string) => void;
   onMemberFilterClear: () => void;
-  onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => void;
+  onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
   onMemberOverloadOpen: (index: number) => void;
@@ -118,6 +120,7 @@ export interface TypePanelBindingActions {
 export function bindTypePanel(
   root: ParentNode,
   actions: TypePanelBindingActions,
+  keybindings: KeybindingRegistry,
 ) {
   root.querySelectorAll<HTMLElement>("[data-type]").forEach(button =>
     button.addEventListener(
@@ -223,28 +226,60 @@ export function bindTypePanel(
     () => actions.onNamespaceSelect(namespaceJump.value));
 
   const typeList = root.querySelector<HTMLElement>("#type-list");
-  typeList?.addEventListener("keydown", actions.onListKeyDown);
+  if (typeList) {
+    keybindings.register({
+      id: "type-list.navigate",
+      key: ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "j", "k", "/"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      when: event => event.key.toLowerCase() !== "k"
+        || (!event.metaKey && !event.ctrlKey),
+      run: actions.onListKeyDown,
+    }, typeList);
+    keybindings.register({
+      id: "type-list.extent",
+      key: ["Home", "End"],
+      allowExtraModifiers: true,
+      preventDefault: false,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      run: actions.onListKeyDown,
+    }, typeList);
+  }
   const memberFilter =
     root.querySelector<HTMLInputElement>("#member-filter");
   memberFilter?.addEventListener(
     "input",
     () => actions.onMemberFilterChange(memberFilter.value));
-  memberFilter?.addEventListener(
-    "keydown",
-    event => actions.onMemberFilterKeyDown(event, memberFilter.value));
+  if (memberFilter) {
+    keybindings.register({
+      id: "member-filter.navigate",
+      key: ["Escape", "ArrowUp", "ArrowDown"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      run: event => actions.onMemberFilterKeyDown(event, memberFilter.value),
+    }, memberFilter);
+  }
   const filter = root.querySelector<HTMLInputElement>("#type-filter");
   filter?.addEventListener(
     "input",
     () => actions.onTypeFilterChange(filter.value));
-  filter?.addEventListener("keydown", event => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      typeList?.focus();
-    } else if (event.key === "Escape" && filter.value !== "") {
-      event.preventDefault();
-      actions.onTypeFilterEscape();
-    }
-  });
+  if (filter) {
+    keybindings.register({
+      id: "type-filter.navigate",
+      key: ["ArrowDown", "Escape"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      run: event => {
+        if (event.key === "ArrowDown") {
+          typeList?.focus();
+          return true;
+        }
+        if (filter.value === "") return false;
+        actions.onTypeFilterEscape();
+        return true;
+      },
+    }, filter);
+  }
 }
 
 export interface TypeNavOptions {

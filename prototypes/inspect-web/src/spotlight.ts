@@ -4,6 +4,8 @@ import {
   type CommandContext,
   type CommandPaletteResult,
 } from "./command-bar.ts";
+import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 type LensDefinition = readonly [id: string, label: string];
 type SpotlightFocus = "input" | "chips";
@@ -102,6 +104,7 @@ export interface SpotlightState {
 }
 
 interface SpotlightOptions {
+  keybindings: KeybindingRegistry;
   state: SpotlightState;
   lenses: () => readonly LensDefinition[];
   escapeHtml: (value: unknown) => string;
@@ -655,14 +658,12 @@ export function createSpotlight(options: SpotlightOptions) {
     focus();
   }
 
-  function handleModalKeys(event: KeyboardEvent): void {
+  function handleModalKeys(event: KeyboardEvent): boolean {
     if (event.key === "Escape") {
-      event.preventDefault();
       close();
-      return;
+      return true;
     }
     if (event.key === "Tab") {
-      event.preventDefault();
       const available = scopes();
       const current = available.findIndex(scope => scope.id === state.spotlightScope);
       const next = nextSpotlightScope(
@@ -675,64 +676,62 @@ export function createSpotlight(options: SpotlightOptions) {
         state.spotlightChipIndex = next;
         setScope(nextScope.id);
       }
-      return;
+      return true;
     }
 
     if (state.spotlightFocus === "chips") {
       const available = scopes();
       if (event.key === "ArrowRight") {
-        event.preventDefault();
         if (state.spotlightChipIndex < available.length - 1) {
           moveChip(state.spotlightChipIndex + 1);
         }
       } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
         if (state.spotlightChipIndex === 0) focusInput();
         else moveChip(state.spotlightChipIndex - 1);
       } else if (event.key === "ArrowUp") {
-        event.preventDefault();
         focusInput();
       } else if (event.key === "ArrowDown" || event.key === "Enter") {
-        event.preventDefault();
         state.spotlightIndex = 0;
         rememberSelection(renderedResults);
         focusInput();
         highlightSelection();
+      } else {
+        return false;
       }
-      return;
+      return true;
     }
 
     if (event.key === "ArrowRight") {
-      const input = event.currentTarget;
-      if (!isTextInputTarget(input)) return;
+      const input = event.target;
+      if (!isTextInputTarget(input)) return false;
       const atEnd = input.selectionStart === input.selectionEnd
         && input.selectionStart === input.value.length;
       if (atEnd) {
-        event.preventDefault();
         state.spotlightFocus = "chips";
         state.spotlightChipIndex = scopeIndex();
         updateChips();
+        return true;
       }
     } else if (event.key === "ArrowDown") {
-      event.preventDefault();
       moveSelection(1);
+      return true;
     } else if (event.key === "ArrowUp") {
-      event.preventDefault();
       if (!moveSelection(-1)) {
         state.spotlightFocus = "chips";
         state.spotlightChipIndex = scopeIndex();
         updateChips();
       }
+      return true;
     } else if (event.key === "Enter") {
-      event.preventDefault();
       pick(renderedResults[state.spotlightIndex]);
+      return true;
     }
+    return false;
   }
 
-  function handleInlineKeys(event: KeyboardEvent): void {
+  function handleInlineKeys(event: KeyboardEvent): boolean {
     const items = renderedResults;
     if (event.key === "ArrowDown") {
-      event.preventDefault();
       state.spotlightIndex = nextSpotlightSelection(
         state.spotlightIndex,
         1,
@@ -740,8 +739,8 @@ export function createSpotlight(options: SpotlightOptions) {
       ) ?? 0;
       rememberSelection(items);
       highlightSelection();
+      return true;
     } else if (event.key === "ArrowUp") {
-      event.preventDefault();
       state.spotlightIndex = nextSpotlightSelection(
         state.spotlightIndex,
         -1,
@@ -749,10 +748,12 @@ export function createSpotlight(options: SpotlightOptions) {
       ) ?? 0;
       rememberSelection(items);
       highlightSelection();
+      return true;
     } else if (event.key === "Enter") {
-      event.preventDefault();
       pick(items[state.spotlightIndex]);
+      return true;
     }
+    return false;
   }
 
   function bind(root: ParentNode, mode: "modal" | "inline"): void {
@@ -769,10 +770,15 @@ export function createSpotlight(options: SpotlightOptions) {
         options.schedulePackageFetch();
         updateResults();
       });
-      input.addEventListener(
-        "keydown",
-        mode === "modal" ? handleModalKeys : handleInlineKeys,
-      );
+      options.keybindings.register({
+        id: mode === "modal"
+          ? "spotlight-modal.navigate"
+          : "spotlight-inline.navigate",
+        key: ["Escape", "Tab", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Enter"],
+        allowExtraModifiers: true,
+        priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+        run: mode === "modal" ? handleModalKeys : handleInlineKeys,
+      }, input);
     }
     bindChipClicks(root);
     bindResultClicks(root);

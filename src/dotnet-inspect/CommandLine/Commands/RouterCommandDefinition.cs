@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using CSharpText;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
@@ -9,6 +10,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using NuGet.Versioning;
 
 namespace DotnetInspector.CommandLine;
 
@@ -18,6 +20,15 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
+    internal const string DeferredTypeOrMemberOptionName =
+        "--router-deferred-type-or-member";
+
+    private static readonly string DeferredTypeOrMemberCapability =
+        Guid.NewGuid().ToString("N");
+
+    internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
+        value == DeferredTypeOrMemberCapability;
+
     public static Command Create(RootCommand rootCommand, SharedOptions opts)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
@@ -75,7 +86,10 @@ public static class RouterCommandDefinition
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
-            var rewritten = await RouterTokenRewriter.RewriteAsync(tokens, sourceOptions);
+            var rewritten = await RouterTokenRewriter.RewriteAsync(
+                tokens,
+                sourceOptions,
+                rootCommand);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -173,9 +187,12 @@ public static class RouterCommandDefinition
 
     private static class RouterTokenRewriter
     {
+        private const int MaxTypeMemberBoundaryProbes = 64;
+
         public static async Task<string[]> RewriteAsync(
             string[] tokens,
-            NuGetSourceOptions sourceOptions)
+            NuGetSourceOptions sourceOptions,
+            RootCommand rootCommand)
         {
             var target = tokens[0];
             var tail = tokens[1..];
@@ -188,8 +205,110 @@ public static class RouterCommandDefinition
                     return ["package", target, .. tail];
             }
 
-            if (ContainsOption(tokens, "--member") || ContainsOption(tokens, "-m"))
+            var hasExplicitGenericNotation =
+                TypeMatcher.HasExplicitGenericNotation(target);
+            var trailingSegmentStart =
+                FqnParser.LastTopLevelDot(target) + 1;
+            var trailingSegmentHasGenericNotation =
+                TypeMatcher.HasExplicitGenericNotation(
+                    target[trailingSegmentStart..]);
+            var hasTypeOption = ContainsOption(tokens, "--type")
+                || ContainsOption(tokens, "-t");
+            var hasMemberOption = ContainsOption(tokens, "--member")
+                || ContainsOption(tokens, "-m");
+            var hasLibraryValue = TryGetLibraryValue(
+                tail,
+                rootCommand,
+                out var libraryValue);
+            var hasExplicitApiSource =
+                ContainsOption(tail, "--package")
+                || ContainsOption(tail, "--platform")
+                || ContainsOption(tail, "--project")
+                || hasLibraryValue;
+            var hasVersionQuery = ContainsOption(tokens, "--version")
+                || ContainsOption(tokens, "--latest-version")
+                || ContainsOption(tokens, "--versions")
+                || ContainsOption(tokens, "--versions-with-feed");
+            if (TryRouteExplicitSourceTarget(
+                    target,
+                    tail,
+                    "--package",
+                    hasTypeOption,
+                    hasMemberOption,
+                    rootCommand,
+                    out var explicitSourceRoute)
+                || TryRouteExplicitSourceTarget(
+                    target,
+                    tail,
+                    "--platform",
+                    hasTypeOption,
+                    hasMemberOption,
+                    rootCommand,
+                    out explicitSourceRoute))
+            {
+                return explicitSourceRoute;
+            }
+
+            if (hasTypeOption && hasExplicitApiSource)
+            {
+                return ["type", target, .. tail];
+            }
+
+            if (hasMemberOption
+                && (!hasExplicitGenericNotation
+                    || (hasExplicitApiSource
+                        && trailingSegmentHasGenericNotation
+                        && trailingSegmentStart == 0)))
                 return ["member", target, .. tail];
+
+            if (hasExplicitApiSource
+                && TrySplitOperatorMemberTarget(
+                    target,
+                    out var operatorType,
+                    out var operatorMember))
+            {
+                return
+                [
+                    "member",
+                    operatorType,
+                    "-m",
+                    operatorMember,
+                    .. tail
+                ];
+            }
+
+            if (IsExplicitSourceIdentity(target, tail, "--package"))
+            {
+                return
+                [
+                    "package",
+                    target,
+                    .. RemoveOptionWithValue(
+                        tail,
+                        "--package",
+                        target)
+                ];
+            }
+
+            if (IsExplicitSourceIdentity(target, tail, "--platform"))
+                return ["library", target, .. tail];
+
+            if (hasLibraryValue
+                && !hasExplicitGenericNotation
+                && !ContainsOption(tail, "--package")
+                && !ContainsOption(tail, "--platform")
+                && !ContainsOption(tail, "--project")
+                && IsPackageRelativeLibraryValue(libraryValue))
+            {
+                return ["package", .. tokens];
+            }
+
+            if (hasExplicitApiSource)
+            {
+                return target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
+            }
 
             if (ContainsOption(tokens, "--library"))
                 return ["package", .. tokens];
@@ -201,12 +320,16 @@ public static class RouterCommandDefinition
                 return ["type", tokens[1], "--package", target, .. tokens[2..]];
             }
 
-            var hasVersionQuery = ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions")
-                || ContainsOption(tokens, "--versions-with-feed");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
+
+            if (hasExplicitGenericNotation
+                && IsStaticSchemaDiscovery(tokens))
+            {
+                return target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
+            }
 
             var context = new CommandContext(verbose: false);
             if (PlatformResolver.IsPlatformCandidate(target))
@@ -239,6 +362,52 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
+
+            var frameworkSpec = GetOptionValue(tail, "--framework");
+            var exactTypeLookup = LookupExactGenericPlatformType(
+                target,
+                allowSimpleName: hasTypeOption || hasMemberOption,
+                frameworkSpec: frameworkSpec);
+            if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
+            {
+                return hasMemberOption
+                    && trailingSegmentHasGenericNotation
+                    && exactType.Candidate.Type.Segments.Length == 1
+                    ? RouteExactGenericPlatformMemberTarget(
+                        exactType,
+                        target,
+                        tail)
+                    : RouteExactGenericPlatformType(
+                        exactType,
+                        target,
+                        tail);
+            }
+
+            if (LookupExactGenericPlatformMember(target, frameworkSpec)
+                is { } exactMember)
+            {
+                if (exactMember.Lookup
+                    is PlatformTypeLookupOutcome.Resolved resolved)
+                {
+                    return RouteExactGenericPlatformMember(
+                        (exactMember.TypeTarget,
+                            exactMember.MemberSelector,
+                            resolved),
+                        tail);
+                }
+
+                if (hasExplicitApiSource)
+                    return RouteDeferredTypeOrMember(target, tail);
+
+                if (WritePlatformTypeLookupFailure(exactMember.Lookup))
+                    return tokens;
+            }
+
+            if (hasExplicitApiSource && exactTypeLookup is not null)
+                return RouteDeferredTypeOrMember(target, tail);
+            if (WritePlatformTypeLookupFailure(exactTypeLookup))
+                return tokens;
+
             string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
                 target,
@@ -255,16 +424,14 @@ public static class RouterCommandDefinition
                 }
             }
 
-            if (memberSplit != null)
+            if (memberSplit is { Probe.Kind: not SourceResolver.LocalSourceKind.Platform })
             {
                 var probe = memberSplit.Value.Probe;
                 RequestTelemetry.Breadcrumb(
                     "qualified-member",
                     $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
 
-                return probe.Kind == SourceResolver.LocalSourceKind.Platform
-                    ? ["member", probe.Remainder, "--platform", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail]
-                    : ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
+                return ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
             // Runtime-catalog fallback can be ambiguous for types owned by another
@@ -278,7 +445,22 @@ public static class RouterCommandDefinition
             if (memberFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = memberFind.TypeResolution.Match!;
-                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), "-m", memberFind.MemberSelector, .. tail];
+                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgsUnlessSpecified(match.Source, tail), "-m", memberFind.MemberSelector, .. tail];
+            }
+            if (memberFind.Status == TypeFindIfMissStatus.Ambiguous)
+            {
+                memberFind.WriteAmbiguousError();
+                return tokens;
+            }
+
+            if (memberSplit != null)
+            {
+                var probe = memberSplit.Value.Probe;
+                RequestTelemetry.Breadcrumb(
+                    "qualified-member",
+                    $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
+
+                return ["member", probe.Remainder, "--platform", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
             var typeProbe = SourceResolver.TryResolveQualifiedTypeName(
@@ -314,7 +496,12 @@ public static class RouterCommandDefinition
             {
                 var match = typeFind.Match!;
                 CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
-                return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
+                return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgsUnlessSpecified(match.Source, tail), .. tail];
+            }
+            if (typeFind.Status == TypeFindIfMissStatus.Ambiguous)
+            {
+                typeFind.WriteAmbiguousError();
+                return tokens;
             }
 
             if (platformLookupFailure is not null)
@@ -339,10 +526,98 @@ public static class RouterCommandDefinition
 
         private static bool ContainsOption(string[] tokens, string option)
             => tokens.Any(token => token.Equals(option, StringComparison.Ordinal)
-                                   || token.StartsWith(option + "=", StringComparison.Ordinal));
+                                   || TryGetAttachedOptionValue(
+                                       token,
+                                       option,
+                                       out _));
 
-        private static string[] FrameworkArgs(string source)
-            => string.IsNullOrWhiteSpace(source) ? [] : ["--framework", source];
+        private static bool IsStaticSchemaDiscovery(string[] tokens)
+            => (ContainsOption(tokens, "--discover")
+                || ContainsOption(tokens, "-D"))
+               && ContainsOption(tokens, "--schema");
+
+        private static string? GetOptionValue(
+            string[] tokens,
+            string option)
+        {
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (TryGetAttachedOptionValue(
+                        tokens[i],
+                        option,
+                        out var attachedValue))
+                {
+                    return attachedValue;
+                }
+
+                if (tokens[i].Equals(option, StringComparison.Ordinal)
+                    && i + 1 < tokens.Length)
+                {
+                    return tokens[i + 1];
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TrySplitOperatorMemberTarget(
+            string target,
+            out string typeTarget,
+            out string memberSelector)
+        {
+            var memberBoundary = Math.Max(
+                target.LastIndexOf(
+                    ".operator",
+                    StringComparison.OrdinalIgnoreCase),
+                target.LastIndexOf(
+                    ".op_",
+                    StringComparison.OrdinalIgnoreCase));
+            if (memberBoundary <= 0
+                || !IsTopLevelDot(target, memberBoundary))
+            {
+                typeTarget = "";
+                memberSelector = "";
+                return false;
+            }
+
+            memberSelector = target[(memberBoundary + 1)..];
+            if (!MemberTargetSelector.Parse(memberSelector).Name.StartsWith(
+                    "op_",
+                    StringComparison.Ordinal))
+            {
+                typeTarget = "";
+                memberSelector = "";
+                return false;
+            }
+
+            typeTarget = target[..memberBoundary];
+            return true;
+        }
+
+        private static bool IsTopLevelDot(string value, int dotIndex)
+        {
+            var depth = 0;
+            for (var i = 0; i < dotIndex; i++)
+            {
+                if (value[i] == '<')
+                    depth++;
+                else if (value[i] == '>')
+                    depth--;
+            }
+
+            return depth == 0;
+        }
+
+        private static string[] RouteDeferredTypeOrMember(
+            string target,
+            string[] tail) =>
+        [
+            "member",
+            target,
+            DeferredTypeOrMemberOptionName,
+            DeferredTypeOrMemberCapability,
+            .. tail
+        ];
 
         private static async Task<bool> PackageExistsAsync(
             string packageName,
@@ -387,6 +662,551 @@ public static class RouterCommandDefinition
             return error == null
                    && assemblyPath != null
                    && PlatformResolver.HasType(assemblyPath, probe.Remainder);
+        }
+
+        private static PlatformTypeLookupOutcome? LookupExactGenericPlatformType(
+            string target,
+            bool allowSimpleName = false,
+            string? frameworkSpec = null)
+        {
+            if (!target.Contains('`') && !target.Contains('<'))
+                return null;
+
+            var normalizedTarget = FqnParser.NormalizeTypeName(target).Replace('+', '.');
+            var lookup = frameworkSpec is null
+                ? PlatformResolver.LookupType(target)
+                : PlatformResolver.LookupTypeInFramework(
+                    target,
+                    frameworkSpec);
+            if (frameworkSpec is null
+                && (lookup is not PlatformTypeLookupOutcome.Resolved runtimeResolved
+                    || !runtimeResolved.Candidate.Type
+                        .ToMetadataFullName()
+                        .Replace('+', '.')
+                        .Equals(
+                            normalizedTarget,
+                            StringComparison.OrdinalIgnoreCase)))
+            {
+                lookup = PlatformResolver.LookupTypeAcrossFrameworks(target);
+            }
+
+            if (lookup is not PlatformTypeLookupOutcome.Resolved resolved)
+                return lookup is PlatformTypeLookupOutcome.Missing
+                    ? null
+                    : lookup;
+
+            var normalizedCandidate = resolved.Candidate.Type
+                .ToMetadataFullName()
+                .Replace('+', '.');
+            var exactMatch = normalizedCandidate.Equals(
+                normalizedTarget,
+                StringComparison.OrdinalIgnoreCase);
+            var suffixStart = normalizedCandidate.Length - normalizedTarget.Length;
+            var unqualifiedMatch = (allowSimpleName || normalizedTarget.Contains('.'))
+                && suffixStart > 0
+                && normalizedCandidate[suffixStart - 1] == '.'
+                && normalizedCandidate.EndsWith(
+                    normalizedTarget,
+                    StringComparison.OrdinalIgnoreCase);
+            return exactMatch || unqualifiedMatch
+                ? resolved
+                : null;
+        }
+
+        private static (
+            string TypeTarget,
+            string MemberSelector,
+            PlatformTypeLookupOutcome Lookup)?
+            LookupExactGenericPlatformMember(
+                string target,
+                string? frameworkSpec)
+        {
+            (
+                string TypeTarget,
+                string MemberSelector,
+                PlatformTypeLookupOutcome.Resolved Lookup)? resolved = null;
+            var genericDepth = 0;
+            var probes = 0;
+            for (var i = 0;
+                i < target.Length
+                && probes < MaxTypeMemberBoundaryProbes;
+                i++)
+            {
+                if (target[i] == '<')
+                {
+                    genericDepth++;
+                    continue;
+                }
+                if (target[i] == '>')
+                {
+                    genericDepth--;
+                    continue;
+                }
+                if (target[i] != '.'
+                    || genericDepth != 0
+                    || i == 0
+                    || i == target.Length - 1)
+                {
+                    continue;
+                }
+
+                var typeTarget = target[..i];
+                if (!TypeMatcher.HasExplicitGenericNotation(
+                        typeTarget))
+                {
+                    continue;
+                }
+
+                probes++;
+                var lookup = LookupExactGenericPlatformType(
+                    typeTarget,
+                    allowSimpleName: true,
+                    frameworkSpec: frameworkSpec);
+                if (lookup
+                    is PlatformTypeLookupOutcome.Resolved exact)
+                {
+                    resolved = (
+                        typeTarget,
+                        target[(i + 1)..],
+                        exact);
+                    continue;
+                }
+
+                if (resolved is not null)
+                    return resolved;
+                if (lookup is not null)
+                {
+                    return (
+                        typeTarget,
+                        target[(i + 1)..],
+                        lookup);
+                }
+                return null;
+            }
+
+            return resolved;
+        }
+
+        private static bool WritePlatformTypeLookupFailure(
+            PlatformTypeLookupOutcome? lookup)
+        {
+            switch (lookup)
+            {
+                case PlatformTypeLookupOutcome.Ambiguous ambiguous:
+                    CommandError.Write(
+                        $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
+                    return true;
+                case PlatformTypeLookupOutcome.Rejected rejected:
+                    CommandError.Write(
+                        $"Platform type lookup failed ({rejected.Failure.Kind}).");
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static string[] RouteExactGenericPlatformType(
+            PlatformTypeLookupOutcome.Resolved resolved,
+            string target,
+            string[] tail) =>
+            !HasExplicitApiSource(tail)
+            && TryGetExplicitPlatformSource(resolved, out var assembly, out var framework)
+                ? [
+                    "type",
+                    target,
+                    "--platform",
+                    assembly,
+                    .. FrameworkArgsUnlessSpecified(framework, tail),
+                    .. tail
+                ]
+                : ["type", target, .. tail];
+
+        private static string[] RouteExactGenericPlatformMember(
+            (
+                string TypeTarget,
+                string MemberSelector,
+                PlatformTypeLookupOutcome.Resolved Resolved) member,
+            string[] tail) =>
+            !HasExplicitApiSource(tail)
+            && TryGetExplicitPlatformSource(
+                member.Resolved,
+                out var assembly,
+                out var framework)
+                ? [
+                    "member",
+                    member.TypeTarget,
+                    "--platform",
+                    assembly,
+                    .. FrameworkArgsUnlessSpecified(framework, tail),
+                    "-m",
+                    member.MemberSelector,
+                    .. tail
+                ]
+                : [
+                    "member",
+                    member.TypeTarget,
+                    "-m",
+                    member.MemberSelector,
+                    .. tail
+                ];
+
+        private static string[] RouteExactGenericPlatformMemberTarget(
+            PlatformTypeLookupOutcome.Resolved resolved,
+            string target,
+            string[] tail) =>
+            !HasExplicitApiSource(tail)
+            && TryGetExplicitPlatformSource(
+                resolved,
+                out var assembly,
+                out var framework)
+                ? [
+                    "member",
+                    target,
+                    "--platform",
+                    assembly,
+                    .. FrameworkArgsUnlessSpecified(framework, tail),
+                    .. tail
+                ]
+                : ["member", target, .. tail];
+
+        private static bool HasExplicitApiSource(string[] tokens) =>
+            ContainsOption(tokens, "--package")
+            || ContainsOption(tokens, "--library")
+            || ContainsOption(tokens, "--platform")
+            || ContainsOption(tokens, "--project");
+
+        private static bool TryGetLibraryValue(
+            string[] tokens,
+            RootCommand rootCommand,
+            out string value)
+        {
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (TryGetAttachedOptionValue(
+                        tokens[i],
+                        "--library",
+                        out value))
+                {
+                    return true;
+                }
+
+                if (tokens[i].Equals(
+                        "--library",
+                        StringComparison.Ordinal)
+                    && i + 1 < tokens.Length
+                    && !IsKnownOption(rootCommand, tokens[i + 1]))
+                {
+                    value = tokens[i + 1];
+                    return true;
+                }
+            }
+
+            value = "";
+            return false;
+        }
+
+        private static bool IsKnownOption(
+            RootCommand rootCommand,
+            string token) =>
+            FindKnownOption(rootCommand, token) is not null;
+
+        private static Option? FindKnownOption(
+            RootCommand rootCommand,
+            string token)
+        {
+            var optionName = GetOptionName(token);
+            return rootCommand.Options
+                .Concat(rootCommand.Subcommands.SelectMany(
+                    static command => command.Options))
+                .FirstOrDefault(
+                    option => MatchesOption(option, optionName));
+        }
+
+        private static bool IsPackageRelativeLibraryValue(string value)
+        {
+            if (value.StartsWith('-'))
+                return false;
+
+            if (SourceResolver.IsLibrarySelector(value, package: null))
+                return true;
+
+            return IsPackageRelativeLibraryPath(value)
+                && value.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                && !IsExplicitLibraryPath(value);
+        }
+
+        private static bool IsPackageRelativeLibraryPath(string value)
+        {
+            // A hygienic relative asset path is authoritative even when the target
+            // resembles a type; consulting cwd would make routing nondeterministic.
+            return PackageCoordinateResolver.IsPackageRelativeAssetPath(value);
+        }
+
+        private static bool IsExplicitLibraryPath(string value) =>
+            Path.IsPathRooted(value)
+            || (value.Length > 0 && value[0] is '/' or '\\')
+            || value.StartsWith("./", StringComparison.Ordinal)
+            || value.StartsWith(@".\", StringComparison.Ordinal)
+            || value.StartsWith("../", StringComparison.Ordinal)
+            || value.StartsWith(@"..\", StringComparison.Ordinal)
+            || (value.Length >= 2
+                && char.IsAsciiLetter(value[0])
+                && value[1] == ':');
+
+        private static bool IsExplicitSourceIdentity(
+            string target,
+            string[] tokens,
+            string option) =>
+            GetOptionValue(tokens, option) is { Length: > 0 } source
+            && target.Equals(source, StringComparison.OrdinalIgnoreCase);
+
+        private static bool TryRouteExplicitSourceTarget(
+            string target,
+            string[] tokens,
+            string option,
+            bool hasTypeOption,
+            bool hasMemberOption,
+            RootCommand rootCommand,
+            out string[] rewritten)
+        {
+            rewritten = [];
+            if (!IsExplicitSourceIdentity(target, tokens, option)
+                || tokens.Length == 0)
+            {
+                return false;
+            }
+
+            var withoutSourceIdentity =
+                RemoveOptionWithValue(tokens, option, target);
+            if (!TryFindPositionalIndex(
+                    withoutSourceIdentity,
+                    rootCommand,
+                    out var targetIndex))
+                return false;
+
+            if (targetIndex < 0)
+            {
+                if (hasTypeOption)
+                {
+                    rewritten =
+                    [
+                        "type",
+                        option,
+                        target,
+                        .. withoutSourceIdentity
+                    ];
+                    return true;
+                }
+
+                if (hasMemberOption)
+                {
+                    rewritten =
+                    [
+                        "member",
+                        option,
+                        target,
+                        .. withoutSourceIdentity
+                    ];
+                    return true;
+                }
+
+                return false;
+            }
+
+            var targetToken = withoutSourceIdentity[targetIndex];
+            if (NuGetVersion.TryParse(targetToken, out _))
+                return false;
+
+            string[] remainingTokens =
+            [
+                .. withoutSourceIdentity[..targetIndex],
+                .. withoutSourceIdentity[(targetIndex + 1)..]
+            ];
+            string[] sourceTail =
+            [
+                option,
+                target,
+                .. remainingTokens
+            ];
+
+            if (hasTypeOption)
+            {
+                rewritten = ["type", targetToken, .. sourceTail];
+                return true;
+            }
+
+            if (hasMemberOption)
+            {
+                rewritten = MemberOptionOwnsTarget(targetToken)
+                    ? ["member", targetToken, .. sourceTail]
+                    : targetToken.Contains('.')
+                        ? RouteDeferredTypeOrMember(
+                            targetToken,
+                            sourceTail)
+                        : ["type", targetToken, .. sourceTail];
+                return true;
+            }
+
+            rewritten = targetToken.Contains('.')
+                ? RouteDeferredTypeOrMember(targetToken, sourceTail)
+                : ["type", targetToken, .. sourceTail];
+            return true;
+        }
+
+        private static bool TryFindPositionalIndex(
+            string[] tokens,
+            RootCommand rootCommand,
+            out int index)
+        {
+            index = -1;
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                var option = FindKnownOption(rootCommand, tokens[i]);
+                if (option is null)
+                {
+                    if (tokens[i].StartsWith('-'))
+                        continue;
+
+                    index = i;
+                    return true;
+                }
+
+                if (tokens[i].AsSpan().IndexOfAny('=', ':') >= 0)
+                    continue;
+
+                var remainingValues = option.ValueType == typeof(bool)
+                    ? 0
+                    : option.AllowMultipleArgumentsPerToken
+                        ? option.Arity.MaximumNumberOfValues
+                        : Math.Min(
+                            1,
+                            option.Arity.MaximumNumberOfValues);
+                while (remainingValues > 0
+                    && i + 1 < tokens.Length
+                    && FindKnownOption(rootCommand, tokens[i + 1])
+                        is null)
+                {
+                    i++;
+                    remainingValues--;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool MemberOptionOwnsTarget(string target)
+        {
+            if (!TypeMatcher.HasExplicitGenericNotation(target))
+                return true;
+
+            return FqnParser.LastTopLevelDot(target) < 0;
+        }
+
+        private static string GetOptionName(string token)
+        {
+            var separator = token.AsSpan().IndexOfAny('=', ':');
+            return separator < 0
+                ? token
+                : token[..separator];
+        }
+
+        private static bool MatchesOption(
+            Option option,
+            string optionName) =>
+            option.Name.Equals(
+                optionName,
+                StringComparison.OrdinalIgnoreCase)
+            || option.Aliases.Contains(
+                optionName,
+                StringComparer.OrdinalIgnoreCase);
+
+        private static string[] RemoveOptionWithValue(
+            string[] tokens,
+            string option,
+            string value)
+        {
+            var rewritten = new List<string>(tokens.Length);
+            var removed = false;
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (!removed
+                    && tokens[i].Equals(option, StringComparison.Ordinal)
+                    && i + 1 < tokens.Length
+                    && tokens[i + 1].Equals(
+                        value,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    i++;
+                    removed = true;
+                    continue;
+                }
+
+                if (!removed
+                    && TryGetAttachedOptionValue(
+                        tokens[i],
+                        option,
+                        out var attachedValue)
+                    && attachedValue.Equals(
+                        value,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    removed = true;
+                    continue;
+                }
+
+                rewritten.Add(tokens[i]);
+            }
+
+            return [.. rewritten];
+        }
+
+        private static bool TryGetAttachedOptionValue(
+            string token,
+            string option,
+            out string value)
+        {
+            if (token.Length > option.Length
+                && token.StartsWith(option, StringComparison.Ordinal)
+                && token[option.Length] is '=' or ':')
+            {
+                value = token[(option.Length + 1)..];
+                return true;
+            }
+
+            value = "";
+            return false;
+        }
+
+        private static string[] FrameworkArgsUnlessSpecified(
+            string framework,
+            string[] tokens) =>
+            ContainsOption(tokens, "--framework")
+                ? []
+                : ["--framework", framework];
+
+        private static bool TryGetExplicitPlatformSource(
+            PlatformTypeLookupOutcome.Resolved resolved,
+            out string assembly,
+            out string framework)
+        {
+            assembly = resolved.Candidate.Assembly.Identity.Name;
+            framework = "";
+            if (resolved.Candidate.Assembly.Provenance
+                is not AssemblyResolutionProvenance.PlatformAsset platform)
+            {
+                return false;
+            }
+
+            framework = platform.Framework;
+
+            // Runtime reference extraction does not currently materialize nested
+            // generic types that are implemented by the core library.
+            return !platform.Framework.Equals(
+                    "runtime",
+                    StringComparison.OrdinalIgnoreCase)
+                || resolved.Candidate.Type.Segments.Length == 1;
         }
     }
 }

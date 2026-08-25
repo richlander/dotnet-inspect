@@ -14,8 +14,8 @@ import {
  *
  * Catalog ids/titles/summaries and resolved coordinates come from C#. This
  * module owns only host encoding: workspace share packets, the residual
- * platform → Microsoft.NETCore.App runtime-pack mapping, product section →
- * web member-section tokens, and the imperative call-graph runner inputs.
+ * platform → Microsoft.NETCore.App runtime-pack mapping, and location state
+ * for demos that restore through a share packet.
  */
 
 export type ProductHomeDemoId = string;
@@ -120,7 +120,7 @@ function packageTab(member: BrowserHomeDemoMember): {
 
 /**
  * Deep-link for demos that restore via workspace location.
- * Returns null when the demo needs the imperative multi-package runner
+ * Returns null when the demo runs through an engine operation instead
  * (member-bound Call Graph today).
  */
 export function productHomeDemoLocationHref(
@@ -153,65 +153,11 @@ export function productHomeDemoLocationHref(
   }));
 }
 
-/** Inputs for the residual imperative multi-package call-graph runner. */
-export function callGraphDemoRunnerSpec(demo: ProductHomeDemoResolved): {
-  packages: { id: string; version: string; framework: string }[];
-  /** Package id for the navigation focus tab (primary activation target). */
-  focusPackageId: string;
-  typeId: string;
-  memberName: string;
-  memberKind: string;
-  memberAnchorDigest: string;
-  memberSection: "call-graph";
-} {
-  if (demo.view.section !== "Call Graph" || !demo.view.memberAnchor || !demo.view.type) {
-    throw new Error(
-      `Product home demo '${demo.id}' is not a member-bound Call Graph runner.`);
-  }
-
-  const packages = demo.workspaceMembers.map(packageTab);
-  if (packages.length === 0) {
-    throw new Error(`Product home demo '${demo.id}' has no workspace members.`);
-  }
-
-  const focusTabs = demo.tabs.map(tab => packageTab(tab.member));
-  if (focusTabs.length === 0) {
-    throw new Error(`Product home demo '${demo.id}' has no navigation tabs.`);
-  }
-  const focusIndex = Math.min(
-    Math.max(demo.focusTabIndex, 0),
-    focusTabs.length - 1);
-  const focusTab = focusTabs[focusIndex];
-  if (!focusTab) {
-    throw new Error(`Product home demo '${demo.id}' has no active navigation tab.`);
-  }
-  const focusPackageId = focusTab.id;
-
-  const memberKey = demo.view.memberKey ?? "";
-  const colon = memberKey.indexOf(":");
-  const memberKind = colon >= 0 ? memberKey.slice(0, colon) : "method";
-  const memberName = colon >= 0 ? memberKey.slice(colon + 1) : memberKey;
-  if (!memberName) {
-    throw new Error(
-      `Product home demo '${demo.id}' Call Graph view is missing memberKey.`);
-  }
-
-  return {
-    packages,
-    focusPackageId,
-    typeId: demo.view.type,
-    memberName,
-    memberKind,
-    memberAnchorDigest: demo.view.memberAnchor,
-    memberSection: "call-graph",
-  };
-}
-
 /**
  * Pending home-row paint while the Wasm engine catalog is not yet installed.
  * Layout-only placeholders — titles come from `ListHomeDemos` after bootstrap.
  */
-export const HOME_DEMO_PENDING_SLOT_COUNT = 3;
+export const HOME_DEMO_PENDING_SLOT_COUNT = 2;
 
 export function homeDemoRowHtml(
   enginePending: boolean,

@@ -7,7 +7,9 @@ import {
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  shouldInterceptLinkClick,
   workspaceViewSignature,
+  type LinkNavigationClick,
   type WorkspaceLocationSnapshot,
   type WorkspaceUrlState,
   type WorkspaceView,
@@ -581,4 +583,66 @@ test("location persistence contains sync failures but leaves direct build failur
       memberTextFilter: "x".repeat(65537),
     })),
     /65536-character limit/);
+});
+
+function linkClick(overrides: Partial<LinkNavigationClick> = {}): LinkNavigationClick {
+  return {
+    button: 0,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: false,
+    download: false,
+    target: null,
+    href: "https://inspect.example/credits",
+    origin: "https://inspect.example",
+    currentOrigin: "https://inspect.example",
+    ...overrides,
+  };
+}
+
+test("shouldInterceptLinkClick takes over a plain same-origin left click", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick()), true);
+});
+
+test("shouldInterceptLinkClick leaves default-prevented clicks alone", () => {
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ defaultPrevented: true })),
+    false);
+});
+
+test("shouldInterceptLinkClick leaves non-primary-button clicks alone", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick({ button: 1 })), false);
+});
+
+test("shouldInterceptLinkClick leaves modified clicks alone (new tab/window)", () => {
+  for (const overrides of [
+    { metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true },
+  ]) {
+    assert.equal(shouldInterceptLinkClick(linkClick(overrides)), false);
+  }
+});
+
+test("shouldInterceptLinkClick leaves download links alone", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick({ download: true })), false);
+});
+
+test("shouldInterceptLinkClick leaves an explicit other-target link alone", () => {
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ target: "_blank" })),
+    false);
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ target: "_self" })),
+    true);
+});
+
+test("shouldInterceptLinkClick leaves cross-origin links alone", () => {
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ origin: "https://github.com" })),
+    false);
+});
+
+test("shouldInterceptLinkClick requires a resolvable href", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick({ href: null })), false);
 });
