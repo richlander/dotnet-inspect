@@ -62,6 +62,16 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromPath(",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromPathIfManaged",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
                 "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamIfManaged",
                 StringComparison.Ordinal));
         Assert.Contains(
@@ -69,6 +79,11 @@ public sealed class BrowserEngineLayeringTests
             symbol => symbol.StartsWith(
                 "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity",
                 StringComparison.Ordinal));
+        Assert.Equal(
+            2,
+            banned.Count(symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.TryCreateFromPath",
+                StringComparison.Ordinal)));
         Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
