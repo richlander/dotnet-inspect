@@ -115,28 +115,33 @@ export function renderPackageQueryView(options: RenderPackageQueryOptions): stri
     ? `<section class="document-section metadata-warning"><strong>⚠ Some sources failed</strong><ul>${state.outcome.failures.map(f => `<li><code>${escapeHtml(f)}</code></li>`).join("")}</ul></section>`
     : "";
 
-  if (!state.outcome.rows.length && state.outcome.completion.kind !== "streaming") {
-    // Zero rows only means "no matches" when the search actually finished
-    // (bounded/exhausted) with no failures. A cancelled run or a run with a
-    // failed source never got to search the whole scope, so "no rows" is not
-    // the same claim as "no matches" — the empty state must say so rather
-    // than implying a clean, confident zero (see the honesty rule in
-    // package-query.ts's QueryOutcome doc comment).
-    const emptyState = state.outcome.completion.kind === "cancelled"
+  const isEmpty = !state.outcome.rows.length && state.outcome.completion.kind !== "streaming";
+
+  // Zero rows only means "no matches" when the search actually finished
+  // (bounded/exhausted) with no failures. A cancelled run or a run with a
+  // failed source never got to search the whole scope, so "no rows" is not
+  // the same claim as "no matches" — the empty state must say so rather
+  // than implying a clean, confident zero (see the honesty rule in
+  // package-query.ts's QueryOutcome doc comment).
+  const emptyState = isEmpty
+    ? state.outcome.completion.kind === "cancelled"
       ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Cancelled before any matches</h2><p>This was stopped before it found anything — not a confirmed empty result. Run it again to see whether it would have matched.</p></section>`
       : state.outcome.completion.kind === "failed"
         ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Query failed</h2><p>${escapeHtml(state.outcome.completion.reason)} — not a confirmed empty result. Try again.</p></section>`
         : state.outcome.failures.length
         ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
-        : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`;
-    return `${failures}${emptyState}`;
-  }
+        : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`
+    : "";
 
   const activeKeys = new Set(state.request.facets.map(f => f.key));
   const nuspecFacets = availableFacets.filter(f => f.tier === "nuspec");
   const promotedFacets = availableFacets.filter(f => f.tier === "promoted");
   const deepenEnabled = state.selected.size > 0;
 
+  // The rail must stay mounted even when the results pane is an empty state:
+  // several of the empty-state messages above tell the user to "broaden the
+  // facets," and that instruction is only actionable if the facet rail is
+  // still on screen to act on.
   const rail = `
     <aside class="query-facet-rail">
       ${renderFacetGroup("Instant (nuspec)", nuspecFacets, activeKeys, escapeHtml)}
@@ -148,13 +153,16 @@ export function renderPackageQueryView(options: RenderPackageQueryOptions): stri
     .map(row => renderRow(row, state.selected.has(row.packageId), escapeHtml))
     .join("");
 
+  const results = isEmpty
+    ? emptyState
+    : `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`;
+
   return `
     ${failures}
     <div class="query-layout">
       ${rail}
       <div class="query-results">
-        <div class="query-list">${rows}</div>
-        ${renderCompletionFooter(state.outcome, escapeHtml)}
+        ${results}
       </div>
     </div>`;
 }

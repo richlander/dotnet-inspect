@@ -135,7 +135,7 @@ modal over one package:
 
 | State | Trigger | UI |
 |---|---|---|
-| Composing | Query tab opened with no predicate yet | Facet rail with no results pane; suggested starter queries (curated, matching product-home-demos conventions) |
+| Composing | Query tab opened with no predicate yet | *(depends on the query bar, not yet built — currently the scaffold renders a bare "choose a scope" card; the facet rail before any request and curated starter queries are a design requirement for that landing-sequence step, not implemented or tested today)* Facet rail with no results pane; suggested starter queries (curated, matching product-home-demos conventions) |
 | Streaming | Request dispatched | Result rows append as pages arrive; running count; cancel affordance; facets stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a dismissible banner names the failed source, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
 | Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally; if a source also failed partway *and the cap was reached via exhaustion*, the footer says so ("all matches from sources that succeeded") rather than overclaiming completeness — a stream stopped by hitting the declared cap keeps its `bounded: <reason>` label regardless, since a cap-reached outcome never claimed exhaustiveness to begin with |

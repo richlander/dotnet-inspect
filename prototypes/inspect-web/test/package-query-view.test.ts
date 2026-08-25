@@ -159,6 +159,11 @@ test("no matches after completion renders the empty-match state, not the composi
   const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
 
   assert.match(html, /No matches/);
+  // Every empty-state message here tells the user to broaden the facets —
+  // that's only actionable if the facet rail (and its Deepen tier) is still
+  // mounted, rather than vanishing along with the results pane.
+  assert.match(html, /query-facet-rail/);
+  assert.match(html, /uses C# union/);
 });
 
 test("zero rows plus a failure never renders as a confirmed empty result", () => {
