@@ -178,6 +178,24 @@ export interface BrowserHomeDemoResolved {
   view: BrowserHomeDemoView;
 }
 
+export interface BrowserHomeDemoRunActivation {
+  focusPackage: string;
+  focusVersion: string;
+  focusFramework: string;
+  typeId: string;
+  memberName: string;
+  memberKind: string;
+  memberAnchorDigest: string;
+  memberSection: string;
+}
+
+export interface BrowserHomeDemoRunResult {
+  found: boolean;
+  packages: BrowserPackageSurface[];
+  activation: BrowserHomeDemoRunActivation | null;
+  callGraph: BrowserCallGraph | null;
+}
+
 export interface BrowserHomeDemoView {
   library: string | null;
   type: string | null;
@@ -504,4 +522,5 @@ export declare function queryTypeProjection(packageId: string, version: string, 
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
+export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;
 export declare function searchTypes(query: string, candidatesJson: string): BrowserTypeSearchHit[];

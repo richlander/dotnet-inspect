@@ -43,6 +43,7 @@ let queryTypeProjectionExport;
 let queryTypeSourceExport;
 let resolveHomeDemoExport;
 let resolvePackageDependencyVersionExport;
+let runHomeDemoExport;
 let searchTypesExport;
 
 export async function initializeEngine(onStatus = () => {}) {
@@ -87,6 +88,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryTypeSourceExport = exports.InspectionEngine.QueryTypeSource;
   resolveHomeDemoExport = exports.InspectionEngine.ResolveHomeDemo;
   resolvePackageDependencyVersionExport = exports.InspectionEngine.ResolvePackageDependencyVersion;
+  runHomeDemoExport = exports.InspectionEngine.RunHomeDemo;
   searchTypesExport = exports.InspectionEngine.SearchTypes;
   configureHostExport(window.location.origin);
   await runtime.runMain();
@@ -299,6 +301,12 @@ export function resolveHomeDemo(scenarioId) {
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
   if (!resolvePackageDependencyVersionExport) throw new Error("The browser inspection engine is not initialized.");
   return await resolvePackageDependencyVersionExport(packageId, declaredRange);
+}
+
+export async function runHomeDemo(scenarioId) {
+  if (!runHomeDemoExport) throw new Error("The browser inspection engine is not initialized.");
+  const result = await runHomeDemoExport(scenarioId);
+  return JSON.parse(result);
 }
 
 export function searchTypes(query, candidatesJson) {

@@ -81,6 +81,7 @@ import {
   type WorkspaceView,
 } from "./workspace-navigation.ts";
 import {
+  createNuGetPackageModel,
   createPackageAcquisition,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
@@ -110,12 +111,10 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
-  callGraphDemoRunnerSpec,
   homeDemoRowHtml,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
-  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -250,6 +249,7 @@ import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
+  BrowserHomeDemoRunResult,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -272,6 +272,7 @@ let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectListHomeDemos: EngineModule["listHomeDemos"];
 let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
+let inspectRunHomeDemo: EngineModule["runHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -314,6 +315,7 @@ async function loadEngineModule() {
     listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
+    runHomeDemo: inspectRunHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -6443,8 +6445,8 @@ function bindHomeEvents() {
 // Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
 // (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
 // deep links built from the resolved projection; member-bound Call Graph demos
-// stay an imperative multi-package member load until WorkspaceContextLoader
-// group run is the browser substrate.
+// execute through one generated engine operation over the product-resolved
+// workspace and view.
 function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
@@ -6458,7 +6460,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
   }
   const link = productHomeDemoLocationHref(resolved);
   if (!link) {
-    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
   workspaceLocation.push(link);
@@ -8476,61 +8478,118 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
-  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
+async function runCallGraphDemo(demoId: ProductHomeDemoId) {
+  const retry = () =>
+    observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
+  const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
+  state.errorDetail = "";
+  state.retryAction = null;
   state.loadingMessage = "Loading cross-package call graph demo…";
-  state.loadingSubtitle = "";
+  state.loadingSubtitle =
+    "Resolving the product workspace and anchored member…";
   render();
 
-  const spec = callGraphDemoRunnerSpec(demo);
-  const packages: AppPackage[] = [];
-  for (const packageSpec of spec.packages) {
-    const loaded = await loadPackage(
-      packageSpec.id,
-      packageSpec.version,
-      packageSpec.framework,
-      { retryAction: retry });
-    if (!loaded) {
-      state.retryAction = retry;
-      render();
-      return;
-    }
-    packages.push(loaded);
-  }
-
-  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
-    ?? packages[0];
-  activatePackage(targetPackage);
-  const type = targetPackage.types.find(item => item.id === spec.typeId);
-  const member = type && memberGroups(type).find(item =>
-    item.name === spec.memberName
-    && item.kind === spec.memberKind);
-  const overloadIndex = member?.overloads.findIndex(item =>
-    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
-  if (!type || !member || overloadIndex < 0) {
+  const fail = (error: unknown) => {
     state.loading = false;
-    state.error = "The call graph demo member was not found in the selected package.";
+    state.error = errorMessage(error);
     state.errorTitle = "Call graph demo failed";
+    state.errorDetail = error instanceof Error
+      ? error.stack || error.message
+      : String(error);
     state.retryAction = retry;
+    render();
+  };
+  let result: BrowserHomeDemoRunResult;
+  try {
+    result = await inspectRunHomeDemo(demoId);
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!result.found) {
+    state.loading = false;
+    state.error = `Unknown product home demo '${demoId}'.`;
+    state.errorTitle = "Call graph demo failed";
+    state.retryAction = null;
     render();
     return;
   }
+  if (!result.activation || !result.callGraph) {
+    fail("The engine returned an incomplete product home demo result.");
+    return;
+  }
+  if (result.activation.memberSection !== "call-graph") {
+    fail(
+      `The engine returned unsupported demo section '${result.activation.memberSection}'.`,
+    );
+    return;
+  }
 
-  state.selectedTypeId = type.id;
-  state.atPackageRoot = false;
-  state.lens = "api";
-  state.packageLens = "overview";
-  resetMemberFilters();
-  resetMemberSectionState();
-  state.memberBrowseTypeId = type.id;
-  state.selectedMemberKey = member.key;
-  state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = spec.memberSection;
-  state.loading = false;
-  render();
-  await loadSelectedMemberCallGraph();
+  try {
+    const packages = result.packages.map(createNuGetPackageModel);
+    const activation = result.activation;
+    const targetPackage = packages.find(item =>
+      item.id === activation.focusPackage
+      && item.version === activation.focusVersion
+      && item.activeFramework === activation.focusFramework);
+    const type = targetPackage?.types.find(item =>
+      item.id === activation.typeId);
+    const member = type && memberGroups(type).find(item =>
+      item.name === activation.memberName
+      && item.kind === activation.memberKind);
+    const overloadIndex = member?.overloads.findIndex(item =>
+      item.anchorDigest === activation.memberAnchorDigest) ?? -1;
+    if (!targetPackage || !type || !member || overloadIndex < 0) {
+      throw new Error(
+        "The engine-run demo selection was not present in its returned package surfaces.");
+    }
+
+    for (const packageModel of packages) {
+      retainPackageModel(packageModel);
+      recordRecentPackage(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework);
+    }
+    refreshPackageStats();
+
+    activatePackage(targetPackage, { resetAccessibility: true });
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.libraryScope = null;
+    state.selectedTypeId = type.id;
+    state.atPackageRoot = false;
+    state.lens = "api";
+    state.packageLens = "overview";
+    resetMemberFilters();
+    resetMemberSectionState();
+    state.platformStack = [];
+    state.memberBrowseTypeId = type.id;
+    state.selectedMemberKey = member.key;
+    state.selectedOverloadIndex = overloadIndex;
+    state.memberSection = "call-graph";
+    // This graph is scoped to the product-defined demo workspace, not any
+    // unrelated tabs the user may already have open.
+    state.memberCallGraph = result.callGraph;
+    state.memberCallGraphError = "";
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
+    state.memberCallGraphKey = memberRequestSignature(
+      type,
+      member.overloads[overloadIndex],
+      true);
+    state.loading = false;
+    render();
+    await renderMermaidCallGraph();
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+  }
 }
 
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a

@@ -56,8 +56,24 @@ public static partial class InspectionEngine
             packageId,
             version,
             targetFramework);
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserPackageSurface surface =
+            ProjectPackageSurface(scope, scope.Coordinates[0]);
+        return JsonSerializer.Serialize(
+            surface,
+            BrowserJsonContext.Default.BrowserPackageSurface);
+    }
 
+    internal static BrowserPackageSurface ProjectPackageSurface(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate coordinate) =>
+        ProjectPackage(scope, coordinate).Surface;
+
+    static BrowserPackageProjection ProjectPackage(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate coordinate)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(coordinate);
         // Only this coordinate's assemblies are projected. A composite workspace may hold several
         // packages, and projecting all of them here materialized every other package's surface
         // only to discard it.
@@ -106,7 +122,7 @@ public static partial class InspectionEngine
             ?? projected.Assemblies.FirstOrDefault()?.Id
             ?? coordinate.DefaultAsset.Id;
 
-        return JsonSerializer.Serialize(
+        return new BrowserPackageProjection(
             new BrowserPackageSurface(
                 coordinate.PackageId,
                 coordinate.Version,
@@ -119,8 +135,12 @@ public static partial class InspectionEngine
                 projected.TotalMembers,
                 [.. coordinate.Package.Documents()],
                 projected.InspectionError),
-            BrowserJsonContext.Default.BrowserPackageSurface);
+            surfaces);
     }
+
+    sealed record BrowserPackageProjection(
+        BrowserPackageSurface Surface,
+        AssemblyContextApiSurfaceResult ApiSurfaces);
 
     /// <summary>
     /// One type's metadata projection, produced by
@@ -773,6 +793,19 @@ public static partial class InspectionEngine
             return session.HasCrossLibraryScope ? session.CrossLibrary() : session.Callers();
         });
 
+        BrowserCallGraph graph =
+            ProjectCallGraph(scope, view);
+        return JsonSerializer.Serialize(
+            graph,
+            BrowserJsonContext.Default.BrowserCallGraph);
+    }
+
+    internal static BrowserCallGraph ProjectCallGraph(
+        BrowserInspectionScope scope,
+        MemberCallGraphView view)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(view);
         CallGraphProjection projection = CallGraphProjection.Create(
             view.CallerRoot,
             view.CalleeRoot);
@@ -781,26 +814,24 @@ public static partial class InspectionEngine
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
 
-        return JsonSerializer.Serialize(
-            new BrowserCallGraph(
-                Mermaid(projection),
-                Tree(view.CallerRoot),
-                Tree(view.CalleeRoot),
-                new BrowserCallGraphScope(
-                    scope.Coordinates.Length,
-                    scope.ImplementationParticipants.Length,
-                    callerAssemblies,
-                    view.Tier.ToString()),
-                Targets(
-                    projection.Nodes,
-                    scope.ImplementationParticipants.Select(
-                        participant => participant.Assembly.Identity)),
-                Diagnostics(
-                    view.Diagnostics,
-                    projection.HasUnexploredTraversalBoundary,
-                    projection.HasAnalysisFailureBoundary),
-                NoBody: view.CalleeRoot is null && view.CallerRoot is null),
-            BrowserJsonContext.Default.BrowserCallGraph);
+        return new BrowserCallGraph(
+            Mermaid(projection),
+            Tree(view.CallerRoot),
+            Tree(view.CalleeRoot),
+            new BrowserCallGraphScope(
+                scope.Coordinates.Length,
+                scope.ImplementationParticipants.Length,
+                callerAssemblies,
+                view.Tier.ToString()),
+            Targets(
+                projection.Nodes,
+                scope.ImplementationParticipants.Select(
+                    participant => participant.Assembly.Identity)),
+            Diagnostics(
+                view.Diagnostics,
+                projection.HasUnexploredTraversalBoundary,
+                projection.HasAnalysisFailureBoundary),
+            NoBody: view.CalleeRoot is null && view.CallerRoot is null);
     }
 
     /// <summary>
@@ -1070,6 +1101,176 @@ public static partial class InspectionEngine
         return JsonSerializer.Serialize(
             new BrowserHomeDemoResolveResult(true, BrowserProductHomeDemos.ToResolved(resolved)),
             BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+    }
+
+    /// <summary>
+    /// Runs one member-bound Call Graph home demo from its product definition.
+    /// The browser supplies only the scenario id: workspace coordinates,
+    /// navigation focus, member-anchor selection, and query execution remain
+    /// on the engine side.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> RunHomeDemo(string scenarioId)
+    {
+        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoRunResult(false, [], null, null),
+                BrowserJsonContext.Default.BrowserHomeDemoRunResult);
+        }
+
+        BrowserHomeDemoRunPlan plan =
+            BrowserProductHomeDemos.ToCallGraphRunPlan(resolved);
+        BrowserScopeResolution resolution =
+            await BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
+                    plan.Requests,
+                    deadline.Token),
+                BrowserPackageWorkspace.PackageOperationTimeout);
+        BrowserHomeDemoRunResult result =
+            RunHomeDemoCore(plan, resolution);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserJsonContext.Default.BrowserHomeDemoRunResult);
+    }
+
+    internal static BrowserHomeDemoRunResult RunHomeDemoCore(
+        BrowserHomeDemoRunPlan plan,
+        BrowserScopeResolution resolution)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(resolution);
+
+        BrowserInspectionScope scope = resolution.Scope;
+        BrowserPackageProjection[] projections =
+        [
+            .. resolution.RequestedCoordinates.Select(requested =>
+                ProjectPackage(scope, scope.Coordinate(requested))),
+        ];
+        if (resolution.RequestedCoordinates.Length != plan.Requests.Length)
+        {
+            throw new InvalidOperationException(
+                "The product home demo workspace did not preserve its distinct request ordering.");
+        }
+
+        BrowserPackageCoordinate focusCoordinate =
+            scope.Coordinate(
+                resolution.RequestedCoordinates[plan.FocusRequestIndex]);
+        BrowserPackageProjection focusProjection =
+            projections[plan.FocusRequestIndex];
+        BrowserPackageSurface focusPackage = focusProjection.Surface;
+        BrowserTypeSurface[] types =
+        [
+            .. focusPackage.Types.Where(type =>
+                string.Equals(
+                    type.Id,
+                    plan.TypeId,
+                    StringComparison.Ordinal)),
+        ];
+        if (types.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The product home demo type '{plan.TypeId}' resolved to "
+                + $"{types.Length} browser surface rows.");
+        }
+
+        BrowserTypeSurface type = types[0];
+        (ApiType Type, AssemblyContextSubject Subject)[] apiTypes =
+        [
+            .. focusProjection.ApiSurfaces.Assemblies.Assemblies
+                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(entry => entry.Value.Surface.Types
+                    .Where(candidate => string.Equals(
+                        AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(
+                            candidate),
+                        type.DefinitionId,
+                        StringComparison.Ordinal))
+                    .Select(candidate => (candidate, entry.Subject))),
+        ];
+        if (apiTypes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The product home demo type '{plan.TypeId}' resolved to "
+                + $"{apiTypes.Length} product API rows.");
+        }
+
+        (ApiType apiType, AssemblyContextSubject subject) = apiTypes[0];
+        var selector = new MemberTargetSelector(
+            $"{plan.MemberName}~{plan.MemberAnchorDigest}",
+            plan.MemberName,
+            DigestPrefix: plan.MemberAnchorDigest,
+            Kind: plan.MemberKind);
+        MemberTargetResolution target =
+            MemberTargetResolver.Resolve(apiType, selector);
+        if (target.Diagnostic is { } diagnostic)
+        {
+            throw new InvalidOperationException(
+                $"The product home demo member could not be selected: {diagnostic.Message}");
+        }
+
+        BrowserMemberSurface projectedMember =
+            BrowserSurfaceProjection.Member(
+                apiType,
+                target.Target!.ApiMember.Member);
+        BrowserMemberSurface[] transportedMembers =
+        [
+            .. type.Api.Where(member =>
+                string.Equals(
+                    member.AnchorDigest,
+                    projectedMember.AnchorDigest,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        if (transportedMembers.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The selected product home demo member projected to "
+                + $"{transportedMembers.Length} browser surface rows.");
+        }
+
+        BrowserMemberSurface member = transportedMembers[0];
+        if (!string.Equals(
+                type.AssemblyName,
+                subject.Identity.Name,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The product home demo type projection lost its owning assembly identity.");
+        }
+        (
+            BrowserWorkspaceParticipant participant,
+            Analysis.CallGraphMemberResolution memberResolution
+        ) = ResolveImplementationMember(
+            scope,
+            focusCoordinate,
+            type.Assembly,
+            type.DefinitionId,
+            member.Name,
+            member.GraphSelectorKey,
+            member.MetadataToken ?? 0);
+        MemberCallGraphView view = scope.UseImplementation(group =>
+        {
+            using var session = new MemberCallGraphSession(
+                group,
+                participant.Assembly,
+                memberResolution.BodyToken);
+            return session.HasCrossLibraryScope
+                ? session.CrossLibrary()
+                : session.Callers();
+        });
+
+        return new BrowserHomeDemoRunResult(
+            true,
+            [.. projections.Select(projection => projection.Surface)],
+            new BrowserHomeDemoRunActivation(
+                focusCoordinate.PackageId,
+                focusCoordinate.Version,
+                focusCoordinate.Framework,
+                type.Id,
+                member.Name,
+                member.Kind,
+                member.AnchorDigest,
+                plan.MemberSection),
+            ProjectCallGraph(scope, view));
     }
 
     /// <summary>
