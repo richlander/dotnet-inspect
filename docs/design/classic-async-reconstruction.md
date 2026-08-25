@@ -12,6 +12,11 @@
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
 This is stack slice 2 of 2 and depends on the structured implementation-
 evidence design in [#4560](https://github.com/richlander/dotnet-inspect/pull/4560).
+Slice-0 companion discovery also depends on the shared Metadata state-machine
+relationship substrate tracked by
+[#4669](https://github.com/richlander/dotnet-inspect/issues/4669). That
+prerequisite does not alter or block #4560: it replaces duplicate
+consumer-local structural discovery before this design is implemented.
 The user approved that split after adversarial round 30 so this document
 owns only classic-async classification, reconstruction, projection, and
 honesty. It does not redefine implementation-evidence identity,
@@ -309,6 +314,19 @@ validated `MetadataMethodAddress`. It never mints comparison participants,
 rebuilds correspondence from display identity, or re-resolves implementation
 evidence. An address failure remains the prerequisite's typed visible failure
 and stops before async classification.
+
+State-machine relationship discovery is a second, same-reader prerequisite.
+[#4669](https://github.com/richlander/dotnet-inspect/issues/4669) owns a
+bounded, immutable `StateMachineRelationshipIndex` in `ILInspector.Metadata`.
+For one `MetadataReader`, it answers exact kickoff-to-execution and
+execution-to-kickoff queries with module-scoped method/type identities, claim
+kind, exact interface implementation roles, and typed absent, unresolved,
+malformed, duplicate, cross-kind, and ambiguous outcomes. Workspace and
+package roles select the participant and reader in which the index runs; they
+do not own state-machine semantics. The async layer consumes the index result
+only after exact body addressing and does not rescan attributes, interfaces,
+signatures, or `MethodImpl` rows to reconstruct the relationship.
+
 After resolution, the projector performs metadata async classification
 once, before inspecting or importing the body. Contradictory positive
 runtime/classic/iterator evidence, or the expected
@@ -852,17 +870,22 @@ sibling seam it invokes the same pass recognition once. Compiler-
 produced parity fixtures gate that its final body/outcome equals the
 prepared Raised projection for both `Reconstructed` and `Declined`.
 
-### Do not pretend an Analysis walk is a Metadata fact
+### Separate structural Metadata facts from consumer policy
 
 Trusted SM uniqueness in `LibraryBodyAsyncSourceResolver` uses
 Analysis types and attribution filters (source-gen, GeneratedCode,
-Blazor). Slice 0 does **not** lift that walk. Kickoff acknowledgment
-identifies the state machine from kickoff IR.
+Blazor). Slice 0 does **not** lift that walk.
 
-A later Metadata fact, if needed, is structural only (attribute
-type-arg decode, same-assembly TypeDef, uniqueness among methods that
-carry the attribute). Analysis keeps attribution filters. The two
-populations may differ.
+The shared index from #4669 is structural only: it decodes the attribute
+claim, resolves its exact same-module TypeDef, authenticates the required
+interface methods through signature and `MethodImpl` evidence, and reports
+typed relationship failure. Analysis applies its attribution, evidence-scope,
+lifted-owner, fallback, caller-projection, and recommendation policy after
+that result. Decompiler correlates the exact structural result with the
+state-machine type identified by kickoff IR, then owns reconstruction
+eligibility and honest decline. The consumers may accept different
+populations, but they cannot produce different physical relationship answers
+for the same reader and address.
 
 ### Degradation is data
 
@@ -900,33 +923,39 @@ ClassicAsyncMachine
   Outcome              Reconstructed | Declined(Reason)
 ```
 
-The sibling-import seam owns a new
-`ClassicAsyncCompanionResolver`. It resolves the kickoff's exact
-same-module state-machine TypeDef, proves that type implements
-`System.Runtime.CompilerServices.IAsyncStateMachine`, and resolves the
-one MethodDef that implements interface `void MoveNext()`. An explicit
-MethodImpl relationship wins when present; otherwise the resolver uses
-the runtime interface-mapping rules over complete instance, name,
-generic-arity, return, parameter, calling-convention, and custom-
-modifier signature evidence. It returns an exact
-`MetadataMethodAddress`; the pass imports by that address and never
-synthesizes a name/ordinal `MethodRef`.
+The sibling-import seam consumes the shared
+`StateMachineRelationshipIndex`. Metadata resolves the kickoff's exact
+same-module state-machine TypeDef, proves the applicable state-machine
+interface, and returns the exact MethodDefs implementing required roles such
+as `void MoveNext()` and `SetStateMachine`. An explicit `MethodImpl`
+relationship wins when present; otherwise Metadata applies the runtime
+interface-mapping rules over complete instance, name, generic-arity, return,
+parameter, calling-convention, and custom-modifier signature evidence.
+
+`ClassicAsyncCompanionResolver`, if retained, is a thin Decompiler adapter. It
+accepts the exact kickoff address and kickoff-IR state-machine identity,
+queries the shared index, requires those identities to agree, and lowers the
+typed structural outcome into reconstruction or an honest decline. It does
+not scan attributes, enumerate candidate types or methods, interpret
+interface mappings, or build a reverse index. The pass imports the exact
+`MetadataMethodAddress` returned by Metadata and never synthesizes a
+name/ordinal `MethodRef`.
 `PassContext.TryImportAndRunExactMethodBody` is the companion entry: it
 imports the validated address, then delegates pass execution to
 `RunForeignFunctionPipeline` so import/type/recursion seams survive and
 the parent directive is reset exactly as for every other foreign host.
 
-An overload such as `MoveNext(int)`, a same-named wrong-signature
-method, metadata order, or a method that is not the interface
-implementation is never a candidate. Missing, duplicate, ambiguous,
-malformed, or cross-module relationship evidence produces a typed
-decline (`NoMoveNext`, `AmbiguousMoveNext`, or
-`MalformedMoveNextRelationship`) while preserving the kickoff. Release
-struct, Debug class, explicit MethodImpl, implicit implementation, decoy
-overload before/after, and metadata-order-swap fixtures gate exact
-selection. The independently imported function retains the exact address
-as its host identity, so decision/application replay and foreign-pipeline
-scope validate the same MethodDef the resolver selected.
+An overload such as `MoveNext(int)`, a same-named wrong-signature method,
+metadata order, or a method that is not the interface implementation is never
+a candidate. Metadata preserves missing, duplicate, ambiguous, malformed,
+cross-kind, unresolved, and cross-module relationship outcomes. Decompiler
+maps those typed outcomes to `NoMoveNext`, `AmbiguousMoveNext`, or
+`MalformedMoveNextRelationship` while preserving the kickoff. Release struct,
+Debug class, explicit `MethodImpl`, implicit implementation, decoy overload
+before/after, and metadata-order-swap fixtures gate exact selection first in
+Metadata and then through each consumer. The independently imported function
+retains the exact address as its host identity, so decision/application replay
+and foreign-pipeline scope validate the same MethodDef the index selected.
 
 Support `BuilderKind` is observed from the exact unique
 `<>t__builder` FieldDef on the support host's declaring state-machine type
@@ -1136,10 +1165,15 @@ raise slices are not designed here. After slice 1, take a
 classic-async shape census on the pinned corpus before **defining**
 another raise. Do not invent more `TryBuild*` methods.
 
+The #4669 Metadata index and its exactness, boundedness, and typed-failure
+gates are implementation prerequisites to slice 0. They may land as an
+independent prerequisite PR; slice 0 does not carry a temporary
+Decompiler-owned relationship resolver while waiting for them.
+
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Consume prerequisite-resolved body requests through `MetadataBodyProjector`; keep `ClassificationFailed`, `Bodyless`, import, stage, and render states distinct. Capture and replay one exact-host `ClassicAsyncDecision`; keep support acknowledgment local, exact, replayable, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Keep physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Bodyless and classification-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and implementation-evidence infrastructure are unchanged. |
-| 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, structural Metadata descriptor, census-defined raises. |
+| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Consume prerequisite-resolved body requests through `MetadataBodyProjector` and #4669 structural relationships through the thin companion adapter; keep `ClassificationFailed`, relationship failure, `Bodyless`, import, stage, and render states distinct. Capture and replay one exact-host `ClassicAsyncDecision`; keep support acknowledgment local, exact, replayable, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Keep physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and implementation-evidence infrastructure are unchanged. |
+| 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, broader state-dispatch descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
 
@@ -1237,10 +1271,11 @@ another raise. Do not invent more `TryBuild*` methods.
 | Exact/carried body addressing and cross-version correspondence | [Member target resolution](member-target-resolution.md#physical-body-addressing) |
 | Work items, mechanisms, population, async query lifetime, budgets, completion, and failure semantics | [Implementation Diff](implementation-diff.md#structured-comparison-lifecycle) |
 | Disjoint runtime/classic/iterator evidence scan | Metadata, with collapsed `StateMachineAsync` retained only as compatibility inventory |
+| Kickoff/state-machine/support-method relationships and reverse lookup | Metadata `StateMachineRelationshipIndex`, tracked by #4669 |
 | Complete async classification transport | Guarded Metadata classifier to every exact top-level and foreign import |
 | Canonical address/classification/body/import union | Decompiler `MetadataBodyProjector`, consuming prerequisite-resolved requests |
 | `ClassicAsyncMachine`, decision, and application | Decompiler `ClassicAsyncReconstructionPass` |
-| Exact classic companion resolution | Decompiler sibling-import seam and `ClassicAsyncCompanionResolver` over Metadata relationships |
+| Exact classic companion resolution | Metadata index; Decompiler sibling-import adapter correlates kickoff IR and consumes exact addresses |
 | Slice-0 accepted-raise boundary | Decompiler `LegacyRaiseEligibility`, separate from broader recognition |
 | Frozen import observation and root snapshot clone | Decompiler `MetadataBodyProjector` and `IrFunctionSnapshot` |
 | Shared cross-stage replay and stage-local outcome | Decompiler `MetadataBodyProjection`, `PassContext`, and `StageBodyProjection` |
@@ -1264,6 +1299,9 @@ are inherited from the prerequisite designs and are not repeated here.
 | --- | --- | --- |
 | Prerequisite consumer conformance | Decompiler + Research + Queries source-architecture tests | Async projection mints or reinterprets participant/work-item identity, bypasses prerequisite address resolution, or defines a second implementation-evidence population/lifetime |
 | Exact async population matrix | Metadata + Decompiler top-level and foreign imports | Runtime, classic, and iterator evidence collapse; contradictory positives do not fail before body/import; or custom classic builders escape visible decline |
+| Exact state-machine relationship index | `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations` over Metadata fixtures | Explicit/implicit interface implementation, signature, custom modifiers, `MethodImpl`, claim kind, named decoys, or metadata order select the wrong MethodDef |
+| State-machine relationship totality | `StateMachineRelationshipIndex_PropagatesTypedFailures` over Metadata fixtures | Missing, duplicate, cross-kind, unresolved, malformed, foreign-module, budget, or ambiguous evidence becomes empty success, throws an expected decode failure, or loses its candidates and reason |
+| Consumer policy separation | `StateMachineRelationshipConsumersRetainDistinctPolicy` over Analysis and Decompiler fixtures | Either consumer reimplements structural discovery, Analysis filters enter Metadata, Decompiler eligibility enters Metadata, or adopting the common fact forces equal accepted populations |
 | Canonical front-door architecture | `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | A declared-source consumer emits a body or runs a top-level pass outside `MetadataBodyProjector` / `PreparedStageBody`, except the named physical and diagnostic seams |
 | Classification and body-status ownership | `DeclaredSourceAsyncClassificationUsesProjector` + `DeclaredSourceBodyStatusUsesProjector` | A consumer classifies, catches decode failure, checks RVA/`HasBody`, filters abstract members, or derives a body modifier outside the projector |
 | Resolved-address projection parity | Metadata resolver + Decompiler projector | Requests resolving to the same MethodDef produce different classification, lifecycle state, outcome, render, or diagnostic |
@@ -1272,7 +1310,7 @@ are inherited from the prerequisite designs and are not repeated here.
 | Import observation totality | Decompiler projector | A non-null function is not `Imported`, frozen import diagnostics change, DEC0001 is inferred late, or null import has a stage |
 | Importer-crash preservation | Existing importer-crash surfaces + projector | The marker/DEC0001 disappears, the stage gains a classic outcome, or metadata `async` is lost |
 | Complete classic application replay | Decompiler pass/projector | Another stage recognizes again; replay differs in tree, locals, type facts, diagnostics, provenance, modifier state, or outcome; or a decision applies to another host |
-| Exact classic companion identity | Decompiler resolver/pass | Name/order selects `MoveNext`; signature/interface/MethodImpl evidence is incomplete; or malformed/ambiguous evidence reconstructs |
+| Exact classic companion identity | Metadata index + Decompiler thin adapter/pass | Decompiler scans structural relationships, kickoff IR disagrees with the returned type without decline, name/order selects `MoveNext`, or a typed relationship failure reconstructs |
 | Support-method identity and preservation | Decompiler importer/pass/projector + seam-free physical C# | Exact support mapping or builder identity is guessed; acknowledgment edits body/locals; replay differs; or classic/iterator/custom-builder support logic is lost |
 | Stage-local classic state | Decompiler projector failure matrix | A healthy stage lacks `Decided`; DEC0001 gains a decision; pre-pass failure borrows another stage's outcome; or post-pass failure loses its own outcome |
 | Snapshot clone isolation | Decompiler snapshot/render | Mutating one render changes another stage/render or any frozen sidecar |
@@ -1294,6 +1332,7 @@ are inherited from the prerequisite designs and are not repeated here.
 Deleting marker insertion must fail the render gate; deleting fidelity-cause
 enumeration must fail the DEC0004 gate. Widening
 `IsAsyncMethodBuilder` must fail the legacy-raise gate. Removing decision
-capture, application-owned state, exact companion/support identity, foreign
-context reset, shared nested embedding policy, or catalog-derived render
-altitude must each fail its independent gate.
+capture, application-owned state, the shared relationship-index lookup, exact
+companion/support identity, foreign context reset, shared nested embedding
+policy, or catalog-derived render altitude must each fail its independent
+gate.
