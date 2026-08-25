@@ -1002,8 +1002,9 @@ Definition records and product demos (this slice):
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the two home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `RendererRegistry` style) of the product home scenarios (Methods tour plus
+  multiple Call Graph shapes); listing is metadata-only and
+  `ResolveHomeScenario` allocates only that demo's peer records and enforces
   `ProductDemoSections` binding; JSON remains the portable load path for external
   definitions;
 - `ProductDemoRunPlan` lowers the resolved context, focus, type/member
@@ -1018,7 +1019,7 @@ Definition records and product demos (this slice):
   including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
-  two home demos; inspect-web's generated `RunHomeDemo` binding runs the
+  product home demos; inspect-web's generated `RunHomeDemo` binding runs the
   member-bound Call Graph preset from its product scenario id;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects

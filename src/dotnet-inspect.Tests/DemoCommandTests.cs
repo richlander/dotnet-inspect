@@ -147,6 +147,27 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public void Runner_LowersSinglePackageCallGraphWithoutCallerPackages()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        Assert.True(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Mermaid, noHeader: false, out var options, out var error),
+            error);
+        var member = Assert.IsType<MemberOptions>(options);
+        Assert.Equal("System.Text.Json.JsonSerializer", member.TypeName);
+        Assert.Equal("System.Text.Json@10.0.0", member.PackagePath);
+        Assert.Equal("1dc14dd1fb", member.MemberDigest);
+        Assert.Contains("Serialize", member.MemberFilter);
+        Assert.True(member.MermaidOutput);
+        Assert.Empty(member.CallerScopePackages);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
+            member.IncludeSections);
+    }
+
+    [Fact]
     public void Runner_Mermaid_SetsMermaidOutputAndSingleGraphSection()
     {
         var resolved = ProductInspectionDemos.ResolveHomeScenario(ProductInspectionDemos.ExtensionsCallGraphScenarioId);
