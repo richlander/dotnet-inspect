@@ -6,6 +6,11 @@ on:
       staging_run_id:
         description: 'Successful main staging run whose site artifact will be promoted'
         required: true
+      allow_manual_staging:
+        description: 'Allow an operator-dispatched staging run instead of a main-push run'
+        required: true
+        default: false
+        type: boolean
       confirm:
         description: 'Type "promote" to confirm production deployment'
         required: true
@@ -57,11 +62,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+          ALLOW_MANUAL_STAGING: ${{ inputs.allow_manual_staging }}
         run: |
           bash eng/validate-inspect-web-promotion.sh \
             "$STAGING_RUN_ID" \
             720 \
-            "$GITHUB_OUTPUT"
+            "$GITHUB_OUTPUT" \
+            "$ALLOW_MANUAL_STAGING"
 
   deploy:
     name: Promote to production
@@ -84,6 +91,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+          ALLOW_MANUAL_STAGING: ${{ inputs.allow_manual_staging }}
           EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
           EXPECTED_ATTEMPT: ${{ needs.resolve.outputs.run_attempt }}
           EXPECTED_ARTIFACT_ID: ${{ needs.resolve.outputs.artifact_id }}
@@ -93,6 +101,7 @@ jobs:
             "$STAGING_RUN_ID" \
             720 \
             "$RUNNER_TEMP/revalidated-inspect-web" \
+            "$ALLOW_MANUAL_STAGING" \
             "$EXPECTED_SHA" \
             "$EXPECTED_ATTEMPT" \
             "$EXPECTED_ARTIFACT_ID" \
