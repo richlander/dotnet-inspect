@@ -5,6 +5,10 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
+[The package query CLI](package-query-cli.md) proposes reusing this model's
+`--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
+`find --package-prefix` package rows.
+
 ## Problem
 
 Table sections are becoming richer. `Performance Triage` now has columns such as

@@ -13,6 +13,8 @@ Related docs:
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [Command model](command-model.md) — command surface and shared options
+- [The package query CLI](package-query-cli.md) — a facet-matched package
+  corpus row applying this ladder's "declared row unit" discipline
 
 ## The shape ladder
 
