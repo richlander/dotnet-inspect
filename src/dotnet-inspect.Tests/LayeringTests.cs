@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
+using System.Text.Json;
+using DotnetInspector.AssemblyOnlyHost.Fixture;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -16,6 +18,80 @@ namespace DotnetInspector.Tests;
 
 public sealed class LayeringTests
 {
+    [Fact]
+    public void AssemblyOnlyHost_InspectsCallerSuppliedLocalAssembly()
+    {
+        string assemblyPath = typeof(AssemblyOnlyInspector).Assembly.Location;
+
+        Assert.Equal(
+            "DotnetInspector.AssemblyOnlyHost.Fixture",
+            AssemblyOnlyInspector.ReadAssemblyName(assemblyPath));
+    }
+
+    [Fact]
+    public void AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "tests",
+            "DotnetInspector.AssemblyOnlyHost.Fixture",
+            "DotnetInspector.AssemblyOnlyHost.Fixture.csproj");
+        Assert.True(File.Exists(project), $"Assembly-only host project not found: {project}");
+        HashSet<string> closure = CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
+
+        Assert.Contains(Path.GetFullPath(project), closure);
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "CSharpText");
+        Assert.Contains(
+            "Microsoft.CodeAnalysis.BannedApiAnalyzers",
+            CommandErrorOwnershipTests.ProjectPackageDependencies(project));
+        AssertNoForbiddenImplementations(root, closure, PackageImplementationProjects);
+    }
+
+    [Fact]
+    public void MetadataClosure_ExcludesPackageAndStorageImplementations()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "src",
+            "ILInspector.Metadata",
+            "ILInspector.Metadata.csproj");
+        Assert.True(File.Exists(project), $"Metadata project not found: {project}");
+        HashSet<string> closure = CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
+
+        Assert.Contains(Path.GetFullPath(project), closure);
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "ILInspector.MetadataPrimitives");
+        AssertNoForbiddenImplementations(root, closure, PackageOrStorageImplementationProjects);
+    }
+
+    [Fact]
+    public void PackageAssetsReader_IncludesResolvedTransitivePackages()
+    {
+        using JsonDocument assets = JsonDocument.Parse(
+            """
+            {
+              "libraries": {
+                "Local.Transitive.Wrapper/1.0.0": { "type": "package" },
+                "NuGet.Protocol/7.3.0": { "type": "package" },
+                "Local.Project/1.0.0": { "type": "project" }
+              }
+            }
+            """);
+
+        Assert.Equal(
+            ["Local.Transitive.Wrapper", "NuGet.Protocol"],
+            CommandErrorOwnershipTests.PackageDependenciesFromAssets(assets.RootElement)
+                .Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void MetadataAndInstructions_DoNotReferenceEachOther()
     {
@@ -626,4 +702,48 @@ public sealed class LayeringTests
         Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
         Assert.Matches(sessionOpen, source);
     }
+
+    private static void AssertNoForbiddenImplementations(
+        string root,
+        IEnumerable<string> closure,
+        HashSet<string> forbiddenProjects)
+    {
+        string[] projects = closure
+            .Where(path => forbiddenProjects.Contains(
+                Path.GetFileNameWithoutExtension(path)))
+            .Select(path => Path.GetRelativePath(root, path))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] packages = closure
+            .SelectMany(CommandErrorOwnershipTests.ProjectPackageDependencies)
+            .Where(IsNuGetImplementationPackage)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.True(
+            projects.Length == 0,
+            $"Forbidden package or storage projects entered the closure: {string.Join(", ", projects)}");
+        Assert.True(
+            packages.Length == 0,
+            $"Forbidden NuGet implementation packages entered the closure: {string.Join(", ", packages)}");
+    }
+
+    private static bool IsNuGetImplementationPackage(string package) =>
+        package.Equals("NuGet", StringComparison.OrdinalIgnoreCase)
+        || package.StartsWith("NuGet.", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> PackageImplementationProjects =
+        new(StringComparer.Ordinal)
+        {
+            "DotnetInspector.Packages",
+            "DotnetInspector.Services",
+            "NuGetFetch",
+        };
+
+    private static readonly HashSet<string> PackageOrStorageImplementationProjects =
+        new(PackageImplementationProjects, StringComparer.Ordinal)
+        {
+            "DotnetInspector.Core",
+        };
 }
