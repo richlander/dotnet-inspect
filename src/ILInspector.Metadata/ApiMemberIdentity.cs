@@ -1718,7 +1718,8 @@ public static class ApiMemberIdentity
                     assembly = AssemblyReferenceIdentity.From(
                         reader,
                         (AssemblyReferenceHandle)terminal);
-                    if (PlatformKeys.IsCoreLibraryReference(assembly))
+                    if (PlatformKeys.IsCoreLibraryFacadeReference(
+                            assembly))
                     {
                         scopeKind =
                             NamedTypeScopeKind.IntrinsicCoreLibrary;

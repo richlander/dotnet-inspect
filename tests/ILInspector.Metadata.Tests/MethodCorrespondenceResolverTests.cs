@@ -663,8 +663,10 @@ public sealed class MethodCorrespondenceResolverTests
                 "System.Collections",
                 "IComparer");
         Assert.NotEqual(sourceScope.Name, targetScope.Name);
-        Assert.True(PlatformKeys.IsCoreLibraryReference(sourceScope));
-        Assert.True(PlatformKeys.IsCoreLibraryReference(targetScope));
+        Assert.True(
+            PlatformKeys.IsCoreLibraryFacadeReference(sourceScope));
+        Assert.True(
+            PlatformKeys.IsCoreLibraryFacadeReference(targetScope));
         MethodDefinitionHandle sourceMethod = FindMethod(
             source,
             "StructuralComparisons",

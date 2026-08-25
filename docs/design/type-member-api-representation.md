@@ -88,7 +88,9 @@ malformed generic indices, declaring-type arity, current-module scopes, or
 rejected type specifications fail visibly. Public durable anchors and strict
 definition correspondence do not request or pay for this API-only projection.
 Scope kinds must still agree: a local TypeDef does not correspond to an
-intrinsic-core-library TypeRef by name alone.
+intrinsic-core-library TypeRef by name alone. Facade-reference normalization is
+reader-pair correspondence only; it does not entitle either reader or any
+definition to mint core-library identity.
 `ResolveApiMember_AssemblyScopeCaseFoldingUsesOrdinalIdentity`,
 `ResolveApiMember_ReferencePackCoreLibraryFacadeMatchesRuntime`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

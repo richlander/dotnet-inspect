@@ -69,9 +69,11 @@ ordinal to the runtime image. Assembly-reference versions, generic-parameter
 names, equivalent current-scope TypeDef/TypeRef storage roles, and optional
 custom modifiers outside function pointers remain outside this API identity.
 External assembly or module scope remains identity: two same-named types from
-different dependencies cannot correspond. Every name comparison, extension
-classification, and identity materialization draws from one operation-wide
-work budget.
+different dependencies cannot correspond. Platform-keyed core-library facade
+references are the exception: reference and runtime facade spellings normalize
+to one intrinsic signature scope without granting either reader core-library
+entitlement. Every name comparison, extension classification, and identity
+materialization draws from one operation-wide work budget.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

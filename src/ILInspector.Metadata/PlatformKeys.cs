@@ -55,7 +55,7 @@ public static class PlatformKeys
     /// <c>ResolveApiMember_CoreLibraryFacadeScopesCorrespond</c> and
     /// <c>ResolveApiMember_UntrustedCoreLibraryFacadeDoesNotCorrespond</c>.
     /// </summary>
-    public static bool IsCoreLibraryReference(
+    internal static bool IsCoreLibraryFacadeReference(
         AssemblyReferenceIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
