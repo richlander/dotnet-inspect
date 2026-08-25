@@ -906,6 +906,22 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 
+test("type accessibility controls offer an all-access selection", () => {
+  const toggle =
+    appSource.match(/function toggleAccessibilityChip\([\s\S]*?\n}(?=\n\n\/\/ The accessibility selector)/)?.[0]
+    ?? "";
+  const control =
+    appSource.match(/function accessibilityControl\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Options for the namespace picker)/)?.[0]
+    ?? "";
+
+  assert.match(
+    toggle,
+    /if \(!bucket\) \{[\s\S]*new Set\(accessibilityBuckets\(\)\.map\(descriptor => descriptor\.id\)\);[\s\S]*return;/);
+  assert.match(
+    control,
+    /const allOn = buckets\.every\([\s\S]*data-access-chip="">all access<\/button>/);
+});
+
 test("typed shell controls own workbench, home, and load-error bindings", () => {
   const workbenchActions =
     appSource.match(/const workbenchShellActions: WorkbenchShellBindingActions = \{[\s\S]*?\n};/)?.[0]

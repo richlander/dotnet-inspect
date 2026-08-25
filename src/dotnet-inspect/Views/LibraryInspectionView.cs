@@ -841,7 +841,7 @@ public class LibraryInspectionView
         Name = SectionNames.BodyShapes,
         EmptyText = "No matching body shapes found.")]
     public List<BodyShapeRow>? BodyShapesSection =>
-        _data.BodyShapeSearchResult?.Matches?
+        _data.EffectiveBodyShapeSearchResult?.Matches?
             .Select(BodyShapeRow.FromMatch)
             .ToList();
 

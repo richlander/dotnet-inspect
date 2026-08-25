@@ -461,15 +461,15 @@ and passes that shared policy snapshot to every participant in that group.
 `--tfm all` therefore creates separate groups for distinct framework, asset-kind,
 and runtime directories rather than mixing binding universes. The host executes
 the group query only for explicit Integrations demand, including demand
-introduced by scanner prerequisites, correlates entries by acquisition
+introduced by query prerequisites, correlates entries by acquisition
 registration, and projects them into the existing per-library Finding model.
 Query production and the asynchronous library pipeline consume one
 participant's retained snapshot before the group releases it and advances, so
 the group keeps its complete binding universe without retaining the package's
-cumulative image bytes. The legacy Integrations scanner recognizes populated
-Findings and does not rescan. When Opportunities is selected, the host executes
-the typed Integrations prerequisite and dependent Opportunities query inside
-that same participant callback before release. Rejected or failed prerequisite
+cumulative image bytes. The retained typed Integrations result prevents a
+second scan. When Opportunities is selected, the host executes the typed
+Integrations prerequisite and dependent Opportunities query inside that same
+participant callback before release. Rejected or failed prerequisite
 entries remain typed dependent outcomes, and a blank assembly identity remains
 a compatibility skip. Direct `library` and package `--library` remain
 single-assembly controls.
@@ -781,19 +781,17 @@ query declares:
 CLI sections and Wasm views lower their selections into this plan. They do not
 own acquisition cost or producer dependencies.
 
-The existing `ScannerRegistry` remains an assembly-local predecessor: its
-explicit prerequisites, once-per-run resources, deterministic ordering, and
-tracing are useful foundations. `DotnetInspector.Queries` and its optional
-Research-backed companion now own typed metadata, direct-reference,
+The assembly-local string-keyed scanner predecessor has been retired.
+`DotnetInspector.Queries` and its optional Research-backed companion now own
+typed metadata, direct-reference,
 assembly-context reference, package dependency-group, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
 SourceLink, API-comparison, and Analysis body-signal comparison plans. The
 Analysis query
 consumes old/new `LibraryBodyIndex` collections and returns
 `ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
-a transitional adapter. String keys, mutable CLI models, path-shaped residual
-inputs, and command-owned acquisition remain migration boundaries rather than
-workspace contracts.
+a transitional adapter. Mutable CLI models, path-shaped residual inputs, and command-owned acquisition
+remain migration boundaries rather than workspace contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic
 prerequisite order. It passes each query's maximum transitive cost into the host

@@ -104,6 +104,29 @@ public static class CurrentBaselinePipelines
             ctx.Record("Facts");
         });
 
+    public static HashSet<string> GetRequiredScanners(
+        SectionPipeline<SpikeModel> pipeline,
+        Verbosity verbosity,
+        HashSet<string> include)
+    {
+        var required = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string section in pipeline.GetCandidateSections(verbosity, include))
+        {
+            string? scanner = section switch
+            {
+                "Metadata" => ScannerMetadata,
+                "Decompiled Source" => ScannerDecompile,
+                "Calls" => ScannerCalls,
+                "Facts" => ScannerFacts,
+                _ => null,
+            };
+            if (scanner is not null)
+                required.Add(scanner);
+        }
+
+        return required;
+    }
+
     public static async Task RunNetworkWorkAsync(
         SectionPipeline<SpikeModel> pipeline,
         HashSet<string> include,
@@ -134,7 +157,6 @@ public static class CurrentBaselinePipelines
         public static string Name => "Metadata";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => ScannerMetadata;
         public static bool CanRender(SpikeModel model) => model.MetadataLoaded;
     }
 
@@ -144,7 +166,6 @@ public static class CurrentBaselinePipelines
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => ScannerDecompile;
         public static bool CanRender(SpikeModel model) => model.DecompiledSource != null;
     }
 
@@ -156,7 +177,6 @@ public static class CurrentBaselinePipelines
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
-        public static string? ScannerKey => null;
         public static bool CanRender(SpikeModel model) => model.PdbSource != null;
     }
 
@@ -166,7 +186,6 @@ public static class CurrentBaselinePipelines
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => ScannerCalls;
         public static bool CanRender(SpikeModel model) => model.Calls > 0;
     }
 
@@ -176,7 +195,6 @@ public static class CurrentBaselinePipelines
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => ScannerFacts;
         public static bool CanRender(SpikeModel model) => model.Facts > 0;
     }
 }

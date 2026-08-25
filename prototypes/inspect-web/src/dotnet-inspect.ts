@@ -1731,10 +1731,15 @@ function isDefaultAccessibility(type: BrowserTypeSurface) {
     descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
 }
 
-// Multi-select chip toggle for the accessibility filter. Flips a bucket in the
-// active set; an empty result falls back to the "public" default so the type
-// list is never blanked out.
+// Multi-select chip toggle for the accessibility filter. An empty bucket
+// selects every bucket; otherwise, an empty result falls back to the "public"
+// default so the type list is never blanked out.
 function toggleAccessibilityChip(bucket: string) {
+  if (!bucket) {
+    state.accessibilityFilter =
+      new Set(accessibilityBuckets().map(descriptor => descriptor.id));
+    return;
+  }
   const next = new Set(state.accessibilityFilter);
   if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
   if (next.size === 0) {
@@ -1749,10 +1754,15 @@ function toggleAccessibilityChip(bucket: string) {
 function accessibilityControl() {
   const buckets = accessibilityBuckets();
   if (buckets.length <= 1) return "";
+  const allOn = buckets.every(
+    bucket => state.accessibilityFilter.has(bucket.id));
   const chips = buckets
     .map(bucket => `<button class="${state.accessibilityFilter.has(bucket.id) ? "active" : ""}" data-access-chip="${escapeHtml(bucket.id)}">${escapeHtml(bucket.label)}</button>`)
     .join("");
-  return `<div class="namespace-chips access-chips" aria-label="Accessibility filters">${chips}</div>`;
+  return `<div class="namespace-chips access-chips" aria-label="Accessibility filters">
+    <button class="${allOn ? "active" : ""}" data-access-chip="">all access</button>
+    ${chips}
+  </div>`;
 }
 
 // Options for the namespace picker dropdown: every namespace in the active
