@@ -702,6 +702,31 @@ test("the member nav does not advertise sections without a selected member", () 
   assert.doesNotMatch(html, /←→ sections/);
 });
 
+test("an absent overload entry fails visibly rather than rendering an empty list", () => {
+  const group = {
+    key: "method:Serialize",
+    name: "Serialize",
+    kind: "method",
+    overloads: [{ signature: "string Serialize(object value)" }],
+  };
+
+  assert.throws(
+    () => renderMemberNav({
+      type: jsonSerializer,
+      entries: [{ kind: "overload", group, index: 1 }],
+      memberCount: 1,
+      visibleMemberCount: 0,
+      filterControlsHtml: "",
+      selectedMemberKey: "method:Serialize",
+      selectedOverloadIndex: 1,
+      escapeHtml,
+      typeDisplayName,
+      shortKind,
+      highlight,
+    }),
+    /Member group 'method:Serialize' has no overload 1\./);
+});
+
 test("the type heading reports the owning package and library", () => {
   const html = typeHeading({
     item: jsonSerializer,
