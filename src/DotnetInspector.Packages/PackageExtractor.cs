@@ -2638,8 +2638,6 @@ public static class PackageExtractor
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (baseAddress.HasMalformedCriticalResource)
-            return SourceVersionList.Failure;
 
         if (GetVersionIndexUrl(baseAddress.Id, packageName) is { } indexUrl)
         {
@@ -2650,8 +2648,16 @@ public static class PackageExtractor
                 log,
                 NuGetCredentialScope.AuthFor(source, indexUrl, log),
                 cancellationToken).ConfigureAwait(false);
-            return versions;
+            if (!baseAddress.HasMalformedCriticalResource)
+                return versions;
+
+            return versions.Versions is not null
+                ? versions with { Failed = true }
+                : SourceVersionList.Failure;
         }
+
+        if (baseAddress.HasMalformedCriticalResource)
+            return SourceVersionList.Failure;
 
         if (attemptedAuthoritativeLookup)
             return SourceVersionList.Absent;
@@ -2779,7 +2785,7 @@ public static class PackageExtractor
         {
             return (
                 lookup.Versions,
-                Authoritative: true,
+                Authoritative: !lookup.Failed,
                 lookup.Failed,
                 lookup.SourceMissing);
         }
@@ -4008,9 +4014,10 @@ public static class PackageExtractor
                 cancellationToken).ConfigureAwait(false)
             : null;
 
-        bool authoritative = !source.IsNuGetOrg
+        bool authoritative = !lookup.Failed
+            && (!source.IsNuGetOrg
             || registration is not null
-                && RegistrationCovers(versions, registration.AllVersions);
+                && RegistrationCovers(versions, registration.AllVersions));
         var listings = versions
             .Select(v => new PackageVersionInfo(
                 v,
@@ -4020,7 +4027,7 @@ public static class PackageExtractor
         return (
             listings,
             authoritative,
-            Failed: !authoritative,
+            Failed: lookup.Failed || !authoritative,
             SourceMissing: false);
     }
 

@@ -461,6 +461,53 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_MalformedCriticalResourcePreservesVersionIndexPresence()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """
+            {
+              "resources": [
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "https://content.example.test/flat/"
+                },
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "not a URL"
+                }
+              ]
+            }
+            """);
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/index.json",
+            """{"versions":["1.0.0"]}""");
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"],
+            });
+
+        Assert.True(
+            Assert.Single(result.RuntimeIdentifierPackages!).Exists,
+            string.Join(Environment.NewLine, handler.Requests));
+        Assert.Contains(
+            handler.Requests,
+            request => request.AbsolutePath.EndsWith(
+                "/testpackage.linux-x64/index.json",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task VerifyAsync_DuplicatePackageIdsShareOneRemoteProbe()
     {
         var handler = new StubHandler();
