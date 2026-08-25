@@ -138,7 +138,8 @@ public static class InspectionDefinitionJson
                 EnsureUtf16(view.MemberSignature, "memberSignature");
                 EnsureUtf16(view.MemberKey, "memberKey");
                 EnsureUtf16(view.Section, "section");
-                EnsureUtf16(view.Library, "library");
+                foreach (string library in view.Libraries)
+                    EnsureUtf16(library, "libraries");
                 break;
             case NavigationDefinition navigation:
                 EnsureUtf16(navigation.Id, "id");
@@ -306,7 +307,7 @@ public static class InspectionDefinitionJson
             "view" =>
             [
                 "schemaVersion", "kind", "id", "lens", "type", "memberAnchor", "memberSignature",
-                "memberKey", "section", "library",
+                "memberKey", "section", "library", "libraries",
             ],
             "navigation" => ["schemaVersion", "kind", "id", "tabs", "focus"],
             "scenario" =>
@@ -525,6 +526,7 @@ public static class InspectionDefinitionJson
             memberKey: true,
             section: true,
             library: true,
+            libraries: true,
             tabs: true,
             focus: true,
             workspace: true,
@@ -552,6 +554,7 @@ public static class InspectionDefinitionJson
             memberKey: true,
             section: true,
             library: true,
+            libraries: true,
             tabs: true,
             focus: true,
             workspace: true,
@@ -585,6 +588,7 @@ public static class InspectionDefinitionJson
             memberKey: true,
             section: true,
             library: true,
+            libraries: true,
             tabs: true,
             focus: true,
             workspace: true,
@@ -614,6 +618,12 @@ public static class InspectionDefinitionJson
             query: true,
             view: true,
             navigation: true);
+        if (dto.Library is null && dto.Libraries is { Count: < 2 })
+        {
+            throw new InspectionDefinitionException(
+                "View field 'libraries' requires at least two identities; use 'library' for one.");
+        }
+
         return new ViewDefinition(
             dto.SchemaVersion,
             dto.Id!,
@@ -623,7 +633,8 @@ public static class InspectionDefinitionJson
             dto.MemberSignature,
             dto.MemberKey,
             dto.Section,
-            dto.Library);
+            dto.Library,
+            dto.Libraries);
     }
 
     private static NavigationDefinition CreateNavigation(InspectionDefinitionDto dto, ref int coordinateCount)
@@ -643,6 +654,7 @@ public static class InspectionDefinitionJson
             memberKey: true,
             section: true,
             library: true,
+            libraries: true,
             workspace: true,
             context: true,
             input: true,
@@ -671,6 +683,7 @@ public static class InspectionDefinitionJson
             memberKey: true,
             section: true,
             library: true,
+            libraries: true,
             tabs: true,
             focus: true);
         return new ScenarioDefinition(
@@ -701,6 +714,7 @@ public static class InspectionDefinitionJson
         bool memberKey = false,
         bool section = false,
         bool library = false,
+        bool libraries = false,
         bool tabs = false,
         bool focus = false,
         bool workspace = false,
@@ -731,6 +745,7 @@ public static class InspectionDefinitionJson
         Check(memberKey, "memberKey", dto.MemberKey);
         Check(section, "section", dto.Section);
         Check(library, "library", dto.Library);
+        Check(libraries, "libraries", dto.Libraries);
         Check(tabs, "tabs", dto.Tabs);
         Check(focus, "focus", dto.Focus);
         Check(workspace, "workspace", dto.Workspace);
@@ -779,7 +794,8 @@ public static class InspectionDefinitionJson
                 MemberSignature = view.MemberSignature,
                 MemberKey = view.MemberKey,
                 Section = view.Section,
-                Library = view.Library,
+                Library = view.Libraries.Count == 1 ? view.Libraries[0] : null,
+                Libraries = view.Libraries.Count > 1 ? view.Libraries.ToList() : null,
             },
             NavigationDefinition navigation => new InspectionDefinitionDto
             {
@@ -1233,6 +1249,8 @@ internal sealed class InspectionDefinitionDto
     public string? Section { get; set; }
 
     public string? Library { get; set; }
+
+    public List<string>? Libraries { get; set; }
 
     public List<NavigationTabDto>? Tabs { get; set; }
 

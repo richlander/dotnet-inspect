@@ -258,13 +258,15 @@ Field semantics:
   reference slots; the query-plan owner defines each payload shape and must
   itself sit at or below the dependency boundary.
 - `view` records — named view presets whose shape this note pins (`lens`,
-  `type`, `memberAnchor` or `memberSignature`, `section`, and `library` — each
-  field individually optional; member selectors require `type`, and
-  `memberAnchor` and `memberSignature` are mutually exclusive).
-  `library` scopes the view to one or more of the context's libraries — a
-  view concern, because scoping is a lens on a context, not a different
-  context. Selection state uses portable identities: `type` is a metadata
-  type name, and members are
+  `type`, `memberAnchor` or `memberSignature`, `section`, and library scope —
+  each field individually optional; member selectors require `type`, and
+  `memberAnchor` and `memberSignature` are mutually exclusive). The singular
+  `library` string is the compatible representation for exactly one identity;
+  `libraries` is the ordered string array for two or more identities. They are
+  mutually exclusive, and both are omitted for an unscoped view. Library scope
+  is a view concern, because scoping is a lens on a context, not a different
+  context. Selection state uses portable identities: `type` is a metadata type
+  name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
 - `navigation` records — named ordered tab sets plus one focused tab id. Each
@@ -912,7 +914,12 @@ Implementation must add, at minimum:
   focus, canonical emission of inherited context targets, independent
   preservation of `a` navigation focus and `x` binding context, repeated tuple
   references across contexts, and refusal of non-projectable authored record
-  sets;
+  sets —
+  `WorkspaceSharePacketTransposerTests.Transpose_CanonicalPacket_RoundTripsByteForByte`,
+  `ToPacket_CanonicalizesInheritedContextTargets`,
+  `Transpose_PreservesIndependentFocusAndSelectedContext`,
+  `Transpose_PreservesRepeatedTupleAcrossContexts`, and the neighboring
+  `ToPacket_Rejects*` tests gate those properties;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -1026,7 +1033,16 @@ Definition records and product demos (this slice):
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
-  signatures, and the pinned scalar-escaping rules; and
+  signatures, and the pinned scalar-escaping rules;
+- `WorkspaceSharePacketTransposer` converts that semantic packet to one
+  isolated packet-local workspace, navigation, view, and scenario record set.
+  The reverse projection preserves navigation order, independent focus and
+  selected context, repeated tuples, effective context targets, group base
+  pins, selection, section, and multi-library scope. Authored state outside v1
+  returns a typed non-projectable outcome rather than being flattened. The
+  transposer validates forward input and reverse output through
+  `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
+  bind a query, or execute the scenario; and
 - `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
   already-acquired package descriptors as coordinated surface and
   implementation groups. It owns role-local binding, identity collision
@@ -1038,8 +1054,8 @@ Definition records and product demos (this slice):
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
   `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
   Browser adapter and its unchanged Wasm limits; and
-- **not yet:** packet-to-definition transposition, minted view-facet ids,
-  packet view/query binding, or CLI and browser use of the codec;
+- **not yet:** minted view-facet ids, packet view/query binding, or CLI and
+  browser use of the codec and transposer;
   `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
   package + `--caller-package` encoding, the Browser package path still
   supplies exact already-acquired descriptors to the product role owner, and
