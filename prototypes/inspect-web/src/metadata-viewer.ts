@@ -11,8 +11,8 @@
 // stack (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`,
 // `explorerHistoryBack/Forward`, `explorerShowOverview`, `closeExplorer`), the
 // `IntersectionObserver` that hydrates cards lazily, the resize listener, and the global
-// keydown handler. This module owns the markup and its interaction mapping given explicit
-// state and action callbacks.
+// gesture effects registered with the shared keybinding dispatcher. This module owns the
+// markup and its interaction mapping given explicit state and action callbacks.
 //
 // The shared text helpers used well beyond these views (`escapeHtml`, `fmtBytes`) and the
 // shared lens chrome (`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`,
