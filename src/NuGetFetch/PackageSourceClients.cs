@@ -568,7 +568,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     private readonly Uri _endpoint;
     private readonly PackageSourceCredential? _credential;
     private readonly HttpClient _client;
-    private readonly NuGetClient _nuget;
+    private readonly NuGetV3PackageResourceClient _packageResources;
     private readonly NuGetFetchOptions _options;
     private readonly TimeSpan _clientTimeout;
 
@@ -599,7 +599,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         _client = client;
         _options = NuGetFetchOptions.Validate(options);
         _clientTimeout = client.Timeout;
-        _nuget = new NuGetClient(client, _options);
+        _packageResources = new NuGetV3PackageResourceClient(client);
     }
 
     public PackageSourceIdentity Identity => _identity;
@@ -713,11 +713,13 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                     _clientTimeout,
                     cancellationToken);
                 IReadOnlyList<string> versions =
-                    await _nuget.GetVersionsAsync(
+                    await _packageResources.GetVersionsAsync(
                         packageId,
                         NuGetSourceRequest.EndpointUrl(_endpoint),
                         _credential,
-                        operation).ConfigureAwait(false);
+                        _options,
+                        operation,
+                        useNuGetOrgShortcut: false).ConfigureAwait(false);
                 return PackageSourceProjection.ProjectVersions(
                     packageId,
                     versions,
@@ -741,17 +743,37 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             Identity,
             Kind,
             PackageSourceCapabilities.PackagePayload,
-            async () => new PackageSourcePayload(
-                coordinate,
-                Identity,
-                Kind,
-                PackageSourcePayloadKind.Package,
-                await _nuget.DownloadAsync(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    NuGetSourceRequest.EndpointUrl(_endpoint),
-                    _credential,
-                    cancellationToken).ConfigureAwait(false)),
+            async () =>
+            {
+                var operation = new NuGetOperationDeadline(
+                    _options,
+                    _clientTimeout,
+                    cancellationToken);
+                try
+                {
+                    (Stream content, long? advertisedLength) =
+                        await _packageResources.GetPackageAsync(
+                            coordinate.PackageId,
+                            coordinate.Version,
+                            NuGetSourceRequest.EndpointUrl(_endpoint),
+                            _credential,
+                            _options,
+                            operation,
+                            useNuGetOrgShortcut: false).ConfigureAwait(false);
+                    return new PackageSourcePayload(
+                        coordinate,
+                        Identity,
+                        Kind,
+                        PackageSourcePayloadKind.Package,
+                        content,
+                        advertisedLength);
+                }
+                catch
+                {
+                    operation.Dispose();
+                    throw;
+                }
+            },
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
