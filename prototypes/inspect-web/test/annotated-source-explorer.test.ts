@@ -267,7 +267,7 @@ test("the app routes the member tab into the TypeScript explorer", () => {
   assert.match(appSource, /from "\.\/annotated-source-explorer\.ts"/);
   assert.match(appSource, /renderAnnotatedSourceEntry\(/);
   assert.match(appSource, /#open-annotated-explorer/);
-  assert.match(appSource, /if \(state\.annotatedExplorer\)/);
+  assert.match(appSource, /active: \(\) => Boolean\(state\.annotatedExplorer\)/);
   assert.match(appSource, /renderAnnotatedSourceExplorer\(\)/);
   assert.match(appSource, /memberAnnotatedActiveFactIds/);
   assert.match(

@@ -71,6 +71,7 @@ import {
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
+  bindWorkspaceLinkNavigation,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -2403,8 +2404,8 @@ function render() {
         <section class="detail-pane">
           <header class="detail-head">
             <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
@@ -4859,7 +4860,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
     + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
@@ -4929,10 +4930,12 @@ function handleTypeKeys(event: KeyboardEvent) {
     } else if (event.key === "ArrowUp" || event.key === "k") {
       event.preventDefault();
       stepMemberNav(-1, true);
-    } else if (event.key === "ArrowLeft") {
+    } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture (see the document keydown
+      // handler); leave it unclaimed here so it isn't swallowed as in-page stepping.
       event.preventDefault();
       stepHorizontal(-1);
-    } else if (event.key === "ArrowRight") {
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       event.preventDefault();
       stepHorizontal(1);
     }
@@ -8878,47 +8881,142 @@ function refreshPackageStats() {
 }
 
 
-document.addEventListener("keydown", event => {
-  if (state.annotatedExplorer) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      const findingPeek =
-        document.querySelector<HTMLElement>(".finding-peek:popover-open");
-      if (findingPeek) {
-        findingPeek.hidePopover();
-        return;
+// A same-origin, unmodified `<a href>` click anywhere in the app takes over here instead
+// of loading a new document — this is the single owner of in-app link navigation.
+// `target="_blank"`, cross-origin hrefs, `download`, and modified clicks (new tab/window)
+// keep their native browser behavior; the guard lives in `shouldInterceptLinkClick`.
+function navigateInAppUrl(url: URL) {
+  if (isCreditsPath(url.pathname)) {
+    openCredits();
+    return;
+  }
+  if (url.pathname === "/" && !url.search && !url.hash) {
+    goHome();
+    return;
+  }
+  workspaceLocation.push(url.toString());
+  const loc = parseLocation();
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Navigating");
+}
+
+bindWorkspaceLinkNavigation(document, {
+  currentOrigin: () => location.origin,
+  resolve: href => new URL(href, location.href),
+  navigate: navigateInAppUrl,
+});
+
+// A modal-style view that owns the keydown event outright while it is open (Escape
+// dismisses it, plus whatever other keys are its own). Declaring these as one ordered
+// list — instead of a chain of `if (state.x) { ...; return; }` blocks — makes this the
+// single, explicit place that decides which layer Escape (and everything else) belongs
+// to; adding a new dismissable layer means adding one entry here, not re-deriving the
+// right spot in a growing if/else chain.
+interface KeydownLayer {
+  active(): boolean;
+  handle(event: KeyboardEvent): void;
+}
+
+// The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
+// out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
+// the ref->def history (Shift+Backspace forward). Settings is a modal-style page reachable
+// from home too, so it takes priority over the home bail below (which otherwise swallows the
+// keystroke on the home page).
+const homeIndependentKeydownLayers: readonly KeydownLayer[] = [
+  {
+    active: () => Boolean(state.explorer?.open),
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!state.explorer!.overview) explorerShowOverview();
+        else closeExplorer();
+      } else if (event.key === "Backspace") {
+        event.preventDefault();
+        if (event.shiftKey) explorerHistoryForward();
+        else explorerHistoryBack();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
       }
-      closeAnnotatedSourceExplorer();
+    },
+  },
+  {
+    active: () => state.settings,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSettings();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+];
+
+// These modal-style layers only apply once a package workspace is loaded (the home and
+// loading/error bails below run first), but are otherwise the same kind of Escape-owning
+// layer as above.
+const workspaceKeydownLayers: readonly KeydownLayer[] = [
+  {
+    active: () => Boolean(state.annotatedExplorer),
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        const findingPeek =
+          document.querySelector<HTMLElement>(".finding-peek:popover-open");
+        if (findingPeek) {
+          findingPeek.hidePopover();
+          return;
+        }
+        closeAnnotatedSourceExplorer();
+      }
+    },
+  },
+  {
+    active: () => state.graphSourceOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeGraphSource();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.docViewerOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDocViewer();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.spotlightOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSpotlight();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openSpotlight("", "commands");
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        openSpotlight();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+      }
+    },
+  },
+];
+
+document.addEventListener("keydown", event => {
+  for (const layer of homeIndependentKeydownLayers) {
+    if (layer.active()) {
+      layer.handle(event);
+      return;
     }
-    return;
-  }
-  // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
-  // out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
-  // the ref->def history (Shift+Backspace forward).
-  if (state.explorer?.open) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!state.explorer.overview) explorerShowOverview();
-      else closeExplorer();
-    } else if (event.key === "Backspace") {
-      event.preventDefault();
-      if (event.shiftKey) explorerHistoryForward();
-      else explorerHistoryBack();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  // Settings is a modal-style page reachable from home too, so handle its Escape before the
-  // home bail below (which otherwise swallows the keystroke on the home page).
-  if (state.settings) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSettings();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
   }
   const typing = isTextEntry();
   // The home page has its own scoped input handling (search box); global workbench
@@ -8930,38 +9028,11 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  if (state.graphSourceOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeGraphSource();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
+  for (const layer of workspaceKeydownLayers) {
+    if (layer.active()) {
+      layer.handle(event);
+      return;
     }
-    return;
-  }
-  if (state.docViewerOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDocViewer();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.spotlightOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      openSpotlight("", "commands");
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-      event.preventDefault();
-      openSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-    }
-    return;
   }
   if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
     event.preventDefault();
@@ -8981,10 +9052,17 @@ document.addEventListener("keydown", event => {
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     focusFilter();
-  } else if (event.altKey && event.key === "ArrowLeft") {
+  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowLeft"
+      && (event.altKey || (event.shiftKey && !typing))) {
+    // Alt+←/→ always drives back/forward. Shift+←/→ is the same gesture, gated on
+    // `!typing` so it doesn't steal native text-selection (Shift+Arrow) inside inputs.
+    // `!event.defaultPrevented` defers to any element-scoped handler (e.g. the type
+    // list's in-page stepHorizontal, the graph viewport's pan) that already claimed
+    // this key. Shift+↑/↓ stays unclaimed for now.
     event.preventDefault();
     navBack();
-  } else if (event.altKey && event.key === "ArrowRight") {
+  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowRight"
+      && (event.altKey || (event.shiftKey && !typing))) {
     event.preventDefault();
     navForward();
   } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {
