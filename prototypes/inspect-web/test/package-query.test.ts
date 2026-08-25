@@ -143,7 +143,33 @@ test("toggleSelection and clearSelection manage the selected set", () => {
   assert.ok(updates >= 3);
 });
 
-test("cancel() marks completion cancelled without clearing already-streamed rows", async () => {
+test("cancel() marks a streaming completion cancelled without clearing already-streamed rows", async () => {
+  const state = initialQueryState();
+  let releaseGate!: () => void;
+  const gate = new Promise<void>(resolve => { releaseGate = resolve; });
+  const controller = createPackageQueryController(
+    state,
+    {
+      async run(_request, onPage, _onFailure, abortSignal) {
+        onPage([row("A")]);
+        await gate;
+        if (abortSignal.aborted) return { kind: "cancelled" };
+        return { kind: "exhausted" };
+      },
+    },
+    () => {},
+  );
+
+  const running = controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  controller.cancel();
+  releaseGate();
+  await running;
+
+  assert.equal(state.outcome.completion.kind, "cancelled");
+  assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["A"]);
+});
+
+test("cancel() is a no-op once the run has already reached a final completion", async () => {
   const state = initialQueryState();
   const controller = createPackageQueryController(
     state,
@@ -154,6 +180,31 @@ test("cancel() marks completion cancelled without clearing already-streamed rows
   await controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
   controller.cancel();
 
-  assert.equal(state.outcome.completion.kind, "cancelled");
+  // A finished run's honesty label must not be overwritten by a later cancel().
+  assert.equal(state.outcome.completion.kind, "exhausted");
   assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["A"]);
+});
+
+test("cancel() signals the data source's abortSignal so in-flight work can stop", async () => {
+  const state = initialQueryState();
+  let observedAborted = false;
+  const controller = createPackageQueryController(
+    state,
+    {
+      async run(_request, onPage, _onFailure, abortSignal) {
+        onPage([row("A")]);
+        await new Promise<void>(resolve => {
+          abortSignal.addEventListener("abort", () => { observedAborted = true; resolve(); });
+        });
+        return { kind: "cancelled" };
+      },
+    },
+    () => {},
+  );
+
+  const running = controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  controller.cancel();
+  await running;
+
+  assert.ok(observedAborted, "the source's abortSignal should fire when cancel() is called");
 });

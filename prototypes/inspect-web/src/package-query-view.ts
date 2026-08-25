@@ -53,7 +53,7 @@ function renderRow(
           <button class="opp-type-chip" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}" title="Open ${escapeHtml(row.packageId)} in the workspace">
             <span class="opp-type-name">${escapeHtml(row.packageId)}</span><span class="opp-type-ns">${escapeHtml(row.version)}</span>
           </button>
-          <span class="query-tier query-tier-${row.tier}">${row.tier}</span>
+          <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}</span>
         </div>
         <div class="opp-lookfor">${evidence}</div>
       </div>

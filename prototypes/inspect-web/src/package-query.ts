@@ -114,6 +114,10 @@ export interface PackageQueryDataSource {
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
     onFailure: (failure: string) => void,
+    /** Signaled when `cancel()` is called or a newer run supersedes this one,
+     * so the source can stop in-flight network/manifest work instead of
+     * running it to completion unobserved. */
+    abortSignal: AbortSignal,
   ): Promise<QueryCompletion>;
 }
 
@@ -143,9 +147,12 @@ export function createPackageQueryController(
   onUpdate: () => void,
 ): PackageQueryController {
   let generation = 0;
+  let abortController = new AbortController();
 
   return {
     async run(request: QueryRequest) {
+      abortController.abort();
+      abortController = new AbortController();
       const requestGeneration = ++generation;
       state.request = request;
       state.outcome = emptyOutcome();
@@ -164,6 +171,7 @@ export function createPackageQueryController(
           state.outcome = appendFailure(state.outcome, failure);
           onUpdate();
         },
+        abortController.signal,
       );
 
       if (requestGeneration !== generation) return;
@@ -172,7 +180,11 @@ export function createPackageQueryController(
     },
 
     cancel() {
+      // A run that already finished (bounded/exhausted) owns its own
+      // completion label; cancelling after the fact must not overwrite it.
+      if (state.outcome.completion.kind !== "streaming") return;
       generation++;
+      abortController.abort();
       state.outcome = withCompletion(state.outcome, { kind: "cancelled" });
       onUpdate();
     },

@@ -119,10 +119,10 @@ modal over one package:
 ## Sharing and URL shape
 
 `QueryRequest` is the shareable unit, and it is the same content as the
-`queryPreset` record described in
-[Saving queries and results](#saving-queries-and-results) — the URL is one of
-that record's two destinations (the other being local storage), not a
-separate encoding. Following the
+`kind: "query"` record described in
+[Saving queries and results](#saving-queries-and-results) — the URL carries a
+terse projection of that record (the other destination being local storage,
+which keeps the full record), not a separate encoding. Following the
 `encodeWorkspaceShareState`/`WorkspaceUrlState` convention already used for
 package tabs, a query tab's URL carries a terse projection of the preset
 (scope + facet references + `requestedLimit`), so a query tab round-trips
@@ -205,20 +205,24 @@ The thing that's portable/shareable and the thing that's a local cache are
 different in kind, so they are saved as two separate artifacts rather than one
 `{ request, outcome }` record:
 
-- **The preset — a `queryPreset` record.** `docs/design/workspace-definitions.md`
+- **The preset — a `query` record.** `docs/design/workspace-definitions.md`
   already establishes the target shape for this class of problem: a family of
-  declarative JSON definition records (workspace, view, navigation, and
-  **query** presets) with long, readable field names, a required `kind`
-  discriminator, and a terse base64url URL projection — not a bespoke
-  encoding per feature, and explicitly not a query language ("portable
-  type/member shapes are the selector vocabulary, not the container"). A saved
-  query here is that same `queryPreset` record: `{ kind: "queryPreset",
-  version, scope, facets: FacetRef[], requestedLimit }`, where each `FacetRef`
-  is a reference into the fixed, named facet vocabulary (see
-  [v1 non-goals](#v1-non-goals)), never free text. This is small, content-only,
-  and exactly what [Sharing](#sharing-and-url-shape) already treats as the
-  durable, shareable unit — saving a preset to local storage and putting one
-  in the URL are the same serialization, just two destinations.
+  declarative JSON definition records (`catalog`, `workspace`, `query`,
+  `view`, `navigation`, `scenario`) sharing `schemaVersion` (required on every
+  record kind) and `id` (required stable identity within its kind), with long,
+  readable field names and explicitly not a query language ("portable
+  type/member shapes are the selector vocabulary, not the container"). A
+  saved query here is that same `kind: "query"` record —
+  `{ kind: "query", schemaVersion, id, scope, facets: FacetRef[],
+  requestedLimit }` — not a locally-invented `queryPreset` shape; the payload
+  fields (`scope`, `facets`, `requestedLimit`) are this feature's contribution
+  as the query-plan owner, layered on the record/reference slots
+  `workspace-definitions.md` pins. Each `FacetRef` is a reference into the
+  fixed, named facet vocabulary (see [v1 non-goals](#v1-non-goals)), never
+  free text. This record is small and content-only; the URL carries a terse
+  projection of it rather than the record verbatim (see
+  [Sharing](#sharing-and-url-shape)), and local storage keeps the full record
+  — the same content, two destinations, one canonical shape.
 - **The outcome cache — local only, keyed by the preset's signature.** Rows,
   evidence, and completion state are large, mutable, and fully re-derivable
   from the preset, so they never travel with it. They are cached locally,
@@ -240,13 +244,22 @@ preset never needs to "contain" its own history.
   after a cached "first 500" shows the prior 500 rows instantly, then streams
   only the delta, with a visible marker between "from cache" and "newly
   streamed."
-- **Extension is only valid when the ordering is stable.** Relevance-ranked
-  search results are not guaranteed stable between calls, so a resumed stream
-  must revalidate the cached prefix's row identities against the first page of
-  the new call (cheap: compare ids) and fall back to a full rerun, visibly
-  labeled, if the prefix no longer matches. Silently trusting stale order
-  would violate the same honesty rule the bounded/exhaustive footer exists to
-  uphold.
+- **Extension is only valid when the ordering is provably stable.** Relevance-
+  ranked search results are not guaranteed stable between calls, and checking
+  only the new call's first page cannot certify the rest of the cached
+  prefix — a change beyond that first page would go undetected and silently
+  corrupt the resume. Resuming is only safe when the source can anchor the
+  continuation to something stronger than a first-page spot-check: either a
+  source-provided continuation/snapshot token (preferred, and the only form
+  that avoids re-fetching), or, absent that, revalidating the *entire* cached
+  prefix's row identities against a fresh fetch of that same range before
+  trusting it — which costs a full re-fetch of the prefix, same as not
+  resuming, but is at least honest about paying for what it verifies. Either
+  way, any mismatch falls back to a full rerun, visibly labeled; silently
+  trusting stale order would violate the same honesty rule the
+  bounded/exhaustive footer exists to uphold. Whether #4551's source can offer
+  a continuation token is an open question this proposal defers to that
+  infra, not something assumed here.
 - **A preset is a testable artifact without being a network artifact.** A
   preset alone is enough to build a `--package-prefix` CLI regression fixture
   from #4551 (the CLI's native form of a preset is just its equivalent flags,
@@ -261,11 +274,11 @@ preset never needs to "contain" its own history.
 - **Staleness is surfaced, never hidden.** A cached outcome always shows its
   last-run time and an explicit "Refresh" action; it is never silently
   presented as current.
-- **No new encoding invented here.** The exact `queryPreset` codec/versioning
+- **No new encoding invented here.** The exact `query` record codec/versioning
   is deferred to whatever lands for the shared definition-record family
   (`workspace-definitions.md`, tracked alongside #4647's CLI `-W` replay work)
   rather than this proposal inventing a fifth ad hoc scheme to sit next to
-  workspace/view/navigation presets.
+  catalog/workspace/view/navigation records.
 
 ## v1 non-goals
 
@@ -277,7 +290,7 @@ preset never needs to "contain" its own history.
 - No unbounded "Deepen" — IL-tier escalation always operates on an explicit,
   size-bounded selection.
 - No server-side, account, or sync persistence — saving is local-storage-only
-  (browser storage or a CLI file), and only the `queryPreset` is ever shared;
+  (browser storage or a CLI file), and only the `query` record is ever shared;
   its cached outcome never leaves the machine that produced it. See
   [Saving queries and results](#saving-queries-and-results).
 - No chart type beyond bar and pie in v1, and no free-form aggregation axis —
@@ -301,4 +314,9 @@ preset never needs to "contain" its own history.
 
 The TypeScript shape (`src/package-query.ts` /
 `src/package-query-view.ts`) is scaffolded now against this contract with a
-stub data source, so wiring in step 2 is a source-swap, not a redesign.
+stub data source, covering the result stream, facet rail, and selection/
+cancel state. Wiring in step 2 is a source-swap for that scaffolded surface,
+not a redesign of it — but the query bar (editable scope entry) and
+[Visualization](#visualization) are not scaffolded yet and remain separate,
+additive work, tracked alongside steps 2-5 above rather than implied by this
+scaffold.

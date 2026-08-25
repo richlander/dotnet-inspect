@@ -50,6 +50,28 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
+test("row tier is escaped like every other row field (defense in depth for untrusted data)", () => {
+  const maliciousRow: QueryResultRow = {
+    ...row("Microsoft.Bcl.AsyncInterfaces"),
+    // A row's fields ultimately originate from a nuspec/search response, so
+    // this must be escaped the same as packageId/version/evidence even
+    // though the type is currently a closed union (see
+    // untrusted-data-threat-model.md).
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- simulating a hostile/malformed row field
+    tier: "<img src=x onerror=alert(1)>" as unknown as QueryResultRow["tier"],
+  };
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: appendRows(emptyOutcome(), [maliciousRow]),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.ok(!html.includes("<img src=x"), "raw tier markup must not appear unescaped");
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
 test("a streaming result renders rows, tiers, facets, and the streaming footer", () => {
   const state: PackageQueryState = {
     request: withFacet(createQueryRequest("Microsoft.*", "Microsoft."), FACETS[0]),
