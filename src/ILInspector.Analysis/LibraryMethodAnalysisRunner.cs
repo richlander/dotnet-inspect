@@ -83,8 +83,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
-        out MethodIdentity? sourceOwner,
-        out bool sourceGenerated,
+        out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         bool directlySelectedBody);
@@ -502,15 +501,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                 bool sourceFunction =
                     CompilerGeneratedNames.IsLocalFunctionOrLambda(
                         caller.Name);
-                MethodIdentity? sourceOwner = null;
-                bool sourceOwnerGenerated = false;
+                AuthenticatedSourceOwner sourceOwner = default;
                 bool hasSourceOwner = sourceFunction
                     && _infrastructure.TryResolveLiftedSourceOwner(
                         methodHandle,
                         methodDefinition,
                         caller,
                         out sourceOwner,
-                        out sourceOwnerGenerated,
                         bodyScope,
                         bodyTypeScope,
                         requestedMethodScope?.Contains(
@@ -519,7 +516,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                 bool sourceGenerated =
                     _infrastructure.HasGeneratedCodeAttribute(
                         methodAttributes)
-                    || hasSourceOwner && sourceOwnerGenerated;
+                    || hasSourceOwner
+                        && sourceOwner
+                            .SuppressesOpportunities;
                 bool compilerGenerated =
                     _infrastructure.HasCompilerGeneratedAttribute(
                         methodAttributes)
@@ -547,9 +546,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                     && !typeSourceGenerated
                     && compilerGenerated
                     && hasSourceOwner
-                    && sourceOwner is not null
                     && !IsBlazorRenderMethod(caller)
-                    && !IsBlazorRenderMethod(sourceOwner)
+                    && !IsBlazorRenderMethod(
+                        sourceOwner.Method)
                     && !IsBlazorRenderMethod(opportunitySourceOwner))
                 {
                     result.Opportunities =

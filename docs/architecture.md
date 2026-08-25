@@ -863,6 +863,10 @@ Research overlay bridge, and the application layer:
   descendant physical bodies. Scoped indexes retain neither fallback.
   Lifted-owner groups authenticate state-machine claims across the complete
   owner candidate set in every scope without acquiring unselected owner bodies.
+  Authenticated lifted-owner evidence carries the owner identity together with
+  method- and enclosing-type compiler-generated provenance; attribution,
+  scope admission, and recommendation projection consume that evidence rather
+  than re-reading a narrower attribute subset.
   Ownership-derived recommendations require an authenticated ultimate owner
   in full, method, and type scopes; unresolved ownership retains physical
   evidence and body-intrinsic opportunities but fails closed for attribution.
@@ -906,9 +910,14 @@ Research overlay bridge, and the application layer:
   gate malformed immediate and intermediate names.
   `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
   `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
+  `ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
   `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
   `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
-  compatibility, async scope admission, and terminal-hop authentication.
+  compatibility, method- and type-level generated provenance, async scope
+  admission, and terminal-hop authentication.
+  `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
+  gates ultimate-owner recommendation attribution with a resolvable two-hop
+  compiled relationship in full, method, and type scopes.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit

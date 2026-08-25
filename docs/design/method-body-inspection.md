@@ -329,7 +329,10 @@ budgets. The primary resolver adapters and
 The lifted-source-owner resolver owns acquisition-scoped local-function/lambda
 owner correlation, memoized owner-body reference evidence, top-level
 entry-point authentication, and classic async state-machine type-name
-resolution. It reuses primary metadata identity and generated-code judgments.
+resolution. Its authenticated owner evidence pairs method identity with
+method- and enclosing-type generated provenance from the primary metadata
+resolver, so malformed-name authentication uses the provenance captured with
+the resolved owner instead of re-deriving a narrower attribute subset.
 `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
 `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
 `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -369,9 +372,14 @@ multi-hop caller projection for unresolved and recoverable-failure paths;
 gate canonical generated-name admission at immediate and intermediate hops.
 `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
 `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
+`ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
 `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
 `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
-compatibility, async scope admission, and terminal-hop authentication.
+compatibility, generated provenance, async scope admission, and terminal-hop
+authentication.
+`OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
+gates ultimate-owner recommendation attribution across full, method, and type
+scopes.
 `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
 `ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
 async-owner shapes.

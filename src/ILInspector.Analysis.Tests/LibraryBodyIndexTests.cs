@@ -5005,6 +5005,82 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(LibraryBodyIndexTests).Assembly.Location);
+        const string originalOwner =
+            nameof(CompilerGeneratedOwnerContainer
+                .CompilerGeneratedTypeOwner);
+        const string malformedOwner =
+            "Noise>g__ABCDEFGHIJKLMNOPQ";
+        ReplaceAscii(
+            image,
+            originalOwner,
+            malformedOwner,
+            expectedReplacements: 2);
+
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TypeGeneratedMalformedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            full.Methods,
+            method => method.Name == malformedOwner);
+        MethodIdentity lifted = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{malformedOwner}>g__EqualsCore|",
+                StringComparison.Ordinal));
+
+        AssertRejected(full, evidenceExpected: true);
+
+        LibraryBodyIndex methodScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TypeGeneratedMalformedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    owner.MetadataToken,
+                });
+        AssertRejected(
+            methodScoped,
+            evidenceExpected: false);
+
+        LibraryBodyIndex typeScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TypeGeneratedMalformedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        owner.DeclaringType));
+        AssertRejected(
+            typeScoped,
+            evidenceExpected: true);
+
+        void AssertRejected(
+            LibraryBodyIndex index,
+            bool evidenceExpected)
+        {
+            Assert.Null(
+                index.ResolveDeclaredMethod(lifted));
+            Assert.DoesNotContain(
+                index.DirectCalls,
+                call => call.EvidenceMethod == lifted
+                    && call.Caller == owner);
+            Assert.Equal(
+                evidenceExpected,
+                index.DirectCalls.Any(
+                    call => call.EvidenceMethod == lifted
+                        && call.Caller == lifted));
+        }
+    }
+
+    [Fact]
+    public void
         Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies()
     {
         byte[] immediateImage =
@@ -11713,6 +11789,108 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(LibraryBodyIndexTests).Assembly.Location);
+        ReplaceUniqueAscii(
+            image,
+            new string('B', 32),
+            "<<Ultimate>g__Mid|0_0>g__Box|0_1");
+        ReplaceUniqueAscii(
+            image,
+            new string('A', 20),
+            "<Ultimate>g__Mid|0_0");
+
+        LibraryBodyIndex identities =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ResolvedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity ultimate = Assert.Single(
+            identities.Methods,
+            method => method.Name == "Ultimate"
+                && method.DeclaringType.Name.Contains(
+                    nameof(
+                        ResolvedNestedLiftedOwnerFixture),
+                    StringComparison.Ordinal));
+        MethodIdentity intermediate = Assert.Single(
+            identities.Methods,
+            method => method.Name
+                == "<Ultimate>g__Mid|0_0");
+        MethodIdentity evidence = Assert.Single(
+            identities.Methods,
+            method => method.Name
+                == "<<Ultimate>g__Mid|0_0>g__Box|0_1");
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ResolvedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ResolvedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    evidence.MetadataToken,
+                }),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ResolvedNestedLiftedOwner.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        ultimate.DeclaringType)),
+        })
+        {
+            OptimizationOpportunity opportunity =
+                Assert.Single(
+                    index.OptimizationOpportunities,
+                    opportunity => opportunity.Shape
+                            == "generic-parameter-object-box"
+                        && opportunity.Method.MetadataToken
+                            == evidence.MetadataToken);
+            Assert.Equal(
+                ultimate,
+                opportunity.SourceOwner);
+            Assert.Equal(
+                ultimate,
+                index.ResolveDeclaredMethod(evidence));
+        }
+
+        foreach (int excludedScope in new[]
+        {
+            ultimate.MetadataToken,
+            intermediate.MetadataToken,
+        })
+        {
+            LibraryBodyIndex index =
+                LibraryBodyIndex.OpenFromPrefetchedImage(
+                    "ResolvedNestedLiftedOwner.dll",
+                    [.. image],
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    bodyScope:
+                        new HashSet<int>
+                        {
+                            excludedScope,
+                        });
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Method
+                    .MetadataToken
+                    == evidence.MetadataToken);
+        }
+    }
+
+    [Fact]
     public void DirectCalls_AttributeLiftedBodiesButNotIterators()
     {
         var index = LibraryBodyIndex.Open(
@@ -16986,6 +17164,24 @@ public class CompilerGeneratedOwnerContainer
 
         static bool EqualsCore(T x, T y) => x!.Equals(y);
     }
+}
+
+public static class ResolvedNestedLiftedOwnerFixture
+{
+    public static bool Ultimate<T>(T left, T right)
+        => AAAAAAAAAAAAAAAAAAAA(left, right);
+
+    public static bool AAAAAAAAAAAAAAAAAAAA<T>(
+        T left,
+        T right)
+        => BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB(
+            left,
+            right);
+
+    public static bool BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB<T>(
+        T left,
+        T right)
+        => left!.Equals(right);
 }
 
 public static unsafe class MemberRefFunctionPointerFixture<TOuter>

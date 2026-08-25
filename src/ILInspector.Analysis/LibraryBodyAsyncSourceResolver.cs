@@ -430,18 +430,58 @@ internal sealed class LibraryBodyAsyncSourceResolver
     internal bool HasMalformedCompilerGeneratedLiftedName(
         MethodIdentity source)
     {
+        if (!CompilerGeneratedNames
+                .HasLiftedMethodMarker(source.Name)
+            || CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(source.Name))
+        {
+            return false;
+        }
+
+        return CreateAuthenticatedSourceOwner(
+            source).IsCompilerGenerated;
+    }
+
+    internal bool HasMalformedCompilerGeneratedLiftedName(
+        AuthenticatedSourceOwner source) =>
+        CompilerGeneratedNames
+            .HasLiftedMethodMarker(source.Method.Name)
+        && !CompilerGeneratedNames
+            .IsLocalFunctionOrLambda(source.Method.Name)
+        && source.IsCompilerGenerated;
+
+    internal AuthenticatedSourceOwner
+        CreateAuthenticatedSourceOwner(
+            MethodIdentity source)
+    {
         EntityHandle handle = MetadataTokens.EntityHandle(
             source.MetadataToken);
-        return CompilerGeneratedNames
-                .HasLiftedMethodMarker(source.Name)
-            && !CompilerGeneratedNames
-                .IsLocalFunctionOrLambda(source.Name)
-            && handle.Kind == HandleKind.MethodDefinition
-            && _primaryMetadataResolver
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            return new AuthenticatedSourceOwner(
+                source,
+                HasGeneratedCode: false,
+                IsCompilerGenerated: false,
+                IsAuthenticatedTopLevelEntryPoint: false);
+        }
+
+        MethodDefinition definition =
+            _reader.GetMethodDefinition(
+                (MethodDefinitionHandle)handle);
+        CustomAttributeHandleCollection attributes =
+            definition.GetCustomAttributes();
+        return new AuthenticatedSourceOwner(
+            source,
+            _primaryMetadataResolver
+                .HasGeneratedCodeAttribute(
+                    attributes),
+            _primaryMetadataResolver
                 .HasCompilerGeneratedAttribute(
-                    _reader.GetMethodDefinition(
-                        (MethodDefinitionHandle)handle)
-                        .GetCustomAttributes());
+                    attributes)
+                || _primaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(
+                        definition.GetDeclaringType()),
+            IsAuthenticatedTopLevelEntryPoint: false);
     }
 
     internal void Prewarm()
