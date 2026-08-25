@@ -949,28 +949,6 @@ public static class MemberCommand
         return sections.Count > 0;
     }
 
-    private static MemberOptions ExcludeCallersSection(MemberOptions options)
-    {
-        var includeSections = options.IncludeSections is { } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : [];
-        includeSections.Remove(SectionNames.Callers);
-        HashSet<string>? exactIncludeSections = null;
-        if (options.ExactIncludeSectionsOverride is { } exactExisting)
-        {
-            exactIncludeSections = new HashSet<string>(
-                exactExisting,
-                StringComparer.OrdinalIgnoreCase);
-            exactIncludeSections.Remove(SectionNames.Callers);
-        }
-        return options with
-        {
-            IncludeSections = includeSections,
-            ExactIncludeSectionsOverride = exactIncludeSections,
-            CallerScopeSectionImplicitlySelected = false
-        };
-    }
-
     private static bool HasAuthoredSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
@@ -1084,7 +1062,20 @@ public static class MemberCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : [];
         includeSections.Remove(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        HashSet<string>? exactIncludeSections = null;
+        if (options.ExactIncludeSectionsOverride is { } exactExisting)
+        {
+            exactIncludeSections = new HashSet<string>(
+                exactExisting,
+                StringComparer.OrdinalIgnoreCase);
+            exactIncludeSections.Remove(SectionNames.Callers);
+        }
+        return options with
+        {
+            IncludeSections = includeSections,
+            ExactIncludeSectionsOverride = exactIncludeSections,
+            CallerScopeSectionImplicitlySelected = false
+        };
     }
 
     private static MemberOptions IncludeCallersSection(MemberOptions options)
