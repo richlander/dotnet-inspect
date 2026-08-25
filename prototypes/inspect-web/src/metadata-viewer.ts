@@ -211,6 +211,22 @@ export interface MetadataExplorerBindingActions {
   onTableFocus: (index: number, rowId: number) => void;
 }
 
+function parseExplorerCoordinates(value: string | undefined): [number, number] | null {
+  const parts = value?.split(":");
+  if (!parts || parts.length !== 2) return null;
+  const indexText = parts[0];
+  const rowIdText = parts[1];
+  if (!indexText || !rowIdText
+    || !/^\d+$/.test(indexText) || !/^\d+$/.test(rowIdText)) {
+    return null;
+  }
+  const index = Number(indexText);
+  const rowId = Number(rowIdText);
+  return Number.isSafeInteger(index) && Number.isSafeInteger(rowId)
+    ? [index, rowId]
+    : null;
+}
+
 export function bindMetadataExplorer(
   root: ParentNode,
   explorer: Pick<ExplorerState, "overview"> | null,
@@ -246,9 +262,8 @@ export function bindMetadataExplorer(
   root.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(button =>
     button.addEventListener("click", event => {
       event.stopPropagation();
-      const [index, rowId] =
-        (button.dataset.mdeJump ?? "").split(":").map(Number);
-      actions.onJump(index, rowId);
+      const coordinates = parseExplorerCoordinates(button.dataset.mdeJump);
+      if (coordinates) actions.onJump(...coordinates);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(button =>
     button.addEventListener("click", event => {
@@ -257,9 +272,8 @@ export function bindMetadataExplorer(
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(button =>
     button.addEventListener("click", () => {
-      const [index, startRowId] =
-        (button.dataset.mdePage ?? "").split(":").map(Number);
-      actions.onPage(index, startRowId);
+      const coordinates = parseExplorerCoordinates(button.dataset.mdePage);
+      if (coordinates) actions.onPage(...coordinates);
     }));
   root.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
     chip.addEventListener("click", () => {
@@ -284,9 +298,8 @@ export function bindMetadataExplorer(
     root.querySelectorAll<HTMLElement>(
       ".mde-wall .mde-row[data-mde-row]",
     ).forEach(row => row.addEventListener("click", () => {
-      const [index, rowId] =
-        (row.dataset.mdeRow ?? "").split(":").map(Number);
-      actions.onTableFocus(index, rowId);
+      const coordinates = parseExplorerCoordinates(row.dataset.mdeRow);
+      if (coordinates) actions.onTableFocus(...coordinates);
     }));
   } else {
     root.querySelector("#mde-canvas")?.addEventListener(
@@ -295,9 +308,8 @@ export function bindMetadataExplorer(
     root.querySelectorAll<HTMLElement>(
       ".mde-focus .mde-row[data-mde-row]",
     ).forEach(row => row.addEventListener("click", () => {
-      const [index, rowId] =
-        (row.dataset.mdeRow ?? "").split(":").map(Number);
-      actions.onRowFocus(index, rowId);
+      const coordinates = parseExplorerCoordinates(row.dataset.mdeRow);
+      if (coordinates) actions.onRowFocus(...coordinates);
     }));
   }
 }

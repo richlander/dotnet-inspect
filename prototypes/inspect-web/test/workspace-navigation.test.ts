@@ -456,7 +456,9 @@ test("malformed rich packet fields cannot override the visible package", () => {
     ...[null, 0, true, "1"]
       .map(b => ({ ...base, b })),
   ];
-  delete invalidPackets[0].a;
+  const missingActive = invalidPackets[0];
+  assert.ok(missingActive);
+  delete missingActive.a;
 
   for (const packet of invalidPackets) {
     const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
@@ -555,7 +557,9 @@ test("location persistence contains sync failures but leaves direct build failur
 
   persistence.sync(workspaceState());
   persistence.push("/");
-  assert.equal(new URL(replaced[0]).searchParams.get("package"), "Example.Second");
+  const replacedUrl = replaced[0];
+  assert.ok(replacedUrl);
+  assert.equal(new URL(replacedUrl).searchParams.get("package"), "Example.Second");
   assert.deepEqual(pushed, ["/"]);
   const replacedCount = replaced.length;
   assert.doesNotThrow(() => persistence.sync(workspaceState({

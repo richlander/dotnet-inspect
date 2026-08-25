@@ -111,6 +111,7 @@ jobs:
           name: inspect-web-site
           path: artifacts/inspect-web-publish
           if-no-files-found: error
+          overwrite: true
           retention-days: 30
           include-hidden-files: true
 
