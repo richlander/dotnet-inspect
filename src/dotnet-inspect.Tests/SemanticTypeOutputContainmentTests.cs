@@ -65,10 +65,8 @@ public sealed class SemanticTypeOutputContainmentTests
         {
             Kind = "method",
             Name = "Run\u202E",
-            ReturnType =
-                CSharpIdentifier.ContainRenderedText("Result\u202E"),
-            Signature = CSharpIdentifier.ContainRenderedText(
-                "Result\u202E Run\u202E()"),
+            ReturnType = "Result\u202E",
+            Signature = "Result\u202E Run\u202E()",
             Documentation = new DocComment
             {
                 Summary = "before\u202Eafter",
@@ -130,7 +128,7 @@ public sealed class SemanticTypeOutputContainmentTests
         Assert.Equal("型\u202EValue", Assert.Single(type.TypeParameters).Name);
         Assert.Equal("Run\u202E", member.Name);
         Assert.Equal(
-            @"Result\u202E Run\u202E()",
+            "Result\u202E Run\u202E()",
             member.Signature);
     }
 
@@ -149,6 +147,10 @@ public sealed class SemanticTypeOutputContainmentTests
             "string M(string value = \"A\\uD800B\")",
             surrogate);
         Assert.DoesNotContain('\uD800', surrogate);
+
+        Assert.Equal(
+            @"void M()\u001B",
+            ApiViewText.CSharpField("void M()\u001B").ToString());
     }
 
     [Fact]
@@ -230,6 +232,196 @@ public sealed class SemanticTypeOutputContainmentTests
             memberSource.Url);
         Assert.DoesNotContain('\u200B', rendered);
         Assert.Contains(@"\u200B", rendered);
+        Assert.Equal(
+            "https://example.invalid/T\u200Bype.cs",
+            typeSource.RawUrl);
+        Assert.Equal(
+            "https://example.invalid/M\u200Bember.cs",
+            memberSource.RawUrl);
+    }
+
+    [Fact]
+    public void FullApiTitle_ContainsArtifactName()
+    {
+        var api = new ApiSurface
+        {
+            Name = "Fixture\u202E\n## Forged",
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            api,
+            new ApiOptions());
+
+        Assert.Equal(
+            @"Fixture\u202E\^J## Forged",
+            view.Name);
+        Assert.DoesNotContain('\u202E', view.Name);
+        Assert.DoesNotContain('\n', view.Name);
+    }
+
+    [Fact]
+    public void RawTypePresentation_DistinguishesLiteralEscapeFromScalar()
+    {
+        const string literal = @"Ns.Lit\u202EType";
+        const string scalar = "Ns.Lit\u202EType";
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ReturnsLiteral",
+                    Kind = "method",
+                    Signature = $"{literal} ReturnsLiteral()",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = literal,
+                        MemberName = "ReturnsLiteral",
+                    },
+                },
+                new ApiMember
+                {
+                    Name = "ReturnsScalar",
+                    Kind = "method",
+                    Signature = $"{scalar} ReturnsScalar()",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = scalar,
+                        MemberName = "ReturnsScalar",
+                    },
+                },
+            ],
+        };
+
+        Assert.Equal(
+            @"Ns.Lit\\u202EType",
+            ApiViewText.RawTypeField(literal).ToString());
+        Assert.Equal(
+            @"Ns.Lit\u202EType",
+            ApiViewText.RawTypeField(scalar).ToString());
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                type,
+                ApiArtifactJson.Type));
+        JsonElement members = document.RootElement.GetProperty("members");
+        string literalSignature =
+            members[0].GetProperty("signature").GetString()!;
+        string scalarSignature =
+            members[1].GetProperty("signature").GetString()!;
+
+        Assert.Contains(@"Ns.Lit\\u202EType", literalSignature);
+        Assert.Contains(@"Ns.Lit\u202EType", scalarSignature);
+        Assert.NotEqual(literalSignature, scalarSignature);
+        Assert.Equal(
+            $"{literal} ReturnsLiteral()",
+            type.Members[0].Signature);
+
+        var surface = new ApiSurface
+        {
+            Name = "Fixture",
+            Types = [type],
+        };
+        ApiArtifactJson.Prepare(surface);
+        using JsonDocument surfaceDocument = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                surface,
+                ApiArtifactJson.Surface));
+        string surfaceSignature = surfaceDocument.RootElement
+            .GetProperty("types")[0]
+            .GetProperty("members")[0]
+            .GetProperty("signature")
+            .GetString()!;
+        Assert.Contains(@"Ns.Lit\\u202EType", surfaceSignature);
+    }
+
+    [Fact]
+    public void PreparedJsonSignature_PreservesCSharpLiteralEscapes()
+    {
+        const string signature =
+            "string Echo(string value = \"line\\n\")";
+        var member = new ApiMember
+        {
+            Name = "Echo",
+            Kind = "method",
+            Signature = signature,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "Echo",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "string",
+                        HasDefault = true,
+                        DefaultValueText = "\"line\\n\"",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members = [member],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        foreach (var jsonType in
+            new[] { ApiArtifactJson.Type, ApiArtifactJson.CompactType })
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                JsonSerializer.Serialize(type, jsonType));
+            string prepared = document.RootElement
+                .GetProperty("members")[0]
+                .GetProperty("signature")
+                .GetString()!;
+
+            Assert.Equal(signature, prepared);
+        }
+
+        Assert.Equal(signature, member.Signature);
+    }
+
+    [Fact]
+    public void PreparedJsonSignature_DegradedFallbackRemainsVisible()
+    {
+        const string signature = "Legacy.Type Run(Legacy.Type value)";
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            Signature = signature,
+            SignatureDecodeStatus = SignatureDecodeStatus.Degraded,
+        };
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members = [member],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                type,
+                ApiArtifactJson.Type));
+        JsonElement memberJson = document.RootElement
+            .GetProperty("members")[0];
+
+        Assert.Contains(
+            signature,
+            memberJson.GetProperty("signature").GetString()!,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "Degraded",
+            memberJson.GetProperty("signature_decode_status").GetString());
+        Assert.Equal(signature, member.Signature);
     }
 
     [Fact]
@@ -342,12 +534,10 @@ public sealed class SemanticTypeOutputContainmentTests
             Namespace = "Dotnet\u200BInspect",
             Name = "Widget",
             Kind = "class",
-            BaseType =
-                CSharpIdentifier.ContainRenderedText("Base\u202EType"),
+            BaseType = "Base\u202EType",
             Interfaces =
             [
-                CSharpIdentifier.ContainRenderedText(
-                    "I\u200BContract"),
+                "I\u200BContract",
             ],
             Members =
             [
@@ -355,12 +545,8 @@ public sealed class SemanticTypeOutputContainmentTests
                 {
                     Kind = "method",
                     Name = "Run\u202E",
-                    ReturnType =
-                        CSharpIdentifier.ContainRenderedText(
-                            "Result\u202E"),
-                    Signature =
-                        CSharpIdentifier.ContainRenderedText(
-                            "Result\u202E Run\u202E()"),
+                    ReturnType = "Result\u202E",
+                    Signature = "Result\u202E Run\u202E()",
                 },
             ],
         };
@@ -388,9 +574,12 @@ public sealed class SemanticTypeOutputContainmentTests
         var detailed = Assert.Single(methods.Rows!);
         Assert.Equal(@"Run\u202E", detailed.NameText.ToString());
         Assert.Contains(
-            @"Run\u202E",
+            "Run_",
             detailed.SignatureText.ToString(),
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            '\u202E',
+            detailed.SignatureText.ToString());
         Assert.DoesNotContain(
             @"\\u202E",
             detailed.SignatureText.ToString(),

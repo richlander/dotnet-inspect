@@ -95,12 +95,24 @@ document JSON as the real-artifact gate.
 
 Rendered C# is presentation syntax, not an encoded identity value. The
 presentation boundary therefore never decodes it: it preserves existing C#
-escape syntax and encodes only residual unsafe scalars or unpaired surrogates.
-Metadata identifier containment disambiguates literal backslashes before that
-boundary, so a raw name containing `\u0041` cannot masquerade as a generated
-escape. Adding trusted inline-code markup preserves the original containment
-evidence rather than re-importing its visible spelling as clean text.
+escape syntax and encodes only residual unsafe scalars or unpaired surrogates,
+using valid C# `\uXXXX` or `\UXXXXXXXX` escapes. Raw metadata type strings use
+the `RawTypeField` boundary before they become rendered C#: it keyword-escapes
+type syntax and doubles literal backslashes, so a referenced type containing
+literal `\u0041` cannot masquerade as a generated escape. Structured member
+signatures apply that boundary to each raw return, parameter, constraint, base,
+and interface type before composing the declaration; existing C# default-value
+escapes remain presentation syntax and are not doubled. When a literal
+backslash in a structured raw slot requires disambiguation, document JSON
+prepares that declaration without mutating `ApiMember`; benign signatures stay
+byte-neutral, while a degraded compatibility signature remains visibly
+accompanied by its decode status.
+Adding trusted inline-code markup preserves the original containment evidence
+rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
+`SemanticTypeOutputContainmentTests.RawTypePresentation_DistinguishesLiteralEscapeFromScalar`,
+`SemanticTypeOutputContainmentTests.PreparedJsonSignature_PreservesCSharpLiteralEscapes`,
+`SemanticTypeOutputContainmentTests.PreparedJsonSignature_DegradedFallbackRemainsVisible`,
 `SemanticTypeOutputContainmentTests.CSharpCodeText_PreservesContainmentEvidence`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
 `CSharpFormatterTests.FormatTypeName_ExactSegmentDisambiguatesLiteralBackslashOnce`,
@@ -121,6 +133,14 @@ re-encoding it before decoding; noncanonical legacy text remains literal.
 `SemanticTypeOutputContainmentTests.SurfaceDescription_ImportsDocumentationEncodingOnce`,
 `SemanticTypeOutputContainmentTests.SurfaceDescription_TruncatesWithoutSplittingEncodedToken`,
 and the metadata-confusion package gate enforce that single encoding.
+
+Source URLs have a separate control-flow currency. Source rows retain the raw
+URL for verified acquisition and expose an `InertString` spelling for tables,
+shapes, and labels; fetching never reuses or decodes the rendered spelling.
+`SemanticTypeOutputContainmentTests.SourceLocationRows_UseTypedContainmentCurrencies`
+gates both values, and
+`UntrustedSourceLinkContainmentTests.SourceLinkChannels_WithHostileMap_RenderNoHazard`
+is the real portable-PDB rendering gate.
 
 #### `DotnetInspector.Queries`
 

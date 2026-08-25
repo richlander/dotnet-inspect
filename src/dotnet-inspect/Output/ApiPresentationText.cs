@@ -1,5 +1,7 @@
 using System.Buffers;
+using System.Globalization;
 using System.Text;
+using ILInspector.CSharp;
 using InertText;
 
 namespace DotnetInspector.Output;
@@ -8,6 +10,10 @@ internal static class ApiPresentationText
 {
     public static CSharpPresentationText CSharpField(string value) =>
         CSharpPresentationText.Create(value);
+
+    public static CSharpPresentationText RawTypeField(string value) =>
+        CSharpPresentationText.Create(
+            CSharpFormatter.EscapeTypeKeywords(value));
 
     public static InertString EncodedField(string value) =>
         InertString.FromEncoded(TextPolicy.Field, value);
@@ -58,7 +64,7 @@ public readonly struct CSharpPresentationText
             if (InertString.IsPermitted(TextPolicy.Field, scalar))
                 builder.Append(scalar);
             else
-                builder.Append(new InertString(TextPolicy.Field, scalar));
+                AppendCSharpEscape(builder, scalar);
 
             remaining = remaining[consumed..];
         }
@@ -66,6 +72,24 @@ public readonly struct CSharpPresentationText
         return new CSharpPresentationText(
             builder.ToString(),
             new InertString(TextPolicy.Field, value));
+    }
+
+    private static void AppendCSharpEscape(
+        StringBuilder builder,
+        ReadOnlySpan<char> scalar)
+    {
+        if (scalar.Length == 1)
+        {
+            builder.Append(
+                CultureInfo.InvariantCulture,
+                $"\\u{(int)scalar[0]:X4}");
+            return;
+        }
+
+        Rune.DecodeFromUtf16(scalar, out Rune rune, out _);
+        builder.Append(
+            CultureInfo.InvariantCulture,
+            $"\\U{rune.Value:X8}");
     }
 
     public override string ToString() => Text;

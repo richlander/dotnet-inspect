@@ -1,6 +1,8 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using InertText;
 using DotnetInspector.Output;
@@ -18,6 +20,9 @@ namespace DotnetInspector.Models;
 /// </remarks>
 internal static class ApiArtifactJson
 {
+    private static readonly ConditionalWeakTable<ApiMember, PreparedMember> PreparedMembers =
+        new();
+
     public static JsonTypeInfo<ApiSurface> Surface { get; } =
         CreateTypeInfo<ApiSurface>(ApiJsonContext.Default.Options);
 
@@ -27,6 +32,67 @@ internal static class ApiArtifactJson
     public static JsonTypeInfo<ApiType> CompactType { get; } =
         CreateTypeInfo<ApiType>(
             ApiTypeCompactJsonContext.Default.Options);
+
+    public static void Prepare(ApiSurface surface)
+    {
+        foreach (ApiType type in surface.Types)
+            Prepare(type);
+    }
+
+    public static void Prepare(ApiType type)
+    {
+        foreach (ApiMember member in type.Members)
+        {
+            PreparedMembers.Remove(member);
+            if (member.Signature is null
+                || !RequiresStructuredPreparation(type, member))
+            {
+                continue;
+            }
+
+            PreparedMembers.Add(
+                member,
+                new PreparedMember(
+                    ApiOutputFormatter.FormatMemberSignature(
+                        type,
+                        member)));
+        }
+    }
+
+    private static bool RequiresStructuredPreparation(
+        ApiType type,
+        ApiMember member)
+    {
+        // Whole signatures already contain C# literal escapes, so re-importing
+        // them as raw text would double valid syntax. Recompose only when a raw
+        // metadata slot carries a literal backslash that must be distinguished
+        // from a generated visual escape; benign signatures stay byte-neutral.
+        if (member.Name.Contains('\\'))
+            return true;
+
+        if (member.Kind is "constructor" or "finalizer"
+            && (type.DefinitionName?.Segments.Any(
+                    static segment => segment.Contains('\\'))
+                ?? type.Name.Contains('\\')))
+        {
+            return true;
+        }
+
+        if (member.SignatureModel is not { } signature)
+            return false;
+
+        return ContainsLiteralBackslash(signature.ReturnType)
+            || signature.Parameters.Any(
+                static parameter =>
+                    ContainsLiteralBackslash(parameter.Type))
+            || signature.TypeParameters.Any(
+                static parameter =>
+                    parameter.Constraints.Any(
+                        ContainsLiteralBackslash));
+
+        static bool ContainsLiteralBackslash(string? value)
+            => value?.Contains('\\') == true;
+    }
 
     private static JsonTypeInfo<T> CreateTypeInfo<T>(
         JsonSerializerOptions baseline)
@@ -58,35 +124,35 @@ internal static class ApiArtifactJson
         {
             SetCSharpStrings(
                 typeInfo,
-                "display_name",
-                "constraints_summary");
-            SetCSharpStringLists(typeInfo, "constraints");
+                "display_name");
+            SetRawTypeStrings(typeInfo, "constraints_summary");
+            SetRawTypeStringLists(typeInfo, "constraints");
         }
         else if (typeInfo.Type == typeof(ApiType))
         {
-            SetCSharpStrings(
+            SetRawTypeStrings(
                 typeInfo,
                 "enum_underlying_type",
                 "base_type");
-            SetCSharpStringLists(
+            SetCSharpStringLists(typeInfo, "attributes");
+            SetRawTypeStringLists(
                 typeInfo,
-                "attributes",
                 "interfaces",
                 "derived_types");
         }
         else if (typeInfo.Type == typeof(ApiMember))
         {
-            SetCSharpStrings(
+            SetRawTypeStrings(
                 typeInfo,
                 "return_type",
-                "signature",
                 "extended_type",
                 "declaring_type");
+            SetPreparedMemberSignature(typeInfo);
             SetCSharpStringLists(typeInfo, "attributes");
         }
         else if (typeInfo.Type == typeof(ApiSignature))
         {
-            SetCSharpStrings(
+            SetRawTypeStrings(
                 typeInfo,
                 "return_type",
                 "canonical_return_type",
@@ -98,14 +164,14 @@ internal static class ApiArtifactJson
         }
         else if (typeInfo.Type == typeof(ApiParameter))
         {
-            SetCSharpStrings(
+            SetRawTypeStrings(
                 typeInfo,
                 "type",
                 "canonical_type",
-                "default_value_text",
                 "type_with_modifier",
                 "effective_canonical_type",
                 "canonical_type_with_modifier");
+            SetCSharpStrings(typeInfo, "default_value_text");
             SetCSharpStringLists(typeInfo, "attributes");
         }
         else if (typeInfo.Type == typeof(ApiAccessor))
@@ -124,6 +190,19 @@ internal static class ApiArtifactJson
                 typeInfo,
                 propertyName,
                 ApiArtifactCSharpStringJsonConverter.Instance);
+        }
+    }
+
+    private static void SetRawTypeStrings(
+        JsonTypeInfo typeInfo,
+        params string[] propertyNames)
+    {
+        foreach (string propertyName in propertyNames)
+        {
+            SetConverter(
+                typeInfo,
+                propertyName,
+                ApiArtifactRawTypeStringJsonConverter.Instance);
         }
     }
 
@@ -151,6 +230,38 @@ internal static class ApiArtifactJson
                 propertyName,
                 ApiArtifactCSharpStringListJsonConverter.Instance);
         }
+    }
+
+    private static void SetRawTypeStringLists(
+        JsonTypeInfo typeInfo,
+        params string[] propertyNames)
+    {
+        foreach (string propertyName in propertyNames)
+        {
+            SetConverter(
+                typeInfo,
+                propertyName,
+                ApiArtifactRawTypeStringListJsonConverter.Instance);
+        }
+    }
+
+    private static void SetPreparedMemberSignature(JsonTypeInfo typeInfo)
+    {
+        JsonPropertyInfo property = typeInfo.Properties.Single(
+            property => WireNamesEqual(
+                property.Name,
+                "signature"));
+        property.Get = value =>
+        {
+            var member = (ApiMember)value;
+            return PreparedMembers.TryGetValue(
+                member,
+                out PreparedMember? prepared)
+                    ? prepared.Signature
+                    : member.Signature;
+        };
+        property.CustomConverter =
+            ApiArtifactCSharpStringJsonConverter.Instance;
     }
 
     private static void SetConverter(
@@ -194,6 +305,8 @@ internal static class ApiArtifactJson
             rightIndex++;
         }
     }
+
+    private sealed record PreparedMember(string Signature);
 }
 
 /// <summary>
@@ -240,6 +353,29 @@ internal sealed class ApiArtifactCSharpStringJsonConverter
 
     internal static string Contain(string value)
         => ApiPresentationText.CSharpField(value).ToString();
+}
+
+internal sealed class ApiArtifactRawTypeStringJsonConverter
+    : JsonConverter<string>
+{
+    public static ApiArtifactRawTypeStringJsonConverter Instance { get; } =
+        new();
+
+    public override string Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException(
+            "Contained API output is a presentation projection and cannot be read as raw identity.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        string value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(Contain(value));
+
+    internal static string Contain(string value)
+        => ApiPresentationText.RawTypeField(value).ToString();
 }
 
 internal sealed class ApiArtifactEncodedStringJsonConverter
@@ -289,6 +425,37 @@ internal sealed class ApiArtifactCSharpStringListJsonConverter
             else
                 writer.WriteStringValue(
                     ApiArtifactCSharpStringJsonConverter.Contain(item));
+        }
+        writer.WriteEndArray();
+    }
+}
+
+internal sealed class ApiArtifactRawTypeStringListJsonConverter
+    : JsonConverter<List<string>>
+{
+    public static ApiArtifactRawTypeStringListJsonConverter Instance { get; } =
+        new();
+
+    public override List<string> Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException(
+            "Contained API output is a presentation projection and cannot be read as raw identity.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        List<string> value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (string? item in value)
+        {
+            if (item is null)
+                writer.WriteNullValue();
+            else
+                writer.WriteStringValue(
+                    ApiArtifactRawTypeStringJsonConverter.Contain(item));
         }
         writer.WriteEndArray();
     }

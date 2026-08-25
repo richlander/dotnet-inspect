@@ -41,6 +41,7 @@ internal sealed record CSharpDeclarationOptions
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
+    public bool MemberSignatureOnly { get; init; }
 
     /// <summary>
     /// When true, a finalizer member (<see cref="ApiMember.IsFinalizer"/>) is
@@ -327,7 +328,7 @@ internal static class CSharpDeclarationWriter
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
             string delegateDeclaration =
-                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type)}{parameterList}";
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {EscapeTypeKeywords(signature.ReturnType ?? "void")} {FormatTypeDisplayName(type)}{parameterList}";
             delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
             return delegatePlan.Apply(delegateDeclaration + ";");
         }
@@ -1020,8 +1021,13 @@ internal static class CSharpDeclarationWriter
             bases.Add(enumUnderlyingBase);
         else if (type.BaseType is { } baseType
                  && baseType is not ("System.Object" or "object" or "System.ValueType" or "System.Enum"))
-            bases.Add(EscapeKnownIdentifiers(baseType, type.TypeParameters.Select(p => p.Name)));
-        bases.AddRange(type.Interfaces.Select(iface => EscapeKnownIdentifiers(iface, type.TypeParameters.Select(p => p.Name))));
+            bases.Add(EscapeKnownIdentifiers(
+                EscapeTypeKeywords(baseType),
+                type.TypeParameters.Select(p => p.Name)));
+        bases.AddRange(type.Interfaces.Select(iface =>
+            EscapeKnownIdentifiers(
+                EscapeTypeKeywords(iface),
+                type.TypeParameters.Select(p => p.Name))));
 
         if (bases.Count > 0)
             declaration += " : " + string.Join(", ", bases);
@@ -1046,7 +1052,7 @@ internal static class CSharpDeclarationWriter
         var renderedFromModel = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
-            signature = $"{member.ReturnType} {member.Name}";
+            signature = $"{EscapeTypeKeywords(member.ReturnType)} {member.Name}";
         }
         else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
         {
@@ -1067,7 +1073,7 @@ internal static class CSharpDeclarationWriter
         if (string.IsNullOrWhiteSpace(signature))
         {
             if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
-                signature = $"{member.ReturnType} {member.Name}";
+                signature = $"{EscapeTypeKeywords(member.ReturnType)} {member.Name}";
             else
                 return "";
         }
@@ -1140,6 +1146,8 @@ internal static class CSharpDeclarationWriter
         // Re-lexing the composed string is only for compatibility text.
         if (!options.AbbreviateSignature && !renderedFromModel)
             signature = EscapeParameterLists(signature);
+        if (options.MemberSignatureOnly)
+            return signature;
 
         List<string> attributeLines = [];
         if (options.IncludeCustomAttributes)
@@ -1745,7 +1753,10 @@ internal static class CSharpDeclarationWriter
     internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
     {
         var parts = typeParameter.StructuredConstraints is { } structured
-            ? structured.Select(entry => entry.IsTypeName ? EscapeReservedKeywordIdentifiers(entry.Value) : entry.Value)
+            ? structured.Select(entry =>
+                entry.IsTypeName
+                    ? EscapeTypeKeywords(entry.Value)
+                    : entry.Value)
             : typeParameter.Constraints.Select(SpellConstraint);
         return CSharpIdentifierCore.ContainComposedName(
             EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames));
@@ -1759,7 +1770,7 @@ internal static class CSharpDeclarationWriter
     static string SpellConstraint(string constraint)
         => s_specialConstraintKeywords.Contains(constraint)
             ? constraint
-            : EscapeReservedKeywordIdentifiers(constraint);
+            : EscapeTypeKeywords(constraint);
 
     static string EscapeReservedKeywordIdentifiers(string text)
     {
@@ -1831,7 +1842,10 @@ internal static class CSharpDeclarationWriter
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
+            signature = AppendMemberTypeParameterConstraints(
+                $"{EscapeTypeKeywords(returnType)} {memberName}({parameters})",
+                member,
+                model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
@@ -1841,7 +1855,10 @@ internal static class CSharpDeclarationWriter
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
-            var head = model.IsRequired ? $"required {propertyType}" : propertyType;
+            string containedPropertyType = EscapeTypeKeywords(propertyType);
+            var head = model.IsRequired
+                ? $"required {containedPropertyType}"
+                : containedPropertyType;
             var propertyMemberName = model.MemberName == "this[]"
                 ? IsExplicitInterfaceProperty(member)
                     ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this[{parameters}]"
@@ -1863,7 +1880,8 @@ internal static class CSharpDeclarationWriter
             var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
                 ? member.Name
                 : model.MemberName!;
-            signature = $"{eventType} {eventMemberName}";
+            signature =
+                $"{EscapeTypeKeywords(eventType)} {eventMemberName}";
             return true;
         }
 
@@ -2026,7 +2044,8 @@ internal static class CSharpDeclarationWriter
         // cannot reopen issue #3319. This escaper is display-only — identity
         // lives in the raw metadata names — and containment is a no-op on clean
         // text.
-        return CSharpIdentifierCore.ContainComposedName(builder.ToString());
+        return CSharpIdentifierCore.ContainRawComposedName(
+            builder.ToString());
     }
 
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)

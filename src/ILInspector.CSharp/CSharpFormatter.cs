@@ -144,6 +144,24 @@ public sealed class CSharpFormatter
     }
 
     /// <summary>
+    /// Formats the signature portion of a member without declaration attributes,
+    /// accessibility, or modifiers.
+    /// </summary>
+    public string FormatMemberSignature(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodParameters = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        return CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            _declarationOptions with { MemberSignatureOnly = true },
+            methodParameters);
+    }
+
+    /// <summary>
     /// Formats one accessor declaration head, including its return attributes
     /// and accessor-specific accessibility.
     /// </summary>
@@ -291,8 +309,10 @@ public sealed class CSharpFormatter
     /// <summary>
     /// Escapes C# reserved keywords used as identifiers within a type string while
     /// leaving type-syntax keywords (primitive aliases, parameter/type modifiers,
-    /// function-pointer syntax) bare. This is the authoritative type-keyword escaper;
-    /// consumers must not reimplement it.
+    /// function-pointer syntax) bare, and contains the raw metadata spelling so
+    /// literal backslashes cannot alias generated visual escapes. This is the
+    /// authoritative raw-type presentation boundary; rendered C# must not pass
+    /// through it again.
     /// </summary>
     public static string EscapeTypeKeywords(string type)
         => CSharpDeclarationWriter.EscapeTypeKeywords(type);
@@ -646,9 +666,18 @@ public sealed class CSharpFormatter
     }
 
     static string ContainExactSegment(string segment)
-        => CSharpIdentifier.ContainIdentifierForDeclaration(segment)
+    {
+        if (!CSharpIdentifierCore.RequiresContainment(segment)
+            && !segment.Contains('.')
+            && !segment.Contains('+'))
+        {
+            return CSharpIdentifier.ContainIdentifierForDeclaration(segment);
+        }
+
+        return CSharpIdentifierCore.ContainRawComposedName(segment)
             .Replace(".", "\\.", StringComparison.Ordinal)
             .Replace("+", "\\+", StringComparison.Ordinal);
+    }
 
     static bool HasArityBeforeFlatBoundary(string name)
     {

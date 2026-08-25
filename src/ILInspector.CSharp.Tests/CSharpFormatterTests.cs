@@ -1347,6 +1347,8 @@ public sealed class CSharpFormatterTests
     // Already-escaped identifiers are left untouched (idempotent).
     [InlineData("@int", "@int")]
     [InlineData("N.@int", "N.@int")]
+    [InlineData(@"Ns.Lit\u202EType", @"Ns.Lit\\u202EType")]
+    [InlineData("Ns.Lit\u202EType", @"Ns.Lit\u202EType")]
     public void EscapeTypeKeywords_EscapesIdentifiersButNotTypeSyntax(string input, string expected)
         => Assert.Equal(expected, CSharpFormatter.EscapeTypeKeywords(input));
 
@@ -1545,6 +1547,60 @@ public sealed class CSharpFormatterTests
                     Name = name,
                     DefinitionName = exactName,
                 }));
+    }
+
+    [Fact]
+    public void FormatTypeName_ExactHazardPreservesLiteralStructure()
+    {
+        static ApiType Exact(string segment)
+            => new()
+            {
+                Name = segment,
+                DefinitionName =
+                    Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                        MetadataTypeDefinitionName.Create(
+                            "",
+                            [segment]))
+                    .Name,
+            };
+
+        string structured = CSharpFormatter.FormatTypeName(
+            Exact("A.B\u202E"));
+        string underscore = CSharpFormatter.FormatTypeName(
+            Exact("A_B_"));
+
+        Assert.Equal(@"A\.B\u202E", structured);
+        Assert.NotEqual(underscore, structured);
+    }
+
+    [Fact]
+    public void FormatMemberSignature_OmitsDeclarationModifiers()
+    {
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "Read",
+            Kind = "method",
+            Accessibility = "private",
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = @"Ns.Lit\u202EType",
+                MemberName = "Read",
+            },
+        };
+        var formatter = new CSharpFormatter();
+
+        Assert.Equal(
+            @"Ns.Lit\\u202EType Read()",
+            formatter.FormatMemberSignature(type, member));
+        Assert.StartsWith(
+            @"private static Ns.Lit\\u202EType Read()",
+            formatter.FormatMember(type, member));
     }
 
     [Fact]

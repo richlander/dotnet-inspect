@@ -22,6 +22,9 @@ internal static class ApiViewText
     public static CSharpPresentationText CSharpField(string value) =>
         ApiPresentationText.CSharpField(value);
 
+    public static CSharpPresentationText RawTypeField(string value) =>
+        ApiPresentationText.RawTypeField(value);
+
     public static CSharpPresentationText? OptionalCSharpField(string? value) =>
         value is null ? null : CSharpField(value);
 
@@ -358,7 +361,9 @@ public class TypeView
         List<TypeSourceFileRow> rows = [];
         if (SourceUrl != null)
         {
-            rows.Add(new TypeSourceFileRow(ApiViewText.Field(SourceUrl))
+            rows.Add(new TypeSourceFileRow(
+                SourceUrl,
+                ApiViewText.Field(SourceUrl))
             {
                 Checksum = SourceChecksum,
                 ChecksumAlgorithm = SourceChecksumAlgorithm,
@@ -368,6 +373,7 @@ public class TypeView
             rows.AddRange(AdditionalSourceFiles
                 .Where(file => file.SourceUrl != null)
                 .Select(file => new TypeSourceFileRow(
+                    file.SourceUrl!,
                     ApiViewText.Field(file.SourceUrl!))
                 {
                     Checksum = file.SourceChecksum,
@@ -632,9 +638,10 @@ public class ApiInfoSection
 /// View model for full API surface rendering (all types in an assembly).
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
-public class CliApiSurface
+public class CliApiSurface(InertString nameText)
 {
-    [MarkoutIgnore] public string? Name { get; set; }
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    [MarkoutIgnore] public string Name => NameText.ToString();
     [MarkoutIgnore] public string? Description { get; set; }
 
     [MarkoutSkipNull] public string? Library { get; set; }
@@ -779,8 +786,11 @@ public sealed class MemberIndexRow(
 
 [MarkoutSerializable]
 /// <inheritdoc cref="SourceFileRow"/>
-public sealed class TypeSourceFileRow(InertString urlText)
+public sealed class TypeSourceFileRow(
+    string rawUrl,
+    InertString urlText)
 {
+    [MarkoutIgnore, JsonIgnore] internal string RawUrl { get; } = rawUrl;
     [MarkoutIgnore, JsonIgnore] public InertString UrlText { get; } = urlText;
     public string Url => UrlText.ToString();
 
@@ -801,6 +811,7 @@ public sealed class MemberSourceLocationRow(
     InertString? fileText,
     int? line,
     int? endLine,
+    string? rawUrl,
     InertString? urlText)
 {
     [MarkoutIgnore, JsonIgnore] public InertString? SelectorText { get; } = selectorText;
@@ -817,6 +828,7 @@ public sealed class MemberSourceLocationRow(
     [MarkoutPropertyName("End Line")]
     [MarkoutSkipNull]
     public int? EndLine { get; } = endLine;
+    [MarkoutIgnore, JsonIgnore] internal string? RawUrl { get; } = rawUrl;
     [MarkoutIgnore, JsonIgnore] public InertString? UrlText { get; } = urlText;
     [MarkoutSkipNull]
     public string? Url => UrlText?.ToString();

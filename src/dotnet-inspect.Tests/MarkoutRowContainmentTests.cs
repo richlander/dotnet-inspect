@@ -59,7 +59,7 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 226 members
+/// are the residual tracked by issue #3463 -- which this measures at 225 members
 /// across 53 types after the library and API boundaries moved to typed inert text.</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
@@ -168,7 +168,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.Source",
         "CliApiSurface.Description",
         "CliApiSurface.Library",
-        "CliApiSurface.Name",
         "CliApiSurface.Source",
         "CliApiSurface.Tfm",
         "CliApiSurface.Version",
@@ -347,9 +346,9 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt226MembersAcross53Types()
+    public void ResidualCensus_IsPinnedAt225MembersAcross53Types()
     {
-        Assert.Equal(226, NotSelfContaining.Length);
+        Assert.Equal(225, NotSelfContaining.Length);
         Assert.Equal(
             53,
             NotSelfContaining

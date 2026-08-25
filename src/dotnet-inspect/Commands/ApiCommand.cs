@@ -1461,6 +1461,7 @@ public class ApiCommand
             // facility, so the combination is rejected rather than silently dropped.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
+            ApiArtifactJson.Prepare(api);
             Console.WriteLine(JsonSerializer.Serialize(
                 api,
                 ApiArtifactJson.Surface));
@@ -2576,7 +2577,7 @@ public class ApiCommand
                 view.SourceFileRows?.Select((row, index) => (
                     Row: index + 1,
                     Label: (string?)row.Url,
-                    Url: (string?)row.Url,
+                    Url: (string?)row.RawUrl,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);
@@ -2589,7 +2590,7 @@ public class ApiCommand
                 view.SourceLocationRows?.Select((row, index) => (
                     Row: index + 1,
                     Label: (string?)row.File ?? row.Url,
-                    Url: row.Url,
+                    Url: row.RawUrl,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);
@@ -3445,6 +3446,7 @@ public class ApiCommand
             member.CanonicalSignature = anchor.CanonicalSignature;
         }
 
+        ApiArtifactJson.Prepare(outputType);
         if (options.CompactJson)
             Console.WriteLine(JsonSerializer.Serialize(
                 outputType,

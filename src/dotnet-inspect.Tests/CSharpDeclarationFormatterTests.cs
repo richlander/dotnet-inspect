@@ -350,6 +350,50 @@ public sealed class CSharpDeclarationFormatterTests
     }
 
     [Fact]
+    public void ConstructorOverloadSnippet_DisambiguatesLiteralBackslash()
+    {
+        const string name = @"Lit\u202EType";
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = name,
+            DefinitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Samples",
+                        [name]))
+                .Name,
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = ".ctor",
+                    Kind = "constructor",
+                    SignatureModel = new ApiSignature(),
+                },
+            ],
+        };
+        var view = ApiOutputFormatter.BuildTypeView(
+            type,
+            foundIn: "Test.dll",
+            packageName: null,
+            packageVersion: null,
+            apiSource: "local",
+            selectedTfm: null,
+            new TypeOptions());
+
+        ApiOutputFormatter.PopulateConstructorOverloads(
+            view,
+            type,
+            new TypeOptions());
+
+        Assert.Equal(
+            @"new Lit\\u202EType()",
+            view.ConstructorOverloads![0].Signature.Content);
+    }
+
+    [Fact]
     public void ConstructorOverloadSnippet_UsesStructuredParameterDeclarations()
     {
         var type = new ApiType

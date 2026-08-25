@@ -64,9 +64,9 @@ public static class ApiOutputFormatter
             ? options.IncludeSections is not { Count: > 0 }
             : projectionActive;
 
-        var view = new CliApiSurface
+        var view = new CliApiSurface(
+            ApiViewText.Field(api.Name ?? string.Empty))
         {
-            Name = api.Name,
             Library = showCompactFields ? api.Library : null,
             Types = showCompactFields ? api.PublicTypeCount : null,
             Methods = showCompactFields ? api.PublicMethodCount : null,
@@ -471,7 +471,7 @@ public static class ApiOutputFormatter
         var modifiers = projection.Identity.Modifiers;
         string? renderedBaseType = projection.BaseType;
         string? baseType = renderedBaseType is { } value
-            ? ApiViewText.CSharpField(value).ToString()
+            ? ApiViewText.RawTypeField(value).ToString()
             : null;
 
         // Type parameter summary. Computed unconditionally because Type Info reports it as an
@@ -520,7 +520,7 @@ public static class ApiOutputFormatter
         {
             interfaceRows = projection.Interfaces
                 .Select(i => new InterfaceRow(
-                    ApiViewText.CSharpField(i)))
+                    ApiViewText.RawTypeField(i)))
                 .ToList();
         }
 
@@ -531,7 +531,7 @@ public static class ApiOutputFormatter
             baseclassRows =
             [
                 new BaseclassRow(
-                    ApiViewText.CSharpField(renderedBaseType)),
+                    ApiViewText.RawTypeField(renderedBaseType)),
             ];
         }
 
@@ -755,9 +755,13 @@ public static class ApiOutputFormatter
                             .ToString()))
                 .ToList();
 
-            static string MemberShapeText(ApiMember member) =>
-                member.Signature is { } signature
-                    ? ApiViewText.CSharpField(signature).ToString()
+            string MemberShapeText(ApiMember member) =>
+                member.Signature is not null
+                    ? ApiViewText.CSharpField(
+                        FormatMemberDeclaration(
+                            declaringType,
+                            member,
+                            abbreviate: false)).ToString()
                     : ApiViewText.Field(
                         OperatorNames.FormatRawDisplayName(member.Name)).ToString();
         }
@@ -804,7 +808,7 @@ public static class ApiOutputFormatter
                     Children =
                     [
                         new TreeNode(
-                            ApiViewText.CSharpField(type.BaseType)
+                            ApiViewText.RawTypeField(type.BaseType)
                                 .ToString()),
                     ],
                 });
@@ -818,7 +822,7 @@ public static class ApiOutputFormatter
                 {
                     Children = type.Interfaces
                         .Select(i => new TreeNode(
-                            ApiViewText.CSharpField(i).ToString()))
+                            ApiViewText.RawTypeField(i).ToString()))
                         .ToList()
                 });
             }
@@ -1191,6 +1195,9 @@ public static class ApiOutputFormatter
 
             var signature = FormatMemberDeclaration(type, member, abbreviate: false);
             int? endLine = member.SourceEndLineNumber ?? member.SourceLineNumber;
+            string? sourceUrl = SelectSourceUrl(
+                member.SourceUrl,
+                options.BrowsableUrls);
 
             rows.Add(new MemberSourceLocationRow(
                 detail ? null : indexRows[i].SelectorText,
@@ -1204,10 +1211,8 @@ public static class ApiOutputFormatter
                         ApiViewText.Field(member.SourceFilePath)),
                 member.SourceLineNumber,
                 endLine,
-                ApiViewText.OptionalField(
-                    SelectSourceUrl(
-                        member.SourceUrl,
-                        options.BrowsableUrls)))
+                sourceUrl,
+                ApiViewText.OptionalField(sourceUrl))
             {
                 Checksum = member.SourceChecksum,
                 ChecksumAlgorithm = member.SourceChecksumAlgorithm,
@@ -1352,7 +1357,7 @@ public static class ApiOutputFormatter
                             ApiViewText.Field(
                                 OperatorNames.FormatRawDisplayName(
                                     e.members[0].Name)),
-                            ApiViewText.CSharpField(
+                            ApiViewText.RawTypeField(
                                 RawMemberReturnType(e.members[0])),
                             e.members.Count.ToString(),
                             SignatureDecodeMarker(e.members))).ToList();
@@ -1370,7 +1375,7 @@ public static class ApiOutputFormatter
                         return new PropertySummaryRow(
                             ApiViewText.Field(
                                 OperatorNames.FormatRawDisplayName(m.Name)),
-                            ApiViewText.CSharpField(
+                            ApiViewText.RawTypeField(
                                 RawMemberReturnType(m)),
                             ApiViewText.CSharpField(
                                 RawMemberAccessors(m)),
@@ -1386,7 +1391,7 @@ public static class ApiOutputFormatter
                             ApiViewText.Field(
                                 OperatorNames.FormatRawDisplayName(
                                     e.members[0].Name)),
-                            ApiViewText.CSharpField(
+                            ApiViewText.RawTypeField(
                                 e.members[0].ReturnType ?? ""),
                             SignatureDecodeMarker(e.members))).ToList();
                     view.FieldSummaryRows = rows;
@@ -1400,8 +1405,8 @@ public static class ApiOutputFormatter
                         return new EventSummaryRow(
                             ApiViewText.Field(
                                 OperatorNames.FormatRawDisplayName(m.Name)),
-                            ApiViewText.CSharpField(
-                                m.ReturnType ?? m.Signature ?? ""));
+                            ApiViewText.RawTypeField(
+                                RawMemberReturnType(m)));
                     }).ToList();
                     eventsView.SummaryRows = rows;
                     break;
@@ -1496,8 +1501,8 @@ public static class ApiOutputFormatter
                 Signature = new CodeSection(
                     "csharp",
                     ApiViewText.CSharpField(
-                        CSharpIdentifier.ContainRenderedText(
-                            $"new {type.Name}{ConstructorCall(type, ctor)}"))
+                        $"new {CSharpFormatter.FormatDeclarationLeafMetadataName(type)}"
+                        + ConstructorCall(type, ctor))
                         .ToString())
             };
 
@@ -1507,7 +1512,7 @@ public static class ApiOutputFormatter
                     .Select(p => new ConstructorParameterRow(
                         ApiViewText.Field(p.name),
                         MarkoutInline.CodeText(
-                            ApiViewText.CSharpField(p.type)),
+                            ApiViewText.RawTypeField(p.type)),
                         ApiViewText.Field(
                             p.hasDefault ? "optional" : "required")))
                     .ToList();
@@ -3117,7 +3122,7 @@ public static class ApiOutputFormatter
         return $"{Annotate(declaration)}{"\n"}{{{"\n"}{indentedBody}{"\n"}}}";
     }
 
-    private static string FormatMemberDeclaration(
+    internal static string FormatMemberDeclaration(
         ApiType type,
         ApiMember member,
         bool abbreviate,
@@ -3135,6 +3140,11 @@ public static class ApiOutputFormatter
             });
         return formatter.FormatMember(type, member, methodParameters);
     }
+
+    internal static string FormatMemberSignature(
+        ApiType type,
+        ApiMember member)
+        => DefaultCSharpFormatter.FormatMemberSignature(type, member);
 
     // ===== Helper Methods =====
 
@@ -3183,8 +3193,12 @@ public static class ApiOutputFormatter
     /// rendering boundary (issue #3319).
     /// </remarks>
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
-        => member.Signature is { } signature
-            ? ApiViewText.CSharpField(signature).ToString()
+        => member.Signature is not null
+            ? ApiViewText.CSharpField(
+                FormatMemberDeclaration(
+                    type,
+                    member,
+                    abbreviate: false)).ToString()
             : ApiViewText.Field(
                 $"{MetadataTypeNameFormatter.FormatFullName(type)}."
                     + OperatorNames.FormatRawDisplayName(member.Name))
@@ -3274,7 +3288,7 @@ public static class ApiOutputFormatter
             var returnType = e.kind switch
             {
                 "constructor" or "finalizer" => "",
-                "event" => m.ReturnType ?? m.Signature ?? "",
+                "event" => RawMemberReturnType(m),
                 _ => RawMemberReturnType(m)
             };
             var detail = e.kind switch
@@ -3289,8 +3303,8 @@ public static class ApiOutputFormatter
                 kindLabel,
                 ApiViewText.Field(
                     OperatorNames.FormatRawDisplayName(m.Name)),
-                ApiViewText.CSharpField(returnType),
-                ApiViewText.CSharpField(detail));
+                ApiViewText.RawTypeField(returnType),
+                ApiViewText.RawTypeField(detail));
         }).ToList();
 
         return (new ApiTypeTableView { Rows = rows }, truncated);
