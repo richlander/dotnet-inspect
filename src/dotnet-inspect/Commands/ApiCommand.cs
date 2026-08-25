@@ -432,7 +432,23 @@ public class ApiCommand
         if (SelectOutput.WriteErrors(result.Unresolved))
             return null;
 
-        result = result with
+        var resolved = result.Sections is not null
+            ? options with { IncludeSections = result.Sections }
+            : options;
+        return ApplyPreResolvedBodyShapeSelectionRequirements(resolved);
+    }
+
+    private static MemberOptions? ApplyPreResolvedBodyShapeSelectionRequirements(
+        MemberOptions options)
+    {
+        if (options.IncludeSections is not { } includeSections)
+            return options;
+
+        var result = new SelectResult(
+            new HashSet<string>(
+                includeSections,
+                StringComparer.OrdinalIgnoreCase),
+            [])
         {
             ExactSections = new HashSet<string>(
                 options.ExactIncludeSections ?? [],
@@ -781,6 +797,12 @@ public class ApiCommand
         {
             if (options is MemberOptions { IncludeSections: not null } preResolved)
             {
+                if (ApplyPreResolvedBodyShapeSelectionRequirements(preResolved)
+                    is not { } validated)
+                {
+                    return (null!, 1);
+                }
+                options = preResolved = validated;
                 if (!preResolved.MemberPipelineDeferredToLookup)
                 {
                     if (RevalidateResolvedMemberSections(preResolved, memberPipeline) is not { } revalidated)
