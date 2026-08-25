@@ -93,6 +93,14 @@ never become a success-shaped producer list.
 `MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate the
 multi-branch complete case plus raw return and local-store merge boundaries.
 
+The same opt-in call-value flow separately projects an instance call's receiver
+sources. A receiver is complete only when every path comes from directly proven
+non-void call results, including through a single local; raw values,
+allocations, arguments, and unresolved merges remain incomplete.
+`MethodCallAnalysisTests.CollectsInstanceReceiverCallSources` gates the direct
+and raw boundaries. This evidence lets consumers authenticate a stable receiver
+without turning Analysis into a general symbolic evaluator.
+
 ## dotnet/runtime heritage and upstream tracking
 
 The byte reader is **ported from `dotnet/runtime`** — the same

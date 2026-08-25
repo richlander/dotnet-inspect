@@ -158,6 +158,26 @@ public sealed class JsonWireMemberRulesTests
     }
 
     [Fact]
+    public void GetterOnlyDeserializePropertyRequiresConstructorEvidence()
+    {
+        ApiMember getterOnly = Property();
+        getterOnly.HasGetter = true;
+        getterOnly.HasSetter = false;
+
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresConstructorBindingEvidence(getterOnly));
+
+        getterOnly.JsonIgnoreConditions =
+        [
+            JsonWireIgnoreCondition.WhenReading,
+        ];
+        Assert.False(
+            JsonWireMemberRules
+                .RequiresConstructorBindingEvidence(getterOnly));
+    }
+
+    [Fact]
     public void ExtractedCompilerIndexerIsExcludedFromJsonContract()
     {
         using FileStream stream = File.OpenRead(

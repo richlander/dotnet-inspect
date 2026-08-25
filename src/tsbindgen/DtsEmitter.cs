@@ -42,7 +42,11 @@ static class DtsEmitter
         TsBindGenDiagnostics? diagnostics = null)
     {
         ApiType[] declarationTypes =
-            [.. surface.Records, .. surface.Enums];
+        [
+            .. surface.Records
+                .Concat(surface.Enums)
+                .Where(type => ShouldEmit(surface, type)),
+        ];
         ValidateTypeNames(declarationTypes);
         ValidateWireNames(declarationTypes);
         ValidateFunctionNames(surface.Functions);
@@ -64,10 +68,14 @@ static class DtsEmitter
 
         var sb = new StringBuilder();
 
-        foreach (ApiType enumType in surface.Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
+        foreach (ApiType enumType in surface.Enums
+            .Where(type => ShouldEmit(surface, type))
+            .OrderBy(e => e.Name, StringComparer.Ordinal))
             EmitEnum(sb, enumType, diagnostics);
 
-        foreach (ApiType record in surface.Records.OrderBy(r => r.Name, StringComparer.Ordinal))
+        foreach (ApiType record in surface.Records
+            .Where(type => ShouldEmit(surface, type))
+            .OrderBy(r => r.Name, StringComparer.Ordinal))
             EmitRecord(
                 sb,
                 record,
@@ -93,6 +101,14 @@ static class DtsEmitter
 
         return sb.ToString();
     }
+
+    static bool ShouldEmit(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType type) =>
+        !surface.WireDirections.TryGetValue(
+            type,
+            out JsonWireDirection directions)
+        || directions != JsonWireDirection.None;
 
     static void EmitEnum(
         StringBuilder sb,
@@ -178,6 +194,18 @@ static class DtsEmitter
         if (HasUnsupportedRecordWireShape(record))
         {
             ReportUnsupportedJsonWireShape(record.Name, diagnostics);
+            EmitBlockedType(sb, record);
+            return;
+        }
+        if ((directions & JsonWireDirection.Deserialize)
+                != JsonWireDirection.None
+            && record.Members.Any(
+                JsonWireMemberRules
+                    .RequiresConstructorBindingEvidence))
+        {
+            ReportUnsupportedConstructorBinding(
+                record.Name,
+                diagnostics);
             EmitBlockedType(sb, record);
             return;
         }
@@ -595,7 +623,14 @@ static class DtsEmitter
         TsBindGenDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
-            "direction-sensitive [JsonIgnore] on a bidirectional type");
+            "serialization and deserialization member sets differ on a bidirectional type");
+
+    static void ReportUnsupportedConstructorBinding(
+        string location,
+        TsBindGenDiagnostics? diagnostics) =>
+        diagnostics?.ReportUnmappedType(
+            $"{location} JSON wire shape",
+            "getter-only deserialization requires unmodeled constructor-binding evidence");
 
     static void ReportUnsupportedJsonConverter(
         string location,

@@ -168,7 +168,11 @@ Generated interfaces follow accessor participation by direction: serialization
 requires an accessible getter, while deserialization requires an accessible
 setter. A public setter with a private or absent getter therefore remains an
 input member, while a private setter is not promised as accepted input merely
-because its getter is public. `[JsonInclude]` properties or fields must remain
+because its getter is public. System.Text.Json can also bind a getter-only
+property through a constructor; constructor correspondence is not yet
+projected, so a reached deserialize contract containing such a candidate fails
+visibly instead of emitting an empty or partial interface. `[JsonInclude]`
+properties or fields must remain
 accessible to the source-generated context: private, private-protected, and
 protected members are excluded, while internal, protected internal, and public
 members are accessible. Indexed properties are also excluded because
@@ -180,7 +184,9 @@ discovery and declaration emission so a discovered edge cannot become an
 orphaned or incomplete TypeScript shape;
 `DtsEmitterTests.Emit_UsesSetterAccessibilityForDeserializeDeclarations` and
 `SourceGeneratedJson_UsesSetterAccessibilityForDeserialization` gate the
-directional accessor contract against the real source generator.
+directional accessor contract against the real source generator, while
+`Emit_BlocksUnmodeledConstructorBoundDeserialization` gates the fail-visible
+constructor-binding boundary against a real generated context.
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
@@ -213,12 +219,15 @@ A declared type's directions come from how exports use it: a resolved return
 wire type marks a type serialize-only, a resolved parameter wire type marks it
 deserialize-only, and both mark it bidirectional. A bidirectional type with a
 direction-sensitive member has no single interface, so it is emitted as
-diagnosed `unknown` rather than guessing one direction's shape. Without body
+diagnosed `unknown` rather than guessing one direction's shape. This split
+includes accessor participation as well as directional `[JsonIgnore]`. Without body
 evidence no direction can be attributed and every type is read as
 bidirectional. Discovery walks the direction-independent member union so every
 possible referenced declaration exists, while direction propagation follows
-only members present in the active direction. A deserialize-only edge therefore
-cannot falsely make a type bidirectional through a member absent from
+only members present in the active direction. Types discovered solely through
+an inactive edge retain an explicit `None` direction and are not emitted. A
+deserialize-only edge therefore cannot falsely make a type bidirectional or
+publish an unreferenced failing declaration through a member absent from
 serialization.
 
 `JsonPropertyNameAttributeTests.JsonIgnoreConditionValuesMatchSystemTextJson`
@@ -234,6 +243,7 @@ gates direction attribution, and
 `DtsEmitterTests.Emit_PreservesWhenReadingMemberInSerializeOnlyDeclaration`,
 `Emit_PreservesWhenWritingMemberInDeserializeOnlyDeclaration`,
 `Emit_PropagatesOnlyMembersPresentInTheActiveDirection`,
+`JsExportSurfaceBuilderTests.Build_RecordsInactiveDiscoveredTypeAsNone`,
 `Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember`,
 `Emit_BlocksDirectionSensitiveTypeWithoutBodyEvidence`, and
 `Emit_DoesNotOrphanTypesReachedOnlyThroughDirectionalMembers` gate emission
@@ -298,6 +308,13 @@ equivalence. Duplicate or malformed context-options rows are also unsupported
 rather than resolved by metadata order. Non-default context options that change
 serialized wire shape are unsupported until the object model projects their
 semantics; formatting and read-only options remain accepted.
+The authenticated `JsonSerializerDefaults.General` constructor value is also
+accepted because it selects those default semantics; `Web` remains
+unsupported. A generated `JsonTypeInfo<T>` getter is trusted only when its
+receiver flows from the same context's generated `Default` property. A custom
+context instance can carry runtime `JsonSerializerOptions` that differ from
+the attribute, so unproven receivers fail before declarations or wrappers are
+published.
 Enum-valued options are decoded only when their serialized enum name carries a
 complete platform-signed System.Text.Json assembly identity.
 `JsonSourceGenerationOptionsAttributeTests` gates duplicate-row orders,
@@ -305,6 +322,10 @@ duplicate agreement, duplicate or malformed arguments within one row,
 wire-shaping rejection, signed and unsigned byte-backed
 `ReadCommentHandling` decoding, supported peer options, and the ordinary
 single-row case.
+`JsonSourceGenerationOptionsAttributeTests.JsonSerializerDefaultsConstructorAcceptsOnlyGeneral`
+and
+`JsExportSurfaceBuilderTests.Build_RejectsCustomSerializerContextInstanceReceiver`
+gate the constructor and runtime-receiver boundaries.
 `DtsEmitterTests.Emit_BlocksEnumWithUnsupportedContextOptions` gates the enum
 path.
 For scalar generated roots, unsupported context options are retained against

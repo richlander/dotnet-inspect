@@ -14,7 +14,10 @@
   other non-method member kinds are rejected: they do not receive runtime
   JSExport glue. Authentic rows on filtered MethodDefs, including lambdas in
   compiler-generated types, remain surface-scoped failure evidence rather than
-  disappearing with the filtered API declaration.
+  disappearing with the filtered API declaration. Live extraction also
+  retains whether the SDK generator emitted the corresponding `__Wrapper_*`
+  MethodDef; an attributed body in a non-partial type is rejected because it
+  has no runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
   assembly's `JsonSerializerContext`-derived type's `[JsonSerializable(typeof(T))]`
   roots, since `[JSExport]` method signatures alone don't reveal the DTO shapes
@@ -33,11 +36,16 @@ context carries the authentic
 `[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
 the System.Text.Json source generator. A handwritten context with matching
 `[JsonSerializable]`, property name, and `JsonTypeInfo<T>` signature remains
-unsupported when reached.
+unsupported when reached. The generated getter's receiver must also flow from
+the same context's authenticated `Default` property. A custom context instance
+can carry runtime `JsonSerializerOptions` that change the wire shape
+independently of source-generation metadata, so an unproven receiver fails.
 
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
-`Build_RejectsReachedHandwrittenSerializerContextGetter`, and
+`Build_RejectsReachedHandwrittenSerializerContextGetter`,
+`Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
+`Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.
 

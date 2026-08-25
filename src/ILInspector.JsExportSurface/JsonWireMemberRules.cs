@@ -57,6 +57,32 @@ public static class JsonWireMemberRules
             != IsSerialized(member, JsonWireDirection.Deserialize);
 
     /// <summary>
+    /// True when deserialization may bind a getter-only property through a
+    /// constructor, a shape this projection does not currently model.
+    /// </summary>
+    public static bool RequiresConstructorBindingEvidence(
+        ApiMember member)
+    {
+        int? indexParameterCount =
+            member.IndexParameterCount
+            ?? member.SignatureModel?.ParameterCount;
+        return member.Kind == "property"
+            && !member.IsStatic
+            && !HasUnsupportedJsonIgnoreMetadata(member)
+            && !HasUnsupportedJsonIncludeMetadata(member)
+            && (PresentDirections(member)
+                    & JsonWireDirection.Deserialize)
+                != JsonWireDirection.None
+            && indexParameterCount == 0
+            && member.HasSetter == false
+            && IsIncludedAccessor(
+                member.HasGetter,
+                member.GetterAccessibility,
+                member.Accessibility,
+                member.HasJsonInclude);
+    }
+
+    /// <summary>
     /// True when the member carries authentic <c>[JsonIgnore]</c> metadata that
     /// cannot be honored: more than one row, or a row whose constructor or
     /// <c>Condition</c> argument could not be read.

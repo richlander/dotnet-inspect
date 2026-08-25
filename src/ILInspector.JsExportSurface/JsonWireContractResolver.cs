@@ -18,9 +18,10 @@ namespace ILInspector.JsExportSurface;
 /// <c>JsonSerializer.Serialize&lt;T&gt;</c>/<c>Deserialize&lt;T&gt;</c> with (surfaced as
 /// <c>TypeArguments[0]</c> on the call's <c>JsonTypeInfo&lt;T&gt;</c> parameter), and that actual
 /// argument is proven to come directly from the matching registered source-generated context
-/// property. This relies on <c>DirectCall.Caller</c> already being attributed to the declared
-/// method rather than a compiler-generated async state machine or lifted body (see repository
-/// issue #4459 / PR #4461).
+/// property, and the property's receiver is proven to come from the same generated context's
+/// <c>Default</c> getter. This relies on <c>DirectCall.Caller</c> already being attributed to the
+/// declared method rather than a compiler-generated async state machine or lifted body (see
+/// repository issue #4459 / PR #4461).
 /// </para>
 /// <para>
 /// Only the DTO <em>type</em> is resolved this way. Which of the export's own parameters supplied
@@ -48,7 +49,9 @@ namespace ILInspector.JsExportSurface;
 /// qualify. Serializer evidence likewise requires complete argument provenance to a registered
 /// context property's getter.
 /// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c> and
-/// <c>JsonWireContractResolverTests.Build_RequiresRegisteredContextPropertyArgumentProvenance</c>
+/// <c>JsonWireContractResolverTests.Build_RequiresRegisteredContextPropertyArgumentProvenance</c>,
+/// plus
+/// <c>JsExportSurfaceBuilderTests.Build_RejectsCustomSerializerContextInstanceReceiver</c>,
 /// gate these boundaries.
 /// </para>
 /// </remarks>
@@ -73,6 +76,8 @@ public static class JsonWireContractResolver
         int metadataToken,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, int>
+            registeredJsonTypeInfoDefaultGetterTokens,
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
@@ -98,6 +103,7 @@ public static class JsonWireContractResolver
                     call,
                     dto,
                     registeredJsonTypeInfoGetterModes,
+                    registeredJsonTypeInfoDefaultGetterTokens,
                     unsupportedJsonTypeInfoGetterReasons,
                     JsonWireDirection.Deserialize))
             {
@@ -109,6 +115,7 @@ public static class JsonWireContractResolver
             bodyIndex,
             metadataToken,
             registeredJsonTypeInfoGetterModes,
+            registeredJsonTypeInfoDefaultGetterTokens,
             unsupportedJsonTypeInfoGetterReasons);
         return new JsExportFunction
         {
@@ -139,6 +146,8 @@ public static class JsonWireContractResolver
         int metadataToken,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, int>
+            registeredJsonTypeInfoDefaultGetterTokens,
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
@@ -205,6 +214,7 @@ public static class JsonWireContractResolver
                         source,
                         sourceDto,
                         registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoDefaultGetterTokens,
                         unsupportedJsonTypeInfoGetterReasons,
                         JsonWireDirection.Serialize))
                     return null;
@@ -241,6 +251,8 @@ public static class JsonWireContractResolver
         TypeRef dto,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, int>
+            registeredJsonTypeInfoDefaultGetterTokens,
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons,
         JsonWireDirection direction)
@@ -282,8 +294,50 @@ public static class JsonWireContractResolver
             {
                 return false;
             }
+            if (registeredJsonTypeInfoDefaultGetterTokens.TryGetValue(
+                    source.CalleeDefinitionToken,
+                    out int defaultContextGetterToken)
+                && !HasAuthenticatedDefaultContextReceiver(
+                    bodyIndex,
+                    source,
+                    defaultContextGetterToken))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    "serializer context",
+                    "generated JsonTypeInfo getter receiver is not the authenticated default context");
+            }
         }
 
+        return true;
+    }
+
+    static bool HasAuthenticatedDefaultContextReceiver(
+        LibraryBodyIndex bodyIndex,
+        DirectCall getterCall,
+        int defaultContextGetterToken)
+    {
+        if (!getterCall.Callee.HasThis
+            || getterCall.ReceiverSource is not
+            {
+                IsComplete: true,
+                SourceCallOffsets.IsDefaultOrEmpty: false,
+            } receiver)
+        {
+            return false;
+        }
+
+        foreach (int sourceOffset in receiver.SourceCallOffsets)
+        {
+            DirectCall? source = CallAt(
+                bodyIndex,
+                getterCall.EvidenceMethod,
+                sourceOffset);
+            if (source?.CalleeDefinitionToken
+                != defaultContextGetterToken)
+            {
+                return false;
+            }
+        }
         return true;
     }
 

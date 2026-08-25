@@ -107,6 +107,12 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
+                if (member.HasRuntimeJsExportWrapper == false)
+                {
+                    throw new UnsupportedJsExportSurfaceException(
+                        FormatMemberLocation(type, member),
+                        "JS export has no compiler-generated runtime wrapper");
+                }
 
                 if (member.IsUnsafe)
                     throw new UnsupportedJsExportSurfaceException(
@@ -157,6 +163,8 @@ public static class JsExportSurfaceBuilder
         var policiesByType = new Dictionary<ApiType, HashSet<JsonWireNamingPolicy>>();
         var registeredJsonTypeInfoGetterModes =
             new Dictionary<int, JsonSourceGenerationMode>();
+        var registeredJsonTypeInfoDefaultGetterTokens =
+            new Dictionary<int, int>();
         var unsupportedJsonTypeInfoGetterReasons =
             new Dictionary<int, string>();
         var queue = new Queue<(
@@ -188,6 +196,12 @@ public static class JsExportSurfaceBuilder
                 surface.AssemblyIdentity is null
                     ? null
                     : GetRegisteredRootProperties(type);
+            int? defaultContextGetterToken =
+                surface.AssemblyIdentity is { } currentAssembly
+                    ? GetDefaultContextGetterToken(
+                        type,
+                        currentAssembly)
+                    : null;
 
             foreach (ApiMember member in type.Members)
             {
@@ -234,6 +248,15 @@ public static class JsExportSurfaceBuilder
                                         getterToken] =
                                         UnsupportedContextOptionsReason;
                                 }
+                                else if (type
+                                        .HasSystemTextJsonSourceGenerationMarker
+                                            == true
+                                    && defaultContextGetterToken is null)
+                                {
+                                    unsupportedJsonTypeInfoGetterReasons[
+                                        getterToken] =
+                                            "serializer context has no authentic default-instance getter";
+                                }
                                 else
                                 {
                                     JsonSourceGenerationMode effectiveMode =
@@ -249,6 +272,17 @@ public static class JsExportSurfaceBuilder
                                         throw new UnsupportedJsExportSurfaceException(
                                             FormatMemberLocation(type, member),
                                             "serializer-context property generation modes conflict");
+                                    }
+                                    if (defaultContextGetterToken is { } defaultGetter
+                                        && !registeredJsonTypeInfoDefaultGetterTokens.TryAdd(
+                                            getterToken,
+                                            defaultGetter)
+                                        && registeredJsonTypeInfoDefaultGetterTokens[
+                                                getterToken] != defaultGetter)
+                                    {
+                                        throw new UnsupportedJsExportSurfaceException(
+                                            FormatMemberLocation(type, member),
+                                            "serializer-context default-instance evidence conflicts");
                                     }
                                 }
                             }
@@ -395,6 +429,7 @@ public static class JsExportSurfaceBuilder
                         function,
                         token,
                         registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoDefaultGetterTokens,
                         unsupportedJsonTypeInfoGetterReasons);
                 }
             }
@@ -489,6 +524,12 @@ public static class JsExportSurfaceBuilder
             }
         }
 
+        if (directions.Count > 0)
+        {
+            foreach (ApiType type in discovered)
+                directions.TryAdd(type, JsonWireDirection.None);
+        }
+
         return directions;
     }
 
@@ -496,6 +537,30 @@ public static class JsExportSurfaceBuilder
         member.HasRuntimeJsExport
         || member.RuntimeJsExportAttributeCount > 0
         || member.HasMalformedRuntimeJsExportAttribute;
+
+    static int? GetDefaultContextGetterToken(
+        ApiType context,
+        ApiAssemblyIdentity assembly)
+    {
+        ApiMember[] candidates =
+        [
+            .. context.Members.Where(member =>
+                member.Kind == "property"
+                && member.Name == "Default"
+                && member.IsStatic
+                && member.HasGetter == true
+                && member.GetterToken is not null
+                && member.SignatureModel is { ParameterCount: 0 } signature
+                && signature.ReturnTypeReferences.Count == 1
+                && signature.ReturnTypeReferences[0].Assembly.Equals(
+                    assembly)
+                && signature.ReturnTypeReferences[0].FullName
+                    == context.FullName),
+        ];
+        return candidates is [{ GetterToken: { } getterToken }]
+            ? getterToken
+            : null;
+    }
 
     static void ValidateJsExportEvidence(ApiType type, ApiMember member)
     {

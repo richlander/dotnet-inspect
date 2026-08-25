@@ -449,6 +449,9 @@ public sealed record DirectionalOutputDto(string Name)
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public DirectionalSharedInputDto? InputOnlyChild { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public DirectionalInactiveInputDto? InactiveInput { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string AlwaysPresent { get; init; } = "";
 
@@ -474,6 +477,14 @@ public sealed record DirectionalInputDto(string Name)
 }
 
 public sealed class DirectionalSharedInputDto
+{
+    public int Value { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string Secret { get; set; } = "";
+}
+
+public sealed class DirectionalInactiveInputDto
 {
     public int Value { get; set; }
 
@@ -574,6 +585,7 @@ public static partial class PrimitiveRootFixtureExports
 [JsonSerializable(typeof(byte[]))]
 [JsonSerializable(typeof(decimal))]
 [JsonSerializable(typeof(decimal[]))]
+[JsonSourceGenerationOptions(JsonSerializerDefaults.General)]
 public sealed partial class PrimitiveRootFixtureJsonContext : JsonSerializerContext;
 
 public sealed record ContextSerializationOnlyDto(string Name)

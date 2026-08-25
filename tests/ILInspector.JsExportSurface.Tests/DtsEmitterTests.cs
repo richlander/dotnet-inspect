@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
 using tsbindgen;
 
@@ -2319,6 +2320,10 @@ public sealed class DtsEmitterTests
             "export type DirectionalSharedInputDto = unknown;",
             dts,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(DirectionalInactiveInputDto),
+            dts,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2362,6 +2367,55 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_BlocksUnmodeledConstructorBoundDeserialization()
+    {
+        ConstructorBoundInput? value = JsonSerializer.Deserialize(
+            """{"Value":42}""",
+            ConstructorBoundJsonContext.Default
+                .ConstructorBoundInput);
+        Assert.NotNull(value);
+        Assert.Equal(42, value.Value);
+
+        string path = typeof(ConstructorBoundExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        apiSurface.Types =
+        [
+            .. apiSurface.Types.Where(type =>
+                type.Name is nameof(ConstructorBoundInput)
+                    or nameof(ConstructorBoundJsonContext)
+                    or nameof(ConstructorBoundExports)),
+        ];
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        var diagnostics = new TsBindGenDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                bodyIndex),
+            diagnostics);
+
+        Assert.Contains(
+            "export type ConstructorBoundInput = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "ConstructorBoundInput JSON wire shape"
+                && diagnostic.CSharpType
+                    == "getter-only deserialization requires unmodeled constructor-binding evidence");
+    }
+
+    [Fact]
     public void Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember()
     {
         var diagnostics = new TsBindGenDiagnostics();
@@ -2390,7 +2444,7 @@ public sealed class DtsEmitterTests
                 diagnostic.Location
                     == "DirectionalRoundTripDto JSON wire shape"
                 && diagnostic.CSharpType
-                    == "direction-sensitive [JsonIgnore] on a bidirectional type");
+                    == "serialization and deserialization member sets differ on a bidirectional type");
     }
 
     /// <summary>

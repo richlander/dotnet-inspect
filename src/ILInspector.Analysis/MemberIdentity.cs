@@ -363,6 +363,18 @@ public sealed record DirectCall(
     /// </summary>
     public CallArgumentSources ArgumentSources { get; init; } =
         CallArgumentSources.Empty;
+
+    /// <summary>
+    /// Direct-call provenance for an instance call's receiver when Analysis can
+    /// interpret the body evaluation stack. Null for static calls and when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is not
+    /// requested.
+    /// </summary>
+    /// <remarks>
+    /// <c>MethodCallAnalysisTests.CollectsInstanceReceiverCallSources</c>
+    /// gates direct-call and unresolved-raw receiver evidence.
+    /// </remarks>
+    public CallReceiverSource? ReceiverSource { get; init; }
 }
 
 /// <summary>Conservative disposition of a direct call's produced value.</summary>
@@ -476,6 +488,48 @@ public sealed class CallArgumentSources :
         ImmutableArrayValueEquality.AddToHash(
             ref hash,
             _sources);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Conservative provenance for an instance direct-call receiver.
+/// </summary>
+public sealed class CallReceiverSource :
+    IEquatable<CallReceiverSource>
+{
+    public CallReceiverSource(
+        ImmutableArray<int> sourceCallOffsets,
+        bool isComplete)
+    {
+        SourceCallOffsets =
+            ImmutableArrayValueEquality.RequireInitialized(
+                sourceCallOffsets,
+                nameof(sourceCallOffsets));
+        IsComplete = isComplete;
+    }
+
+    public ImmutableArray<int> SourceCallOffsets { get; }
+
+    public bool IsComplete { get; }
+
+    public bool Equals(CallReceiverSource? other)
+        => other is not null
+            && IsComplete == other.IsComplete
+            && ImmutableArrayValueEquality.SequenceEqual(
+                SourceCallOffsets,
+                other.SourceCallOffsets);
+
+    public override bool Equals(object? obj)
+        => obj is CallReceiverSource other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            SourceCallOffsets);
+        hash.Add(IsComplete);
         return hash.ToHashCode();
     }
 }

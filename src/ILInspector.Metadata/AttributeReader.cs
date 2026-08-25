@@ -70,6 +70,8 @@ public static partial class AttributeReader
             {
                 ["System.Text.Json.JsonCommentHandling"] =
                     PrimitiveTypeCode.Byte,
+                ["System.Text.Json.JsonSerializerDefaults"] =
+                    PrimitiveTypeCode.Int32,
                 [JsonNumberHandlingTypeName] =
                     PrimitiveTypeCode.Int32,
             };
@@ -2229,9 +2231,12 @@ public static partial class AttributeReader
                 attr,
                 beforeMaterialize,
                 JsonSourceGenerationExternalEnumUnderlyingTypes) is not
-            {
-                FixedArguments.Length: 0,
-            } decoded)
+            { } decoded
+            || (decoded.FixedArguments.Length != 0
+                && !(decoded.FixedArguments.Length == 1
+                    && decoded.FixedArguments[0].Value
+                        is int defaults
+                    && defaults == 0)))
         {
             return new(
                 JsonWireNamingPolicy.Unsupported,

@@ -325,10 +325,22 @@ internal static class MethodCallAnalysis
                     source.IsComplete));
             }
 
+            CallReceiverSource? receiver = null;
+            if (call.Callee.HasThis)
+            {
+                SourceSet source = sources.CallReceiverSource(
+                    call.ILOffset,
+                    call.Callee.ParameterTypes.Length);
+                receiver = new(
+                    source.CallOffsets,
+                    source.IsComplete);
+            }
+
             calls[index] = call with
             {
                 ArgumentSources = new(
                     arguments.MoveToImmutable()),
+                ReceiverSource = receiver,
             };
         }
     }
@@ -374,6 +386,18 @@ internal static class MethodCallAnalysis
             ImmutableArray<StackValue> stack =
                 _stack.StackBeforeOffset(callOffset);
             int stackIndex = stack.Length - parameterCount + argumentIndex;
+            return stackIndex < 0 || stackIndex >= stack.Length
+                ? SourceSet.Incomplete
+                : Resolve(stack[stackIndex].ProducerOffset, []);
+        }
+
+        internal SourceSet CallReceiverSource(
+            int callOffset,
+            int parameterCount)
+        {
+            ImmutableArray<StackValue> stack =
+                _stack.StackBeforeOffset(callOffset);
+            int stackIndex = stack.Length - parameterCount - 1;
             return stackIndex < 0 || stackIndex >= stack.Length
                 ? SourceSet.Incomplete
                 : Resolve(stack[stackIndex].ProducerOffset, []);

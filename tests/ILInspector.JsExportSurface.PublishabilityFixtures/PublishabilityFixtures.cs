@@ -23,6 +23,15 @@ public static partial class BodylessExternExportFixture
     public static extern int Compute(int value);
 }
 
+#pragma warning disable SYSLIB1071
+[SupportedOSPlatform("browser")]
+public static class NonPartialExportFixture
+{
+    [JSExport]
+    public static int AddOne(int value) => value + 1;
+}
+#pragma warning restore SYSLIB1071
+
 public static class LambdaExportFixture
 {
     public static Func<int, int> Create() =>
@@ -64,4 +73,31 @@ public static partial class HandwrittenContextExports
         JsonSerializer.Serialize(
             new HandwrittenPayload("handwritten"),
             HandwrittenJsonContext.Default.RegisteredPayload);
+}
+
+public sealed class ConstructorBoundInput
+{
+    [JsonConstructor]
+    public ConstructorBoundInput(int value)
+    {
+        Value = value;
+    }
+
+    public int Value { get; }
+}
+
+[JsonSerializable(typeof(ConstructorBoundInput))]
+public sealed partial class ConstructorBoundJsonContext
+    : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class ConstructorBoundExports
+{
+    [JSExport]
+    public static int ReadValue(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            ConstructorBoundJsonContext.Default
+                .ConstructorBoundInput)!
+            .Value;
 }

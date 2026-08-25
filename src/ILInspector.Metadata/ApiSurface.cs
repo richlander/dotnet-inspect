@@ -1105,6 +1105,19 @@ public class ApiMember
     public bool? HasMethodBody { get; set; }
 
     /// <summary>
+    /// Whether the SDK source generator emitted runtime wrapper glue for this
+    /// JSExport MethodDef. Null preserves older or hand-composed surfaces.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsJsExportWithoutGeneratedRuntimeWrapper</c>
+    /// and
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+    /// gate extraction, enforcement, and persistence.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRuntimeJsExportWrapper { get; set; }
+
+    /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").
     /// Null for public members.
     /// </summary>

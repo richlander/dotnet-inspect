@@ -396,6 +396,42 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsJsExportWithoutGeneratedRuntimeWrapper()
+    {
+        string path =
+            typeof(NonPartialExportFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(NonPartialExportFixture));
+        ApiMember method = Assert.Single(
+            fixture.Members,
+            member => member.Name
+                == nameof(NonPartialExportFixture.AddOne));
+        var isolated = new ApiSurface
+        {
+            AssemblyIdentity = extracted.AssemblyIdentity,
+            Types = [fixture],
+        };
+
+        Assert.True(method.HasRuntimeJsExport);
+        Assert.True(method.HasMethodBody);
+        Assert.False(method.HasRuntimeJsExportWrapper);
+        Assert.DoesNotContain(
+            fixture.Members,
+            member => member.Name.StartsWith(
+                "__Wrapper_AddOne_",
+                StringComparison.Ordinal));
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(isolated));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes()
     {
         string path = typeof(LambdaExportFixture).Assembly.Location;
@@ -513,6 +549,22 @@ public sealed class JsExportSurfaceBuilderTests
             name => name.StartsWith(
                 "__Wrapper_SerializeWriteAsStringInt_",
                 StringComparison.Ordinal));
+        ApiSurface ordinarySurface = ExtractApiSurface(
+            typeof(ScalarContextOptionsFixtureExports)
+                .Assembly.Location);
+        Assert.True(
+            Assert.Single(
+                Assert.Single(
+                    ordinarySurface.Types,
+                    type => type.Name
+                        == nameof(
+                            ScalarContextOptionsFixtureExports))
+                    .Members,
+                member => member.Name
+                    == nameof(
+                        ScalarContextOptionsFixtureExports
+                            .SerializeWriteAsStringInt))
+                .HasRuntimeJsExportWrapper);
         Assert.DoesNotContain(
             operatorMethodNames,
             name => name.StartsWith(
@@ -536,6 +588,11 @@ public sealed class JsExportSurfaceBuilderTests
                 && name.StartsWith(
                     "__Wrapper_",
                     StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            publishabilityMethodNames,
+            name => name.StartsWith(
+                "__Wrapper_AddOne_",
+                StringComparison.Ordinal));
         Assert.Contains(
             publishabilityMethodNames,
             name => name.StartsWith(
@@ -689,7 +746,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(21, surface.Records.Count);
+        Assert.Equal(22, surface.Records.Count);
         Assert.Contains(nameof(ByteEnvelopeDto), recordNames);
         Assert.Contains(nameof(BytePayloadDto), recordNames);
         Assert.Contains(nameof(CustomNamedDto), recordNames);
@@ -705,6 +762,7 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("DirectionalOutputDto", recordNames);
         Assert.Contains("DirectionalInputDto", recordNames);
         Assert.Contains("DirectionalSharedInputDto", recordNames);
+        Assert.Contains("DirectionalInactiveInputDto", recordNames);
         Assert.Contains("DirectionalAccessorInputDto", recordNames);
         Assert.Contains("DirectionalRoundTripDto", recordNames);
         Assert.Contains("DirectionalNote", recordNames);
@@ -1046,43 +1104,135 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains(
             unusedContext.Members,
             member => member.Kind == "property" && member.Name == "Int32");
-        ApiMember scalarExport = Assert.Single(
-            Assert.Single(
-                apiSurface.Types,
-                type =>
-                    type.Name
-                    == nameof(ScalarContextOptionsFixtureExports))
-                .Members,
-            member =>
-                member.Name
-                == nameof(
-                    ScalarContextOptionsFixtureExports
-                        .SerializeWriteAsStringInt));
-        scalarExport.HasRuntimeJsExport = false;
-        scalarExport.RuntimeJsExportAttributeCount = 0;
-        scalarExport.HasMalformedRuntimeJsExportAttribute = false;
-
+        ApiType scalarExports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ScalarContextOptionsFixtureExports));
         ApiMember vectorSerializer = Assert.Single(
-            Assert.Single(
-                apiSurface.Types,
-                type =>
-                    type.Name
-                    == nameof(ScalarContextOptionsFixtureExports))
-                .Members,
+            scalarExports.Members,
             member =>
                 member.Name
                 == nameof(
                     ScalarContextOptionsFixtureExports.SerializeVector));
         Assert.True(vectorSerializer.HasRuntimeJsExport);
+        foreach (ApiMember export in scalarExports.Members.Where(
+            member => member.HasRuntimeJsExport
+                && member != vectorSerializer))
+        {
+            export.HasRuntimeJsExport = false;
+            export.RuntimeJsExportAttributeCount = 0;
+            export.HasMalformedRuntimeJsExportAttribute = false;
+        }
+
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        DirectCall typeInfoGetter = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.Caller.Name
+                    == nameof(
+                        ScalarContextOptionsFixtureExports
+                            .SerializeVector)
+                && call.Callee.Name == "get_Int32Array");
+        Assert.NotNull(typeInfoGetter.ReceiverSource);
+        Assert.True(typeInfoGetter.ReceiverSource.IsComplete);
+        int receiverOffset = Assert.Single(
+            typeInfoGetter.ReceiverSource.SourceCallOffsets);
+        DirectCall defaultGetter = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod
+                    == typeInfoGetter.EvidenceMethod
+                && call.ILOffset == receiverOffset);
+        Assert.Equal("get_Default", defaultGetter.Callee.Name);
+        ApiType supportedContext = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(SupportedScalarContextOptions));
+        ApiMember defaultProperty = Assert.Single(
+            supportedContext.Members,
+            member => member.Name == "Default");
+        Assert.Equal(
+            defaultProperty.GetterToken,
+            defaultGetter.CalleeDefinitionToken);
 
         ILInspector.JsExportSurface.JsExportSurface surface =
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                OpenWireContractBodyIndex(path));
+                bodyIndex);
 
         Assert.Equal(
             "int[]",
             Assert.Single(surface.Functions).ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_RejectsCustomSerializerContextInstanceReceiver()
+    {
+        string path =
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
+#pragma warning disable CA1416
+        Assert.Equal(
+            "\"42\"",
+            ScalarContextOptionsFixtureExports
+                .SerializeCustomInstanceInt());
+#pragma warning restore CA1416
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ScalarContextOptionsFixtureExports));
+        foreach (ApiMember export in exports.Members.Where(
+            member => member.HasRuntimeJsExport
+                && member.Name
+                    != nameof(
+                        ScalarContextOptionsFixtureExports
+                            .SerializeCustomInstanceInt)))
+        {
+            export.HasRuntimeJsExport = false;
+            export.RuntimeJsExportAttributeCount = 0;
+            export.HasMalformedRuntimeJsExportAttribute = false;
+        }
+        apiSurface.Types =
+        [
+            exports,
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name
+                    == nameof(SupportedScalarContextOptions)),
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    OpenWireContractBodyIndex(path)));
+
+        Assert.Contains(
+            "receiver is not the authenticated default context",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Extract_AcceptsGeneralAndRejectsWebSerializerDefaults()
+    {
+        ApiSurface fixtureSurface = ExtractFixtureApiSurface();
+        ApiType general = Assert.Single(
+            fixtureSurface.Types,
+            type => type.Name
+                == nameof(PrimitiveRootFixtureJsonContext));
+        ApiSurface scalarSurface = ExtractApiSurface(
+            typeof(UnsupportedWebDefaultsContext).Assembly.Location);
+        ApiType web = Assert.Single(
+            scalarSurface.Types,
+            type => type.Name
+                == nameof(UnsupportedWebDefaultsContext));
+
+        Assert.Equal(
+            JsonWireNamingPolicy.None,
+            general.JsonPropertyNamingPolicy);
+        Assert.Equal(
+            JsonWireNamingPolicy.Unsupported,
+            web.JsonPropertyNamingPolicy);
     }
 
     [Fact]
@@ -2331,6 +2481,32 @@ public sealed class JsExportSurfaceBuilderTests
             BuildFixtureSurface();
 
         Assert.Empty(surface.WireDirections);
+    }
+
+    [Fact]
+    public void Build_RecordsInactiveDiscoveredTypeAsNone()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(
+            ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: false),
+            bodyIndex);
+
+        ApiType inactive = Assert.Single(
+            surface.Records,
+            type => type.Name
+                == nameof(DirectionalInactiveInputDto));
+        Assert.Equal(
+            JsonWireDirection.None,
+            surface.WireDirections[inactive]);
     }
 
     [Fact]

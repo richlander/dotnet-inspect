@@ -362,6 +362,35 @@ public sealed class MethodCallAnalysisTests
     }
 
     [Fact]
+    public void CollectsInstanceReceiverCallSources()
+    {
+        byte[] directReceiver =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x6F, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        byte[] rawReceiver =
+        [
+            0x14,
+            0x6F, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+
+        DirectCall direct = CollectCallsWithInstanceSecond(
+            directReceiver)[1];
+        DirectCall raw = Assert.Single(
+            CollectCallsWithInstanceSecond(rawReceiver));
+
+        Assert.NotNull(direct.ReceiverSource);
+        Assert.Equal([0], direct.ReceiverSource.SourceCallOffsets);
+        Assert.True(direct.ReceiverSource.IsComplete);
+        Assert.NotNull(raw.ReceiverSource);
+        Assert.Empty(raw.ReceiverSource.SourceCallOffsets);
+        Assert.False(raw.ReceiverSource.IsComplete);
+    }
+
+    [Fact]
     public void ClassifiesReturnSinkSourcesAndIncompleteCoverage()
     {
         byte[] sharedLocalReturn =
@@ -494,6 +523,25 @@ public sealed class MethodCallAnalysisTests
         return resultSinks.ToImmutable();
     }
 
+    static ImmutableArray<DirectCall> CollectCallsWithInstanceSecond(
+        byte[] il)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(
+                returningFirst: true,
+                instanceSecond: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+        return calls.ToImmutable();
+    }
+
     static void AssertCall(
         DirectCall call,
         int offset,
@@ -557,6 +605,7 @@ public sealed class MethodCallAnalysisTests
         bool throwOnDefinition = false,
         bool throwOnIndirectCall = false,
         bool returningFirst = false,
+        bool instanceSecond = false,
         List<string>? events = null)
         : IMethodCallResolver
     {
@@ -581,7 +630,10 @@ public sealed class MethodCallAnalysisTests
                 returningFirst && token == FirstToken
                     ? TypeRef.CoreLib("System", "String")
                     : s_void,
-                MemberKind.Method);
+                MemberKind.Method)
+            {
+                HasThis = instanceSecond && token == SecondToken,
+            };
         }
 
         public MemberRef ResolveIndirectCall(int signatureToken)

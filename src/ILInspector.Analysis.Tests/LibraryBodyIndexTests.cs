@@ -6803,8 +6803,8 @@ public class LibraryBodyIndexTests
     /// <summary>
     /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is the
     /// non-vacuity gate for tsbindgen's value-flow opt-in: plain method
-    /// evidence retains direct calls without materializing their argument or
-    /// result flow, while the named feature supplies both.
+    /// evidence retains direct calls without materializing their argument,
+    /// receiver, or result flow, while the named feature supplies them.
     /// </summary>
     [Fact]
     public void MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested()
@@ -6825,6 +6825,7 @@ public class LibraryBodyIndexTests
             call =>
             {
                 Assert.Empty(call.ArgumentSources);
+                Assert.Null(call.ReceiverSource);
                 Assert.Equal(DirectCallResultUse.Unknown, call.ResultUse);
             });
 
@@ -6832,6 +6833,9 @@ public class LibraryBodyIndexTests
         Assert.Contains(
             jsonWire.DirectCalls,
             call => call.ArgumentSources.Count > 0);
+        Assert.Contains(
+            jsonWire.DirectCalls,
+            call => call.ReceiverSource is not null);
     }
 
     [Fact]

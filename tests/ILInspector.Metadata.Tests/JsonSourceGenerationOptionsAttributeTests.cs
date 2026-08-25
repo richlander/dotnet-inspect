@@ -78,6 +78,31 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
     }
 
     [Theory]
+    [InlineData(0, JsonWireNamingPolicy.None)]
+    [InlineData(1, JsonWireNamingPolicy.Unsupported)]
+    public void JsonSerializerDefaultsConstructorAcceptsOnlyGeneral(
+        int defaults,
+        JsonWireNamingPolicy expected)
+    {
+        JsonWireNamingPolicy? policy = ReadPolicy(
+            BuildImageCore(
+                (metadata, target, constructor) =>
+                {
+                    var value = new BlobBuilder();
+                    value.WriteUInt16(1);
+                    value.WriteInt32(defaults);
+                    value.WriteUInt16(0);
+                    metadata.AddCustomAttribute(
+                        target,
+                        constructor,
+                        metadata.GetOrAddBlob(value));
+                },
+                useJsonSerializerDefaultsConstructor: true));
+
+        Assert.Equal(expected, policy);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void MalformedRowPairedWithValidRowIsUnsupportedRegardlessOfOrder(
@@ -338,7 +363,8 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         Action<MetadataBuilder, TypeDefinitionHandle, MemberReferenceHandle>
             addAttributes,
         bool trustedAssembly = true,
-        int constructorParameterCount = 0)
+        int constructorParameterCount = 0,
+        bool useJsonSerializerDefaultsConstructor = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -373,17 +399,37 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             metadata.GetOrAddString("System.Text.Json.Serialization"),
             metadata.GetOrAddString(
                 "JsonSourceGenerationOptionsAttribute"));
+        TypeReferenceHandle defaultsType = metadata.AddTypeReference(
+            systemTextJson,
+            metadata.GetOrAddString("System.Text.Json"),
+            metadata.GetOrAddString("JsonSerializerDefaults"));
         var constructorSignature = new BlobBuilder();
+        int parameterCount = useJsonSerializerDefaultsConstructor
+            ? 1
+            : constructorParameterCount;
         new BlobEncoder(constructorSignature).MethodSignature(
             SignatureCallingConvention.Default,
             genericParameterCount: 0,
             isInstanceMethod: true).Parameters(
-            constructorParameterCount,
+            parameterCount,
             returnType => returnType.Void(),
             parameters =>
             {
-                for (int index = 0; index < constructorParameterCount; index++)
-                    parameters.AddParameter().Type().Int32();
+                if (useJsonSerializerDefaultsConstructor)
+                {
+                    parameters.AddParameter().Type().Type(
+                        defaultsType,
+                        isValueType: true);
+                }
+                else
+                {
+                    for (int index = 0;
+                        index < constructorParameterCount;
+                        index++)
+                    {
+                        parameters.AddParameter().Type().Int32();
+                    }
+                }
             });
         MemberReferenceHandle constructor = metadata.AddMemberReference(
             attributeType,

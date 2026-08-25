@@ -2477,6 +2477,7 @@ public class ApiOutputFormatterTests
                     Kind = "method",
                     GenericArity = 1,
                     HasMethodBody = false,
+                    HasRuntimeJsExportWrapper = false,
                     HasRuntimeJsExport = true,
                     RuntimeJsExportAttributeCount = 2,
                     HasMalformedRuntimeJsExportAttribute = true,
@@ -2511,6 +2512,10 @@ public class ApiOutputFormatterTests
             json,
             StringComparison.Ordinal);
         Assert.Contains(
+            "\"has_runtime_js_export_wrapper\": false",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "\"has_malformed_runtime_js_export_attribute\": true",
             json,
             StringComparison.Ordinal);
@@ -2533,6 +2538,7 @@ public class ApiOutputFormatterTests
         Assert.True(evidence.HasMalformedRuntimeJsExportAttribute);
         Assert.Equal(1, evidence.GenericArity);
         Assert.False(evidence.HasMethodBody);
+        Assert.False(evidence.HasRuntimeJsExportWrapper);
         Assert.True(restored.HasSystemTextJsonSourceGenerationMarker);
         Assert.Equal(0, property.IndexParameterCount);
         Assert.Equal("<Run>g__Local|0_0", filtered.MethodName);

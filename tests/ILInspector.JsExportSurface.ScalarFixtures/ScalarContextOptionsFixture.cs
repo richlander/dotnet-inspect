@@ -24,6 +24,19 @@ public static partial class ScalarContextOptionsFixtureExports
         JsonSerializer.Serialize(
             new[] { 1, 2 },
             SupportedScalarContextOptions.Default.Int32Array);
+
+    [JSExport]
+    public static string SerializeCustomInstanceInt()
+    {
+        var options = new JsonSerializerOptions
+        {
+            NumberHandling = JsonNumberHandling.WriteAsString,
+        };
+        var context = new SupportedScalarContextOptions(options);
+        return JsonSerializer.Serialize(
+            42,
+            context.Int32);
+    }
 }
 
 [JsonSerializable(typeof(int))]
@@ -42,6 +55,12 @@ public sealed partial class UnsupportedScalarContextOptions
 public sealed partial class UnusedUnsupportedScalarContextOptions
     : JsonSerializerContext;
 
+[JsonSerializable(typeof(int))]
 [JsonSerializable(typeof(int[]))]
 public sealed partial class SupportedScalarContextOptions
+    : JsonSerializerContext;
+
+[JsonSerializable(typeof(int))]
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+public sealed partial class UnsupportedWebDefaultsContext
     : JsonSerializerContext;
