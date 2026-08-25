@@ -1105,11 +1105,12 @@ public class ApiMember
     public bool? HasMethodBody { get; set; }
 
     /// <summary>
-    /// Whether metadata contains an exact-name runtime-wrapper MethodDef and
-    /// an authentic SDK <c>DynamicDependency</c> registration candidate for
-    /// this JSExport MethodDef. This is not body provenance: consumers that
-    /// publish runtime bindings must authenticate the wrapper's call chain.
-    /// Null preserves older or hand-composed surfaces.
+    /// Whether metadata contains an exact-name runtime-wrapper MethodDef and a
+    /// target-matched <c>DynamicDependency</c> row on the SDK-generated
+    /// registration container for this JSExport MethodDef. This is not body
+    /// provenance: consumers that publish runtime bindings must authenticate
+    /// the wrapper's call chain. Null preserves older or hand-composed
+    /// surfaces.
     /// </summary>
     /// <remarks>
     /// <c>JsExportSurfaceBuilderTests.Build_RejectsJsExportWithoutGeneratedRuntimeWrapper</c>

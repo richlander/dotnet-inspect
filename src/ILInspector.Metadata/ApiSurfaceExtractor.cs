@@ -501,20 +501,74 @@ public static class ApiSurfaceExtractor
         }
         surface.AssemblyIdentity = currentAssemblyIdentity;
         var registeredRuntimeJsExportWrapperNames =
-            new HashSet<string>(StringComparer.Ordinal);
+            new Dictionary<
+                (string AssemblyName, string TypeName),
+                HashSet<string>>();
         if (!typesOnly)
         {
-            foreach (MethodDefinitionHandle methodHandle
-                in reader.MethodDefinitions)
+            foreach (TypeDefinitionHandle typeHandle
+                in reader.TypeDefinitions)
             {
-                MethodDefinition method =
-                    reader.GetMethodDefinition(methodHandle);
-                registeredRuntimeJsExportWrapperNames.UnionWith(
-                    AttributeReader
-                        .ReadRuntimeJsExportWrapperRegistrations(
-                            reader,
-                            method.GetCustomAttributes(),
-                            observeDecodeWork));
+                TypeDefinition type =
+                    reader.GetTypeDefinition(typeHandle);
+                string typeNamespace = DecodeString(
+                    reader,
+                    type.Namespace,
+                    observeDecodeWork);
+                string typeName = DecodeString(
+                    reader,
+                    type.Name,
+                    observeDecodeWork);
+                if (typeNamespace
+                        != "System.Runtime.InteropServices.JavaScript"
+                    || typeName != "__GeneratedInitializer")
+                {
+                    continue;
+                }
+
+                foreach (MethodDefinitionHandle methodHandle
+                    in type.GetMethods())
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(methodHandle);
+                    string methodName = DecodeString(
+                        reader,
+                        method.Name,
+                        observeDecodeWork);
+                    if (methodName != "__Register_"
+                        || (method.Attributes
+                                & (MethodAttributes.MemberAccessMask
+                                    | MethodAttributes.Static))
+                            != (MethodAttributes.Private
+                                | MethodAttributes.Static))
+                    {
+                        continue;
+                    }
+
+                    foreach (RuntimeJsExportWrapperRegistration
+                        registration in AttributeReader
+                            .ReadRuntimeJsExportWrapperRegistrations(
+                                reader,
+                                method.GetCustomAttributes(),
+                                observeDecodeWork))
+                    {
+                        var key = (
+                            registration.TargetAssemblyName,
+                            registration.TargetTypeName);
+                        if (!registeredRuntimeJsExportWrapperNames
+                                .TryGetValue(
+                                    key,
+                                    out HashSet<string>? names))
+                        {
+                            names = new(StringComparer.Ordinal);
+                            registeredRuntimeJsExportWrapperNames.Add(
+                                key,
+                                names);
+                        }
+
+                        names.Add(registration.MemberName);
+                    }
+                }
             }
         }
 
@@ -1053,10 +1107,18 @@ public static class ApiSurfaceExtractor
                         member => member.Name,
                         StringComparer.Ordinal))
             {
+                HashSet<string>? registeredNames = null;
+                if (currentAssemblyIdentity is not null)
+                {
+                    registeredRuntimeJsExportWrapperNames.TryGetValue(
+                        (
+                            currentAssemblyIdentity.Name,
+                            apiType.FullName),
+                        out registeredNames);
+                }
                 int wrapperCount =
                     runtimeJsExportWrapperCandidateNames.Count(name =>
-                        registeredRuntimeJsExportWrapperNames.Contains(
-                            name)
+                        registeredNames?.Contains(name) == true
                         && RuntimeJsExportWrapperName.IsCandidateFor(
                             name,
                             exports.Key));

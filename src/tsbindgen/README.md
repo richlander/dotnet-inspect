@@ -36,6 +36,16 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 TypeScript would add its own "personality" layer here without needing to touch
 the OM.
 
+JavaScript wrapper bindings use the namespace- and nesting-qualified declaring
+type path returned by `getAssemblyExports`, for example
+`exports.Acme.Widgets.Api.WidgetExports.GetWidget`. Global-namespace and nested
+types remain the corresponding shorter dotted paths. The same composed
+identifier validation runs before either declarations or wrappers are
+published. `JsExportSurfaceBuilderTests.Build_ProjectsRuntimeQualifiedDeclaringTypePath`
+and `Build_ProjectsNestedRuntimeDeclaringTypePath` gate the compiled namespaced
+top-level and nested paths, while the inspect-web generated-artifact check
+remains the global-namespace consumer canary.
+
 System.Text.Json serializes an exact CLR `byte[]` (`System.Byte[]`) DTO member
 as one Base64 JSON string, so those JSON-wire declarations map to TypeScript
 `string`. Direct `[JSExport]` parameters and returns instead retain JS
@@ -184,7 +194,10 @@ members are accessible. Indexed properties are also excluded because
 System.Text.Json does not include indexers in object contracts; extracted
 surfaces persist the property index-parameter count, while older or
 hand-composed surfaces without equivalent signature evidence fail closed. The
-same wire-member rule drives transitive DTO
+non-default `PreferredObjectCreationHandling=Populate` option also fails
+visibly: runtime population can mutate an existing reference value through its
+getter even when the setter does not participate, and that alternate member
+contract is not yet modeled. The same wire-member rule drives transitive DTO
 discovery and declaration emission so a discovered edge cannot become an
 orphaned or incomplete TypeScript shape;
 `DtsEmitterTests.Emit_UsesSetterAccessibilityForDeserializeDeclarations` and
@@ -193,6 +206,8 @@ directional accessor contract against the real source generator, while
 `Emit_BlocksUnmodeledConstructorBoundDeserialization` and
 `Emit_BlocksConstructorBindingWithPrivateSetter` gate the fail-visible
 constructor-binding boundary against real generated contexts.
+`JsExportSurfaceBuilderTests.Build_RejectsReachedPopulateObjectCreationHandling`
+gates the Populate boundary against the source-generated runtime contract.
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`

@@ -668,9 +668,10 @@ public static partial class AttributeReader
     }
 
     /// <summary>
-    /// Reads exact runtime-wrapper MethodDef names registered by the SDK
-    /// JavaScript interop generator's authentic
-    /// <c>[DynamicDependency(string, string, string)]</c> rows.
+    /// Decodes exact runtime-wrapper MethodDef names and textual targets from
+    /// framework <c>[DynamicDependency(string, string, string)]</c> rows. The
+    /// extractor separately authenticates the SDK registration container and
+    /// matches each textual target to its owning type definition.
     /// </summary>
     /// <remarks>
     /// <c>JsExportSurfaceBuilderTests.Build_RejectsHandwrittenRuntimeWrapperCandidate</c>
@@ -678,13 +679,13 @@ public static partial class AttributeReader
     /// registration and exact-name boundaries against compiler-produced
     /// fixtures.
     /// </remarks>
-    public static IReadOnlyList<string>
+    public static IReadOnlyList<RuntimeJsExportWrapperRegistration>
         ReadRuntimeJsExportWrapperRegistrations(
             MetadataReader reader,
             CustomAttributeHandleCollection attributes,
             Action<int>? beforeMaterialize = null)
     {
-        List<string> names = [];
+        List<RuntimeJsExportWrapperRegistration> registrations = [];
         foreach (CustomAttributeHandle handle in attributes)
         {
             CustomAttribute attribute =
@@ -712,20 +713,26 @@ public static partial class AttributeReader
                 || decoded.FixedArguments[0].Value
                     is not string memberName
                 || decoded.FixedArguments[1].Value
-                    is not string
+                    is not string targetTypeName
                 || decoded.FixedArguments[2].Value
-                    is not string
+                    is not string targetAssemblyName
                 || !memberName.StartsWith(
                     "__Wrapper_",
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal)
+                || string.IsNullOrEmpty(targetTypeName)
+                || string.IsNullOrEmpty(targetAssemblyName))
             {
                 continue;
             }
 
-            names.Add(memberName);
+            registrations.Add(
+                new(
+                    memberName,
+                    targetTypeName,
+                    targetAssemblyName));
         }
 
-        return names;
+        return registrations;
     }
 
     /// <summary>
@@ -2396,6 +2403,7 @@ public static partial class AttributeReader
             "DefaultIgnoreCondition"
                 or "DictionaryKeyPolicy"
                 or "NumberHandling"
+                or "PreferredObjectCreationHandling"
                 or "ReferenceHandler" =>
                 !TryReadInt32(option.Value, out int value) || value != 0,
             _ => false,

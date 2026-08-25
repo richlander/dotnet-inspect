@@ -109,13 +109,16 @@ contract.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
 the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
-metadata contains enough exact wrapper-name MethodDefs with authentic SDK
-`DynamicDependency` registrations for the export's overload group. The
+metadata contains enough exact wrapper-name MethodDefs with target-matched
+`DynamicDependency` rows on the SDK-generated registration container for the
+export's overload group. Another type's registration or a handwritten row
+outside that container cannot be borrowed. The
 candidate is deliberately not publication provenance:
 `ILInspector.JsExportSurface` authenticates the Analysis-owned
-wrapper-to-stub-to-export MethodDef call chain before publishing a runtime
-binding. This separates Metadata's declaration fact from body evidence and
-rejects prefix siblings or handwritten wrapper names. Null remains the
+wrapper-to-stub-to-export MethodDef call chain, including complete body
+analysis for the wrapper and stub, before publishing a runtime binding. This
+separates Metadata's declaration fact from body evidence and rejects diagnosed
+chains, prefix siblings, or handwritten wrapper names. Null remains the
 compatibility shape for older or hand-composed surfaces. Authentic `[JSExport]` rows on MethodDefs
 that have no declarable `ApiMember` remain `FilteredRuntimeJsExportFact`
 evidence on their retained type, or on `ApiSurface` when the MethodDef belongs
@@ -124,7 +127,9 @@ not invented API members.
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
+`Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`, and
 `ApiOutputFormatterTests.ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence`
 gate extraction, consumption, and persistence.

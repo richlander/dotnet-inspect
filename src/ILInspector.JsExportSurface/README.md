@@ -4,7 +4,7 @@
 `[JSExport]` wasm/JS interop surface, projected from `ILInspector.Metadata`'s
 `ApiSurface`/`ApiSurfaceExtractor`.
 
-`JsExportSurfaceBuilder.Build` discovers:
+`JsExportSurfaceBuilder.Build(surface, bodyIndex)` discovers:
 
 - **Functions** — every runtime-publishable, ordinary static `[JSExport]`
   method, with its declaring type, parameters, and return type reported
@@ -15,10 +15,13 @@
   JSExport glue. Authentic rows on filtered MethodDefs, including lambdas in
   compiler-generated types, remain surface-scoped failure evidence rather than
   disappearing with the filtered API declaration. Live extraction also
-  retains exact-name `__Wrapper_*_<digits>` MethodDefs backed by authentic SDK
-  `DynamicDependency` registrations as candidates. Analysis then
-  authenticates the generated wrapper-to-stub-to-export MethodDef call chain;
-  a prefix sibling or handwritten candidate cannot publish another export.
+  retains exact-name `__Wrapper_*_<digits>` MethodDefs backed by
+  target-matched `DynamicDependency` rows on the SDK-generated registration
+  container as candidates. A registration for another declaring type, or a
+  handwritten registration elsewhere, cannot be borrowed. Analysis then
+  authenticates a complete generated wrapper-to-stub-to-export MethodDef call
+  chain; a diagnosed wrapper/stub body, prefix sibling, or handwritten
+  candidate cannot publish another export.
   An attributed body in a non-partial type is rejected because it has no
   runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
@@ -33,6 +36,10 @@
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
 consumer such as [`tsbindgen`](../tsbindgen).
+The single-argument `Build(surface)` overload is a declaration-only
+compatibility seam for metadata-focused tests and hand-composed surfaces. It
+does not establish runtime publication; the product path always supplies
+Analysis body evidence.
 
 Serializer-context getters authenticate registered roots only when their
 context carries the authentic
@@ -52,7 +59,11 @@ independently of source-generation metadata, so an unproven receiver fails.
 `Build_RejectsReachedHandwrittenSerializerContextGetter`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
+`Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_RejectsDiagnosedRuntimeWrapperChain`,
+`Build_ProjectsRuntimeQualifiedDeclaringTypePath`,
+`Build_ProjectsNestedRuntimeDeclaringTypePath`,
 `Build_RejectsIndexedGetterWithGeneratedRootName`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
@@ -74,7 +85,12 @@ gates.
 For scalar roots, unsupported wire-shaping context options are attached to the
 exact generated `JsonTypeInfo<T>` getter. They fail visibly only if that getter
 reaches an export, despite having no DTO record on which to retain the policy;
-unused scalar contexts remain inert. `Build_RejectsReachedUnsupportedScalarContextOptions`,
+unused scalar contexts remain inert. Non-default
+`PreferredObjectCreationHandling=Populate` is likewise unsupported: it can
+deserialize through a getter without a participating setter, which the current
+wire-member projection does not model.
+`Build_RejectsReachedUnsupportedScalarContextOptions`,
+`Build_RejectsReachedPopulateObjectCreationHandling`,
 `Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
 `TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
 are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication`,

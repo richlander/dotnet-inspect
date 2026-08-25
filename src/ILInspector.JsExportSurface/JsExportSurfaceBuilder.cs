@@ -17,7 +17,13 @@ public static class JsExportSurfaceBuilder
     const string UnsupportedContextOptionsReason =
         "serializer context options are unsupported";
 
-    public static JsExportSurface Build(ApiSurface surface) => Build(surface, bodyIndex: null);
+    /// <summary>
+    /// Builds the declaration-only view used by metadata-focused tests and
+    /// hand-composed surfaces. Runtime publication requires the overload that
+    /// supplies Analysis body evidence.
+    /// </summary>
+    public static JsExportSurface Build(ApiSurface surface) =>
+        Build(surface, bodyIndex: null);
 
     public static JsExportSurface Build(ApiSurface surface, LibraryBodyIndex? bodyIndex)
     {
@@ -113,7 +119,8 @@ public static class JsExportSurfaceBuilder
                         && bodyIndex is not null
                         && !HasAuthenticatedRuntimeJsExportWrapper(
                             bodyIndex,
-                            member)))
+                            member,
+                            incompleteBodyTokens)))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -140,7 +147,7 @@ public static class JsExportSurfaceBuilder
 
                 var function = new JsExportFunction
                 {
-                    DeclaringType = type.Name,
+                    DeclaringType = type.FullName,
                     Name = member.Name,
                     ReturnType = signature.ReturnType ?? member.ReturnType ?? "void",
                     ReturnTypeReferences =
@@ -768,7 +775,8 @@ public static class JsExportSurfaceBuilder
 
     static bool HasAuthenticatedRuntimeJsExportWrapper(
         LibraryBodyIndex bodyIndex,
-        ApiMember export)
+        ApiMember export,
+        IReadOnlySet<int> incompleteBodyTokens)
     {
         if (export.MetadataToken is not { } exportToken)
             return false;
@@ -781,6 +789,8 @@ public static class JsExportSurfaceBuilder
         {
             MethodIdentity wrapper = wrapperCalls[0].EvidenceMethod;
             if (!IsGeneratedRuntimeWrapper(wrapper, export.Name))
+                continue;
+            if (incompleteBodyTokens.Contains(wrapper.MetadataToken))
                 continue;
 
             foreach (DirectCall wrapperCall in wrapperCalls)
@@ -797,7 +807,9 @@ public static class JsExportSurfaceBuilder
                 MethodIdentity stub = stubCalls[0].EvidenceMethod;
                 if (!IsGeneratedRuntimeWrapperStub(
                         wrapper,
-                        stub))
+                        stub)
+                    || incompleteBodyTokens.Contains(
+                        stub.MetadataToken))
                 {
                     continue;
                 }

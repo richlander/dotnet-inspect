@@ -12,6 +12,7 @@ using ILInspector.JsExportSurface.OperatorFixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.ScalarFixtures;
 using ILInspector.Metadata;
+using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -467,6 +468,64 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_DoesNotBorrowWrapperRegistrationFromAnotherType()
+    {
+        string path =
+            typeof(TargetIdentitySpoofFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType spoof = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(TargetIdentitySpoofFixture));
+        ApiMember export = Assert.Single(
+            spoof.Members,
+            member => member.Name
+                == nameof(TargetIdentitySpoofFixture.ReadValue));
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        const string wrapperName =
+            "__Wrapper_ReadValue_764966221";
+        MethodIdentity wrapper = Assert.Single(
+            bodyIndex.Methods,
+            method => method.DeclaringType.Name
+                    == nameof(TargetIdentitySpoofFixture)
+                && method.Name == wrapperName);
+        DirectCall wrapperCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == wrapper.MetadataToken
+                && call.Callee.Name.StartsWith(
+                    $"<{wrapperName}>g____Stub|",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == wrapperCall.CalleeDefinitionToken
+                && call.CalleeDefinitionToken
+                    == export.MetadataToken);
+        Assert.Contains(
+            bodyIndex.Methods,
+            method => method.DeclaringType.Name
+                    != nameof(TargetIdentitySpoofFixture)
+                && method.Name == wrapperName);
+
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [spoof];
+
+        Assert.False(
+            export.HasRuntimeJsExportWrapperCandidate);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_DoesNotCreditPrefixSiblingWrapper()
     {
         string path =
@@ -510,6 +569,82 @@ public sealed class JsExportSurfaceBuilderTests
                 bodyIndex);
         Assert.Equal("Foo_Bar", Assert.Single(
             accepted.Functions).Name);
+    }
+
+    [Fact]
+    public void Build_ProjectsRuntimeQualifiedDeclaringTypePath()
+    {
+        string path =
+            typeof(WrapperPrefixCollisionFixture)
+                .Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(WrapperPrefixCollisionFixture));
+        fixture.Members =
+        [
+            Assert.Single(
+                fixture.Members,
+                member => member.Name == "Foo_Bar"),
+        ];
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+
+        JsExportFunction function = Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                OpenWireContractBodyIndex(path))
+                .Functions);
+        Assert.Equal(
+            "ILInspector.JsExportSurface.PublishabilityFixtures"
+                + ".WrapperPrefixCollisionFixture",
+            function.DeclaringType);
+        Assert.Contains(
+            "exports.ILInspector.JsExportSurface"
+                + ".PublishabilityFixtures"
+                + ".WrapperPrefixCollisionFixture.Foo_Bar",
+            JsEmitter.Emit(
+                new ILInspector.JsExportSurface.JsExportSurface
+                {
+                    Functions = [function],
+                }),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_ProjectsNestedRuntimeDeclaringTypePath()
+    {
+        string path =
+            typeof(NestedExportContainer.NestedExports)
+                .Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == "NestedExportContainer.NestedExports");
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+
+        JsExportFunction function = Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                OpenWireContractBodyIndex(path))
+                .Functions);
+        Assert.Equal(
+            "ILInspector.JsExportSurface.PublishabilityFixtures"
+                + ".NestedExportContainer.NestedExports",
+            function.DeclaringType);
+        Assert.Contains(
+            "exports.ILInspector.JsExportSurface"
+                + ".PublishabilityFixtures"
+                + ".NestedExportContainer.NestedExports.AddOne",
+            JsEmitter.Emit(
+                new ILInspector.JsExportSurface.JsExportSurface
+                {
+                    Functions = [function],
+                }),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -722,6 +857,78 @@ public sealed class JsExportSurfaceBuilderTests
                 JsExportSurfaceBuilder.Build(apiSurface, bodyIndex)
                     .Functions);
         }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Build_RejectsDiagnosedRuntimeWrapperChain(
+        bool diagnoseStub,
+        bool sourceAttributed)
+    {
+        string path =
+            typeof(WrapperPrefixCollisionFixture)
+                .Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(WrapperPrefixCollisionFixture));
+        ApiMember export = Assert.Single(
+            fixture.Members,
+            member => member.Name == "Foo_Bar");
+        fixture.Members = [export];
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        apiSurface.Types = [fixture];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        MethodIdentity wrapper = Assert.Single(
+            bodyIndex.Methods,
+            method => method.DeclaringType.Name
+                    == nameof(WrapperPrefixCollisionFixture)
+                && RuntimeJsExportWrapperName.IsCandidateFor(
+                    method.Name,
+                    export.Name));
+        DirectCall wrapperCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == wrapper.MetadataToken
+                && call.Callee.Name.StartsWith(
+                    $"<{wrapper.Name}>g____Stub|",
+                    StringComparison.Ordinal));
+        int diagnosedToken = diagnoseStub
+            ? wrapperCall.CalleeDefinitionToken
+            : wrapper.MetadataToken;
+        var diagnostic = new AnalysisDiagnostic(
+            sourceAttributed ? 0x0600FFFF : diagnosedToken,
+            "generated wrapper chain",
+            "BadImageFormatException: invalid body",
+            SourceMethodToken:
+                sourceAttributed ? diagnosedToken : null);
+        LibraryBodyIndex diagnosedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: [diagnostic],
+                directCalls: bodyIndex.DirectCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                bodyIndex)
+                .Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    diagnosedIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1160,6 +1367,48 @@ public sealed class JsExportSurfaceBuilderTests
                     apiSurface,
                     OpenWireContractBodyIndex(path)));
 
+        Assert.Contains(
+            "serializer context options are unsupported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsReachedPopulateObjectCreationHandling()
+    {
+        string path = typeof(PopulateExports).Assembly.Location;
+
+#pragma warning disable CA1416 // The browser-marked fixture executes serializer-only code in this test.
+        PopulateInput runtime = JsonSerializer.Deserialize(
+            """{"Values":[2]}""",
+            PopulateJsonContext.Default.PopulateInput)!;
+        Assert.Equal([1, 2], runtime.Values);
+        Assert.Equal(
+            2,
+            PopulateExports.CountValues("""{"Values":[2]}"""));
+#pragma warning restore CA1416
+
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(PopulateJsonContext));
+        Assert.Equal(
+            JsonWireNamingPolicy.Unsupported,
+            context.JsonPropertyNamingPolicy);
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        apiSurface.Types =
+        [
+            .. apiSurface.Types.Where(type =>
+                type.Name is nameof(PopulateInput)
+                    or nameof(PopulateJsonContext)
+                    or nameof(PopulateExports)),
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    OpenWireContractBodyIndex(path)));
         Assert.Contains(
             "serializer context options are unsupported",
             exception.Message,

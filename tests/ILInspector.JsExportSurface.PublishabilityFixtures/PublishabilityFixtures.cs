@@ -1,4 +1,5 @@
 using System.CodeDom.Compiler;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.JavaScript;
@@ -40,6 +41,10 @@ public static class HandwrittenWrapperCandidateFixture
     [JSExport]
     public static int AddOne(int value) => value + 1;
 
+    [DynamicDependency(
+        "__Wrapper_AddOne_1",
+        "ILInspector.JsExportSurface.PublishabilityFixtures.HandwrittenWrapperCandidateFixture",
+        "ILInspector.JsExportSurface.PublishabilityFixtures")]
     private static unsafe void __Wrapper_AddOne_1(
         JSMarshalerArgument* arguments)
     {
@@ -56,6 +61,16 @@ public static partial class WrapperPrefixCollisionFixture
 
     [JSExport]
     public static int Foo_Bar(int value) => value + 2;
+}
+
+public static partial class NestedExportContainer
+{
+    [SupportedOSPlatform("browser")]
+    public static partial class NestedExports
+    {
+        [JSExport]
+        public static int AddOne(int value) => value + 1;
+    }
 }
 #pragma warning restore SYSLIB1071
 
@@ -154,6 +169,49 @@ public static partial class PrivateSetterConstructorBoundExports
             PrivateSetterConstructorBoundJsonContext.Default
                 .PrivateSetterConstructorBoundInput)!
             .Value;
+}
+
+#pragma warning disable SYSLIB1071
+[SupportedOSPlatform("browser")]
+public static class TargetIdentitySpoofFixture
+{
+    [JSExport]
+    public static int ReadValue(string value) => value.Length;
+
+    private static unsafe void __Wrapper_ReadValue_764966221(
+        JSMarshalerArgument* arguments)
+    {
+        __Stub();
+
+        static void __Stub()
+        {
+            _ = ReadValue("");
+        }
+    }
+}
+#pragma warning restore SYSLIB1071
+
+public sealed class PopulateInput
+{
+    public List<int> Values { get; private set; } = [1];
+}
+
+[JsonSourceGenerationOptions(
+    PreferredObjectCreationHandling =
+        JsonObjectCreationHandling.Populate)]
+[JsonSerializable(typeof(PopulateInput))]
+public sealed partial class PopulateJsonContext
+    : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class PopulateExports
+{
+    [JSExport]
+    public static int CountValues(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            PopulateJsonContext.Default.PopulateInput)!
+            .Values.Count;
 }
 
 public sealed class IndexedRootDto

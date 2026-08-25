@@ -56,6 +56,11 @@ public sealed class JsExportSurface
 /// </summary>
 public sealed class JsExportFunction
 {
+    /// <summary>
+    /// Namespace- and nesting-qualified runtime export path for the declaring
+    /// type, with dot-delimited segments as returned by
+    /// <c>getAssemblyExports</c>.
+    /// </summary>
     public required string DeclaringType { get; init; }
 
     public required string Name { get; init; }
