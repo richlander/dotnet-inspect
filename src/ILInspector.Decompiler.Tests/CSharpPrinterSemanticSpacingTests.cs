@@ -134,7 +134,7 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
-    public void LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact()
+    public void LongMethod_SeparatesSetupAndCompletedConditionalGroups()
     {
         var (output, _) = Print(nameof(SemanticSpacingFixture.Grouped));
 
@@ -145,6 +145,7 @@ public class CSharpPrinterSemanticSpacingTests
             output);
         Assert.Contains(
             "int length = first.Length + second.Length;\n" +
+            "\n" +
             "if (length == 0)",
             output);
         Assert.Contains(
@@ -152,7 +153,7 @@ public class CSharpPrinterSemanticSpacingTests
             "}\n\n" +
             "switch (kind)",
             output);
-        Assert.Equal(2, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -160,16 +161,13 @@ public class CSharpPrinterSemanticSpacingTests
     {
         var (output, _) = Print(nameof(SemanticSpacingFixture.SiblingControlFlow));
 
-        Assert.Contains(
-            "int length = first.Length + second.Length;\n" +
-            "if (length > 10)",
-            output);
+        Assert.Contains("int length = first.Length + second.Length;\n\nif (length > 10)", output);
         Assert.Contains(
             "GC.KeepAlive(length);\n" +
             "}\n\n" +
             "if (kind == 0)",
             output);
-        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -244,14 +242,17 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
-    public void CompilerProducedCopyBlock_DoesNotEnableSpacing()
+    public void CompilerProducedCopyBlock_SeparatesGeneratedUnsafeGroups()
     {
         var (output, _) = Print(
             typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives),
             nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives.StackallocBooleanInitializer));
 
-        Assert.Contains("    }\n}\nreturn true;", output);
-        Assert.DoesNotContain("    }\n}\n\nreturn true;", output);
+        Assert.Contains(
+            "    values = (bool*)S_256;\n\n" +
+            "    if (!(*values))",
+            output);
+        Assert.Contains("    }\n}\n\nreturn true;", output);
     }
 
     [Fact]
@@ -265,6 +266,47 @@ public class CSharpPrinterSemanticSpacingTests
             "return value + 1;",
             output);
         Assert.DoesNotContain("}\n\nreturn value + 1;", output);
+    }
+
+    [Fact]
+    public void LongMethod_KeepsSingleSetupBeforeControlFlowCompact()
+    {
+        var firstThen = new Block();
+        firstThen.Add(new ExpressionStatement(new Constant(1, Int32)));
+        var secondThen = new Block();
+        secondThen.Add(new ExpressionStatement(new Constant(3, Int32)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(
+            new LoadArgument(0, "first", Boolean),
+            firstThen,
+            elseArm: null));
+        entry.Add(new ExpressionStatement(new Constant(2, Int32)));
+        entry.Add(new IfStatement(
+            new LoadArgument(1, "second", Boolean),
+            secondThen,
+            elseArm: null));
+        entry.Add(new ExpressionStatement(new Constant(4, Int32)));
+        entry.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "SingleSetupBoundary",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("first", Boolean),
+                    new Parameter("second", Boolean),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains("_ = 2;\nif (second)", output);
+        Assert.DoesNotContain("_ = 2;\n\nif (second)", output);
     }
 
     [Fact]
@@ -348,12 +390,13 @@ public class CSharpPrinterSemanticSpacingTests
         string output = PrintLoopConditional(terminal);
         string keyword = useContinue ? "continue" : "break";
 
+        Assert.Contains("_ = 2;\n\n    if (flag)", output);
         Assert.Contains(
             $"{keyword};\n" +
             "    }\n\n" +
             "    _ = 3;",
             output);
-        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -362,6 +405,7 @@ public class CSharpPrinterSemanticSpacingTests
         string output = PrintLoopConditional(
             new ExpressionStatement(new Constant(99, Int32)));
 
+        Assert.Contains("_ = 2;\n\n    if (flag)", output);
         Assert.Contains(
             "_ = 99;\n" +
             "    }\n" +
@@ -372,6 +416,7 @@ public class CSharpPrinterSemanticSpacingTests
             "    }\n\n" +
             "    _ = 3;",
             output);
+        Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -448,13 +493,14 @@ public class CSharpPrinterSemanticSpacingTests
 
         var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
 
+        Assert.Contains("_ = 2;\n\nunsafe\n{", output);
         Assert.Contains(
             "return 1;\n" +
             "    }\n\n" +
             "    if ((*pointer) != 0)",
             output);
         Assert.Contains("    }\n}\n\nreturn 0;", output);
-        Assert.Equal(2, output.Split("\n\n", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]

@@ -480,39 +480,53 @@ structured sequence with at least five visible statements. It separates a
 leading no-`else` conditional or a terminating no-`else` conditional from the
 statement that follows, and it separates adjacent major control-flow constructs
 (`if`, `switch`, loops, `try`, `lock`, `fixed`, `using`, and `foreach`). Nested
-sequences make the decision independently. A sequence that renders source labels
-declines this policy because its explicit lowered control-flow contour is already
-the more faithful grouping signal.
+sequences make the decision independently. A generated `unsafe` sequence with
+two setup siblings followed by major control flow also qualifies because its
+synthetic wrapper expands that scaffolding into a long visible group. A sequence
+that renders source labels declines this policy because its explicit lowered
+control-flow contour is already the more faithful grouping signal.
 
-Setup remains compact with the following `if`, `switch`, or loop. Statement
-count alone is not a reliable semantic boundary: in the runtime oracle, even
-runs of two or more setup statements were followed by a blank before `if` only
-57% of the time and before loops only 31% of the time.
+A run of two or more setup statements separates from the following `if`,
+`switch`, or loop; a single setup statement remains compact. SourceLink-backed
+runtime 10.0.10 source at commit
+`f7d90799ce4ef09a0bb257852a57248d2a8fb8dd` shows the multi-statement form in
+`JsonDocument.PropertyNameSet.cs:75-78` and
+`JsonDocument.MetadataDb.cs:381-388`. Single-statement setup is mixed even
+within one method: `ArrayBuffer.cs:142-143` is compact while lines 153-155 are
+separated. The broader sample is mixed too: runs of two or more setup
+statements were separated before `if` 57% of the time and before loops 31% of
+the time. The printer therefore does not claim a universal runtime convention:
+it conservatively requires two setup statements, limits the policy to long
+structured sequences, and uses the exact SourceLink witnesses plus the desired
+compiler-produced residual-`cpblk` shape as its selection evidence. Generated
+`unsafe` blocks apply the same boundary to their printer-introduced setup
+scaffolding.
 
 The declared facet is silent on blank lines between statements:
-`dotnet/runtime`'s `.editorconfig` at
-`113dfc84608caa4b9a87a302c952bf7f35617240` specifies newline placement around
-braces and keywords but no blank-line rule. Its coding-style guide only says to
-avoid more than one empty line at a time. The revealed facet supports the two
-selected boundaries: a ten-file library sample placed a blank after block-form
-guards 79% of the time and between sibling control-flow constructs 90% of the
-time. Representative witnesses are
+`dotnet/dotnet`'s `.editorconfig` at
+`f7d90799ce4ef09a0bb257852a57248d2a8fb8dd` specifies newline placement around
+braces and keywords but no blank-line rule. The runtime coding-style guide only
+says to avoid more than one empty line at a time. The revealed facet supports
+the guard and sibling-control-flow boundaries: a ten-file library sample placed
+a blank after block-form guards 79% of the time and between sibling control-flow
+constructs 90% of the time. Representative witnesses are
 `src/libraries/System.Collections/src/System/Collections/Generic/SortedSet.cs:513-528`
 for separated guards and
 `src/libraries/System.Private.CoreLib/src/System/Threading/Tasks/Task.cs:2988-2993`
-for separated sibling conditionals. Compact setup is represented by
-`src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs:397-405`.
+for separated sibling conditionals. The SourceLink witnesses above supply the
+more nuanced setup boundary.
 
 `FourVisibleConstructor_DoesNotCountSuppressedBaseCall` and
 `FourVisibleStatements_DoNotCountCommentOnlySibling` ensure suppressed
 constructor chains and every comment-only statement form do not enter the
-visible count. `CompilerProducedCopyBlock_DoesNotEnableSpacing` pins the same
-boundary on a real residual-`cpblk` fixture.
+visible count.
 `FiveVisibleConstructor_SeparatesNonTerminatingLeadingConditional` enforces the
 exact threshold and leading-conditional boundary.
-`LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact` and
+`LongMethod_SeparatesSetupAndCompletedConditionalGroups` and
 `LongMethod_SeparatesSiblingControlFlowGroups` enforce the remaining grouping
-policy. `LoopBody_SeparatesBreakAndContinueGuards` and
+policy, while `LongMethod_KeepsSingleSetupBeforeControlFlowCompact` pins the
+conservative one-statement boundary.
+`LoopBody_SeparatesBreakAndContinueGuards` and
 `LoopBody_KeepsNonTerminatingConditionalCompact` directly enforce the
 terminating discriminator. `LabeledSequence_DeclinesSemanticSpacing` and
 `StatementOwnedLabel_DeclinesSemanticSpacingIndependently` are the named
@@ -532,8 +546,10 @@ function-like return context and retained syntax-kind metadata.
 `GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock` cover generated-block
 state and separator placement, while
 `GeneratedUnsafeRun_UsesFirstVisibleMemberForSeparator` ensures an invisible
-run leader neither consumes nor duplicates that boundary. The
-coordinate-preservation gates are
+run leader neither consumes nor duplicates that boundary.
+`CompilerProducedCopyBlock_SeparatesGeneratedUnsafeGroups` pins the setup and
+exit boundaries on a real residual-`cpblk` fixture. The coordinate-preservation
+gates are
 `InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact`
 and `InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans`.
 

@@ -769,7 +769,8 @@ public sealed partial class CSharpPrinter
             statementsByBlock.Add(emit);
         }
         bool semanticSpacing = HasSemanticSpacingCandidates(
-                statementsByBlock.SelectMany(static statements => statements))
+                statementsByBlock.SelectMany(static statements => statements),
+                statementsByBlock.Any(HasGeneratedUnsafeSetupBoundary))
             && blocks.All(block => !_labelTargets.Contains(block.StartOffset));
         var spacingState = new SemanticSpacingState(semanticSpacing);
 
@@ -2654,7 +2655,11 @@ public sealed partial class CSharpPrinter
     /// </summary>
     void AppendStatements(StringBuilder sb, IReadOnlyList<IrNode> statements, int indent)
     {
-        bool semanticSpacing = HasSemanticSpacingCandidates(statements)
+        bool hasGeneratedUnsafeSetupBoundary =
+            HasGeneratedUnsafeSetupBoundary(statements);
+        bool semanticSpacing = HasSemanticSpacingCandidates(
+                statements,
+                hasGeneratedUnsafeSetupBoundary)
             && (statements.FirstOrDefault()?.Parent is not Block block
                 || !_labelTargets.Contains(block.StartOffset));
         var spacingState = new SemanticSpacingState(semanticSpacing);
@@ -2762,7 +2767,9 @@ public sealed partial class CSharpPrinter
             && statement.SourceOffset >= 0
             && _labelTargets.Contains(statement.SourceOffset);
 
-    bool HasSemanticSpacingCandidates(IEnumerable<IrNode> statements)
+    bool HasSemanticSpacingCandidates(
+        IEnumerable<IrNode> statements,
+        bool hasGeneratedUnsafeSetupBoundary)
     {
         int visibleStatements = 0;
         foreach (var statement in statements)
@@ -2772,13 +2779,14 @@ public sealed partial class CSharpPrinter
             if (IsVisibleStatement(statement))
                 visibleStatements++;
         }
-        return visibleStatements >= 5;
+        return visibleStatements >= 5 || hasGeneratedUnsafeSetupBoundary;
     }
 
     // Five visible siblings keeps compact bodies compact. Longer structured
-    // lists separate leading/terminating one-arm conditionals and adjacent
-    // major constructs. Labeled lowered output declines the policy because its
-    // control-flow contour is explicit.
+    // lists separate leading/terminating one-arm conditionals, substantial setup
+    // prefixes, and adjacent major constructs. Generated unsafe blocks with the
+    // same setup contour also qualify. Labeled lowered output declines the
+    // policy because its control-flow contour is explicit.
     void AppendSemanticSeparator(
         StringBuilder sb,
         IrNode current,
@@ -2789,10 +2797,49 @@ public sealed partial class CSharpPrinter
 
         if (state.PreviousCompletedConditional
             || IsMajorControlFlow(current)
-                && IsMajorControlFlow(state.Previous))
+                && (IsMajorControlFlow(state.Previous)
+                    || state.ConsecutiveSetupStatements >= 2))
         {
             sb.AppendLf();
         }
+    }
+
+    bool HasGeneratedUnsafeSetupBoundary(IReadOnlyList<IrNode> statements)
+    {
+        if (!_newMemorySafetyRules || _unsafeDepth != 0)
+            return false;
+
+        int i = 0;
+        while (i < statements.Count)
+        {
+            if (!NeedsUnsafeContext(statements[i]))
+            {
+                i++;
+                continue;
+            }
+
+            int end = UnsafeRunEnd(statements, i);
+            int setupStatements = 0;
+            for (int k = i; k < end; k++)
+            {
+                if (!IsVisibleStatement(statements[k]))
+                    continue;
+
+                if (IsMajorControlFlow(statements[k]))
+                {
+                    if (setupStatements >= 2)
+                        return true;
+                    setupStatements = 0;
+                }
+                else
+                {
+                    setupStatements++;
+                }
+            }
+            i = end;
+        }
+
+        return false;
     }
 
     static bool IsCompletedConditionalGroup(IrNode statement, bool leading)
@@ -2826,6 +2873,9 @@ public sealed partial class CSharpPrinter
     {
         state.PreviousCompletedConditional =
             IsCompletedConditionalGroup(statement, state.EmittedStatements == 0);
+        state.ConsecutiveSetupStatements = IsMajorControlFlow(statement)
+            ? 0
+            : state.ConsecutiveSetupStatements + 1;
         state.Previous = statement;
         state.EmittedStatements++;
     }
@@ -2835,6 +2885,7 @@ public sealed partial class CSharpPrinter
         public bool Enabled { get; } = enabled;
         public IrNode? Previous { get; set; }
         public bool PreviousCompletedConditional { get; set; }
+        public int ConsecutiveSetupStatements { get; set; }
         public int EmittedStatements { get; set; }
     }
 
