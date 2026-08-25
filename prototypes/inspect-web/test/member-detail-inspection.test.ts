@@ -83,6 +83,7 @@ function annotatedResult(): AnnotatedSourceResult {
     provenance: "decompiled from IL",
     contextLimitation: null,
     findingEvidence: [],
+    invocationTargets: [],
   };
 }
 

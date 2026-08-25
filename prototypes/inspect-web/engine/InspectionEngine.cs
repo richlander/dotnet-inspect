@@ -275,7 +275,8 @@ public static partial class InspectionEngine
                         memberName,
                         MethodToken: resolution.BodyToken,
                         SourceDocument: true,
-                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
+                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
+                        InvocationTargets: true))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -318,15 +319,31 @@ public static partial class InspectionEngine
                     [.. evidence.NodeIds],
                     evidence.UnavailableReason)),
         ];
+        AssemblyReferenceIdentity[] loadedIdentities =
+        [
+            .. scope.ImplementationParticipants.Select(
+                    candidate => candidate.Assembly.Identity),
+        ];
+        BrowserAnnotatedSourceInvocationTarget[] invocationTargets =
+        [
+            .. projection.InvocationTargets.Select(invocation =>
+                    new BrowserAnnotatedSourceInvocationTarget(
+                        invocation.NodeId,
+                        Target(
+                            invocation.Target,
+                            loadedIdentities,
+                            platformPackForAssembly: null))),
+        ];
         return JsonSerializer.Serialize(
             new BrowserAnnotatedSource(
-                serialized.RootElement,
+                    serialized.RootElement,
                 $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
                     + $"{participant.Coordinate.Version} {participant.Asset.Path}",
                 projection.ContextLimitation is { } limitation
                     ? $"{limitation.Kind}: {limitation.Detail}"
                     : null,
-                findingEvidence),
+                findingEvidence,
+                invocationTargets),
             BrowserJsonContext.Default.BrowserAnnotatedSource);
     }
 

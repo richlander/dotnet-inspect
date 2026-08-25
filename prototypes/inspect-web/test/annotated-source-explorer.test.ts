@@ -10,12 +10,16 @@ import {
   renderAnnotatedSourceEntry,
   renderAnnotatedSourceExplorer,
   sourceCodeLensAnnotations,
+  validateAnnotatedSourceInvocationTargets,
   type AnnotatedSourceResult,
 } from "../src/annotated-source-explorer.ts";
 import {
   validateAnnotatedSourceDocument,
   type AnnotatedSourceDocument,
 } from "../src/annotated-source-view.ts";
+import type {
+  BrowserAnnotatedSourceInvocationTarget,
+} from "../src/inspect-web-engine.d.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import { fakeDom } from "./fake-dom.ts";
 import {
@@ -36,6 +40,55 @@ const result: AnnotatedSourceResult = {
   provenance: "test artifact",
   contextLimitation: null,
   findingEvidence: [],
+  invocationTargets: [],
+};
+
+const invocationText = "return Target();";
+const invocationDocument: AnnotatedSourceDocument = {
+  text: invocationText,
+  nodes: [
+    {
+      id: 0,
+      kind: "ReturnStatement",
+      medium: "CSharp",
+      spans: [{ start: 0, length: invocationText.length }],
+    },
+    {
+      id: 1,
+      kind: "InvocationExpression",
+      medium: "CSharp",
+      spans: [{ start: 7, length: "Target()".length }],
+    },
+  ],
+  regions: [],
+  facts: [],
+  targets: [],
+};
+const invocationTarget: BrowserAnnotatedSourceInvocationTarget = {
+  nodeId: 1,
+  target: {
+    id: "n1",
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeFullName: "Example.Targets",
+    typeMetadataId: "Example.Targets",
+    typeDefinitionId: "Example.Targets",
+    memberName: "Target",
+    parameterTypes: [],
+    returnType: "void",
+    genericArity: 0,
+    metadataToken: 0x06000001,
+    selectorKey: "Target()->void",
+    kind: "normal",
+    platformPack: null,
+  },
+};
+const invocationResult: AnnotatedSourceResult = {
+  ...result,
+  document: invocationDocument,
+  invocationTargets: [invocationTarget],
 };
 
 function escapeHtml(value: unknown) {
@@ -172,6 +225,7 @@ test("drag selection does not activate an addressable source segment", () => {
     onFactSelect: () => {},
     onFindingMemberCopy: () => {},
     onFindingMemberNavigate: () => {},
+    onInvocationNavigate: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -185,6 +239,97 @@ test("drag selection does not activate an addressable source segment", () => {
   offset.dispatch("click", fakeDom.event({ detail: 1 }));
   offset.dispatch("click", fakeDom.event({ detail: 0 }));
   assert.deepEqual(calls, [17, 17]);
+});
+
+test("resolved invocation expressions render as typed navigation affordances", () => {
+  validateAnnotatedSourceDocument(invocationDocument);
+  validateAnnotatedSourceInvocationTargets(
+    invocationDocument,
+    invocationResult.invocationTargets);
+
+  const html = renderAnnotatedSourceExplorer({
+    result: invocationResult,
+    state: createAnnotatedSourceExplorerState(invocationDocument),
+    title: "Example",
+    subtitle: "Target",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /class="annotated-span addressable invocation[^"]*"[^>]*data-ase-invocation="0"/);
+  assert.match(html, /Open Example\.Targets\.Target/);
+  assert.doesNotMatch(
+    html,
+    /data-ase-invocation="0"[^>]*data-ase-offset/);
+});
+
+test("invocation navigation preserves drag selection and supports keyboard activation", () => {
+  let selecting = true;
+  const ownerDocument = {
+    activeElement: null,
+    getSelection: () => ({
+      isCollapsed: !selecting,
+      containsNode: () => selecting,
+    }),
+  };
+  const invocation = new FakeElement(
+    { aseInvocation: "3" },
+    ownerDocument);
+  const calls: number[] = [];
+  const root = fakeDom.parentNode({
+    querySelector: () => null,
+    querySelectorAll: (selector: string) =>
+      selector === "[data-ase-invocation]" ? [invocation] : [],
+  });
+
+  bindAnnotatedSourceExplorer(root, {
+    onClearSelection: () => {},
+    onCopy: () => {},
+    onExit: () => {},
+    onCaptureSelect: () => {},
+    onCodeLensPreview: () => {},
+    onCodeLensPreviewEnd: () => {},
+    onCodeLensToggle: () => {},
+    onFactSelect: () => {},
+    onFindingMemberCopy: () => {},
+    onFindingMemberNavigate: () => {},
+    onInvocationNavigate: index => calls.push(index),
+    onMediumToggle: () => {},
+    onNodeKindSelect: () => {},
+    onRegionSelect: () => {},
+    onNodeSelect: () => {},
+    onOffsetSelect: () => {},
+  });
+
+  invocation.dispatch("click", fakeDom.event({ detail: 1 }));
+  assert.deepEqual(calls, []);
+  selecting = false;
+  invocation.dispatch("click", fakeDom.event({ detail: 1 }));
+  selecting = true;
+  invocation.dispatch("click", fakeDom.event({ detail: 0 }));
+  assert.deepEqual(calls, [3, 3]);
+});
+
+test("invocation targets reject missing, indirect, and duplicate nodes", () => {
+  assert.throws(
+    () => validateAnnotatedSourceInvocationTargets(
+      invocationDocument,
+      [{ ...invocationTarget, nodeId: 99 }]),
+    /missing node 99/);
+  assert.throws(
+    () => validateAnnotatedSourceInvocationTargets(
+      invocationDocument,
+      [{ ...invocationTarget, nodeId: 0 }]),
+    /not a C# InvocationExpression/);
+  assert.throws(
+    () => validateAnnotatedSourceInvocationTargets(
+      invocationDocument,
+      [
+        invocationTarget,
+        invocationTarget,
+      ]),
+    /node 1 is duplicated/);
 });
 
 test("CodeLens preview state survives rerenders until the six-second animation ends", () => {
@@ -215,6 +360,7 @@ test("CodeLens preview state survives rerenders until the six-second animation e
     onFactSelect: () => {},
     onFindingMemberCopy: () => {},
     onFindingMemberNavigate: () => {},
+    onInvocationNavigate: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -310,6 +456,7 @@ test("Finding evidence actions copy and navigate without changing selection", ()
     onFactSelect: () => {},
     onFindingMemberCopy: member => calls.push(`copy:${member}`),
     onFindingMemberNavigate: index => calls.push(`navigate:${index}`),
+    onInvocationNavigate: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -1279,6 +1426,7 @@ test("roving focus removes the source container from reverse tab order", () => {
       onFactSelect: () => {},
       onFindingMemberCopy: () => {},
       onFindingMemberNavigate: () => {},
+      onInvocationNavigate: () => {},
       onMediumToggle: () => {},
       onNodeKindSelect: () => {},
       onRegionSelect: () => {},

@@ -21,6 +21,7 @@ export interface BrowserAnnotatedSource {
   provenance: string;
   contextLimitation: string | null;
   findingEvidence: BrowserAnnotatedSourceFindingEvidence[];
+  invocationTargets: BrowserAnnotatedSourceInvocationTarget[];
 }
 
 export interface BrowserAnnotatedSourceFindingEvidence {
@@ -38,6 +39,11 @@ export interface BrowserAnnotatedSourceFindingEvidenceCoordinate {
   member: BrowserCallGraphTarget;
   ilOffset: number;
   kind: string;
+}
+
+export interface BrowserAnnotatedSourceInvocationTarget {
+  nodeId: number;
+  target: BrowserCallGraphTarget;
 }
 
 export interface BrowserAssemblyReference {

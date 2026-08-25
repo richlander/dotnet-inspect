@@ -17,6 +17,7 @@ import {
 import type {
   BrowserAnnotatedSource,
   BrowserAnnotatedSourceFindingEvidence,
+  BrowserAnnotatedSourceInvocationTarget,
   BrowserCallGraphTarget,
 } from "./inspect-web-engine.d.ts";
 
@@ -84,6 +85,7 @@ export interface AnnotatedSourceExplorerBindingActions {
   onFactSelect: (factId: number) => void;
   onFindingMemberCopy: (member: string) => void;
   onFindingMemberNavigate: (evidenceIndex: number) => void;
+  onInvocationNavigate: (targetIndex: number) => void;
   onCodeLensPreview: (nodeId: number) => void;
   onCodeLensPreviewEnd: (nodeId: number) => void;
   onCodeLensToggle: () => void;
@@ -216,17 +218,19 @@ export function bindAnnotatedSourceExplorer(
       "click",
       () => actions.onFindingMemberNavigate(
         Number(button.dataset.aseFindingMemberNavigate))));
+  root.querySelectorAll<HTMLElement>("[data-ase-invocation]").forEach(button =>
+    button.addEventListener(
+      "click",
+      event => {
+        if (pointerSelectionOwnsActivation(button, event)) return;
+        actions.onInvocationNavigate(
+          Number(button.dataset.aseInvocation));
+      }));
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
     button.addEventListener(
       "click",
       event => {
-        const selection = button.ownerDocument.getSelection();
-        if (event.detail !== 0
-          && selection
-          && !selection.isCollapsed
-          && selection.containsNode(button, true)) {
-          return;
-        }
+        if (pointerSelectionOwnsActivation(button, event)) return;
         actions.onOffsetSelect(Number(button.dataset.aseOffset));
       }));
   root.querySelector("#ase-clear")?.addEventListener("click", actions.onClearSelection);
@@ -275,6 +279,61 @@ export function bindAnnotatedSourceExplorer(
     next.focus({ preventScroll: true });
     next.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
+}
+
+function pointerSelectionOwnsActivation(
+  button: HTMLElement,
+  event: MouseEvent,
+): boolean {
+  const selection = button.ownerDocument.getSelection();
+  return event.detail !== 0
+    && selection !== null
+    && !selection.isCollapsed
+    && selection.containsNode(button, true);
+}
+
+export function validateAnnotatedSourceInvocationTargets(
+  document: AnnotatedSourceDocument,
+  value: unknown,
+): void {
+  if (!Array.isArray(value)) {
+    throw new Error("Annotated source invocation targets must be an array.");
+  }
+  const targets: readonly unknown[] = value;
+  const seen = new Set<number>();
+  for (const target of targets) {
+    const nodeId = invocationTargetNodeId(target);
+    if (nodeId === null
+      || nodeId < 0
+      || nodeId >= document.nodes.length) {
+      throw new Error(
+        `Annotated source invocation target names missing node ${String(nodeId)}.`);
+    }
+    const node = document.nodes[nodeId];
+    if (!node
+      || node.id !== nodeId
+      || node.medium !== "CSharp"
+      || node.kind !== "InvocationExpression") {
+      throw new Error(
+        `Annotated source invocation target node ${nodeId} is not a C# InvocationExpression.`);
+    }
+    if (seen.has(nodeId)) {
+      throw new Error(
+        `Annotated source invocation target node ${nodeId} is duplicated.`);
+    }
+    seen.add(nodeId);
+  }
+}
+
+function invocationTargetNodeId(value: unknown): number | null {
+  if (typeof value !== "object"
+    || value === null
+    || !("nodeId" in value)
+    || typeof value.nodeId !== "number"
+    || !Number.isInteger(value.nodeId)) {
+    return null;
+  }
+  return value.nodeId;
 }
 
 export class AnnotatedSourceExplorerRenderCoordinator {
@@ -509,8 +568,16 @@ export function renderAnnotatedSourceExplorer(
   if (state.prepared.document !== result.document) {
     throw new Error("The annotated source explorer state belongs to a different document.");
   }
+  validateAnnotatedSourceInvocationTargets(
+    result.document,
+    result.invocationTargets);
   const view = projectPreparedAnnotatedView(state.prepared, state);
   const nodeById = new Map(result.document.nodes.map(node => [node.id, node]));
+  const invocationTargetByNodeId = new Map(
+    result.invocationTargets.map((target, index) => [
+      target.nodeId,
+      { index, target },
+    ]));
   const selectedNodes = view.selectedNodeIds
     .map(id => nodeById.get(id))
     .filter((node): node is AnnotatedSourceNode => node !== undefined);
@@ -653,13 +720,31 @@ export function renderAnnotatedSourceExplorer(
         lineRegionSpans,
         escapeHtml);
       if (addressable) {
-        const accessibleLabel = descriptions
-          ? ` aria-label="${escapeHtml(`${segment.text}; ${descriptions}`)}"`
+        const invocation = invocationTargetForSegment(
+          nodes,
+          invocationTargetByNodeId,
+          segment.start);
+        const invocationLabel = invocation
+          ? `Open ${invocation.target.target.typeFullName}.${invocation.target.target.memberName}`
+          : "";
+        const accessibleDescription = [
+          descriptions,
+          invocationLabel,
+        ].filter(Boolean).join("; ");
+        const accessibleLabel = accessibleDescription
+          ? ` aria-label="${escapeHtml(`${segment.text}; ${accessibleDescription}`)}"`
           : "";
         const previewAttributes = codeLensPreview
           ? ` data-ase-codelens-preview-node="${activeCodeLensPreview.nodeId}" style="animation-delay: -${codeLensPreviewElapsed}ms"`
           : "";
-        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}${codeLensPreview ? " codelens-preview" : ""}" data-ase-source-affordance data-ase-offset="${segment.start}" data-ase-node-ids="${segment.nodeIds.join(" ")}"${previewAttributes} title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
+        const activation = invocation
+          ? ` data-ase-invocation="${invocation.index}"`
+          : ` data-ase-offset="${segment.start}"`;
+        const navigationTitle = [
+          titleText,
+          invocationLabel,
+        ].filter(Boolean).join(" · ");
+        return `<button type="button" tabindex="-1" class="annotated-span addressable${invocation ? " invocation" : ""}${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}${codeLensPreview ? " codelens-preview" : ""}" data-ase-source-affordance${activation} data-ase-node-ids="${segment.nodeIds.join(" ")}"${previewAttributes} title="${escapeHtml(navigationTitle)}"${accessibleLabel}>${content}</button>`;
       }
       return `<span class="annotated-span${selectionClass}">${content}</span>`;
     }).join("");
@@ -721,8 +806,9 @@ export function renderAnnotatedSourceExplorer(
       <div class="ase-workspace">
         <section class="ase-code-panel" aria-label="Annotated source text">
           <div class="ase-panel-heading">
-            <div><span>Canonical text</span><strong>Finding overlays</strong></div>
+            <div><span>Canonical text</span><strong>Interactive overlays</strong></div>
             <div class="ase-overlay-legend" role="group" aria-label="Overlay legend">
+              <span><i class="invocation"></i>opens callee</span>
               <span><i class="finding"></i>finding available</span>
               <span><i class="semantic"></i>active finding</span>
               <span><i class="capture"></i>captured variable</span>
@@ -776,6 +862,35 @@ export function renderAnnotatedSourceExplorer(
         </aside>
       </div>
     </div>`;
+}
+
+function invocationTargetForSegment(
+  nodes: readonly AnnotatedSourceNode[],
+  targets: ReadonlyMap<
+    number,
+    { index: number; target: BrowserAnnotatedSourceInvocationTarget }
+  >,
+  offset: number,
+): { index: number; target: BrowserAnnotatedSourceInvocationTarget } | null {
+  let best:
+    | {
+        spanLength: number;
+        value: {
+          index: number;
+          target: BrowserAnnotatedSourceInvocationTarget;
+        };
+      }
+    | null = null;
+  for (const node of nodes) {
+    const target = targets.get(node.id);
+    if (!target) continue;
+    const span = node.spans.find(candidate =>
+      candidate.start <= offset
+        && offset < candidate.start + candidate.length);
+    if (!span || best && best.spanLength <= span.length) continue;
+    best = { spanLength: span.length, value: target };
+  }
+  return best?.value ?? null;
 }
 
 interface SourceNodeCaretAnnotation {

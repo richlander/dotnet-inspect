@@ -83,6 +83,143 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public void MemberProjection_MapsAnInvocationNodeToItsTypedCallee()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeThrowingCallee)) with
+                {
+                    InvocationTargets = true,
+                }));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        Assert.True(
+            projection.InvocationTargets.Count == 1,
+            $"Expected one invocation target; projected nodes: {string.Join(
+                ", ",
+                document.Nodes
+                    .Where(node => node.Medium == SourceLineKind.CSharp)
+                    .Select(node => $"{node.Id}:{node.Kind}"))}");
+        AssemblyMemberInvocationTarget invocation =
+            projection.InvocationTargets[0];
+        AnnotatedSourceNode node = document.Nodes[invocation.NodeId];
+        Assert.Equal("InvocationExpression", node.Kind);
+        Assert.Equal(SourceLineKind.CSharp, node.Medium);
+        Assert.Equal("ThrowingCallee", invocation.Target.Member.Name);
+        Assert.Equal(
+            typeof(ResearchProjectionProbe).FullName,
+            invocation.Target.Member.DeclaringType
+                .ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void MemberProjection_MapsAnExternalInvocationWithoutParsingSource()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(
+                    nameof(ResearchProjectionProbe.InvokeExternal))));
+
+        AssemblyMemberInvocationTarget invocation =
+            Assert.Single(projection.InvocationTargets);
+        Assert.Equal(nameof(Math.Abs), invocation.Target.Member.Name);
+        Assert.Equal(
+            typeof(Math).FullName,
+            invocation.Target.Member.DeclaringType
+                .ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void MemberProjection_MapsNestedInvocationsToTheirOwnCallees()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(
+                    nameof(ResearchProjectionProbe.InvokeNested))));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        Dictionary<string, AnnotatedSourceNode> nodesByCallee =
+            projection.InvocationTargets.ToDictionary(
+                invocation => invocation.Target.Member.Name,
+                invocation => document.Nodes[invocation.NodeId]);
+        Assert.Equal(2, nodesByCallee.Count);
+        Assert.Contains(
+            "Math.Abs(Identity(value))",
+            NodeText(document, nodesByCallee[nameof(Math.Abs)]),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Identity(value)",
+            NodeText(
+                document,
+                nodesByCallee[nameof(ResearchProjectionProbe.Identity)]),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberProjection_DoesNotConfusePropertyArgumentsWithTheirInvocation()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(
+                    nameof(ResearchProjectionProbe.InvokeWithPropertyArguments))));
+
+        AssemblyMemberInvocationTarget invocation =
+            Assert.Single(projection.InvocationTargets);
+        Assert.Equal(
+            nameof(ResearchProjectionProbe.PropertyArgumentCallee),
+            invocation.Target.Member.Name);
+        Assert.DoesNotContain(
+            projection.InvocationTargets,
+            target => target.Target.Member.Name
+                == $"get_{nameof(ResearchProjectionValue.Value)}");
+    }
+
+    [Fact]
+    public void MemberProjection_DoesNotInventATargetForAnIndirectInvocation()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest("FunctionPointerCallee")));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        Assert.Contains(
+            document.Nodes,
+            node => node.Kind == "IndirectInvocationExpression");
+        Assert.Empty(projection.InvocationTargets);
+    }
+
+    [Fact]
     public void MemberProjection_CarriesCalleeThrowSourceForSemanticsFinding()
     {
         var policy = new RecordingBindingPolicy();
@@ -398,6 +535,23 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             member,
             SourceDocument: true);
 
+    static AssemblyContextMemberProjectionRequest InvocationRequest(
+        string member)
+    {
+        MethodInfo method = typeof(ResearchProjectionProbe).GetMethod(
+            member,
+            BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"Missing invocation probe {member}.");
+        return Request(member) with
+        {
+            MethodToken = method.MetadataToken,
+            InvocationTargets = true,
+        };
+    }
+
     static AssemblyContextGroup ContentGroup(
         InspectionWorkspace workspace,
         IAssemblyBindingPolicy policy)
@@ -433,9 +587,23 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     static TValue Available<TValue>(AssemblyContextResult<TValue> result)
-        => Assert.IsType<AssemblyContextEntry<TValue>.Available>(
-                Assert.Single(result.Assemblies))
-            .Value;
+    {
+        AssemblyContextEntry<TValue> entry =
+            Assert.Single(result.Assemblies);
+        if (entry is AssemblyContextEntry<TValue>.Failed failed)
+            throw failed.Error;
+        return Assert.IsType<
+            AssemblyContextEntry<TValue>.Available>(entry).Value;
+    }
+
+    static string NodeText(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceNode node) =>
+        string.Concat(
+            node.Spans.Select(
+                span => document.Text.Substring(
+                    span.Start,
+                    span.Length)));
 
     sealed class RecordingBindingPolicy : IAssemblyBindingPolicy
     {
@@ -484,6 +652,20 @@ public static class ResearchProjectionProbe
 
     public static void InvokeThrowingCallee() => ThrowingCallee();
 
+    public static int InvokeExternal(int value) => Math.Abs(value);
+
+    public static int InvokeNested(int value) => Math.Abs(Identity(value));
+
+    public static int Identity(int value) => value;
+
+    public static int InvokeWithPropertyArguments(
+        ResearchProjectionValue first,
+        ResearchProjectionValue second) =>
+        PropertyArgumentCallee(first.Value, second.Value);
+
+    public static int PropertyArgumentCallee(int first, int second) =>
+        first + second;
+
     static void ThrowingCallee() =>
         throw new InvalidOperationException("probe");
 
@@ -504,4 +686,9 @@ public static class ResearchProjectionProbe
     }
 
     static void FunctionPointerTarget() {}
+}
+
+public sealed class ResearchProjectionValue
+{
+    public int Value { get; init; }
 }

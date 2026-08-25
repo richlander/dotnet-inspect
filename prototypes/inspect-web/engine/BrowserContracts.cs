@@ -408,7 +408,15 @@ public sealed record BrowserAnnotatedSource(
     JsonElement Document,
     string Provenance,
     string? ContextLimitation,
-    BrowserAnnotatedSourceFindingEvidence[] FindingEvidence);
+    BrowserAnnotatedSourceFindingEvidence[] FindingEvidence,
+    BrowserAnnotatedSourceInvocationTarget[] InvocationTargets);
+
+/// <summary>
+/// One exact rendered invocation node and the typed member navigation target it invokes.
+/// </summary>
+public sealed record BrowserAnnotatedSourceInvocationTarget(
+    int NodeId,
+    BrowserCallGraphTarget Target);
 
 public sealed record BrowserAnnotatedSourceFindingEvidence(
     string Descriptor,

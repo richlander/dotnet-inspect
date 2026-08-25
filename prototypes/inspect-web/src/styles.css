@@ -2043,6 +2043,7 @@ kbd {
 .ase-overlay-legend { display: flex !important; flex: 1; flex-direction: row !important; justify-content: center; gap: 15px !important; }
 .ase-overlay-legend span { display: inline-flex; align-items: center; gap: 5px; letter-spacing: 0; text-transform: none; }
 .ase-overlay-legend i { display: inline-block; width: 16px; height: 8px; border-radius: 2px; }
+.ase-overlay-legend .invocation { border-bottom: 1px solid var(--blue); }
 .ase-overlay-legend .finding { border-bottom: 1px dotted var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); }
 .ase-overlay-legend .semantic { background: linear-gradient(180deg, transparent 45%, color-mix(in srgb, var(--accent) 16%, transparent)); box-shadow: inset 0 -1px 0 var(--accent); text-shadow: 0 0 3px color-mix(in srgb, var(--accent) 65%, transparent), 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
 .ase-overlay-legend .capture { background: color-mix(in srgb, #b89ac6 22%, transparent); box-shadow: inset 0 2px 0 #b89ac6; }
@@ -2116,6 +2117,8 @@ kbd {
 .annotated-span.addressable { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; text-align: left; cursor: pointer; user-select: text; }
 .annotated-span.addressable:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .annotated-span.addressable:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.annotated-span.invocation { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--blue) 72%, transparent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.annotated-span.invocation:hover { text-decoration-color: var(--blue); }
 .annotated-span.has-fact { background: color-mix(in srgb, var(--green) 7%, transparent); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--green) 75%, transparent); }
 .annotated-span.has-capture { background-color: color-mix(in srgb, #b89ac6 8%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #b89ac6 80%, transparent); }
 .annotated-span.has-fact.has-capture { background-color: color-mix(in srgb, #b89ac6 6%, var(--code-bg)); box-shadow: inset 0 1px 0 color-mix(in srgb, #b89ac6 80%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--green) 75%, transparent); }

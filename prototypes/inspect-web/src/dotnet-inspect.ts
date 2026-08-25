@@ -157,6 +157,7 @@ import {
   reduceAnnotatedSourceExplorerState,
   renderAnnotatedSourceEntry,
   renderAnnotatedSourceExplorer as renderAnnotatedSourceExplorerMarkup,
+  validateAnnotatedSourceInvocationTargets,
   type AnnotatedSourceExplorerAction,
   type AnnotatedSourceKindOption,
   type AnnotatedSourceExplorerRenderState,
@@ -862,6 +863,9 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.taste);
     const document = result.document;
     validateAnnotatedSourceDocument(document);
+    validateAnnotatedSourceInvocationTargets(
+      document,
+      result.invocationTargets);
     const findingEvidence = result.findingEvidence.map(evidence => {
       const evidenceDocument = evidence.document;
       if (evidenceDocument !== null) {
@@ -4079,6 +4083,15 @@ function bindAnnotatedSourceExplorerEvents() {
     onFindingMemberNavigate: evidenceIndex => {
       const target =
         state.memberAnnotated?.findingEvidence[evidenceIndex]?.target;
+      if (!target) return;
+      const binding = callGraphTargetBinding(target);
+      if (!binding) return;
+      closeAnnotatedSourceExplorer();
+      binding.onSelect();
+    },
+    onInvocationNavigate: targetIndex => {
+      const target =
+        state.memberAnnotated?.invocationTargets[targetIndex]?.target;
       if (!target) return;
       const binding = callGraphTargetBinding(target);
       if (!binding) return;

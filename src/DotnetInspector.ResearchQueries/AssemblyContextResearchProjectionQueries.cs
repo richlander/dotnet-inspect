@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Analysis;
+using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -26,6 +27,10 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// The whole-assembly Analysis features the projection's fact context is built with. The default
 /// matches what the Research fact producers observe through.
 /// </param>
+/// <param name="InvocationTargets">
+/// Whether to project exact rendered invocation nodes to their typed call-graph targets. Requires
+/// <paramref name="SourceDocument"/>.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -37,7 +42,8 @@ public sealed record AssemblyContextMemberProjectionRequest(
     bool FactRows = false,
     AnnotationStage AnnotatedStage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
-    LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default);
+    LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
+    bool InvocationTargets = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -63,7 +69,15 @@ public sealed record MemberProjectionContextLimitation(
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
     MemberProjectionContextLimitation? ContextLimitation,
-    IReadOnlyList<AssemblyMemberFindingEvidence> FindingEvidence);
+    IReadOnlyList<AssemblyMemberFindingEvidence> FindingEvidence,
+    IReadOnlyList<AssemblyMemberInvocationTarget> InvocationTargets);
+
+/// <summary>
+/// One exact rendered invocation node joined to the Analysis-owned callee that it invokes.
+/// </summary>
+public sealed record AssemblyMemberInvocationTarget(
+    int NodeId,
+    CallGraphNode Target);
 
 public sealed record AssemblyMemberFindingEvidence(
     string Descriptor,
@@ -180,6 +194,12 @@ public static class AssemblyContextMemberProjectionQuery
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Type);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Member);
         ArgumentOutOfRangeException.ThrowIfNegative(request.OverloadIndex);
+        if (request.InvocationTargets && !request.SourceDocument)
+        {
+            throw new ArgumentException(
+                "Invocation targets require a source document.",
+                nameof(request));
+        }
     }
 
     static AssemblyMemberProjection Project(
@@ -234,6 +254,16 @@ public static class AssemblyContextMemberProjectionQuery
                         CaretFocus: null,
                         request.SourceDocument,
                         assembly));
+            IReadOnlyList<DirectCall> callSites =
+                assembly is not null
+                    && projection.SourceDocument is not null
+                    && projection.SelectedMethodToken is { } callerToken
+                        ?
+                        [
+                            .. assembly.InspectCallSites(callerToken)
+                                .Select(finding => finding.Payload),
+                        ]
+                        : [];
             IReadOnlyList<AssemblyMemberFindingEvidence> findingEvidence =
                 assembly is null
                     ? []
@@ -241,11 +271,20 @@ public static class AssemblyContextMemberProjectionQuery
                         source,
                         projection,
                         assembly,
-                        request.PrinterOptions);
+                        request.PrinterOptions,
+                        callSites);
+            IReadOnlyList<AssemblyMemberInvocationTarget> invocationTargets =
+                request.InvocationTargets && index is not null
+                    ? ProjectInvocationTargets(
+                        projection,
+                        index,
+                        callSites)
+                    : [];
             return new AssemblyMemberProjection(
                 projection,
                 limitation,
-                findingEvidence);
+                findingEvidence,
+                invocationTargets);
         }
         finally
         {
@@ -256,11 +295,110 @@ public static class AssemblyContextMemberProjectionQuery
         }
     }
 
+    static IReadOnlyList<AssemblyMemberInvocationTarget> ProjectInvocationTargets(
+        ResearchViews.MemberProjectionResult projection,
+        LibraryBodyIndex index,
+        IReadOnlyList<DirectCall> callSites)
+    {
+        if (projection.SourceDocument is not { } displayedDocument
+            || projection.SelectedMethodToken is not { } callerToken
+            || callSites.Count == 0)
+        {
+            return [];
+        }
+
+        int maxNodes = callSites.Count == int.MaxValue
+            ? int.MaxValue
+            : callSites.Count + 1;
+        CallGraphProjection callGraph =
+            CallGraphProjection.FromCallees(
+                index.BuildCallTree(
+                    callerToken,
+                    maxDepth: 1,
+                    maxNodes));
+        var candidates = new List<(int NodeId, CallGraphNode Target)>();
+        foreach (DirectCall call in callSites)
+        {
+            if (callGraph.FindFocusCalleeRow(
+                    call,
+                    out CallGraphRow row)
+                != CallGraphRowMatch.Found)
+                continue;
+            AnnotatedSourceNode? invocation =
+                InnermostInvocationNode(
+                    displayedDocument,
+                    call.ILOffset);
+            if (invocation is null)
+                continue;
+            CallGraphNode target =
+                callGraph.Nodes[
+                    row.Edge.To];
+            candidates.Add((invocation.Id, target));
+        }
+
+        var result = new List<AssemblyMemberInvocationTarget>();
+        foreach (var group in candidates
+            .GroupBy(candidate => candidate.NodeId)
+            .OrderBy(group => group.Key))
+        {
+            CallGraphNode[] targets =
+            [
+                .. group
+                    .Select(candidate => candidate.Target)
+                    .DistinctBy(target => target.Identity),
+            ];
+            if (targets.Length == 1)
+            {
+                result.Add(
+                    new AssemblyMemberInvocationTarget(
+                        group.Key,
+                        targets[0]));
+            }
+        }
+        return result;
+    }
+
+    static AnnotatedSourceNode? InnermostInvocationNode(
+        AnnotatedSourceDocument document,
+        int ilOffset)
+    {
+        AnnotatedSourceNode[] candidates =
+        [
+            .. document.Nodes.Where(node =>
+                node.Medium == SourceLineKind.CSharp
+                && node.Provenance?.IlOffsets.Contains(ilOffset) == true),
+        ];
+        AnnotatedSourceNode[] innermost =
+        [
+            .. candidates.Where(candidate =>
+                !candidates.Any(other =>
+                    other.Id != candidate.Id
+                    && StrictlyContains(candidate, other))),
+        ];
+        AnnotatedSourceNode[] invocations =
+        [
+            .. innermost.Where(node =>
+                node.Kind == "InvocationExpression"),
+        ];
+        return invocations.Length == 1 ? invocations[0] : null;
+    }
+
+    static bool StrictlyContains(
+        AnnotatedSourceNode outer,
+        AnnotatedSourceNode inner) =>
+        !outer.Spans.SequenceEqual(inner.Spans)
+        && inner.Spans.All(innerSpan =>
+            outer.Spans.Any(outerSpan =>
+                outerSpan.Start <= innerSpan.Start
+                && (long)innerSpan.Start + innerSpan.Length
+                    <= (long)outerSpan.Start + outerSpan.Length));
+
     static IReadOnlyList<AssemblyMemberFindingEvidence> ProjectFindingEvidence(
         MetadataSource source,
         ResearchViews.MemberProjectionResult projection,
         ResearchAssemblyContext assembly,
-        PrinterOptions? printerOptions)
+        PrinterOptions? printerOptions,
+        IReadOnlyList<DirectCall> callSites)
     {
         if (projection.SourceDocument is not { } callerDocument
             || projection.SelectedMethodToken is not { } callerToken)
@@ -268,8 +406,7 @@ public static class AssemblyContextMemberProjectionQuery
             return [];
         }
 
-        var calls = assembly.InspectCallSites(callerToken)
-            .ToDictionary(finding => finding.Payload.ILOffset, finding => finding.Payload);
+        var calls = callSites.ToDictionary(call => call.ILOffset);
         var calleeProjections = new Dictionary<int, CalleeSourceProjection>();
         var result = new List<AssemblyMemberFindingEvidence>();
         foreach (AnnotatedSourceFact fact in callerDocument.Facts)
