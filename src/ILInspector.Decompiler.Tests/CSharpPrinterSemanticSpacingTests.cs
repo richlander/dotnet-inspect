@@ -443,6 +443,214 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void SharedScopeBlockLambda_UsesLambdaReturnType()
+    {
+        var funcBool = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Boolean]);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Constant(0, Int32)));
+        lambdaBlock.Add(new Return(new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new Constant(1, Int32),
+            new Constant(0, Int32))));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            funcBool,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new StoreArgument(
+            0,
+            "predicate",
+            funcBool,
+            lambda));
+        outerBlock.Add(new Return(new Constant(0, Int32)));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaReturnContext",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [new Parameter("predicate", funcBool)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Equal(
+            "predicate = () =>\n" +
+            "{\n" +
+            "    _ = 0;\n" +
+            "    return 1 != 0;\n" +
+            "};\n" +
+            "return 0;\n",
+            output);
+    }
+
+    [Fact]
+    public void SharedScopeBlockLambda_StructuredRegionsStayLaminar()
+    {
+        var funcInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32]);
+        var then = new Block();
+        then.Add(new Return(new Constant(1, Int32)));
+        var conditional = new IfStatement(
+            new Constant(true, Boolean),
+            then,
+            elseArm: null);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(conditional);
+        lambdaBlock.Add(new Return(new Constant(0, Int32)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            funcInt,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new Return(lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaRanges",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                funcInt,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.IsType<string>(result.Output);
+        Assert.Empty(ranges.PrintedRegions);
+        Assert.True(ranges.TryGetRange(lambda, out _));
+        _ = PrintedBodyMap.Create(ranges);
+    }
+
+    [Fact]
+    public void SharedScopeBlockLambda_RebasesInlineExpressionRanges()
+    {
+        var funcInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`2"),
+            [Int32, Int32]);
+        var returnedSwitch = new SwitchExpression(
+            new LoadArgument(0, "value", Int32),
+            [
+                new SwitchExpressionArm(
+                    [0],
+                    isDefault: false,
+                    new Constant(11, Int32)),
+                new SwitchExpressionArm(
+                    [],
+                    isDefault: true,
+                    new Constant(22, Int32)),
+            ]);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new ExpressionStatement(new Constant(9, Int32)));
+        lambdaBlock.Add(new Return(returnedSwitch));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            funcInt,
+            [new Parameter("value", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var outerBlock = new Block(0);
+        outerBlock.Add(new Return(lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var function = new IrFunction(
+            "LambdaExpressionRanges",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                funcInt,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            outerBody);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+        string output = Assert.IsType<string>(result.Output);
+
+        Assert.True(ranges.TryGetRange(returnedSwitch, out var range));
+        Assert.Equal(
+            "value switch { 0 => 11, _ => 22 }",
+            output[range]);
+        _ = PrintedBodyMap.Create(ranges);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SiblingBlockLambdas_RestoreEnclosingIndent(bool secondHasLocal)
+    {
+        var funcInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`2"),
+            [Int32, Int32]);
+        var register = new MethodRef(
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            "Register",
+            Void,
+            [funcInt, funcInt],
+            HasThis: false);
+        var then = new Block();
+        then.Add(new ExpressionStatement(new Call(
+            register,
+            isVirtual: false,
+            [
+                ThreeStatementLambda(funcInt, first: 1, second: 2, hasLocal: false),
+                ThreeStatementLambda(funcInt, first: 3, second: 4, secondHasLocal),
+            ])));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(
+            new Constant(true, Boolean),
+            then,
+            elseArm: null));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "SiblingLambdas",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "    }, value =>\n" +
+            "    {\n",
+            output);
+        Assert.DoesNotContain("}, value =>\n{", output);
+    }
+
+    [Fact]
     public void InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact()
     {
         var (output, ranges) = Print(nameof(SemanticSpacingFixture.Grouped));
@@ -567,6 +775,28 @@ public class CSharpPrinterSemanticSpacingTests
             outerBody);
 
         return Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+    }
+
+    static Lambda ThreeStatementLambda(
+        TypeRef delegateType,
+        int first,
+        int second,
+        bool hasLocal)
+    {
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(new Constant(first, Int32)));
+        block.Add(new ExpressionStatement(new Constant(second, Int32)));
+        block.Add(new Return(new LoadArgument(0, "value", Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new Lambda(
+            delegateType,
+            [new Parameter("value", Int32)],
+            hasLocal ? [Int32] : [],
+            hasLocal ? [null] : [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            body);
     }
 
     static string PrintLoopConditional(IrNode thenStatement)

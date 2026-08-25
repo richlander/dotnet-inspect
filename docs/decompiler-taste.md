@@ -515,7 +515,11 @@ terminating discriminator. `LabeledSequence_DeclinesSemanticSpacing` and
 non-vacuity gates for block- and statement-owned label declines, while
 `NestedFiveStatementSequence_AppliesSpacingIndependently` and
 `FiveStatementBlockLambda_PreservesSemanticSpacing` cover ordinary and
-block-lambda nesting.
+block-lambda nesting. `SharedScopeBlockLambda_UsesLambdaReturnType`,
+`SharedScopeBlockLambda_StructuredRegionsStayLaminar`,
+`SharedScopeBlockLambda_RebasesInlineExpressionRanges`, and
+`SiblingBlockLambdas_RestoreEnclosingIndent` pin the shared-scope lambda
+context restored around structural emission.
 `GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` and
 `GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock` cover generated-block
 state and separator placement. The coordinate-preservation gates are

@@ -228,7 +228,12 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            var printer = new CSharpPrinter(function, options)
+            {
+                _printedRanges = sink,
+                _printedRangeMetadata = sink,
+                _expressionText = [],
+            };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return WithAppliedLenses(printer.Result(output, function), appliedLenses);
@@ -297,7 +302,12 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            var printer = new CSharpPrinter(function, options)
+            {
+                _printedRanges = sink,
+                _printedRangeMetadata = sink,
+                _expressionText = [],
+            };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
@@ -344,7 +354,12 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            var printer = new CSharpPrinter(function, options)
+            {
+                _printedRanges = sink,
+                _printedRangeMetadata = sink,
+                _expressionText = [],
+            };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
@@ -537,16 +552,23 @@ public sealed partial class CSharpPrinter
     /// <summary>Optional sink recording which characters of the output each printed statement node emitted; null on the shipped print path. Drives line-anchored and range-anchored overlays (annotated views) without the printer knowing what they are.</summary>
     PrintedRangeMap? _printedRanges;
 
-    // Shared-scope lambda bodies compose into a temporary builder. Their
-    // statement ranges cannot be recorded until that text is placed in the
-    // enclosing statement, but expression text still needs to be captured.
-    bool _suppressStatementRanges;
+    /// <summary>
+    /// Metadata sink retained while shared-scope lambda bodies compose into a
+    /// temporary builder. Coordinates are disabled there, but expression text
+    /// and syntax kinds are still captured for rebasing by the enclosing
+    /// statement once the lambda text reaches its final location.
+    /// </summary>
+    PrintedRangeMap? _printedRangeMetadata;
+
+    /// <summary>The empty-locals lambda currently sharing this printer's local scope.</summary>
+    Lambda? _sharedScopeLambda;
 
     /// <summary>
-    /// Text captured per expression node while <see cref="_printedRanges"/> is
-    /// collecting, so <see cref="RecordExpressionRanges"/> can bind expressions to
-    /// characters. Null whenever the sink is, so the shipped print path allocates
-    /// nothing and runs the same code it did before.
+    /// Text captured per expression node while
+    /// <see cref="_printedRangeMetadata"/> is collecting, so
+    /// <see cref="RecordExpressionRanges"/> can bind expressions to characters.
+    /// It remains active while a temporary lambda builder disables coordinate
+    /// recording, but is null on the shipped print path.
     /// </summary>
     Dictionary<IrNode, string>? _expressionText;
 
@@ -1851,7 +1873,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
-        if (_printedRanges is null || _suppressStatementRanges)
+        if (_printedRanges is null)
         {
             AppendStatementCore(sb, node, indent, out _);
             return;
@@ -2123,6 +2145,11 @@ public sealed partial class CSharpPrinter
         statementStartOverride = null;
         _statementIndent = indent;
         string pad = new(' ', indent * 4);
+        if (node is Return && IsSharedScopeLambdaReturn(node))
+        {
+            sb.Append(pad).AppendLf(LambdaStatement(node)!);
+            return;
+        }
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
@@ -3677,7 +3704,9 @@ public sealed partial class CSharpPrinter
             return ExpressionCore(node);
         string text = ExpressionCore(node);
         _expressionText[node] = text;
-        _printedRanges!.SetDefaultNodeKind(node, AnnotatedSourceNodeKindProjection.From(node));
+        _printedRangeMetadata!.SetDefaultNodeKind(
+            node,
+            AnnotatedSourceNodeKindProjection.From(node));
         return text;
     }
 
@@ -3697,7 +3726,7 @@ public sealed partial class CSharpPrinter
 
     string WithNodeKind(IrExpression node, string text, string kind)
     {
-        _printedRanges?.SetNodeKind(node, kind);
+        _printedRangeMetadata?.SetNodeKind(node, kind);
         if (_expressionText is not null)
             _expressionText[node] = text;
         return text;
@@ -3712,10 +3741,10 @@ public sealed partial class CSharpPrinter
 
     string CaptureContextualExpression(IrExpression operand, string text, string kind)
     {
-        if (_printedRanges is not null)
+        if (_printedRangeMetadata is not null && _expressionText is not null)
         {
             var node = new SynthesizedRenderedExpression(kind);
-            _printedRanges.SetNodeKind(node, kind);
+            _printedRangeMetadata.SetNodeKind(node, kind);
             (_contextualExpressions ??= [])[operand] = new(node, operand, text);
         }
         return text;
@@ -3728,7 +3757,7 @@ public sealed partial class CSharpPrinter
     }
 
     string RenderedNodeKind(IrNode node)
-        => _printedRanges?.TryGetNodeKind(node, out string? kind) == true
+        => _printedRangeMetadata?.TryGetNodeKind(node, out string? kind) == true
             ? kind
             : AnnotatedSourceNodeKindProjection.From(node);
 
@@ -5374,7 +5403,7 @@ public sealed partial class CSharpPrinter
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
             string statement = CompoundStatement(target, binary, targetType, out bool isIncrement);
-            _printedRanges?.SetNodeKind(
+            _printedRangeMetadata?.SetNodeKind(
                 owner,
                 binary.IsChecked
                     ? "CheckedStatement"
@@ -6013,7 +6042,7 @@ public sealed partial class CSharpPrinter
     /// <summary>A user-defined checked ++/-- in statement position: a <c>checked { x++; }</c> block, since the <c>checked(x++)</c> expression is CS0201 as a statement.</summary>
     string CheckedIncrementStatement(ExpressionStatement owner, IncrementDecrement id)
     {
-        _printedRanges?.SetNodeKind(owner, "CheckedStatement");
+        _printedRangeMetadata?.SetNodeKind(owner, "CheckedStatement");
         bool saved = _checkedContext;
         _checkedContext = true;
         try
@@ -6028,13 +6057,13 @@ public sealed partial class CSharpPrinter
 
     string UnsupportedStatement(ExpressionStatement owner, UnsupportedNode unsupported)
     {
-        _printedRanges?.SetNodeKind(owner, "UnsupportedExpression");
+        _printedRangeMetadata?.SetNodeKind(owner, "UnsupportedExpression");
         return Expression(unsupported);
     }
 
     string DiscardStatement(ExpressionStatement owner, IrExpression expression)
     {
-        _printedRanges?.SetNodeKind(owner, "AssignmentStatement");
+        _printedRangeMetadata?.SetNodeKind(owner, "AssignmentStatement");
         return $"_ = {Expression(expression)};";
     }
 
@@ -6042,8 +6071,10 @@ public sealed partial class CSharpPrinter
     string CommentExpressionText(IrExpression expression)
     {
         var printedRanges = _printedRanges;
+        var printedRangeMetadata = _printedRangeMetadata;
         var expressionText = _expressionText;
         _printedRanges = null;
+        _printedRangeMetadata = null;
         _expressionText = null;
         try
         {
@@ -6052,6 +6083,7 @@ public sealed partial class CSharpPrinter
         finally
         {
             _printedRanges = printedRanges;
+            _printedRangeMetadata = printedRangeMetadata;
             _expressionText = expressionText;
         }
     }

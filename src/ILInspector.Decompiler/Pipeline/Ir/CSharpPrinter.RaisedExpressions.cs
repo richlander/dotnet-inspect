@@ -151,6 +151,7 @@ public sealed partial class CSharpPrinter
 
         int enclosingIndent = _statementIndent;
         string sharedBodyText = LambdaBodyTextWithSharedScope(
+            lambda,
             statementNodes);
         if (LambdaReturnType(lambda) is { } returnType
             && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
@@ -311,11 +312,15 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Renders an empty-locals lambda body with the enclosing function's shared local scope.</summary>
     string LambdaBodyTextWithSharedScope(
+        Lambda lambda,
         IReadOnlyList<IrNode> statements)
     {
         var sb = new StringBuilder();
-        bool enclosingSuppression = _suppressStatementRanges;
-        _suppressStatementRanges = true;
+        var enclosingRanges = _printedRanges;
+        var enclosingLambda = _sharedScopeLambda;
+        int enclosingIndent = _statementIndent;
+        _printedRanges = null;
+        _sharedScopeLambda = lambda;
         try
         {
             AppendStatements(sb, statements, indent: 0);
@@ -323,8 +328,22 @@ public sealed partial class CSharpPrinter
         }
         finally
         {
-            _suppressStatementRanges = enclosingSuppression;
+            _printedRanges = enclosingRanges;
+            _sharedScopeLambda = enclosingLambda;
+            _statementIndent = enclosingIndent;
         }
+    }
+
+    bool IsSharedScopeLambdaReturn(IrNode node)
+    {
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is LocalFunctionStatement)
+                return false;
+            if (parent is Lambda lambda)
+                return ReferenceEquals(lambda, _sharedScopeLambda);
+        }
+        return false;
     }
 
     static string FlattenLambdaBodyText(string bodyText)
