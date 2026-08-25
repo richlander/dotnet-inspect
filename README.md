@@ -119,6 +119,8 @@ same check and prints this repair when a stale checkout reaches the test suite.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
+Windows Metadata (`.winmd`) is not a supported input format.
+
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
 For API and relationship commands, `--project` means an existing
