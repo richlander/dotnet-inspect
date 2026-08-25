@@ -298,9 +298,9 @@ test("runtime surface merging rejects an unmatched nonempty descriptor list", ()
 // *before* the merge branch regressed a surface the engine really emits.
 // `InspectionEngine.cs` permits an empty `assemblies` list whenever extraction truncates,
 // and then falls back to `coordinate.DefaultAsset.Id` -- an id with no matching
-// descriptor. Such a surface still carries types, and `mergeRuntimePackageSurface` reads
-// types, assemblies, accessibility, and counts but never the descriptor. Rejecting it
-// pre-merge turned a partially-successful load into a total failure.
+// descriptor. The projection commits a participant's descriptor and types atomically, so
+// this shape carries neither, but its inspection notice is still partial evidence.
+// Rejecting it pre-merge turned that visible partial result into a total failure.
 //
 // The merge path accepts that descriptor-free truncated surface so it can preserve the
 // partial inspection evidence. The non-merging path still requires a descriptor. These
@@ -317,7 +317,10 @@ test("a truncated platform surface merges instead of failing the whole load", as
       // id that matches none of them.
       defaultAssemblyId: "missing",
       assemblies: [],
-      types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
+      types: [],
+      accessibility: [],
+      totalMembers: 0,
+      inspectionError: "System.Text.Json: extraction truncated.",
     })),
     runtimePackage: () => resident,
     failRuntimeLoad: error =>
@@ -332,9 +335,12 @@ test("a truncated platform surface merges instead of failing the whole load", as
   assert.equal(result.error, null);
   assert.equal(result.packageModel, resident);
   assert.deepEqual(failures, []);
-  assert.ok(
-    resident.types.some(type => type.id === "System.Text.Json.JsonDocument"),
-    "the truncated surface's types were merged into the resident package");
+  assert.deepEqual(
+    resident.types.map(type => type.id),
+    ["System.Object"]);
+  assert.equal(
+    resident.inspectionError,
+    "System.Text.Json: extraction truncated.");
 });
 
 test("a truncated full-pack surface merges into a compatible resident", async () => {
@@ -352,8 +358,9 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
       activeFramework: "net10.0",
       defaultAssemblyId: "missing",
       assemblies: [],
-      types: [typeSurface("System.Object", "System.Private.CoreLib")],
-      totalMembers: 2,
+      types: [],
+      accessibility: [],
+      totalMembers: 0,
       inspectionError: "System.Private.CoreLib: extraction truncated.",
     })),
     runtimePackage: () => resident,
@@ -368,57 +375,37 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
   assert.deepEqual(failures, []);
   assert.deepEqual(
     resident.types.map(type => type.id),
-    ["Microsoft.AspNetCore.Http.HttpContext", "System.Object"]);
+    ["Microsoft.AspNetCore.Http.HttpContext"]);
   assert.equal(resident.assemblyId, "aspnet");
   assert.equal(
     resident.inspectionError,
     "System.Private.CoreLib: extraction truncated.");
 });
 
-test("retrying a truncated surface does not inflate resident aggregates", async () => {
+test("repeating a partial surface merge does not inflate resident evidence", () => {
   const resident = createRuntimePackageModel(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
-  let engineCalls = 0;
-  const acquisition = createPackageAcquisition(acquisitionDependencies({
-    loadRuntimePackAssembly: async () => {
-      engineCalls++;
-      return JSON.stringify(packageSurface({
-        package: "Microsoft.NETCore.App",
-        activeFramework: "net10.0",
-        defaultAssemblyId: "missing",
-        assemblies: [],
-        types: [
-          typeSurface("System.Object", "System.Private.CoreLib"),
-          typeSurface("System.Text.Json.JsonDocument", "System.Text.Json"),
-        ],
-        accessibility: [{
-          id: "public",
-          label: "Public",
-          order: 0,
-          isDefault: true,
-          count: 2,
-        }],
-        totalMembers: 4,
-      }));
-    },
-    runtimePackage: () => resident,
-  }));
-
-  await acquisition.loadRuntimePackAssembly(
-    "net10.0",
+  resident.inspectionError =
+    "System.Private.CoreLib: extraction truncated.; "
+      + "System.Text.Json: extraction truncated.";
+  const partial = runtimeSurface(
+    "json",
     "System.Text.Json",
-    "netcore.app");
-  await acquisition.loadRuntimePackAssembly(
-    "net10.0",
-    "System.Text.Json",
-    "netcore.app");
+    "System.Text.Json.JsonDocument");
+  partial.inspectionError = "System.Text.Json: extraction truncated.";
 
-  assert.equal(engineCalls, 2);
+  mergeRuntimePackageSurface(resident, partial);
+  mergeRuntimePackageSurface(resident, partial);
+
   assert.deepEqual(
     resident.types.map(type => type.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
   assert.equal(resident.totalMembers, 4);
   assert.equal(resident.accessibility[0]?.count, 2);
+  assert.equal(
+    resident.inspectionError,
+    "System.Private.CoreLib: extraction truncated.; "
+      + "System.Text.Json: extraction truncated.");
 });
 
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path

@@ -625,6 +625,11 @@ test("platform inspection notices survive cumulative surface loads", () => {
       "First: omitted 1 metadata row.",
       "First: omitted 1 metadata row."),
     "First: omitted 1 metadata row.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: omitted 1 metadata row.; Second: omitted 2 metadata rows.",
+      "Second: omitted 2 metadata rows."),
+    "First: omitted 1 metadata row.; Second: omitted 2 metadata rows.");
   assert.match(
     packageAcquisitionSource,
     /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);

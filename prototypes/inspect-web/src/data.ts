@@ -82,7 +82,8 @@ export function mergeInspectionErrors(
   next: string | null | undefined,
 ): string {
   const messages = [current, next]
-    .map(value => (value ?? "").trim())
+    .flatMap(value => (value ?? "").split("; "))
+    .map(value => value.trim())
     .filter(Boolean);
   return [...new Set(messages)].join("; ");
 }

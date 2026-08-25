@@ -66,8 +66,9 @@ function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
 // and a surface without one produces a package model with a blank identity whatever is
 // done with it. An *unmatched* identity is legitimate -- `InspectionEngine.cs` permits an
 // empty `assemblies` list whenever extraction truncates and then falls back to
-// `coordinate.DefaultAsset.Id`, an id matching no descriptor -- and those surfaces still
-// carry types worth merging.
+// `coordinate.DefaultAsset.Id`, an id matching no descriptor. The producer commits each
+// descriptor and its types atomically, but that truncated result still carries a visible
+// inspection notice worth merging into a compatible resident.
 //
 // Round 5 moved the whole check after the merge branch to stop rejecting that truncated
 // surface, which also stopped rejecting blank identities on the resident-merge path.
