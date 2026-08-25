@@ -383,7 +383,9 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// cross-assembly resolution, not the originally-opened target).
     /// </summary>
     internal static string Canonical(string assemblyName)
-        => IsCoreLibFacadeName(assemblyName) ? TypeRef.CoreLibrary : assemblyName;
+        => PlatformKeys.IsCoreLibraryFacade(assemblyName)
+            ? TypeRef.CoreLibrary
+            : assemblyName;
 
     /// <summary>
     /// Canonicalizes the reader's own <see cref="AssemblyDefinition"/> simple
@@ -407,7 +409,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     {
         var definition = reader.GetAssemblyDefinition();
         string name = reader.GetString(definition.Name);
-        if (!IsCoreLibFacadeName(name))
+        if (!PlatformKeys.IsCoreLibraryFacade(name))
             return name;
         if (definition.PublicKey.IsNil)
             return name;
@@ -429,15 +431,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     static string CanonicalReferenced(AssemblyReferenceIdentity identity)
     {
         string name = identity.Name;
-        if (!IsCoreLibFacadeName(name))
+        if (!PlatformKeys.IsCoreLibraryFacade(name))
             return name;
         return PlatformKeys.IsPlatform(identity.PublicKeyToken)
             ? TypeRef.CoreLibrary
             : name;
     }
-
-    static bool IsCoreLibFacadeName(string assemblyName) => assemblyName is
-        "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions";
 
     static string RelationshipFailure(
         string relationship,

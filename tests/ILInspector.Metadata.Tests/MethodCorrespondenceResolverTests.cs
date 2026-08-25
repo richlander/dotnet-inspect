@@ -577,6 +577,140 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_AssemblyScopeCaseFoldingUsesOrdinalIdentity()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage("\u017f"),
+            BuildScopedTypeMethodImage("S"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_AssemblyScopeOrdinaryCaseDifferenceRemainsExact()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "dependency",
+                culture: "en-us"),
+            BuildScopedTypeMethodImage(
+                "DEPENDENCY",
+                culture: "EN-US"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_CoreLibraryFacadeScopesCorrespond()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "system.runtime",
+                publicKeyToken:
+                    [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a]),
+            BuildScopedTypeMethodImage(
+                "SYSTEM.PRIVATE.CORELIB",
+                publicKeyToken:
+                    [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e]));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_UntrustedCoreLibraryFacadeDoesNotCorrespond()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage("System.Runtime"),
+            BuildScopedTypeMethodImage(
+                "System.Private.CoreLib",
+                publicKeyToken:
+                    [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e]));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReferencePackCoreLibraryFacadeMatchesRuntime()
+    {
+        const string AssemblyFileName = "System.Collections.dll";
+        string? referencePath =
+            FindPlatformReferenceAssembly(AssemblyFileName);
+        string runtimePath = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            AssemblyFileName);
+        Assert.SkipWhen(
+            referencePath is null || !File.Exists(runtimePath),
+            "The matching reference-pack and runtime assemblies are unavailable.");
+
+        using var sourcePe =
+            new PEReader(File.OpenRead(referencePath));
+        using var targetPe =
+            new PEReader(File.OpenRead(runtimePath));
+        MetadataReader source = sourcePe.GetMetadataReader();
+        MetadataReader target = targetPe.GetMetadataReader();
+        AssemblyReferenceIdentity sourceScope =
+            FindTypeReferenceAssembly(
+                source,
+                "System.Collections",
+                "IComparer");
+        AssemblyReferenceIdentity targetScope =
+            FindTypeReferenceAssembly(
+                target,
+                "System.Collections",
+                "IComparer");
+        Assert.NotEqual(sourceScope.Name, targetScope.Name);
+        Assert.True(PlatformKeys.IsCoreLibraryReference(sourceScope));
+        Assert.True(PlatformKeys.IsCoreLibraryReference(targetScope));
+        MethodDefinitionHandle sourceMethod = FindMethod(
+            source,
+            "StructuralComparisons",
+            "get_StructuralComparer");
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                source,
+                MetadataMethodAddress.Create(source, sourceMethod),
+                target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_DifferentAssemblyCultureIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                culture: "en-US"),
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                culture: "fr-FR"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_DifferentAssemblyTokenIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                publicKeyToken: [1, 2, 3, 4, 5, 6, 7, 8]),
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                publicKeyToken: [8, 7, 6, 5, 4, 3, 2, 1]));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
     public void ResolveApiMember_AssemblyReferenceVersionRemainsNormalized()
     {
         MethodCorrespondenceResult result = ResolveApiMember(
@@ -602,6 +736,20 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_InvalidCurrentModuleScopeFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentScopedTypeMethodImage(
+                useTypeReference: true,
+                moduleRow: 2),
+            BuildCurrentScopedTypeMethodImage(
+                useTypeReference: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("current-module scope", result.Failure);
     }
 
     [Fact]
@@ -645,6 +793,50 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_OutOfRangeGenericParameterIndexFails()
+    {
+        byte[] image = BuildGenericMethodImage(
+            encodedArity: 1,
+            rowCount: 1,
+            useGenericParameter: true,
+            genericParameterIndex: 1);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("out-of-range method generic parameter", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_RejectedTypeSpecificationFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildTypeSpecificationMethodImage(
+                overBudgetTypeSpecification: true),
+            BuildTypeSpecificationMethodImage(
+                overBudgetTypeSpecification: false));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("type specification", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_DeclaringTypeArityMismatchFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildTypeGenericMethodImage(
+                "T",
+                genericParameterRows: 1),
+            BuildTypeGenericMethodImage(
+                "T",
+                genericParameterRows: 2));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("metadata-name arity", result.Failure);
     }
 
     [Fact]
@@ -746,6 +938,43 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
         Assert.Contains("encoded-character budget", result.Failure);
+    }
+
+    [Fact]
+    public void DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlySize()
+    {
+        byte[] image = BuildRepeatedAssemblyScopeImage(
+            parameterCount: 258,
+            assemblyNameLength: 4_000);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader source = sourcePe.GetMetadataReader();
+        MetadataReader target = targetPe.GetMetadataReader();
+        MethodDefinitionHandle handle =
+            source.MethodDefinitions.Single();
+        MethodDefinition method =
+            source.GetMethodDefinition(handle);
+
+        MethodAnchorInfo anchor =
+            ApiMemberIdentity.CreateMethodAnchorInfo(
+                source,
+                method.GetDeclaringType(),
+                method);
+        MethodCorrespondenceResult strict =
+            MethodCorrespondenceResolver.Resolve(
+                source,
+                MetadataMethodAddress.Create(source, handle),
+                target);
+        MethodCorrespondenceResult api =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                source,
+                MetadataMethodAddress.Create(source, handle),
+                target);
+
+        Assert.True(anchor.Anchor.CanonicalSignature.Length < 2_048);
+        Assert.Equal(MethodCorrespondenceStatus.Exact, strict.Status);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, api.Status);
+        Assert.Contains("encoded-character budget", api.Failure);
     }
 
     [Fact]
@@ -1546,7 +1775,8 @@ public sealed class MethodCorrespondenceResolverTests
         int encodedArity = 1,
         int rowCount = 1,
         string parameterName = "T",
-        bool useGenericParameter = false)
+        bool useGenericParameter = false,
+        int genericParameterIndex = 0)
     {
         var metadata = CreateSingleTypeMetadata("MethodSignature");
         var signature = new BlobBuilder();
@@ -1558,7 +1788,8 @@ public sealed class MethodCorrespondenceResolverTests
         if (useGenericParameter)
         {
             signature.WriteByte(0x1e);
-            signature.WriteCompressedInteger(0);
+            signature.WriteCompressedInteger(
+                genericParameterIndex);
         }
         MethodDefinitionHandle method =
             metadata.AddMethodDefinition(
@@ -1583,18 +1814,25 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     static byte[] BuildTypeGenericMethodImage(
-        string parameterName)
+        string parameterName,
+        int genericParameterRows = 1)
     {
         var metadata =
             CreateSingleTypeMetadata(
                 "TypeGeneric",
                 "C`1",
                 out TypeDefinitionHandle type);
-        metadata.AddGenericParameter(
-            type,
-            GenericParameterAttributes.None,
-            metadata.GetOrAddString(parameterName),
-            index: 0);
+        for (int i = 0; i < genericParameterRows; i++)
+        {
+            metadata.AddGenericParameter(
+                type,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString(
+                    i == 0
+                        ? parameterName
+                        : $"{parameterName}{i}"),
+                index: i);
+        }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -1613,7 +1851,9 @@ public sealed class MethodCorrespondenceResolverTests
         string assemblyName,
         Version? version = null,
         string @namespace = "N",
-        string typeName = "T")
+        string typeName = "T",
+        string? culture = null,
+        byte[]? publicKeyToken = null)
     {
         var metadata =
             CreateSingleTypeMetadata("ScopedType");
@@ -1621,8 +1861,12 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.AddAssemblyReference(
                 metadata.GetOrAddString(assemblyName),
                 version ?? new Version(1, 0, 0, 0),
-                default,
-                default,
+                culture is null
+                    ? default
+                    : metadata.GetOrAddString(culture),
+                publicKeyToken is null
+                    ? default
+                    : metadata.GetOrAddBlob(publicKeyToken),
                 default,
                 default);
         metadata.AddTypeReference(
@@ -1644,7 +1888,8 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     static byte[] BuildCurrentScopedTypeMethodImage(
-        bool useTypeReference)
+        bool useTypeReference,
+        int moduleRow = 1)
     {
         var metadata =
             CreateSingleTypeMetadata("CurrentScopedType");
@@ -1653,7 +1898,7 @@ public sealed class MethodCorrespondenceResolverTests
         {
             TypeReferenceHandle type =
                 metadata.AddTypeReference(
-                    MetadataTokens.EntityHandle(0x00000001),
+                    MetadataTokens.EntityHandle(moduleRow),
                     metadata.GetOrAddString("N"),
                     metadata.GetOrAddString("T"));
             codedIndex =
@@ -2210,6 +2455,86 @@ public sealed class MethodCorrespondenceResolverTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildRepeatedAssemblyScopeImage(
+        int parameterCount,
+        int assemblyNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata(
+            "RepeatedAssemblyScope");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    new string('A', assemblyNameLength)),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger((1 << 2) | 1);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTypeSpecificationMethodImage(
+        bool overBudgetTypeSpecification)
+    {
+        var metadata = CreateSingleTypeMetadata(
+            "TypeSpecification");
+        var typeSpecification = new BlobBuilder();
+        if (overBudgetTypeSpecification)
+        {
+            for (int i = 0; i <= TypeSpecGuard.MaxCumulativeBytes; i++)
+                typeSpecification.WriteByte(0x1d);
+            typeSpecification.WriteByte(0x08);
+        }
+        else
+        {
+            typeSpecification.WriteByte(0x1c);
+        }
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecification));
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1b);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(typeSpecCodedIndex);
+        signature.WriteByte(0x08);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
     static byte[] BuildNestedArrayModoptImage(
         int parameterCount,
         int arrayDepth)
@@ -2251,7 +2576,15 @@ public sealed class MethodCorrespondenceResolverTests
         int genericArity,
         int methodCount = 1)
     {
-        var metadata = CreateSingleTypeMetadata("WideGenericModopt");
+        var metadata = CreateSingleTypeMetadata(
+            "WideGenericModopt",
+            "C`1",
+            out TypeDefinitionHandle type);
+        metadata.AddGenericParameter(
+            type,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
         AssemblyReferenceHandle assembly =
             metadata.AddAssemblyReference(
                 metadata.GetOrAddString("Dependency"),
@@ -2732,6 +3065,55 @@ public sealed class MethodCorrespondenceResolverTests
         }
 
         throw new InvalidOperationException($"Method '{typeName}::{methodName}' was not found.");
+    }
+
+    static string? FindPlatformReferenceAssembly(
+        string fileName)
+    {
+        string runtimeDirectory =
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string? dotnetRoot = Path.GetDirectoryName(
+            Path.GetDirectoryName(
+                Path.GetDirectoryName(runtimeDirectory)));
+        if (dotnetRoot is null)
+            return null;
+        string packs = Path.Combine(
+            dotnetRoot,
+            "packs",
+            "Microsoft.NETCore.App.Ref");
+        string matchingPack = Path.Combine(
+            packs,
+            Path.GetFileName(runtimeDirectory));
+        return Directory.Exists(matchingPack)
+            ? Directory
+                .EnumerateFiles(
+                    matchingPack,
+                    fileName,
+                    SearchOption.AllDirectories)
+                .SingleOrDefault()
+            : null;
+    }
+
+    static AssemblyReferenceIdentity FindTypeReferenceAssembly(
+        MetadataReader reader,
+        string @namespace,
+        string name)
+    {
+        TypeReferenceHandle handle =
+            reader.TypeReferences.Single(candidate =>
+            {
+                TypeReference reference =
+                    reader.GetTypeReference(candidate);
+                return reader.GetString(reference.Namespace)
+                        == @namespace
+                    && reader.GetString(reference.Name) == name;
+            });
+        EntityHandle scope =
+            reader.GetTypeReference(handle).ResolutionScope;
+        Assert.Equal(HandleKind.AssemblyReference, scope.Kind);
+        return AssemblyReferenceIdentity.From(
+            reader,
+            (AssemblyReferenceHandle)scope);
     }
 
     static MethodCorrespondenceResult ResolveApiMember(

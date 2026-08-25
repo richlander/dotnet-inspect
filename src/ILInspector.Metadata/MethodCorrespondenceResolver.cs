@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -224,13 +225,12 @@ public static class MethodCorrespondenceResolver
                 }
                 if (targetAnchor.IsExtensionMethod
                         != sourceAnchor.IsExtensionMethod
-                    || !StringComparer.Ordinal.Equals(
-                        targetAnchor.CorrespondenceReturnType,
-                        sourceAnchor.CorrespondenceReturnType)
-                    || !targetAnchor.CorrespondenceParameterTypes
-                        .SequenceEqual(
-                            sourceAnchor.CorrespondenceParameterTypes,
-                            StringComparer.Ordinal))
+                    || !targetAnchor.CorrespondenceReturnType
+                        .CorrespondsTo(
+                            sourceAnchor.CorrespondenceReturnType)
+                    || !CorrespondenceParameterTypesEqual(
+                        targetAnchor.CorrespondenceParameterTypes,
+                        sourceAnchor.CorrespondenceParameterTypes))
                     continue;
                 if (!sourceSemantics.Equals(
                         ReadApiMethodSemantics(
@@ -289,6 +289,20 @@ public static class MethodCorrespondenceResolver
                 Target: null,
                 Candidates: [],
                 failure);
+    }
+
+    static bool CorrespondenceParameterTypesEqual(
+        ImmutableArray<ApiMemberIdentity.MethodTypeCorrespondence> left,
+        ImmutableArray<ApiMemberIdentity.MethodTypeCorrespondence> right)
+    {
+        if (left.Length != right.Length)
+            return false;
+        for (int i = 0; i < left.Length; i++)
+        {
+            if (!left[i].CorrespondsTo(right[i]))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

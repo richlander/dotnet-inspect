@@ -54,9 +54,13 @@
 - Cross-image member source lookup now matches the selected MethodDef by its
   stable API-member identity and complete normalized method semantics,
   including external defining scope, positional generic parameters, required
-  modifiers, and function-pointer conventions, so reversed reference/runtime
-  overload order or same-named dependency types cannot select another member.
-  Absent, ambiguous, malformed, or over-budget correspondence fails visibly
+  modifiers, and function-pointer conventions. Platform-keyed core-library
+  facades normalize across reference and runtime images; other assembly scopes
+  use their actual ordinal-ignore-case identity without lossy text casing.
+  Malformed generic indices, declaring-type arity, current-module scopes, and
+  rejected type specifications fail visibly. Reversed reference/runtime
+  overload order or same-named dependency types therefore cannot select another
+  member; absent, ambiguous, malformed, or over-budget correspondence fails
   instead of guessing by ordinal (#4603).
 
 ### Package acquisition and audit

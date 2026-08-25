@@ -26,4 +26,40 @@ public static class PlatformKeys
     /// </summary>
     public static bool IsPlatform(string? publicKeyToken)
         => !string.IsNullOrEmpty(publicKeyToken) && Tokens.Contains(publicKeyToken);
+
+    /// <summary>
+    /// True when the assembly name is one of the platform facades used for
+    /// intrinsic core-library references across framework generations.
+    /// <c>TypeRefDecoderCanonicalReferencedTests</c> gates the inventory.
+    /// </summary>
+    public static bool IsCoreLibraryFacade(string assemblyName) =>
+        assemblyName.Equals(
+            "System.Private.CoreLib",
+            StringComparison.OrdinalIgnoreCase)
+        || assemblyName.Equals(
+            "System.Runtime",
+            StringComparison.OrdinalIgnoreCase)
+        || assemblyName.Equals(
+            "mscorlib",
+            StringComparison.OrdinalIgnoreCase)
+        || assemblyName.Equals(
+            "netstandard",
+            StringComparison.OrdinalIgnoreCase)
+        || assemblyName.Equals(
+            "System.Runtime.Extensions",
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when a referenced assembly has both a core-library facade name and
+    /// a platform public-key token. Gated by
+    /// <c>ResolveApiMember_CoreLibraryFacadeScopesCorrespond</c> and
+    /// <c>ResolveApiMember_UntrustedCoreLibraryFacadeDoesNotCorrespond</c>.
+    /// </summary>
+    public static bool IsCoreLibraryReference(
+        AssemblyReferenceIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return IsCoreLibraryFacade(identity.Name)
+            && IsPlatform(identity.PublicKeyToken);
+    }
 }

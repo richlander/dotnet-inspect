@@ -31,8 +31,15 @@ public sealed record AssemblyReferenceIdentity(
     public bool IsEquivalentTo(AssemblyReferenceIdentity other)
     {
         ArgumentNullException.ThrowIfNull(other);
+        return IsEquivalentIgnoringVersion(other)
+            && Version == other.Version;
+    }
+
+    internal bool IsEquivalentIgnoringVersion(
+        AssemblyReferenceIdentity other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
         return StringComparer.OrdinalIgnoreCase.Equals(Name, other.Name)
-            && Version == other.Version
             && StringComparer.OrdinalIgnoreCase.Equals(
                 NormalizeCulture(Culture),
                 NormalizeCulture(other.Culture))

@@ -1,6 +1,7 @@
 using CSharpText;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using ILInspector.MetadataPrimitives;
 
@@ -38,8 +39,9 @@ internal sealed record MethodCorrespondenceAnchorInfo(
     int GenericParameterCount,
     int RequiredParameterCount,
     int ParameterCount,
-    string CorrespondenceReturnType,
-    ImmutableArray<string> CorrespondenceParameterTypes);
+    ApiMemberIdentity.MethodTypeCorrespondence CorrespondenceReturnType,
+    ImmutableArray<ApiMemberIdentity.MethodTypeCorrespondence>
+        CorrespondenceParameterTypes);
 
 public sealed record ExtensionMemberAnchorInfo(
     MemberAnchor Anchor,
@@ -80,7 +82,79 @@ public sealed record ExtensionMemberAnchorInfo(
 /// </summary>
 public static class ApiMemberIdentity
 {
-    abstract class AnchorSignatureType
+    internal sealed class MethodTypeCorrespondence
+    {
+        readonly AnchorSignatureType _type;
+
+        internal MethodTypeCorrespondence(
+            AnchorSignatureType type)
+        {
+            _type = type;
+            PrepareCorrespondenceIdentities(
+                type,
+                includeOptionalModifiers: false);
+        }
+
+        internal bool CorrespondsTo(
+            MethodTypeCorrespondence other)
+        {
+            ArgumentNullException.ThrowIfNull(other);
+            return CorrespondenceTypesEqual(
+                _type,
+                other._type,
+                includeOptionalModifiers: false);
+        }
+    }
+
+    enum NamedTypeScopeKind
+    {
+        Current,
+        IntrinsicCoreLibrary,
+        Assembly,
+        Module,
+    }
+
+    sealed record NamedTypeCorrespondenceIdentity(
+        NamedTypeScopeKind ScopeKind,
+        AssemblyReferenceIdentity? Assembly,
+        string? ModuleName,
+        string Namespace,
+        ImmutableArray<string> Segments)
+    {
+        internal bool CorrespondsTo(
+            NamedTypeCorrespondenceIdentity other)
+        {
+            if (ScopeKind != other.ScopeKind
+                || !Namespace.Equals(
+                    other.Namespace,
+                    StringComparison.Ordinal)
+                || !Segments.SequenceEqual(
+                    other.Segments,
+                    StringComparer.Ordinal))
+            {
+                return false;
+            }
+
+            return ScopeKind switch
+            {
+                NamedTypeScopeKind.Current => true,
+                NamedTypeScopeKind.IntrinsicCoreLibrary => true,
+                NamedTypeScopeKind.Assembly =>
+                    Assembly is not null
+                    && other.Assembly is not null
+                    && Assembly.IsEquivalentIgnoringVersion(
+                        other.Assembly),
+                NamedTypeScopeKind.Module =>
+                    string.Equals(
+                        ModuleName,
+                        other.ModuleName,
+                        StringComparison.Ordinal),
+                _ => false,
+            };
+        }
+    }
+
+    internal abstract class AnchorSignatureType
     {
         protected AnchorSignatureType(int length)
         {
@@ -95,6 +169,9 @@ public static class ApiMemberIdentity
 
         internal int Length { get; }
         internal abstract void AppendTo(StringBuilder builder);
+
+        // Conservative character-comparison work for the structural
+        // correspondence projection. This is not a rendered identity length.
         internal virtual bool HasCorrespondenceDetails => false;
         internal virtual int CorrespondenceLength =>
             GetCorrespondenceLength(
@@ -102,24 +179,11 @@ public static class ApiMemberIdentity
         internal virtual int GetCorrespondenceLength(
             bool includeOptionalModifiers)
             => Length;
-        internal virtual void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-            => AppendTo(builder);
 
         internal string Render()
         {
             var builder = new StringBuilder(Length);
             AppendTo(builder);
-            return builder.ToString();
-        }
-
-        internal string RenderCorrespondence()
-        {
-            var builder = new StringBuilder(CorrespondenceLength);
-            AppendCorrespondenceTo(
-                builder,
-                includeOptionalModifiers: false);
             return builder.ToString();
         }
 
@@ -158,8 +222,8 @@ public static class ApiMemberIdentity
     sealed class EncodedAnchorSignatureType
         : AnchorSignatureType
     {
-        readonly string _text;
-        readonly string? _correspondence;
+        internal readonly string _text;
+        internal readonly string? _correspondence;
 
         internal EncodedAnchorSignatureType(
             string text,
@@ -183,10 +247,6 @@ public static class ApiMemberIdentity
             bool includeOptionalModifiers)
             => CorrespondenceLength;
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-            => builder.Append(_correspondence ?? _text);
     }
 
     /// <summary>
@@ -200,11 +260,14 @@ public static class ApiMemberIdentity
         readonly MetadataReader _reader;
         readonly TypeReferenceHandle _handle;
         readonly Func<MetadataReader, TypeReferenceHandle, string> _format;
-        readonly Func<MetadataReader, TypeReferenceHandle, string>
-            _formatCorrespondence;
+        readonly Func<
+            MetadataReader,
+            TypeReferenceHandle,
+            NamedTypeCorrespondenceIdentity>?
+            _readCorrespondenceIdentity;
         readonly int _correspondenceLength;
         string? _text;
-        string? _correspondence;
+        NamedTypeCorrespondenceIdentity? _correspondenceIdentity;
 
         internal LazyTypeReferenceAnchorSignatureType(
             MetadataReader reader,
@@ -212,35 +275,54 @@ public static class ApiMemberIdentity
             int estimatedLength,
             Func<MetadataReader, TypeReferenceHandle, string> format,
             int correspondenceLength,
-            Func<MetadataReader, TypeReferenceHandle, string>
-                formatCorrespondence)
+            Func<
+                MetadataReader,
+                TypeReferenceHandle,
+                NamedTypeCorrespondenceIdentity>?
+                readCorrespondenceIdentity)
             : base(estimatedLength)
         {
             _reader = reader;
             _handle = handle;
             _format = format;
             _correspondenceLength = correspondenceLength;
-            _formatCorrespondence = formatCorrespondence;
+            _readCorrespondenceIdentity =
+                readCorrespondenceIdentity;
         }
 
         internal override void AppendTo(StringBuilder builder)
             => builder.Append(_text ??= _format(_reader, _handle));
 
-        internal override bool HasCorrespondenceDetails => true;
+        internal override bool HasCorrespondenceDetails =>
+            _readCorrespondenceIdentity is not null;
 
         internal override int CorrespondenceLength =>
-            _correspondenceLength;
+            HasCorrespondenceDetails
+                ? _correspondenceLength
+                : Length;
 
         internal override int GetCorrespondenceLength(
             bool includeOptionalModifiers)
-            => _correspondenceLength;
+            => CorrespondenceLength;
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-            => builder.Append(
-                _correspondence ??=
-                    _formatCorrespondence(_reader, _handle));
+        internal NamedTypeCorrespondenceIdentity
+            GetCorrespondenceIdentity()
+            => _correspondenceIdentity
+                ?? throw new InvalidOperationException(
+                    "The correspondence identity was not prepared.");
+
+        internal void PrepareCorrespondenceIdentity()
+        {
+            if (_correspondenceIdentity is not null)
+                return;
+            _correspondenceIdentity =
+                _readCorrespondenceIdentity is not null
+                    ? _readCorrespondenceIdentity(
+                        _reader,
+                        _handle)
+                    : throw new InvalidOperationException(
+                        "The type has no correspondence identity.");
+        }
     }
 
     /// <summary>
@@ -252,11 +334,14 @@ public static class ApiMemberIdentity
         readonly MetadataReader _reader;
         readonly TypeDefinitionHandle _handle;
         readonly Func<MetadataReader, TypeDefinitionHandle, string> _format;
-        readonly Func<MetadataReader, TypeDefinitionHandle, string>
-            _formatCorrespondence;
+        readonly Func<
+            MetadataReader,
+            TypeDefinitionHandle,
+            NamedTypeCorrespondenceIdentity>?
+            _readCorrespondenceIdentity;
         readonly int _correspondenceLength;
         string? _text;
-        string? _correspondence;
+        NamedTypeCorrespondenceIdentity? _correspondenceIdentity;
 
         internal LazyTypeDefinitionAnchorSignatureType(
             MetadataReader reader,
@@ -264,43 +349,62 @@ public static class ApiMemberIdentity
             int estimatedLength,
             Func<MetadataReader, TypeDefinitionHandle, string> format,
             int correspondenceLength,
-            Func<MetadataReader, TypeDefinitionHandle, string>
-                formatCorrespondence)
+            Func<
+                MetadataReader,
+                TypeDefinitionHandle,
+                NamedTypeCorrespondenceIdentity>?
+                readCorrespondenceIdentity)
             : base(estimatedLength)
         {
             _reader = reader;
             _handle = handle;
             _format = format;
             _correspondenceLength = correspondenceLength;
-            _formatCorrespondence = formatCorrespondence;
+            _readCorrespondenceIdentity =
+                readCorrespondenceIdentity;
         }
 
         internal override void AppendTo(StringBuilder builder)
             => builder.Append(_text ??= _format(_reader, _handle));
 
-        internal override bool HasCorrespondenceDetails => true;
+        internal override bool HasCorrespondenceDetails =>
+            _readCorrespondenceIdentity is not null;
 
         internal override int CorrespondenceLength =>
-            _correspondenceLength;
+            HasCorrespondenceDetails
+                ? _correspondenceLength
+                : Length;
 
         internal override int GetCorrespondenceLength(
             bool includeOptionalModifiers)
-            => _correspondenceLength;
+            => CorrespondenceLength;
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-            => builder.Append(
-                _correspondence ??=
-                    _formatCorrespondence(_reader, _handle));
+        internal NamedTypeCorrespondenceIdentity
+            GetCorrespondenceIdentity()
+            => _correspondenceIdentity
+                ?? throw new InvalidOperationException(
+                    "The correspondence identity was not prepared.");
+
+        internal void PrepareCorrespondenceIdentity()
+        {
+            if (_correspondenceIdentity is not null)
+                return;
+            _correspondenceIdentity =
+                _readCorrespondenceIdentity is not null
+                    ? _readCorrespondenceIdentity(
+                        _reader,
+                        _handle)
+                    : throw new InvalidOperationException(
+                        "The type has no correspondence identity.");
+        }
     }
 
     sealed class WrappedAnchorSignatureType
         : AnchorSignatureType
     {
-        readonly string _prefix;
-        readonly AnchorSignatureType _value;
-        readonly string _suffix;
+        internal readonly string _prefix;
+        internal readonly AnchorSignatureType _value;
+        internal readonly string _suffix;
 
         internal WrappedAnchorSignatureType(
             string prefix,
@@ -337,23 +441,13 @@ public static class ApiMemberIdentity
                     includeOptionalModifiers),
                 _suffix.Length);
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-        {
-            builder.Append(_prefix);
-            _value.AppendCorrespondenceTo(
-                builder,
-                includeOptionalModifiers);
-            builder.Append(_suffix);
-        }
     }
 
     sealed class ArrayAnchorSignatureType
         : AnchorSignatureType
     {
-        readonly AnchorSignatureType _elementType;
-        readonly int _rank;
+        internal readonly AnchorSignatureType _elementType;
+        internal readonly int _rank;
 
         internal ArrayAnchorSignatureType(
             AnchorSignatureType elementType,
@@ -402,32 +496,16 @@ public static class ApiMemberIdentity
                     ? 3
                     : CheckedLength(_rank, 1));
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-        {
-            _elementType.AppendCorrespondenceTo(
-                builder,
-                includeOptionalModifiers);
-            if (_rank <= 1)
-            {
-                builder.Append("[*]");
-                return;
-            }
-
-            builder.Append('[');
-            builder.Append(',', _rank - 1);
-            builder.Append(']');
-        }
     }
 
     sealed class JoinedAnchorSignatureType
         : AnchorSignatureType
     {
-        readonly string _prefix;
-        readonly ImmutableArray<AnchorSignatureType> _values;
-        readonly string _separator;
-        readonly string _suffix;
+        internal readonly string _prefix;
+        internal readonly ImmutableArray<AnchorSignatureType>
+            _values;
+        internal readonly string _separator;
+        internal readonly string _suffix;
 
         internal JoinedAnchorSignatureType(
             string prefix,
@@ -523,28 +601,14 @@ public static class ApiMemberIdentity
                 _suffix,
                 includeOptionalModifiers);
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-        {
-            builder.Append(_prefix);
-            for (int i = 0; i < _values.Length; i++)
-            {
-                if (i > 0)
-                    builder.Append(_separator);
-                _values[i].AppendCorrespondenceTo(
-                    builder,
-                    includeOptionalModifiers);
-            }
-            builder.Append(_suffix);
-        }
     }
 
     sealed class GenericAnchorSignatureType
         : AnchorSignatureType
     {
-        readonly AnchorSignatureType _genericType;
-        readonly ImmutableArray<AnchorSignatureType> _typeArguments;
+        internal readonly AnchorSignatureType _genericType;
+        internal readonly ImmutableArray<AnchorSignatureType>
+            _typeArguments;
 
         internal GenericAnchorSignatureType(
             AnchorSignatureType genericType,
@@ -631,24 +695,6 @@ public static class ApiMemberIdentity
             return length;
         }
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-        {
-            _genericType.AppendCorrespondenceTo(
-                builder,
-                includeOptionalModifiers);
-            builder.Append('<');
-            for (int i = 0; i < _typeArguments.Length; i++)
-            {
-                if (i > 0)
-                    builder.Append(',');
-                _typeArguments[i].AppendCorrespondenceTo(
-                    builder,
-                    includeOptionalModifiers);
-            }
-            builder.Append('>');
-        }
     }
 
     sealed class ModifiedAnchorSignatureType
@@ -658,9 +704,9 @@ public static class ApiMemberIdentity
         const string OptionalPrefix = "modopt(";
         const string ModifierSuffix = ")";
 
-        readonly AnchorSignatureType _modifier;
-        readonly AnchorSignatureType _unmodifiedType;
-        readonly bool _isRequired;
+        internal readonly AnchorSignatureType _modifier;
+        internal readonly AnchorSignatureType _unmodifiedType;
+        internal readonly bool _isRequired;
 
         internal ModifiedAnchorSignatureType(
             AnchorSignatureType modifier,
@@ -703,38 +749,15 @@ public static class ApiMemberIdentity
                     includeOptionalModifiers));
         }
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-        {
-            if (!_isRequired && !includeOptionalModifiers)
-            {
-                _unmodifiedType.AppendCorrespondenceTo(
-                    builder,
-                    includeOptionalModifiers);
-                return;
-            }
-
-            builder.Append(
-                _isRequired
-                    ? RequiredPrefix
-                    : OptionalPrefix);
-            _modifier.AppendCorrespondenceTo(
-                builder,
-                includeOptionalModifiers);
-            builder.Append(ModifierSuffix);
-            _unmodifiedType.AppendCorrespondenceTo(
-                builder,
-                includeOptionalModifiers);
-        }
     }
 
     sealed class FunctionPointerAnchorSignatureType
         : AnchorSignatureType
     {
-        readonly MethodSignature<AnchorSignatureType> _signature;
+        internal readonly MethodSignature<AnchorSignatureType>
+            _signature;
         readonly JoinedAnchorSignatureType _display;
-        readonly string _correspondencePrefix;
+        readonly int _correspondenceHeaderLength;
 
         internal FunctionPointerAnchorSignatureType(
             MethodSignature<AnchorSignatureType> signature)
@@ -753,10 +776,12 @@ public static class ApiMemberIdentity
                     signature.ReturnType),
                 ",",
                 ">");
-            _correspondencePrefix =
+            string correspondenceHeader =
                 $"fnptr[{signature.Header.RawValue}:"
                 + $"{signature.GenericParameterCount}:"
                 + $"{signature.RequiredParameterCount}]<";
+            _correspondenceHeaderLength =
+                correspondenceHeader.Length;
         }
 
         internal override void AppendTo(StringBuilder builder)
@@ -769,7 +794,7 @@ public static class ApiMemberIdentity
             get
             {
                 int length = CheckedLength(
-                    _correspondencePrefix.Length,
+                    _correspondenceHeaderLength,
                     1);
                 ImmutableArray<AnchorSignatureType> types =
                     _signature.ParameterTypes.Add(
@@ -791,24 +816,225 @@ public static class ApiMemberIdentity
             bool includeOptionalModifiers)
             => CorrespondenceLength;
 
-        internal override void AppendCorrespondenceTo(
-            StringBuilder builder,
-            bool includeOptionalModifiers)
-        {
-            builder.Append(_correspondencePrefix);
-            ImmutableArray<AnchorSignatureType> types =
-                _signature.ParameterTypes.Add(
-                    _signature.ReturnType);
-            for (int i = 0; i < types.Length; i++)
+    }
+
+    static bool CorrespondenceTypesEqual(
+        AnchorSignatureType left,
+        AnchorSignatureType right,
+        bool includeOptionalModifiers)
+    {
+        while (left is ModifiedAnchorSignatureType
             {
-                if (i > 0)
-                    builder.Append(',');
-                types[i].AppendCorrespondenceTo(
-                    builder,
-                    includeOptionalModifiers: true);
-            }
-            builder.Append('>');
+                _isRequired: false,
+            } leftOptional
+            && !includeOptionalModifiers)
+        {
+            left = leftOptional._unmodifiedType;
         }
+        while (right is ModifiedAnchorSignatureType
+            {
+                _isRequired: false,
+            } rightOptional
+            && !includeOptionalModifiers)
+        {
+            right = rightOptional._unmodifiedType;
+        }
+
+        return (left, right) switch
+        {
+            (EncodedAnchorSignatureType l,
+                EncodedAnchorSignatureType r) =>
+                string.Equals(
+                    l._correspondence ?? l._text,
+                    r._correspondence ?? r._text,
+                    StringComparison.Ordinal),
+            (LazyTypeReferenceAnchorSignatureType l,
+                LazyTypeReferenceAnchorSignatureType r) =>
+                l.GetCorrespondenceIdentity().CorrespondsTo(
+                    r.GetCorrespondenceIdentity()),
+            (LazyTypeReferenceAnchorSignatureType l,
+                LazyTypeDefinitionAnchorSignatureType r) =>
+                l.GetCorrespondenceIdentity().CorrespondsTo(
+                    r.GetCorrespondenceIdentity()),
+            (LazyTypeDefinitionAnchorSignatureType l,
+                LazyTypeReferenceAnchorSignatureType r) =>
+                l.GetCorrespondenceIdentity().CorrespondsTo(
+                    r.GetCorrespondenceIdentity()),
+            (LazyTypeDefinitionAnchorSignatureType l,
+                LazyTypeDefinitionAnchorSignatureType r) =>
+                l.GetCorrespondenceIdentity().CorrespondsTo(
+                    r.GetCorrespondenceIdentity()),
+            (WrappedAnchorSignatureType l,
+                WrappedAnchorSignatureType r) =>
+                l._prefix == r._prefix
+                && l._suffix == r._suffix
+                && CorrespondenceTypesEqual(
+                    l._value,
+                    r._value,
+                    includeOptionalModifiers),
+            (ArrayAnchorSignatureType l,
+                ArrayAnchorSignatureType r) =>
+                l._rank == r._rank
+                && CorrespondenceTypesEqual(
+                    l._elementType,
+                    r._elementType,
+                    includeOptionalModifiers),
+            (JoinedAnchorSignatureType l,
+                JoinedAnchorSignatureType r) =>
+                l._prefix == r._prefix
+                && l._separator == r._separator
+                && l._suffix == r._suffix
+                && CorrespondenceSequencesEqual(
+                    l._values,
+                    r._values,
+                    includeOptionalModifiers),
+            (GenericAnchorSignatureType l,
+                GenericAnchorSignatureType r) =>
+                CorrespondenceTypesEqual(
+                    l._genericType,
+                    r._genericType,
+                    includeOptionalModifiers)
+                && CorrespondenceSequencesEqual(
+                    l._typeArguments,
+                    r._typeArguments,
+                    includeOptionalModifiers),
+            (ModifiedAnchorSignatureType l,
+                ModifiedAnchorSignatureType r) =>
+                l._isRequired == r._isRequired
+                && CorrespondenceTypesEqual(
+                    l._modifier,
+                    r._modifier,
+                    includeOptionalModifiers)
+                && CorrespondenceTypesEqual(
+                    l._unmodifiedType,
+                    r._unmodifiedType,
+                    includeOptionalModifiers),
+            (FunctionPointerAnchorSignatureType l,
+                FunctionPointerAnchorSignatureType r) =>
+                FunctionPointerCorrespondenceEquals(l, r),
+            _ => false,
+        };
+    }
+
+    static void PrepareCorrespondenceIdentities(
+        AnchorSignatureType type,
+        bool includeOptionalModifiers)
+    {
+        if (type is ModifiedAnchorSignatureType
+            {
+                _isRequired: false,
+            } optional
+            && !includeOptionalModifiers)
+        {
+            PrepareCorrespondenceIdentities(
+                optional._unmodifiedType,
+                includeOptionalModifiers);
+            return;
+        }
+
+        switch (type)
+        {
+            case LazyTypeReferenceAnchorSignatureType reference:
+                reference.PrepareCorrespondenceIdentity();
+                break;
+            case LazyTypeDefinitionAnchorSignatureType definition:
+                definition.PrepareCorrespondenceIdentity();
+                break;
+            case WrappedAnchorSignatureType wrapped:
+                PrepareCorrespondenceIdentities(
+                    wrapped._value,
+                    includeOptionalModifiers);
+                break;
+            case ArrayAnchorSignatureType array:
+                PrepareCorrespondenceIdentities(
+                    array._elementType,
+                    includeOptionalModifiers);
+                break;
+            case JoinedAnchorSignatureType joined:
+                foreach (AnchorSignatureType value in joined._values)
+                {
+                    PrepareCorrespondenceIdentities(
+                        value,
+                        includeOptionalModifiers);
+                }
+                break;
+            case GenericAnchorSignatureType generic:
+                PrepareCorrespondenceIdentities(
+                    generic._genericType,
+                    includeOptionalModifiers);
+                foreach (AnchorSignatureType argument
+                    in generic._typeArguments)
+                {
+                    PrepareCorrespondenceIdentities(
+                        argument,
+                        includeOptionalModifiers);
+                }
+                break;
+            case ModifiedAnchorSignatureType modified:
+                PrepareCorrespondenceIdentities(
+                    modified._modifier,
+                    includeOptionalModifiers);
+                PrepareCorrespondenceIdentities(
+                    modified._unmodifiedType,
+                    includeOptionalModifiers);
+                break;
+            case FunctionPointerAnchorSignatureType functionPointer:
+                PrepareCorrespondenceIdentities(
+                    functionPointer._signature.ReturnType,
+                    includeOptionalModifiers: true);
+                foreach (AnchorSignatureType parameter
+                    in functionPointer._signature.ParameterTypes)
+                {
+                    PrepareCorrespondenceIdentities(
+                        parameter,
+                        includeOptionalModifiers: true);
+                }
+                break;
+        }
+    }
+
+    static bool FunctionPointerCorrespondenceEquals(
+        FunctionPointerAnchorSignatureType left,
+        FunctionPointerAnchorSignatureType right)
+    {
+        MethodSignature<AnchorSignatureType> leftSignature =
+            left._signature;
+        MethodSignature<AnchorSignatureType> rightSignature =
+            right._signature;
+        return leftSignature.Header.RawValue
+                == rightSignature.Header.RawValue
+            && leftSignature.GenericParameterCount
+                == rightSignature.GenericParameterCount
+            && leftSignature.RequiredParameterCount
+                == rightSignature.RequiredParameterCount
+            && CorrespondenceTypesEqual(
+                leftSignature.ReturnType,
+                rightSignature.ReturnType,
+                includeOptionalModifiers: true)
+            && CorrespondenceSequencesEqual(
+                leftSignature.ParameterTypes,
+                rightSignature.ParameterTypes,
+                includeOptionalModifiers: true);
+    }
+
+    static bool CorrespondenceSequencesEqual(
+        ImmutableArray<AnchorSignatureType> left,
+        ImmutableArray<AnchorSignatureType> right,
+        bool includeOptionalModifiers)
+    {
+        if (left.Length != right.Length)
+            return false;
+        for (int i = 0; i < left.Length; i++)
+        {
+            if (!CorrespondenceTypesEqual(
+                    left[i],
+                    right[i],
+                    includeOptionalModifiers))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>
@@ -855,13 +1081,16 @@ public static class ApiMemberIdentity
         : ISignatureTypeProvider<AnchorSignatureType, GenericContext?>
     {
         readonly AnchorSignatureWorkBudget _workBudget;
+        readonly bool _includeCorrespondence;
         Dictionary<TypeDefinitionHandle, AnchorSignatureType>? _definitionCache;
         Dictionary<TypeReferenceHandle, AnchorSignatureType>? _referenceCache;
 
         internal AnchorSignatureTypeProvider(
-            AnchorSignatureWorkBudget workBudget)
+            AnchorSignatureWorkBudget workBudget,
+            bool includeCorrespondence = false)
         {
             _workBudget = workBudget;
+            _includeCorrespondence = includeCorrespondence;
         }
 
         public AnchorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
@@ -909,16 +1138,20 @@ public static class ApiMemberIdentity
             int estimatedLength = EstimateDefinitionNameLength(reader, handle);
             ChargeLeaf(estimatedLength);
             int correspondenceLength =
-                EstimateDefinitionCorrespondenceLength(
-                    reader,
-                    handle);
+                _includeCorrespondence
+                    ? EstimateDefinitionCorrespondenceLength(
+                        reader,
+                        handle)
+                    : estimatedLength;
             AnchorSignatureType encoded = new LazyTypeDefinitionAnchorSignatureType(
                 reader,
                 handle,
                 estimatedLength,
                 FormatDefinitionTypeName,
                 correspondenceLength,
-                FormatDefinitionCorrespondenceTypeName);
+                _includeCorrespondence
+                    ? ReadDefinitionCorrespondenceIdentity
+                    : null);
             _definitionCache.Add(handle, encoded);
             return encoded;
         }
@@ -938,16 +1171,20 @@ public static class ApiMemberIdentity
             int estimatedLength = EstimateReferenceNameLength(reader, handle);
             ChargeLeaf(estimatedLength);
             int correspondenceLength =
-                EstimateReferenceCorrespondenceLength(
-                    reader,
-                    handle);
+                _includeCorrespondence
+                    ? EstimateReferenceCorrespondenceLength(
+                        reader,
+                        handle)
+                    : estimatedLength;
             AnchorSignatureType encoded = new LazyTypeReferenceAnchorSignatureType(
                 reader,
                 handle,
                 estimatedLength,
                 FormatReferenceTypeName,
                 correspondenceLength,
-                FormatReferenceCorrespondenceTypeName);
+                _includeCorrespondence
+                    ? ReadReferenceCorrespondenceIdentity
+                    : null);
             _referenceCache.Add(handle, encoded);
             return encoded;
         }
@@ -959,7 +1196,14 @@ public static class ApiMemberIdentity
             byte rawTypeKind)
         {
             if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            {
+                if (_includeCorrespondence)
+                {
+                    throw new BadImageFormatException(
+                        "The signature contains an invalid or over-budget type specification.");
+                }
                 return Encoded("System.Object");
+            }
             using (scope)
             {
                 return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
@@ -1004,30 +1248,50 @@ public static class ApiMemberIdentity
             GenericContext? context,
             int index)
         {
+            if (_includeCorrespondence
+                && (context is null
+                    || index < 0
+                    || index >= context.TypeParameters.Count))
+            {
+                throw new BadImageFormatException(
+                    "The signature references an out-of-range type generic parameter.");
+            }
             string display =
                 context is not null
                     && index >= 0
                     && index < context.TypeParameters.Count
                 ? context.TypeParameters[index]
                 : $"!{index}";
-            return Encoded(
-                display,
-                $"var[{index}]");
+            return _includeCorrespondence
+                ? Encoded(
+                    display,
+                    $"var[{index}]")
+                : Encoded(display);
         }
 
         public AnchorSignatureType GetGenericMethodParameter(
             GenericContext? context,
             int index)
         {
+            if (_includeCorrespondence
+                && (context is null
+                    || index < 0
+                    || index >= context.MethodParameters.Count))
+            {
+                throw new BadImageFormatException(
+                    "The signature references an out-of-range method generic parameter.");
+            }
             string display =
                 context is not null
                     && index >= 0
                     && index < context.MethodParameters.Count
                 ? context.MethodParameters[index]
                 : $"!!{index}";
-            return Encoded(
-                display,
-                $"mvar[{index}]");
+            return _includeCorrespondence
+                ? Encoded(
+                    display,
+                    $"mvar[{index}]")
+                : Encoded(display);
         }
 
         public AnchorSignatureType GetFunctionPointerType(
@@ -1219,6 +1483,7 @@ public static class ApiMemberIdentity
                                 (ModuleReferenceHandle)terminal).Name));
                     break;
                 case HandleKind.ModuleDefinition:
+                    ValidateCurrentModuleScope(terminal);
                     break;
                 default:
                     if (!terminal.IsNil)
@@ -1380,7 +1645,8 @@ public static class ApiMemberIdentity
             return builder.ToString();
         }
 
-        string FormatDefinitionCorrespondenceTypeName(
+        NamedTypeCorrespondenceIdentity
+            ReadDefinitionCorrespondenceIdentity(
             MetadataReader reader,
             TypeDefinitionHandle handle)
         {
@@ -1402,28 +1668,27 @@ public static class ApiMemberIdentity
                         ?? "The type has an invalid declaring-type chain.");
             }
 
-            var builder = new StringBuilder();
-            builder.Append("type[current|");
-            AppendCorrespondenceComponent(
-                builder,
-                MetadataSafetyPolicy.ReadStructuralString(
-                    reader,
-                    reader.GetTypeDefinition(chain[0]).Namespace));
-            builder.Append(consumed);
-            builder.Append(':');
+            var segments =
+                ImmutableArray.CreateBuilder<string>(consumed);
             for (int i = 0; i < consumed; i++)
             {
-                AppendCorrespondenceComponent(
-                    builder,
+                segments.Add(
                     MetadataSafetyPolicy.ReadStructuralString(
                         reader,
                         reader.GetTypeDefinition(chain[i]).Name));
             }
-            builder.Append(']');
-            return builder.ToString();
+            return new NamedTypeCorrespondenceIdentity(
+                NamedTypeScopeKind.Current,
+                Assembly: null,
+                ModuleName: null,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetTypeDefinition(chain[0]).Namespace),
+                segments.MoveToImmutable());
         }
 
-        string FormatReferenceCorrespondenceTypeName(
+        NamedTypeCorrespondenceIdentity
+            ReadReferenceCorrespondenceIdentity(
             MetadataReader reader,
             TypeReferenceHandle handle)
         {
@@ -1444,42 +1709,37 @@ public static class ApiMemberIdentity
                         ?? "The type has an invalid resolution-scope chain.");
             }
 
-            var builder = new StringBuilder();
+            NamedTypeScopeKind scopeKind;
+            AssemblyReferenceIdentity? assembly = null;
+            string? moduleName = null;
             switch (terminal.Kind)
             {
                 case HandleKind.AssemblyReference:
-                {
-                    AssemblyReferenceIdentity identity =
-                        AssemblyReferenceIdentity.From(
-                            reader,
-                            (AssemblyReferenceHandle)terminal);
-                    builder.Append("type[assembly|");
-                    AppendCorrespondenceComponent(
-                        builder,
-                        identity.Name.ToUpperInvariant());
-                    AppendCorrespondenceComponent(
-                        builder,
-                        NormalizeAssemblyCulture(
-                            identity.Culture).ToUpperInvariant());
-                    AppendCorrespondenceComponent(
-                        builder,
-                        (identity.PublicKeyToken ?? "")
-                            .ToUpperInvariant());
-                    builder.Append('|');
+                    assembly = AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)terminal);
+                    if (PlatformKeys.IsCoreLibraryReference(assembly))
+                    {
+                        scopeKind =
+                            NamedTypeScopeKind.IntrinsicCoreLibrary;
+                        assembly = null;
+                    }
+                    else
+                    {
+                        scopeKind = NamedTypeScopeKind.Assembly;
+                    }
                     break;
-                }
                 case HandleKind.ModuleReference:
-                    builder.Append("type[module|");
-                    AppendCorrespondenceComponent(
-                        builder,
+                    scopeKind = NamedTypeScopeKind.Module;
+                    moduleName =
                         MetadataSafetyPolicy.ReadStructuralString(
                             reader,
                             reader.GetModuleReference(
-                                (ModuleReferenceHandle)terminal).Name));
-                    builder.Append('|');
+                                (ModuleReferenceHandle)terminal).Name);
                     break;
                 case HandleKind.ModuleDefinition:
-                    builder.Append("type[current|");
+                    ValidateCurrentModuleScope(terminal);
+                    scopeKind = NamedTypeScopeKind.Current;
                     break;
                 default:
                     if (!terminal.IsNil)
@@ -1487,45 +1747,38 @@ public static class ApiMemberIdentity
                         throw new BadImageFormatException(
                             "The type reference has an unsupported resolution scope.");
                     }
-                    builder.Append("type[current|");
+                    scopeKind = NamedTypeScopeKind.Current;
                     break;
             }
 
-            AppendCorrespondenceComponent(
-                builder,
-                MetadataSafetyPolicy.ReadStructuralString(
-                    reader,
-                    reader.GetTypeReference(chain[0]).Namespace));
-            builder.Append(consumed);
-            builder.Append(':');
+            var segments =
+                ImmutableArray.CreateBuilder<string>(consumed);
             for (int i = 0; i < consumed; i++)
             {
-                AppendCorrespondenceComponent(
-                    builder,
+                segments.Add(
                     MetadataSafetyPolicy.ReadStructuralString(
                         reader,
                         reader.GetTypeReference(chain[i]).Name));
             }
-            builder.Append(']');
-            return builder.ToString();
+            return new NamedTypeCorrespondenceIdentity(
+                scopeKind,
+                assembly,
+                moduleName,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetTypeReference(chain[0]).Namespace),
+                segments.MoveToImmutable());
         }
 
-        static void AppendCorrespondenceComponent(
-            StringBuilder builder,
-            string value)
+        static void ValidateCurrentModuleScope(
+            EntityHandle terminal)
         {
-            builder.Append(value.Length);
-            builder.Append(':');
-            builder.Append(value);
+            if (MetadataTokens.GetRowNumber(terminal) != 1)
+            {
+                throw new BadImageFormatException(
+                    "The type reference has an invalid current-module scope.");
+            }
         }
-
-        static string NormalizeAssemblyCulture(string? value)
-            => string.IsNullOrEmpty(value)
-                || value.Equals(
-                    "neutral",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? ""
-                    : value;
 
         static void AppendSignatureTypeName(
             StringBuilder builder,
@@ -1753,7 +2006,8 @@ public static class ApiMemberIdentity
                 reader,
                 typeHandle,
                 method,
-                isExtensionMethod));
+                isExtensionMethod,
+                includeCorrespondence: true));
 
     /// <summary>
     /// Creates a method anchor while drawing from a caller-owned cumulative
@@ -1889,7 +2143,8 @@ public static class ApiMemberIdentity
                     isExtensionMethod,
                     workBudget,
                     declaringType,
-                    metadataName);
+                    metadataName,
+                    includeCorrespondence: true);
             UpdateScanWorkRemaining(
                 ref scanWorkRemaining,
                 anchorAllowance,
@@ -1923,15 +2178,22 @@ public static class ApiMemberIdentity
     static MethodCorrespondenceAnchorInfo
         CreateMethodCorrespondenceAnchorInfo(
             MethodAnchorShape shape)
-        => new(
+    {
+        if (!shape.HasCorrespondenceProjection)
+        {
+            throw new InvalidOperationException(
+                "The method anchor shape has no correspondence projection.");
+        }
+        return new(
             CreateMethodAnchorInfo(shape),
             shape.IsExtensionMethod,
             shape.SignatureHeader,
             shape.GenericParameterCount,
             shape.RequiredParameterCount,
             shape.ParameterTypes.Length,
-            shape.CorrespondenceReturnType,
+            shape.CorrespondenceReturnType!,
             shape.CorrespondenceParameterTypes);
+    }
 
     public static ExtensionMemberAnchorInfo CreateExtensionMethodAnchorInfo(
         MetadataReader reader,
@@ -2033,8 +2295,10 @@ public static class ApiMemberIdentity
         MemberAnchor Anchor,
         string ReturnType,
         ImmutableArray<string> ParameterTypes,
-        string CorrespondenceReturnType,
-        ImmutableArray<string> CorrespondenceParameterTypes,
+        MethodTypeCorrespondence? CorrespondenceReturnType,
+        ImmutableArray<MethodTypeCorrespondence>
+            CorrespondenceParameterTypes,
+        bool HasCorrespondenceProjection,
         bool IsExtensionMethod,
         byte SignatureHeader,
         int GenericParameterCount,
@@ -2047,7 +2311,8 @@ public static class ApiMemberIdentity
         bool isExtensionMethod,
         AnchorSignatureWorkBudget? workBudget = null,
         MethodAnchorDeclaringTypeContext? declaringType = null,
-        string? knownMetadataName = null)
+        string? knownMetadataName = null,
+        bool includeCorrespondence = false)
     {
         var type = reader.GetTypeDefinition(typeHandle);
         workBudget ??= new AnchorSignatureWorkBudget();
@@ -2069,7 +2334,16 @@ public static class ApiMemberIdentity
                 typeContext,
                 method,
                 workBudget.Charge);
-        var provider = new AnchorSignatureTypeProvider(workBudget);
+        if (includeCorrespondence)
+        {
+            ValidateCorrespondenceDeclaringTypeGenericArity(
+                reader,
+                typeHandle,
+                workBudget);
+        }
+        var provider = new AnchorSignatureTypeProvider(
+            workBudget,
+            includeCorrespondence);
         var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
@@ -2086,9 +2360,12 @@ public static class ApiMemberIdentity
         EnsureAnchorSignatureBudget(
             signature.ReturnType,
             signature.ParameterTypes);
-        EnsureCorrespondenceSignatureBudget(
-            signature.ReturnType,
-            signature.ParameterTypes);
+        if (includeCorrespondence)
+        {
+            EnsureCorrespondenceComparisonBudget(
+                signature.ReturnType,
+                signature.ParameterTypes);
+        }
         string typeFullName =
             declaringType?.FullName
             ?? FormatDefinitionName(
@@ -2099,27 +2376,31 @@ public static class ApiMemberIdentity
             GetMemberSelectorName(
                 methodName,
                 isExtensionMethod);
-        ChargeMethodIdentityMaterialization(
+        ChargeMethodIdentityWork(
             workBudget,
             typeFullName,
             methodName,
             context.MethodParameters,
             signature,
-            selectorName);
+            selectorName,
+            includeCorrespondence);
         string memberName = MethodMemberName(
             methodName,
             context.MethodParameters);
         string returnType = signature.ReturnType.Render();
         ImmutableArray<string> parameterTypes =
             Render(signature.ParameterTypes);
-        string correspondenceReturnType =
-            RenderCorrespondence(
-                signature.ReturnType,
-                returnType);
-        ImmutableArray<string> correspondenceParameterTypes =
-            RenderCorrespondence(
-                signature.ParameterTypes,
-                parameterTypes);
+        MethodTypeCorrespondence? correspondenceReturnType =
+            includeCorrespondence
+                ? new MethodTypeCorrespondence(
+                    signature.ReturnType)
+                : null;
+        ImmutableArray<MethodTypeCorrespondence>
+            correspondenceParameterTypes =
+            includeCorrespondence
+                ? CreateCorrespondenceTypes(
+                    signature.ParameterTypes)
+                : [];
         // Route the SRM-direct producer through the single full-name grammar core so it
         // cannot drift from other producers. Conversion operators overload on return type,
         // so pass the return type for their disambiguation suffix only.
@@ -2139,10 +2420,69 @@ public static class ApiMemberIdentity
             parameterTypes,
             correspondenceReturnType,
             correspondenceParameterTypes,
+            includeCorrespondence,
             isExtensionMethod,
             signature.Header.RawValue,
             signature.GenericParameterCount,
             signature.RequiredParameterCount);
+    }
+
+    static void ValidateCorrespondenceDeclaringTypeGenericArity(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        AnchorSignatureWorkBudget workBudget)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                typeHandle,
+                chain,
+                out int consumed,
+                out EntityHandle terminal,
+                out var rejection)
+            || consumed == 0
+            || !terminal.IsNil)
+        {
+            throw new BadImageFormatException(
+                rejection?.Detail
+                    ?? "The type has an invalid declaring-type chain.");
+        }
+
+        int enclosingGenericCount = 0;
+        for (int i = 0; i < consumed; i++)
+        {
+            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+                    reader,
+                    chain[i],
+                    out int cumulativeGenericCount))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+            int introducedGenericCount =
+                MetadataDeclarationQuery.GetIntroducedTypeParameterCount(
+                    cumulativeGenericCount,
+                    enclosingGenericCount);
+            string name = ReadStructuralString(
+                reader,
+                reader.GetTypeDefinition(chain[i]).Name,
+                workBudget);
+            bool hasDeclaredArity = MetadataNameArity.TryReadSuffix(
+                name,
+                out int declaredArity,
+                out _);
+            if ((hasDeclaredArity
+                    && declaredArity != introducedGenericCount)
+                || (!hasDeclaredArity
+                    && introducedGenericCount != 0))
+            {
+                throw new BadImageFormatException(
+                    "The declaring type's metadata-name arity does not match its generic parameters.");
+            }
+            enclosingGenericCount = cumulativeGenericCount;
+        }
     }
 
     static string ReadStructuralString(
@@ -2166,41 +2506,16 @@ public static class ApiMemberIdentity
         return builder.MoveToImmutable();
     }
 
-    static string RenderCorrespondence(
-        AnchorSignatureType type,
-        string rendered)
-        => type.HasCorrespondenceDetails
-            ? type.RenderCorrespondence()
-            : rendered;
-
-    static ImmutableArray<string> RenderCorrespondence(
-        ImmutableArray<AnchorSignatureType> types,
-        ImmutableArray<string> rendered)
+    static ImmutableArray<MethodTypeCorrespondence>
+        CreateCorrespondenceTypes(
+        ImmutableArray<AnchorSignatureType> types)
     {
-        ImmutableArray<string>.Builder? builder = null;
-        for (int i = 0; i < types.Length; i++)
-        {
-            if (!types[i].HasCorrespondenceDetails)
-            {
-                builder?.Add(rendered[i]);
-                continue;
-            }
-
-            if (builder is null)
-            {
-                builder =
-                    ImmutableArray.CreateBuilder<string>(
-                        types.Length);
-                for (int previous = 0;
-                    previous < i;
-                    previous++)
-                {
-                    builder.Add(rendered[previous]);
-                }
-            }
-            builder.Add(types[i].RenderCorrespondence());
-        }
-        return builder?.MoveToImmutable() ?? rendered;
+        var builder =
+            ImmutableArray.CreateBuilder<MethodTypeCorrespondence>(
+                types.Length);
+        foreach (AnchorSignatureType type in types)
+            builder.Add(new MethodTypeCorrespondence(type));
+        return builder.MoveToImmutable();
     }
 
     static void EnsureAnchorSignatureBudget(
@@ -2225,7 +2540,7 @@ public static class ApiMemberIdentity
         }
     }
 
-    static void EnsureCorrespondenceSignatureBudget(
+    static void EnsureCorrespondenceComparisonBudget(
         AnchorSignatureType returnType,
         ImmutableArray<AnchorSignatureType> parameterTypes)
     {
@@ -2242,13 +2557,14 @@ public static class ApiMemberIdentity
         }
     }
 
-    static void ChargeMethodIdentityMaterialization(
+    static void ChargeMethodIdentityWork(
         AnchorSignatureWorkBudget workBudget,
         string typeFullName,
         string methodName,
         IReadOnlyList<string> genericNames,
         MethodSignature<AnchorSignatureType> signature,
-        string selectorName)
+        string selectorName,
+        bool includeCorrespondence)
     {
         int memberNameLength =
             GetMethodMemberNameLength(
@@ -2303,22 +2619,25 @@ public static class ApiMemberIdentity
                 selectorName.Length,
                 11));
 
-        int correspondenceLength =
-            signature.ReturnType.HasCorrespondenceDetails
-                ? signature.ReturnType.CorrespondenceLength
-                : 0;
-        foreach (AnchorSignatureType parameter
-            in signature.ParameterTypes)
+        if (includeCorrespondence)
         {
-            if (parameter.HasCorrespondenceDetails)
+            int correspondenceLength =
+                signature.ReturnType.HasCorrespondenceDetails
+                    ? signature.ReturnType.CorrespondenceLength
+                    : 0;
+            foreach (AnchorSignatureType parameter
+                in signature.ParameterTypes)
             {
-                correspondenceLength =
-                    CheckedIdentityLength(
-                        correspondenceLength,
-                        parameter.CorrespondenceLength);
+                if (parameter.HasCorrespondenceDetails)
+                {
+                    correspondenceLength =
+                        CheckedIdentityLength(
+                            correspondenceLength,
+                            parameter.CorrespondenceLength);
+                }
             }
+            workBudget.Charge(correspondenceLength);
         }
-        workBudget.Charge(correspondenceLength);
     }
 
     static int GetMethodMemberNameLength(

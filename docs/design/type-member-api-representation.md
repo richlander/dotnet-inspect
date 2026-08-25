@@ -77,6 +77,26 @@ of repeated in every row.
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 | `MethodCorrespondenceResult` | One source/target metadata-reader pair under a stated resolver projection | Exact target MethodDef, absence, ambiguity, or visible failure without treating row numbers as cross-image identity; API correspondence retains external defining scope while normalizing generic names and reference versions | Persistence, source provenance, or permission to substitute an ordinal |
 
+Normalized API correspondence is an internal, reader-pair-scoped structural
+projection. Named signature types retain their current-module, module-reference,
+or assembly-reference scope. Platform-keyed core-library facade references
+normalize to one intrinsic scope across reference and runtime images; all other
+assembly names, normalized cultures, and public-key tokens use
+ordinal-ignore-case comparison, with assembly versions alone omitted. Generic
+parameters compare by validated position rather than metadata spelling, and
+malformed generic indices, declaring-type arity, current-module scopes, or
+rejected type specifications fail visibly. Public durable anchors and strict
+definition correspondence do not request or pay for this API-only projection.
+Scope kinds must still agree: a local TypeDef does not correspond to an
+intrinsic-core-library TypeRef by name alone.
+`ResolveApiMember_AssemblyScopeCaseFoldingUsesOrdinalIdentity`,
+`ResolveApiMember_ReferencePackCoreLibraryFacadeMatchesRuntime`,
+`ResolveApiMember_InvalidCurrentModuleScopeFails`,
+`ResolveApiMember_OutOfRangeGenericParameterIndexFails`,
+`ResolveApiMember_RejectedTypeSpecificationFails`,
+`ResolveApiMember_DeclaringTypeArityMismatchFails`, and
+`DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlySize` are the gates.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
