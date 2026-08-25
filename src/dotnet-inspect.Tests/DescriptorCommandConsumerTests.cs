@@ -4,6 +4,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -278,6 +279,68 @@ public sealed class DescriptorCommandConsumerTests
 
         Assert.False(result.MemberHasNoBody);
         Assert.Null(result.PdbSourceUnavailableReason);
+    }
+
+    [Fact]
+    public async Task MemberSourceLocations_ResolveFromPathlessEmbeddedPdb()
+    {
+        string path = typeof(EmbeddedSourceFixture)
+            .Assembly.Location;
+        ResolvedAssemblyReference rooted =
+            TestAssemblyReferences.Designated(path);
+        ResolvedAssemblyReference pathless =
+            rooted.WithoutLocalPath();
+        ApiType rootedType = EmbeddedSourceType(rooted);
+        ApiType pathlessType = EmbeddedSourceType(pathless);
+        using var httpClient = new HttpClient();
+        var options = new MemberOptions();
+        var logger = new VerboseLogger(false);
+
+        await MemberSourceLocationCollector.EnrichAsync(
+            rootedType,
+            rooted,
+            packageName: null,
+            packageVersion: null,
+            options,
+            httpClient,
+            logger);
+        await MemberSourceLocationCollector.EnrichAsync(
+            pathlessType,
+            pathless,
+            packageName: null,
+            packageVersion: null,
+            options,
+            httpClient,
+            logger);
+
+        ApiMember rootedMember = Assert.Single(
+            rootedType.Members,
+            static member =>
+                member.SourceUrl is not null);
+        ApiMember pathlessMember = Assert.Single(
+            pathlessType.Members,
+            member => member.Name == rootedMember.Name);
+        Assert.NotNull(rootedMember.SourceLineNumber);
+        Assert.Equal(
+            rootedMember.SourceUrl,
+            pathlessMember.SourceUrl);
+        Assert.Equal(
+            rootedMember.SourceLineNumber,
+            pathlessMember.SourceLineNumber);
+
+        static ApiType EmbeddedSourceType(
+            ResolvedAssemblyReference assembly)
+        {
+            ApiSurface api = Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(
+                    assembly,
+                    includeAll: true));
+            return Assert.Single(
+                api.Types,
+                static type =>
+                    type.FullName
+                    == typeof(EmbeddedSourceFixture).FullName);
+        }
     }
 
     static int ExceptionRegionFixture()

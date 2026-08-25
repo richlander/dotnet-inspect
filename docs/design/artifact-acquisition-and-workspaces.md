@@ -738,9 +738,18 @@ Several current types are migration inputs, not target precedent:
   `DescriptorCommandConsumerTests.PathlessApiOwnership_SelectsTypedAcquisitionRoles`
   gates the pathless reference/runtime distinction;
   `ForwardedApiOwnership_PreservesTargetForRuntimeRole` gates forwarded-target
-  preservation. Implementation-diff PDB enrichment reuses the endpoint
-  descriptors and reports duplicate member identities as ambiguous rather
-  than selecting the first path.
+  preservation. Method-body state opens the token-origin acquisition, including
+  a pathless one, and uses registration identity rather than path equality;
+  `CommandExecutionTests.MemberBodyState_UsesTokenOwnerRegistration` gates both
+  cases. PDB source-location enrichment likewise supports pathless embedded
+  PDBs, gated by
+  `DescriptorCommandConsumerTests.MemberSourceLocations_ResolveFromPathlessEmbeddedPdb`.
+  Implementation-diff PDB enrichment reuses the endpoint descriptors and
+  reports duplicate member identities as ambiguous rather than selecting the
+  first path. If any endpoint participant cannot be indexed, every requested
+  subject on that side fails because the unreadable participant could conceal
+  a duplicate; `DiffCommandTests.PdbSourceAcquisition_IndexFailureFailsEverySubject`
+  gates that fail-closed rule.
   Netmodule, platform-summary, SourceLink discovery, source-file collection,
   member Analysis, exception-region, and diff-endpoint routes all consume the
   retained acquisition. A resolved image with no managed metadata is

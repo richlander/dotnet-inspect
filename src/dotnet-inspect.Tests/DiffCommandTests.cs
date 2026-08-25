@@ -2017,6 +2017,54 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task PdbSourceAcquisition_IndexFailureFailsEverySubject()
+    {
+        string path = FixtureCatalog.DiffPair.OldAssemblyPath();
+        byte[] image = File.ReadAllBytes(path);
+        ResolvedAssemblyReference selected =
+            TestAssemblyReferences.Designated(path);
+        bool fail = false;
+        ResolvedAssemblyReference unstable =
+            ResolvedAssemblyReference.Create(
+                selected.Identity,
+                path,
+                () => fail
+                    ? throw new IOException(
+                        "simulated endpoint loss")
+                    : new MemoryStream(
+                        image,
+                        writable: false),
+                selected.Provenance);
+        MethodIdentity method =
+            MethodBodyInspectionSession.Open(unstable)
+                .BodyIndex.DeclaredMethods.First();
+        ResearchSubjectKey subject =
+            ResearchMemberIdentity.SubjectFromMethod(method);
+        fail = true;
+
+        Dictionary<string, FindingInspection<string>> inspections =
+            await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                [unstable],
+                new Dictionary<string, ResearchSubjectKey>(
+                    StringComparer.Ordinal)
+                {
+                    [subject.Id] = subject,
+                },
+                new DiffOptions(),
+                oldSide: true,
+                new HttpClient(),
+                new VerboseLogger(false));
+
+        FindingInspection<string>.Failed failure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                inspections[subject.Id].Value);
+        Assert.Contains(
+            "endpoint indexing failed",
+            failure.Error.Reason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildImplementationDiffView_RendersCSharpFailure()
     {
         var subject = new ResearchSubjectKey(

@@ -19,9 +19,6 @@ internal static class MemberSourceLocationCollector
     {
         try
         {
-            string assemblyPath = assembly.Path
-                ?? throw new InvalidOperationException(
-                    "Member source location requires an assembly path.");
             using var service = SourceLinkService.Open(assembly, logger.Log);
             var context = service.Context;
             if (!context.HasMetadata)
@@ -40,9 +37,13 @@ internal static class MemberSourceLocationCollector
                 return pdbPath;
 
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
+            string subjectId =
+                assembly.Path ?? assembly.Identity.Name;
             var subject = new FindingSubject(
-                assemblyPath,
-                Path.GetFileName(assemblyPath));
+                subjectId,
+                assembly.Path is { } assemblyPath
+                    ? Path.GetFileName(assemblyPath)
+                    : assembly.Identity.Name);
             var membersByToken = targetMembers
                 .SelectMany(static member => SourceTokens(member)
                     .Select(entry => (entry.Token, Candidate: (Member: member, entry.Rank))))

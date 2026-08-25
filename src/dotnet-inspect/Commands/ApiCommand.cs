@@ -1973,30 +1973,26 @@ public class ApiCommand
     {
         bool hasMemberToken =
             memberMetadataToken != 0
-            && memberMetadataAssemblyPath is { Length: > 0 };
-        bool tokenAddressesLookupImage =
-            hasMemberToken
-            && LibraryMetadataService
-                .ReferenceTreePathComparer(OperatingSystem.IsWindows())
-                .Equals(
-                    Path.GetFullPath(dllPath),
-                    Path.GetFullPath(memberMetadataAssemblyPath!));
+            && (memberMetadataAssembly is not null
+                || memberMetadataAssemblyPath
+                    is { Length: > 0 });
 
         if (hasMemberToken)
         {
-            ResolvedAssemblyReference? tokenAssembly =
-                tokenAddressesLookupImage
-                    ? lookupAssembly
-                    : memberMetadataAssembly;
-            using var memberContext = tokenAssembly is not null
+            bool tokenAddressesLookupImage =
+                memberMetadataAssembly is not null
+                && lookupAssembly is not null
+                && ReferenceEquals(
+                    memberMetadataAssembly.Registration,
+                    lookupAssembly.Registration);
+            using var memberContext =
+                memberMetadataAssembly is not null
                 ? PdbContext.OpenMetadataOnly(
-                    tokenAssembly,
+                    memberMetadataAssembly,
                     tokenAddressesLookupImage ? log : null)
                 : PdbContext.OpenMetadataOnly(
-                    tokenAddressesLookupImage
-                        ? dllPath
-                        : memberMetadataAssemblyPath!,
-                    tokenAddressesLookupImage ? log : null);
+                    memberMetadataAssemblyPath!,
+                    log: null);
             return memberContext.MethodHasBody(memberMetadataToken);
         }
 

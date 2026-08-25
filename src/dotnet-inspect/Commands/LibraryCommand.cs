@@ -590,11 +590,24 @@ public class LibraryCommand
                         ],
                         trace);
                 ResolvedAssemblyReference? inspectionAssemblyReference =
-                    integrations?.AssemblyForInspection(resolvedPath!)
-                    ?? ResolvedAssemblyReference
-                        .CreateInspectionReferenceFromPathIfManaged(
-                            resolvedPath!,
-                            inspectionProvenance);
+                    integrations?.AssemblyForInspection(resolvedPath!);
+                if (inspectionAssemblyReference is null)
+                {
+                    try
+                    {
+                        inspectionAssemblyReference =
+                            ResolvedAssemblyReference
+                                .CreateInspectionReferenceFromPathIfManaged(
+                                    resolvedPath!,
+                                    inspectionProvenance);
+                    }
+                    catch (Exception ex) when (
+                        IsAssemblyAcquisitionFailure(ex))
+                    {
+                        // InspectAsync owns the visible, path-qualified
+                        // acquisition failure below.
+                    }
+                }
 
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
@@ -734,7 +747,7 @@ public class LibraryCommand
                                         packageVersion));
                     }
                     catch (Exception ex) when (
-                        IsPackageAssemblyAcquisitionFailure(ex))
+                        IsAssemblyAcquisitionFailure(ex))
                     {
                         // Collection retries this participant inside its per-file
                         // failure boundary so healthy package assemblies survive.
@@ -911,11 +924,24 @@ public class LibraryCommand
                         ],
                         trace);
                 ResolvedAssemblyReference? inspectionAssemblyReference =
-                    integrations?.AssemblyForInspection(assemblyPath!)
-                    ?? ResolvedAssemblyReference
-                        .CreateInspectionReferenceFromPathIfManaged(
-                            assemblyPath!,
-                            inspectionProvenance);
+                    integrations?.AssemblyForInspection(assemblyPath!);
+                if (inspectionAssemblyReference is null)
+                {
+                    try
+                    {
+                        inspectionAssemblyReference =
+                            ResolvedAssemblyReference
+                                .CreateInspectionReferenceFromPathIfManaged(
+                                    assemblyPath!,
+                                    inspectionProvenance);
+                    }
+                    catch (Exception ex) when (
+                        IsAssemblyAcquisitionFailure(ex))
+                    {
+                        // InspectAsync owns the visible, path-qualified
+                        // acquisition failure below.
+                    }
+                }
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
@@ -2841,7 +2867,7 @@ public class LibraryCommand
                             inspectionProvenance);
             }
             catch (Exception ex) when (
-                IsPackageAssemblyAcquisitionFailure(ex))
+                IsAssemblyAcquisitionFailure(ex))
             {
                 logger.LogWarning(
                     $"Could not read library: {Path.GetFileName(targetPath)}: "
@@ -2910,7 +2936,7 @@ public class LibraryCommand
             identifierAuditFailures);
     }
 
-    static bool IsPackageAssemblyAcquisitionFailure(Exception ex)
+    static bool IsAssemblyAcquisitionFailure(Exception ex)
         => ex is IOException
             or UnauthorizedAccessException
             or NotSupportedException

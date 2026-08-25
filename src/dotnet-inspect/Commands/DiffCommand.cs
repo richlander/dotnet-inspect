@@ -1206,6 +1206,7 @@ public class DiffCommand
             string,
             List<(ResolvedAssemblyReference Assembly, MethodIdentity Method)>>(
                 StringComparer.Ordinal);
+        InspectionError? indexingFailure = null;
 
         foreach (ResolvedAssemblyReference assembly in assemblies)
         {
@@ -1227,6 +1228,13 @@ public class DiffCommand
                     $"Could not index PDB-source targets in "
                     + $"'{assembly.Path ?? assembly.Identity.Name}': "
                     + ex.Message);
+                indexingFailure = new InspectionError(
+                    new FindingSubject(
+                        assembly.Identity.Name,
+                        assembly.Identity.Name),
+                    ILInspector.Text.TextFindings.LineDescriptor,
+                    "PDB-source endpoint indexing failed "
+                    + $"({ex.GetType().Name}): {ex.Message}");
                 continue;
             }
 
@@ -1246,6 +1254,23 @@ public class DiffCommand
                 }
                 matches.Add((assembly, method));
             }
+        }
+
+        if (indexingFailure is not null)
+        {
+            InspectionError failure = indexingFailure;
+            return subjects.ToDictionary(
+                static pair => pair.Key,
+                pair =>
+                    (FindingInspection<string>)
+                        new FindingInspection<string>.Failed(
+                            new InspectionError(
+                                new FindingSubject(
+                                    pair.Value.Id,
+                                    pair.Value.Display),
+                                failure.Descriptor,
+                                failure.Reason)),
+                StringComparer.Ordinal);
         }
 
         foreach ((string subjectId,

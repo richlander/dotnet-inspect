@@ -10237,6 +10237,116 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MemberBodyState_UsesTokenOwnerRegistration(
+        bool pathlessOwner)
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"body-state-registration-{Guid.NewGuid():N}");
+
+        try
+        {
+            string referenceAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateRegistrationReference",
+                """
+                using System.IO;
+                using System.Runtime.CompilerServices;
+
+                [assembly: ReferenceAssembly]
+
+                namespace BodyStateRegistration;
+
+                public abstract class ReorderedOverloads
+                {
+                    public void Load() => throw null!;
+                    public abstract void Load(Stream stream);
+                }
+                """);
+            string runtimeAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateRegistrationRuntime",
+                """
+                using System.IO;
+
+                namespace BodyStateRegistration;
+
+                public abstract class ReorderedOverloads
+                {
+                    public abstract void Load(Stream stream);
+                    public void Load() { }
+                }
+                """);
+            int selectedToken = FindMethodToken(
+                referenceAssembly,
+                "BodyStateRegistration.ReorderedOverloads",
+                "Load",
+                parameterCount: 1);
+            ResolvedAssemblyReference owner =
+                TestAssemblyReferences.Designated(
+                    referenceAssembly);
+            if (pathlessOwner)
+                owner = owner.WithoutLocalPath();
+            ResolvedAssemblyReference runtime =
+                TestAssemblyReferences.Designated(
+                    runtimeAssembly);
+            ResolvedAssemblyReference misleadingLookup =
+                ResolvedAssemblyReference.Create(
+                    runtime.Identity,
+                    referenceAssembly,
+                    () => File.OpenRead(runtimeAssembly),
+                    runtime.Provenance);
+
+            using (var ownerContext =
+                PdbContext.OpenMetadataOnly(owner))
+            {
+                Assert.False(
+                    ownerContext.MethodHasBody(
+                        selectedToken));
+            }
+            using (var runtimeContext =
+                PdbContext.OpenMetadataOnly(
+                    misleadingLookup))
+            {
+                Assert.True(
+                    runtimeContext.MethodHasBody(
+                        selectedToken));
+                Assert.True(
+                    runtimeContext.MethodHasBody(
+                        "BodyStateRegistration.ReorderedOverloads",
+                        "Load",
+                        overloadIndex: 1,
+                        publicOnly: true));
+            }
+
+            bool? bodyState = ApiCommand.ResolveMemberBodyState(
+                referenceAssembly,
+                "BodyStateRegistration.ReorderedOverloads",
+                "Load",
+                overloadIndex: 1,
+                publicOnly: true,
+                pathlessOwner
+                    ? null
+                    : referenceAssembly,
+                selectedToken,
+                log: null,
+                misleadingLookup,
+                owner);
+
+            Assert.False(bodyState);
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Member_SourceDiff_BodylessMember_ReportsPdbSourceUnavailable()
     {
@@ -17856,6 +17966,41 @@ public partial class CommandExecutionTests
             Assert.Empty(output);
             Assert.Contains(
                 "Could not read library",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_MetadataOverflowReportsPathQualifiedFailure()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"corrupt-library-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            path,
+            LibraryFindingConsumerTests.CorruptMetadataStreamCount(
+                File.ReadAllBytes(TestAssemblyPath)));
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Could not read library: {path}",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Arg_OverflowException",
                 error,
                 StringComparison.Ordinal);
         }

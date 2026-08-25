@@ -278,14 +278,25 @@ public sealed class ApiSourceProvenanceTests
                     File.ReadAllBytes(
                         typeof(ApiSourceProvenanceTests).Assembly.Location)));
 
-            var (result, error) = await ApiSourceResolver.ResolveAsync(
-                new ApiOptions
+            ApiSourceResult? result = null;
+            var captured = await ConsoleCapture.RunAsync(
+                async () =>
                 {
-                    DllPath = path,
+                    (result, int? error) =
+                        await ApiSourceResolver.ResolveAsync(
+                            new ApiOptions
+                            {
+                                AssemblyPath = path,
+                            });
+                    return error ?? 0;
                 });
 
             Assert.Null(result);
-            Assert.Equal(1, error);
+            Assert.Equal(1, captured.ExitCode);
+            Assert.Contains(
+                $"Could not acquire library '{path}'",
+                captured.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
