@@ -495,6 +495,8 @@ EndpointSlotFailure
   EndpointSlot           exact ComparisonEndpointPairingSlot.Id
   Outcomes               exact request-keyed map, one entry for every
                          Request arm in the slot
+  AbsentArms             exact side-keyed map, one entry with its typed proof
+                         for every Absent arm in the slot
   TerminalKeys           non-empty exact set of non-Realized outcome keys
 
 ComparisonEndpointPairingSlotOutcome
@@ -633,15 +635,19 @@ realized entry retains its manifest revision and exact qualified input-key set
 as tainted context without retaining live participant bindings. `TerminalKeys`
 must equal the non-`Realized` map keys and must be non-empty. Embedded request
 and slot keys, the requested-key set, outcome-map key set, and terminal-key set
-are all validated for exact equality. Every outcome key must also match the
-slot arm from which it came.
+are all validated for exact equality. `AbsentArms` must equal exactly the
+slot's non-request arms, keyed by `Before`/`After`, and retain each arm's typed
+proof. Every outcome key and absent-arm key must also match the slot arm from
+which it came.
 
 The failed slot does **not** classify entries from a realized opposite manifest
 as one-sided; the missing manifest cannot prove their absence. A two-sided
 terminal slot retains both independent failures, and a realized/terminal slot
-retains the realized input summary plus every terminal payload. The
-anti-omission claim is relative to the complete declared endpoint pairing plan
-and sealed manifests that the pairing stage did not author.
+retains the realized input summary plus every terminal payload. A declared-
+absent/terminal slot retains the opposite arm's exact absence proof rather than
+inferring absence from a missing request-map entry. The anti-omission claim is
+relative to the complete declared endpoint pairing plan and sealed manifests
+that the pairing stage did not author.
 
 Adapter selection completeness is a separate gate. Package archives, restore
 graphs, project outputs, platform packs, workspace definitions, and directory
@@ -1202,6 +1208,7 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
 - `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
 - `ComparisonEndpointFailure_RetainsEveryRequestedOutcome`
+- `ComparisonEndpointFailure_RetainsEveryAbsentArmProof`
 - `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
 - `AssemblyParticipantRoleManifest_IsTotalAndRoleLocal`
 - `AssemblyParticipantRoleManifest_SharedGroupDoesNotInventCorrespondence`
