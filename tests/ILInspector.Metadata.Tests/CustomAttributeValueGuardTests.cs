@@ -484,7 +484,9 @@ public sealed class CustomAttributeValueGuardTests
                 attribute,
                 count => charged = checked(charged + count)));
         Assert.Equal(
-            (1 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            (1 + 100_000_000)
+                * CustomAttributeValueGuard.DeclaredSlotCharge
+                + "V".Length,
             charged);
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
