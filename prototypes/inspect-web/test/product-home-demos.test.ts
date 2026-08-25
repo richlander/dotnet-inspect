@@ -4,7 +4,6 @@ import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import {
   HOME_DEMO_PENDING_SLOT_COUNT,
   PLATFORM_RUNTIME_PACK,
-  callGraphDemoRunnerSpec,
   homeDemoRowHtml,
   isProductHomeDemoId,
   productHomeDemoLocationHref,
@@ -211,50 +210,8 @@ test("unversioned platform residual maps to the browser runtime pack", () => {
   assert.equal(location.package, PLATFORM_RUNTIME_PACK.id);
 });
 
-test("extensions-callgraph has no deep link and runner spec keeps product pins", () => {
+test("extensions-callgraph delegates execution to the engine instead of encoding a location", () => {
   assert.equal(productHomeDemoLocationHref(callGraphResolved), null);
-  const spec = callGraphDemoRunnerSpec(callGraphResolved);
-  assert.equal(spec.packages.length, 3);
-  assert.equal(spec.memberAnchorDigest, "74b6b4b321");
-  assert.equal(spec.memberSection, "call-graph");
-  assert.equal(spec.memberKind, "method");
-  assert.equal(spec.memberName, "TryAddEnumerable");
-  assert.equal(
-    spec.packages[0].id,
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-  );
-  assert.equal(
-    spec.focusPackageId,
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-  );
-});
-
-test("call-graph runner focus follows navigation focusTabIndex", () => {
-  const reordered: BrowserHomeDemoResolved = {
-    ...callGraphResolved,
-    workspaceMembers: [
-      callGraphResolved.workspaceMembers[1],
-      callGraphResolved.workspaceMembers[0],
-      callGraphResolved.workspaceMembers[2],
-    ],
-    tabs: [
-      {
-        id: "logging",
-        member: callGraphResolved.workspaceMembers[1],
-      },
-      {
-        id: "di",
-        member: callGraphResolved.workspaceMembers[0],
-      },
-    ],
-    focusTabIndex: 1,
-  };
-  const spec = callGraphDemoRunnerSpec(reordered);
-  assert.equal(spec.packages[0].id, "Microsoft.Extensions.Logging");
-  assert.equal(
-    spec.focusPackageId,
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-  );
 });
 
 test("platform residual rejects pinned runtime coordinates", () => {

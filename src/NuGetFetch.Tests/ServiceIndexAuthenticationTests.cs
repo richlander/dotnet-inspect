@@ -243,13 +243,15 @@ public sealed class ServiceIndexAuthenticationTests
     {
         const string UnicodeIndex =
             "https://bücher.example/v3/index.json";
+        const string PunycodeIndex =
+            "https://xn--bcher-kva.example/v3/index.json";
         const string PunycodeFlat =
             "https://xn--bcher-kva.example/v3/flat/";
         const string PunycodeVersions =
             "https://xn--bcher-kva.example/v3/flat/contoso/index.json";
         RecordingHandler handler = new()
         {
-            [UnicodeIndex] = $$"""
+            [PunycodeIndex] = $$"""
                 {
                   "version": "3.0.0",
                   "resources": [
@@ -273,6 +275,9 @@ public sealed class ServiceIndexAuthenticationTests
         Assert.Equal(
             "pat:s3cret",
             handler.DecodedAuthFor(PunycodeVersions));
+        Assert.Equal(
+            "pat:s3cret",
+            handler.DecodedAuthFor(PunycodeIndex));
     }
 
     private const string ServiceIndex = $$"""

@@ -17577,13 +17577,11 @@ public partial class CommandExecutionTests
         // Body-index-backed producers are excluded for run time only, not correctness: each costs
         // seconds and this test does one run per section. A new body-index producer added here
         // would only make the test slower, never wrong.
-        string[] bodyIndexScanners =
-        [
-            LibrarySections.ScannerResourceTriage,
-        ];
+        string[] bodyIndexScanners = [];
         InspectionQueryDefinition[] bodyIndexQueries =
         [
             OptimizationOpportunitiesQuery.Definition,
+            ResourceTriageQuery.Definition,
             TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
         ];

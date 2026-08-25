@@ -15,6 +15,7 @@ import type {
   PackageBarPackage,
   ParsedPackageQuery,
 } from "../src/package-bar.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 function escapeHtml(value: unknown) {
@@ -149,6 +150,7 @@ test("package bar connects package selection controls to its typed options", () 
   root.add("#package-query", new FakeElement());
   const calls: string[] = [];
   const packageBar = createPackageBar({
+    keybindings: new KeybindingRegistry(),
     state: { packages: [], package: null },
     escapeHtml,
     packageIdentityKey,
@@ -177,6 +179,50 @@ test("package bar connects package selection controls to its typed options", () 
     "framework:net10.0",
     "version:10.0.1",
   ]);
+});
+
+test("package tabs register keyboard activation with the shared dispatcher", () => {
+  const root = new FakeRoot();
+  const tab = new FakeElement();
+  const packageModel = pkg("System.Text.Json");
+  tab.dataset.packageKey = packageIdentityKey(packageModel);
+  root.addAll("[data-package-key]", tab);
+  root.add("#package-query", new FakeElement());
+  const selected: PackageBarPackage[] = [];
+  const keybindings = new KeybindingRegistry();
+  const packageBar = createPackageBar({
+    keybindings,
+    state: { packages: [packageModel], package: null },
+    escapeHtml,
+    packageIdentityKey,
+    runtimePackPackage: () => null,
+    selectPackageTab: item => selected.push(item),
+    closePackageTab: () => {},
+    openRuntimePack: () => {},
+    openPackage: () => {},
+    selectFramework: () => {},
+    selectVersion: () => {},
+    showToast: () => {},
+  });
+  packageBar.bind(fakeDom.parentNode(root));
+
+  const target = fakeDom.eventTarget(tab);
+  let prevented = false;
+  const result = keybindings.dispatch(fakeDom.keyboardEvent({
+    altKey: false,
+    ctrlKey: false,
+    defaultPrevented: false,
+    key: "Enter",
+    metaKey: false,
+    shiftKey: false,
+    target,
+    composedPath: () => [target],
+    preventDefault: () => prevented = true,
+  }));
+
+  assert.equal(result.bindingId, "package-tab.activate");
+  assert.equal(prevented, true);
+  assert.deepEqual(selected, [packageModel]);
 });
 
 test("package identity equality compares the full coordinate", () => {
@@ -317,6 +363,7 @@ test("the package bar preserves whether the submitted version was explicit", () 
   const input = root.add("#package-query-input", new FakeElement());
   const queries: ParsedPackageQuery[] = [];
   const packageBar = createPackageBar({
+    keybindings: new KeybindingRegistry(),
     state: { packages: [], package: null },
     escapeHtml,
     packageIdentityKey,

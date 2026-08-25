@@ -1,3 +1,6 @@
+import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+
 export interface GraphBackBindingActions {
   onBack: () => void;
 }
@@ -10,6 +13,7 @@ export interface CallGraphNodeBinding {
 }
 
 export interface GraphPanZoomBindingOptions {
+  keybindings: KeybindingRegistry;
   resolveCallGraphNode?: (
     nodeId: string,
   ) => CallGraphNodeBinding | null;
@@ -80,7 +84,7 @@ export function bindDependencyGraphNodes(
 export function bindGraphPanZoom(
   container: ParentNode,
   viewport: HTMLElement,
-  options: GraphPanZoomBindingOptions = {},
+  options: GraphPanZoomBindingOptions,
 ) {
   const svg = viewport.querySelector<SVGSVGElement>("svg");
   if (!svg) return;
@@ -191,7 +195,7 @@ export function bindGraphPanZoom(
     });
 
   viewport.tabIndex = 0;
-  viewport.addEventListener("keydown", event => {
+  const handlePanZoomKey = (event: KeyboardEvent): boolean => {
     const rect = viewport.getBoundingClientRect();
     const step = 45;
     if (event.key === "+" || event.key === "=")
@@ -200,10 +204,12 @@ export function bindGraphPanZoom(
       zoomAt(rect.width / 2, rect.height / 2, 0.8);
     else if (event.key === "0")
       fit();
-    else if (event.key === "ArrowLeft") {
+    else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture; leave it unclaimed so
+      // panning doesn't swallow document-level history navigation.
       view.x += step;
       apply();
-    } else if (event.key === "ArrowRight") {
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       view.x -= step;
       apply();
     } else if (event.key === "ArrowUp") {
@@ -213,10 +219,32 @@ export function bindGraphPanZoom(
       view.y -= step;
       apply();
     } else {
-      return;
+      return false;
     }
-    event.preventDefault();
-  });
+    return true;
+  };
+  options.keybindings.register({
+    id: "graph.zoom",
+    key: ["+", "=", "-", "_", "0"],
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+    run: handlePanZoomKey,
+  }, viewport);
+  options.keybindings.register({
+    id: "graph.pan-horizontal",
+    key: ["ArrowLeft", "ArrowRight"],
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+    when: event => !event.altKey && !event.shiftKey,
+    run: handlePanZoomKey,
+  }, viewport);
+  options.keybindings.register({
+    id: "graph.pan-vertical",
+    key: ["ArrowUp", "ArrowDown"],
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+    run: handlePanZoomKey,
+  }, viewport);
 
   if (options.resolveCallGraphNode) {
     svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
@@ -232,11 +260,16 @@ export function bindGraphPanZoom(
       node.addEventListener("click", () => {
         if (!moved) binding.onSelect();
       });
-      node.addEventListener("keydown", event => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        binding.onSelect();
-      });
+      options.keybindings.register({
+        id: "call-graph-node.activate",
+        key: ["Enter", " "],
+        allowExtraModifiers: true,
+        priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+        run: () => {
+          binding.onSelect();
+          return true;
+        },
+      }, node);
     });
   }
 
