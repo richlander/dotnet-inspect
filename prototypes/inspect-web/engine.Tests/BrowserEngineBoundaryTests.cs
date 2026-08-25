@@ -2007,16 +2007,31 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate coordinate = Coordinate(
             "Platform.Confusable",
             Package(image, "lib/net11.0/Platform.Confusable.dll"));
-        PackageCompileAsset asset = Assert.Single(coordinate.Selection.Assets);
-        using var workspace = new InspectionWorkspace();
-        using var group = new BrowserWorkspaceGroup(
-            workspace,
-            [(coordinate, asset)],
-            BrowserInspectionScope.MaxRetainedImageBytes);
-        AssemblyReferenceIdentity identity = Assert.Single(group.Participants).Assembly.Identity;
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.SurfaceParticipants);
+        AssemblyBindingSelection any =
+            participant.Participant.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(
+                        participant.Assembly),
+                    AssemblyResolutionScope.Any));
+        AssemblyBindingSelection platform =
+            participant.Participant.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(
+                        participant.Assembly),
+                    AssemblyResolutionScope.Platform));
 
-        Assert.NotNull(group.Resolve(identity, AssemblyResolutionScope.Any));
-        Assert.Null(group.Resolve(identity, AssemblyResolutionScope.Platform));
+        Assert.Same(
+            participant.Assembly,
+            Assert.IsType<AssemblyBindingSelection.Selected>(any).Assembly);
+        Assert.IsType<AssemblyBindingSelection.Missing>(platform);
     }
 
     [Fact]
@@ -2068,6 +2083,47 @@ public sealed class BrowserEngineBoundaryTests
 
         Assert.NotNull(
             equivalentScope.ImplementationParticipant(equivalentSurface));
+    }
+
+    [Fact]
+    public void WorkspaceDisposal_ClosesWorkspaceAfterRoleFailure()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Dispose.Roles",
+            PackagePair(image, image, "Dispose.Roles.dll"));
+        var scope = new BrowserInspectionScope([coordinate]);
+        AssemblyContextGroup implementation =
+            scope.UseImplementation(group => group);
+        MethodInfo registerOwnedResource =
+            typeof(AssemblyContextGroup).GetMethod(
+                "RegisterOwnedResource",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "AssemblyContextGroup.RegisterOwnedResource was not found.");
+        registerOwnedResource.Invoke(
+            implementation,
+            [new ThrowingResource("browser role disposal failed")]);
+
+        AggregateException failure =
+            Assert.Throws<AggregateException>(scope.Dispose);
+
+        Assert.Contains(
+            failure.Flatten().InnerExceptions,
+            ex => ex.Message == "browser role disposal failed");
+        FieldInfo field =
+            typeof(BrowserInspectionScope).GetField(
+                "_workspace",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "BrowserInspectionScope._workspace was not found.");
+        var workspace =
+            Assert.IsType<InspectionWorkspace>(field.GetValue(scope));
+        Assert.Throws<ObjectDisposedException>(
+            () => workspace.CreateAssemblyContextGroup(
+                [scope.SurfaceParticipants[0].Participant]));
     }
 
     [Fact]
@@ -2582,6 +2638,91 @@ public sealed class BrowserEngineBoundaryTests
         Assert.DoesNotContain('\uDC00', encoded);
         Assert.EndsWith("-Caf\u00E9\U0001F600", encoded, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Home.Demo.Run.{suffix}";
+        string peerPackageId = $"Home.Demo.Peer.{suffix}";
+        string assemblyPath =
+            typeof(BrowserEngineBoundaryTests).Assembly.Location;
+        string peerAssemblyPath = typeof(BrowserPackage).Assembly.Location;
+        BrowserPackageCoordinate coordinate = Coordinate(
+            packageId,
+            Package(
+                File.ReadAllBytes(assemblyPath),
+                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"));
+        BrowserPackageCoordinate peerCoordinate = Coordinate(
+            peerPackageId,
+            Package(
+                File.ReadAllBytes(peerAssemblyPath),
+                $"lib/net11.0/{Path.GetFileName(peerAssemblyPath)}"));
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope(
+                [peerCoordinate, coordinate]);
+        try
+        {
+            BrowserPackageSurface surface =
+                InspectionEngine.ProjectPackageSurface(scope, coordinate);
+            BrowserTypeSurface type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Id
+                    == typeof(BrowserEngineBoundaryTests).FullName);
+            BrowserMemberSurface[] members =
+            [
+                .. type.Api.Where(candidate => candidate.Name
+                    == nameof(HomeDemoRunFixture)),
+            ];
+            Assert.Equal(2, members.Length);
+            BrowserMemberSurface member = members[1];
+            var plan = new BrowserHomeDemoRunPlan(
+                [
+                    new BrowserPackageRequest(
+                        peerPackageId,
+                        "1.0.0",
+                        "net11.0"),
+                    new BrowserPackageRequest(
+                        packageId,
+                        "1.0.0",
+                        "net11.0"),
+                ],
+                FocusRequestIndex: 1,
+                type.Id,
+                member.Name,
+                member.Kind,
+                member.AnchorDigest[..6],
+                MemberSection: "call-graph");
+            var resolution = new BrowserScopeResolution(
+                scope,
+                [peerCoordinate, coordinate]);
+
+            BrowserHomeDemoRunResult result =
+                InspectionEngine.RunHomeDemoCore(plan, resolution);
+
+            Assert.True(result.Found);
+            Assert.Equal(2, result.Packages.Length);
+            Assert.Equal(member.AnchorDigest, result.Activation?.MemberAnchorDigest);
+            Assert.Equal("call-graph", result.Activation?.MemberSection);
+            Assert.NotNull(result.CallGraph);
+            Assert.False(result.CallGraph.NoBody);
+            Assert.Equal(2, result.CallGraph.Scope.Packages);
+            Assert.Contains(
+                nameof(HomeDemoRunFixture),
+                result.CallGraph.Mermaid,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            BrowserPackageWorkspace.RemoveScope(scope);
+        }
+    }
+
+    public static int HomeDemoRunFixture(int value) =>
+        Math.Abs(value);
+
+    public static string HomeDemoRunFixture(string value) =>
+        value.Trim();
 
     [Fact]
     public void CallGraphMermaid_ContainsArtifactLabels()
@@ -4062,6 +4203,12 @@ public sealed class BrowserEngineBoundaryTests
         public void Dispose()
         {
         }
+    }
+
+    sealed class ThrowingResource(string message) : IDisposable
+    {
+        public void Dispose() =>
+            throw new InvalidOperationException(message);
     }
 
     sealed class RequestRecordingHandler : HttpMessageHandler

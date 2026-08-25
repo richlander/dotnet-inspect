@@ -197,7 +197,8 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         string? memberSignature = null,
         string? memberKey = null,
         string? section = null,
-        string? library = null)
+        string? library = null,
+        IReadOnlyList<string>? libraries = null)
         : base(schemaVersion, id)
     {
         lens = DefinitionText.NormalizeOptional(lens, nameof(lens));
@@ -207,6 +208,12 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         memberKey = DefinitionText.NormalizeOptional(memberKey, nameof(memberKey));
         section = DefinitionText.NormalizeOptional(section, nameof(section));
         library = DefinitionText.NormalizeOptional(library, nameof(library));
+        if (library is not null && libraries is not null)
+        {
+            throw new ArgumentException(
+                "library and libraries are mutually exclusive.",
+                nameof(libraries));
+        }
 
         if (memberAnchor is not null && memberSignature is not null)
         {
@@ -229,7 +236,39 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         MemberSignature = memberSignature;
         MemberKey = memberKey;
         Section = section;
-        Library = library;
+        if (libraries is null)
+        {
+            Libraries = library is null
+                ? Array.Empty<string>()
+                : new ReadOnlyCollection<string>([library]);
+        }
+        else
+        {
+            IReadOnlyList<string> frozenLibraries = DefinitionCollections.Freeze(libraries);
+            var seenLibraries = new HashSet<string>(StringComparer.Ordinal);
+            string? previousLibrary = null;
+            foreach (string item in frozenLibraries)
+            {
+                _ = DefinitionText.Require(item, nameof(libraries));
+                if (!seenLibraries.Add(item))
+                {
+                    throw new ArgumentException(
+                        "libraries must not contain duplicate identities.",
+                        nameof(libraries));
+                }
+                if (previousLibrary is not null
+                    && string.CompareOrdinal(previousLibrary, item) >= 0)
+                {
+                    throw new ArgumentException(
+                        "libraries must be in ascending ordinal order.",
+                        nameof(libraries));
+                }
+
+                previousLibrary = item;
+            }
+
+            Libraries = frozenLibraries;
+        }
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.View;
@@ -250,7 +289,13 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
 
     public string? Section { get; }
 
-    public string? Library { get; }
+    /// <summary>
+    /// Legacy single-library projection. Null when the view has zero or
+    /// multiple library identities.
+    /// </summary>
+    public string? Library => Libraries.Count == 1 ? Libraries[0] : null;
+
+    public IReadOnlyList<string> Libraries { get; }
 }
 
 /// <summary>A named navigation preset: ordered tabs plus one focused tab id.</summary>

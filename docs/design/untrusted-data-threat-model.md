@@ -1417,7 +1417,10 @@ Browser-Wasm cannot perform that connection-time DNS check. Its v3 client
 therefore accepts only same-origin feed resources and sets Fetch
 `redirect: error`; the built-in Gallery remains a separate fixed-host
 transport. `PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint`
-gates the desktop source-client wiring,
+and
+`PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources`
+gate the desktop source-client wiring for search, version, and package
+resources,
 `HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
 gates redirect-hop enforcement,
 `PackageSourceClientTests.DefaultV3TransportAllowsConfiguredPrivateIpv6Source`
@@ -1598,6 +1601,31 @@ Network access derived from inspected content must be explicit in the command
 surface, use the untrusted-fetch client, have a timeout, and retain provenance.
 Cache paths must be hashed or use validated single components. Downloads should
 land in temporary files and become visible atomically after validation.
+
+A cache entry created before a content-validation gate existed is not evidence
+that the gate passed. Persistent cache cutovers follow the
+[`CoreCache` contract](../inspection-space.md#corecache): either revalidate on
+every hit or select a successor contract version before lookup, and pair the
+newly rejected case with a still-valid recomputation case. Dynamic network,
+capability, and liveness policy is always rechecked and cannot be replaced by a
+version bump. The cache key, validation, and derived result must also consume
+the owner-retained immutable snapshot for every contributing artifact; equal
+pre/post hashes around work over a reopened mutable path do not exclude a
+W-to-S-to-W substitution. `MDP017` gates that ABA case for both assembly and
+PDB inputs to the library effective catalog. At that cutover, bounded
+assembly-format admission also precedes every SourceLink/PDB probe and catalog
+lookup; only a supported assembly may reach the separately bounded
+identity-validated portable-PDB reader. The successor key includes complete
+typed local-symbol evidence rather than the predecessor's Boolean-only
+SourceLink token, and typed root-route evidence for route-dependent catalog
+semantics. That evidence is frozen before lookup and shared by all cold
+producers and publication; post-production evidence cannot re-key an existing
+result. An observed evidence-generation change declines publication and belongs
+to a later recomputation. Bare effective discovery reserves at most 64 MiB of
+portable-PDB content across adjacent, cached, acquired, or decompressed embedded
+providers before copying, hashing, or reader construction. An over-limit PDB
+fails visibly as `PortablePdbRetentionLimitExceeded`; it is not ignored as
+absent or retried through another provider.
 
 ### Presentation
 

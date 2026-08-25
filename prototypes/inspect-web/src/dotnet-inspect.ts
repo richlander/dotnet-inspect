@@ -71,6 +71,7 @@ import {
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
+  bindWorkspaceLinkNavigation,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -81,6 +82,11 @@ import {
   type WorkspaceView,
 } from "./workspace-navigation.ts";
 import {
+  createWorkbenchKeybindings,
+  WORKBENCH_KEYBINDING_PRIORITY,
+} from "./workbench-keybindings.ts";
+import {
+  createNuGetPackageModel,
   createPackageAcquisition,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
@@ -110,12 +116,10 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
-  callGraphDemoRunnerSpec,
   homeDemoRowHtml,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
-  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -245,6 +249,7 @@ import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
+  BrowserHomeDemoRunResult,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -267,6 +272,7 @@ let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectListHomeDemos: EngineModule["listHomeDemos"];
 let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
+let inspectRunHomeDemo: EngineModule["runHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -309,6 +315,7 @@ async function loadEngineModule() {
     listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
+    runHomeDemo: inspectRunHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -725,6 +732,7 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const keybindings = createWorkbenchKeybindings();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   queryMemberSource: request => inspectMemberSource(
@@ -1268,6 +1276,7 @@ const catalogRequests = createCatalogRequests({
   updatePackageVersionSelect: updateVersionSelect,
 });
 const spotlight = createSpotlight({
+  keybindings,
   state,
   lenses: () => typeLensesFor(state.package),
   escapeHtml,
@@ -1305,11 +1314,6 @@ function isInteractiveElement(element: Element | null) {
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
-function isContainedBrowserShortcut(event: KeyboardEvent) {
-  return (event.metaKey || event.ctrlKey)
-    && ["f", "k", "p"].includes(event.key.toLowerCase());
-}
-
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
@@ -1334,6 +1338,7 @@ function closeSpotlight() {
 }
 
 const packageBar = createPackageBar({
+  keybindings,
   state,
   escapeHtml,
   packageIdentityKey,
@@ -2361,8 +2366,8 @@ function render() {
         <section class="detail-pane">
           <header class="detail-head">
             <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
@@ -4350,8 +4355,7 @@ function bindTypePanelEvents() {
     },
     onMemberFilterKeyDown: (event, value) => {
       if (event.key === "Escape") {
-        if (navMode() !== "member" && value === "") return;
-        event.preventDefault();
+        if (navMode() !== "member" && value === "") return false;
         if (navMode() === "member") {
           exitMemberScope();
         } else {
@@ -4359,11 +4363,11 @@ function bindTypePanelEvents() {
           normalizeMemberSelection();
           renderMemberFilterAndRestoreFocus("#member-filter");
         }
-        return;
+        return true;
       }
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-      event.preventDefault();
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
       stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
+      return true;
     },
     onMemberGroupOpen: memberKey => {
       enterMemberNavigation(() => openMemberGroup(memberKey));
@@ -4425,7 +4429,7 @@ function bindTypePanelEvents() {
         .findIndex(item => item.id === state.selectedTypeId);
       render();
     },
-  });
+  }, keybindings);
 }
 
 function bindScopeBarEvents() {
@@ -4593,7 +4597,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
     + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
@@ -4655,45 +4659,45 @@ function setTheme(theme: "light" | "dark", renderView = true) {
   }
 }
 
-function handleTypeKeys(event: KeyboardEvent) {
+function handleTypeKeys(event: KeyboardEvent): boolean {
   if (navMode() === "member") {
     if (event.key === "ArrowDown" || event.key === "j") {
-      event.preventDefault();
       stepMemberNav(1, true);
+      return true;
     } else if (event.key === "ArrowUp" || event.key === "k") {
-      event.preventDefault();
       stepMemberNav(-1, true);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
+      return true;
+    } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture (see the document keydown
+      // handler); leave it unclaimed here so it isn't swallowed as in-page stepping.
       stepHorizontal(-1);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
+      return true;
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       stepHorizontal(1);
+      return true;
     }
-    return;
+    return false;
   }
   const items = filteredTypes();
-  if (!items.length) return;
+  if (!items.length) return false;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
   if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
   if (event.key === "ArrowDown" || event.key === "j") {
-    event.preventDefault();
     cursor = Math.min(items.length - 1, cursor + 1);
   } else if (event.key === "ArrowUp" || event.key === "k") {
-    event.preventDefault();
     cursor = Math.max(0, cursor - 1);
   } else if (event.key === "Home") {
     cursor = 0;
   } else if (event.key === "End") {
     cursor = items.length - 1;
   } else if (event.key === "/") {
-    event.preventDefault();
     focusFilter();
-    return;
+    return true;
   } else {
-    return;
+    return false;
   }
   selectTypeByCursor(cursor, items, true);
+  return true;
 }
 
 function selectTypeByCursor(
@@ -6179,8 +6183,8 @@ function bindHomeEvents() {
 // Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
 // (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
 // deep links built from the resolved projection; member-bound Call Graph demos
-// stay an imperative multi-package member load until WorkspaceContextLoader
-// group run is the browser substrate.
+// execute through one generated engine operation over the product-resolved
+// workspace and view.
 function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
@@ -6194,7 +6198,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
   }
   const link = productHomeDemoLocationHref(resolved);
   if (!link) {
-    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
   workspaceLocation.push(link);
@@ -6585,7 +6589,7 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    bindGraphPanZoom(container, viewport);
+    bindGraphPanZoom(container, viewport, { keybindings });
     bindTypeGraphNodes(viewport, nodeId => {
       const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
       if (!graphNode) return null;
@@ -6730,7 +6734,7 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    bindGraphPanZoom(container, viewport);
+    bindGraphPanZoom(container, viewport, { keybindings });
     bindDependencyGraphNodes(viewport, nodeId => {
       const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
       if (!info || info.kind === "self") return null;
@@ -6954,6 +6958,7 @@ async function renderMermaidCallGraph() {
       viewport.innerHTML = svg;
       container.dataset.graphDef = active.mermaid;
       bindGraphPanZoom(container, viewport, {
+        keybindings,
         resolveCallGraphNode: nodeId =>
           callGraphNodeBinding(active, nodeId),
       });
@@ -8200,61 +8205,118 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
-  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
+async function runCallGraphDemo(demoId: ProductHomeDemoId) {
+  const retry = () =>
+    observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
+  const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
+  state.errorDetail = "";
+  state.retryAction = null;
   state.loadingMessage = "Loading cross-package call graph demo…";
-  state.loadingSubtitle = "";
+  state.loadingSubtitle =
+    "Resolving the product workspace and anchored member…";
   render();
 
-  const spec = callGraphDemoRunnerSpec(demo);
-  const packages: AppPackage[] = [];
-  for (const packageSpec of spec.packages) {
-    const loaded = await loadPackage(
-      packageSpec.id,
-      packageSpec.version,
-      packageSpec.framework,
-      { retryAction: retry });
-    if (!loaded) {
-      state.retryAction = retry;
-      render();
-      return;
-    }
-    packages.push(loaded);
-  }
-
-  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
-    ?? packages[0];
-  activatePackage(targetPackage);
-  const type = targetPackage.types.find(item => item.id === spec.typeId);
-  const member = type && memberGroups(type).find(item =>
-    item.name === spec.memberName
-    && item.kind === spec.memberKind);
-  const overloadIndex = member?.overloads.findIndex(item =>
-    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
-  if (!type || !member || overloadIndex < 0) {
+  const fail = (error: unknown) => {
     state.loading = false;
-    state.error = "The call graph demo member was not found in the selected package.";
+    state.error = errorMessage(error);
     state.errorTitle = "Call graph demo failed";
+    state.errorDetail = error instanceof Error
+      ? error.stack || error.message
+      : String(error);
     state.retryAction = retry;
+    render();
+  };
+  let result: BrowserHomeDemoRunResult;
+  try {
+    result = await inspectRunHomeDemo(demoId);
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!result.found) {
+    state.loading = false;
+    state.error = `Unknown product home demo '${demoId}'.`;
+    state.errorTitle = "Call graph demo failed";
+    state.retryAction = null;
     render();
     return;
   }
+  if (!result.activation || !result.callGraph) {
+    fail("The engine returned an incomplete product home demo result.");
+    return;
+  }
+  if (result.activation.memberSection !== "call-graph") {
+    fail(
+      `The engine returned unsupported demo section '${result.activation.memberSection}'.`,
+    );
+    return;
+  }
 
-  state.selectedTypeId = type.id;
-  state.atPackageRoot = false;
-  state.lens = "api";
-  state.packageLens = "overview";
-  resetMemberFilters();
-  resetMemberSectionState();
-  state.memberBrowseTypeId = type.id;
-  state.selectedMemberKey = member.key;
-  state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = spec.memberSection;
-  state.loading = false;
-  render();
-  await loadSelectedMemberCallGraph();
+  try {
+    const packages = result.packages.map(createNuGetPackageModel);
+    const activation = result.activation;
+    const targetPackage = packages.find(item =>
+      item.id === activation.focusPackage
+      && item.version === activation.focusVersion
+      && item.activeFramework === activation.focusFramework);
+    const type = targetPackage?.types.find(item =>
+      item.id === activation.typeId);
+    const member = type && memberGroups(type).find(item =>
+      item.name === activation.memberName
+      && item.kind === activation.memberKind);
+    const overloadIndex = member?.overloads.findIndex(item =>
+      item.anchorDigest === activation.memberAnchorDigest) ?? -1;
+    if (!targetPackage || !type || !member || overloadIndex < 0) {
+      throw new Error(
+        "The engine-run demo selection was not present in its returned package surfaces.");
+    }
+
+    for (const packageModel of packages) {
+      retainPackageModel(packageModel);
+      recordRecentPackage(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework);
+    }
+    refreshPackageStats();
+
+    activatePackage(targetPackage, { resetAccessibility: true });
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.libraryScope = null;
+    state.selectedTypeId = type.id;
+    state.atPackageRoot = false;
+    state.lens = "api";
+    state.packageLens = "overview";
+    resetMemberFilters();
+    resetMemberSectionState();
+    state.platformStack = [];
+    state.memberBrowseTypeId = type.id;
+    state.selectedMemberKey = member.key;
+    state.selectedOverloadIndex = overloadIndex;
+    state.memberSection = "call-graph";
+    // This graph is scoped to the product-defined demo workspace, not any
+    // unrelated tabs the user may already have open.
+    state.memberCallGraph = result.callGraph;
+    state.memberCallGraphError = "";
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
+    state.memberCallGraphKey = memberRequestSignature(
+      type,
+      member.overloads[overloadIndex],
+      true);
+    state.loading = false;
+    render();
+    await renderMermaidCallGraph();
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+  }
 }
 
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
@@ -8533,140 +8595,419 @@ function refreshPackageStats() {
 }
 
 
-document.addEventListener("keydown", event => {
-  // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
-  // out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
-  // the ref->def history (Shift+Backspace forward).
-  if (state.explorer?.open) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!state.explorer.overview) explorerShowOverview();
-      else closeExplorer();
-    } else if (event.key === "Backspace") {
-      event.preventDefault();
-      if (event.shiftKey) explorerHistoryForward();
-      else explorerHistoryBack();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+// A same-origin, unmodified `<a href>` click anywhere in the app takes over here instead
+// of loading a new document — this is the single owner of in-app link navigation.
+// `target="_blank"`, cross-origin hrefs, `download`, and modified clicks (new tab/window)
+// keep their native browser behavior; the guard lives in `shouldInterceptLinkClick`.
+function navigateInAppUrl(url: URL) {
+  if (isCreditsPath(url.pathname)) {
+    openCredits();
     return;
   }
-  // Settings is a modal-style page reachable from home too, so handle its Escape before the
-  // home bail below (which otherwise swallows the keystroke on the home page).
-  if (state.settings) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSettings();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+  if (url.pathname === "/" && !url.search && !url.hash) {
+    goHome();
     return;
   }
-  const typing = isTextEntry();
-  // The home page has its own scoped input handling (search box); global workbench
-  // shortcuts assume a loaded package, so stay out of the way here.
-  if (state.home) return;
-  if (state.loading || state.error) {
-    if (isContainedBrowserShortcut(event) || event.key === "/") {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.graphSourceOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeGraphSource();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.docViewerOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDocViewer();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.spotlightOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      openSpotlight("", "commands");
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-      event.preventDefault();
-      openSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
-    event.preventDefault();
+  workspaceLocation.push(url.toString());
+  const loc = parseLocation();
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Navigating");
+}
+
+bindWorkspaceLinkNavigation(document, {
+  currentOrigin: () => location.origin,
+  resolve: href => new URL(href, location.href),
+  navigate: navigateInAppUrl,
+});
+
+const containedShortcutKeys = ["f", "k", "p"] as const;
+const alphabetKeys = "abcdefghijklmnopqrstuvwxyz".split("");
+
+function registerContainedShortcuts(
+  id: string,
+  priority: number,
+  when: () => boolean,
+): void {
+  keybindings.register({
+    id,
+    key: containedShortcutKeys,
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority,
+    when,
+    run: () => true,
+  });
+}
+
+function workspaceKeyboardContextIsActive(): boolean {
+  return !state.explorer?.open
+    && !state.settings
+    && !state.home
+    && !state.loading
+    && !state.error
+    && !state.graphSourceOpen
+    && !state.docViewerOpen
+    && !state.spotlightOpen;
+}
+
+const workspaceModalContextIsAvailable = () =>
+  !state.home && !state.loading && !state.error;
+const graphSourceContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.graphSourceOpen;
+const documentViewerContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.docViewerOpen;
+const spotlightContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.spotlightOpen;
+
+keybindings.register({
+  id: "metadata-explorer.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  when: () => Boolean(state.explorer?.open),
+  run: () => {
+    if (!state.explorer!.overview) explorerShowOverview();
+    else closeExplorer();
+    return true;
+  },
+});
+keybindings.register({
+  id: "metadata-explorer.history",
+  key: "Backspace",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  when: () => Boolean(state.explorer?.open),
+  run: event => {
+    if (event.shiftKey) explorerHistoryForward();
+    else explorerHistoryBack();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "metadata-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.metadataExplorer,
+  () => Boolean(state.explorer?.open),
+);
+
+keybindings.register({
+  id: "settings.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.settings,
+  run: () => {
+    closeSettings();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "settings.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.settings,
+);
+
+const unavailableWorkspaceContext = () =>
+  !state.home && (state.loading || Boolean(state.error));
+registerContainedShortcuts(
+  "unavailable-workspace.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.unavailableWorkspace,
+  unavailableWorkspaceContext,
+);
+keybindings.register({
+  id: "unavailable-workspace.contain-filter-shortcut",
+  key: "/",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.unavailableWorkspace,
+  when: unavailableWorkspaceContext,
+  run: () => true,
+});
+
+keybindings.register({
+  id: "graph-source.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  when: graphSourceContextIsActive,
+  run: () => {
+    closeGraphSource();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "graph-source.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  graphSourceContextIsActive,
+);
+
+keybindings.register({
+  id: "document-viewer.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.documentViewer,
+  when: documentViewerContextIsActive,
+  run: () => {
+    closeDocViewer();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "document-viewer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.documentViewer,
+  documentViewerContextIsActive,
+);
+
+keybindings.register({
+  id: "spotlight.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    closeSpotlight();
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.open-commands",
+  key: "k",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    openSpotlight("", "commands");
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => {
+    openSpotlight();
+    return true;
+  },
+});
+keybindings.register({
+  id: "spotlight.contain-browser-find",
+  key: "f",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.spotlight,
+  when: spotlightContextIsActive,
+  run: () => true,
+});
+
+keybindings.register({
+  id: "taste.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.popover,
+  when: () => workspaceKeyboardContextIsActive() && state.tasteOpen,
+  run: () => {
     state.tasteOpen = false;
     render();
-  } else if (event.key === "Escape" && !event.defaultPrevented && !typing
-      && (navMode() === "member" || !state.atPackageRoot)) {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-out-escape",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && (navMode() === "member" || !state.atPackageRoot),
+  run: () => {
     if (navMode() === "member") exitMemberScope();
     else drillOut();
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.open-commands",
+  key: "k",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     openSpotlight("", "commands");
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     openSpotlight();
-  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-    event.preventDefault();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.focus-filter",
+  key: "f",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: workspaceKeyboardContextIsActive,
+  run: () => {
     focusFilter();
-  } else if (event.altKey && event.key === "ArrowLeft") {
-    event.preventDefault();
-    navBack();
-  } else if (event.altKey && event.key === "ArrowRight") {
-    event.preventDefault();
-    navForward();
-  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {
+    return true;
+  },
+});
+
+for (const [key, action] of [
+  ["ArrowLeft", navBack],
+  ["ArrowRight", navForward],
+] as const) {
+  keybindings.register({
+    id: `workspace.history-alt-${key}`,
+    key,
+    modifiers: { alt: true },
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    when: event => workspaceKeyboardContextIsActive()
+      && !event.metaKey
+      && !event.ctrlKey,
+    run: () => {
+      action();
+      return true;
+    },
+  });
+  keybindings.register({
+    id: `workspace.history-shift-${key}`,
+    key,
+    modifiers: { shift: true },
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+    run: () => {
+      action();
+      return true;
+    },
+  });
+}
+
+keybindings.register({
+  id: "workspace.select-lens",
+  key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  allowExtraModifiers: true,
+  preventDefault: false,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey,
+  run: event => {
     const set = activeLenses();
     const index = Number(event.key) - 1;
     if (index < set.length) {
       const sc = scope();
-      if (sc === "package") { state.packageLens = set[index][0]; render(); }
-      else if (sc === "member" && isMemberSection(set[index][0]))
+      if (sc === "package") {
+        state.packageLens = set[index][0];
+        render();
+      } else if (sc === "member" && isMemberSection(set[index][0])) {
         applyMemberSection(set[index][0]);
-      else { state.lens = set[index][0]; render(); }
+      } else {
+        state.lens = set[index][0];
+        render();
+      }
     }
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-    event.preventDefault();
-    stepNav(event.key === "ArrowDown" ? 1 : -1);
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-    event.preventDefault();
-    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !state.spotlightOpen
-      && !isInteractiveElement(
-        event.target instanceof Element ? event.target : null)
-      && event.key === "Enter") {
-    event.preventDefault();
-    drillIn();
-  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && event.key === "Backspace" && (navMode() === "member" || !state.atPackageRoot)) {
-    event.preventDefault();
-    drillOut();
-  } else if (!typing && event.key === "/") {
-    event.preventDefault();
-    focusFilter();
-  } else if (!typing && !state.spotlightOpen && !event.metaKey && !event.ctrlKey && !event.altKey
-      && !event.defaultPrevented && event.key.length === 1 && /[a-zA-Z]/.test(event.key)) {
-    event.preventDefault();
-    openSpotlight(event.key);
-  }
+    return true;
+  },
 });
+keybindings.register({
+  id: "workspace.navigate-vertical",
+  key: ["ArrowUp", "ArrowDown"],
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey,
+  run: event => {
+    stepNav(event.key === "ArrowDown" ? 1 : -1);
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.navigate-horizontal",
+  key: ["ArrowLeft", "ArrowRight"],
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  run: event => {
+    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !isInteractiveElement(
+      event.target instanceof Element ? event.target : null),
+  run: () => {
+    drillIn();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.drill-out-backspace",
+  key: "Backspace",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && (navMode() === "member" || !state.atPackageRoot),
+  run: () => {
+    drillOut();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.focus-filter-slash",
+  key: "/",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  run: () => {
+    focusFilter();
+    return true;
+  },
+});
+keybindings.register({
+  id: "workspace.seed-spotlight",
+  key: alphabetKeys,
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+  when: event => workspaceKeyboardContextIsActive()
+    && !isTextEntry()
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey,
+  run: event => {
+    openSpotlight(event.key);
+    return true;
+  },
+});
+
+keybindings.attach(document);
 
 document.addEventListener("mousedown", event => {
   if (!state.tasteOpen) return;
