@@ -10,7 +10,7 @@ internal static class MemberSourceLocationCollector
 {
     public static async Task<string?> EnrichAsync(
         ApiType apiType,
-        string assemblyPath,
+        ResolvedAssemblyReference assembly,
         string? packageName,
         string? packageVersion,
         MemberOptions options,
@@ -19,7 +19,10 @@ internal static class MemberSourceLocationCollector
     {
         try
         {
-            using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+            string assemblyPath = assembly.Path
+                ?? throw new InvalidOperationException(
+                    "Member source location requires an assembly path.");
+            using var service = SourceLinkService.Open(assembly, logger.Log);
             var context = service.Context;
             if (!context.HasMetadata)
                 return null;
@@ -37,7 +40,9 @@ internal static class MemberSourceLocationCollector
                 return pdbPath;
 
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
-            var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+            var subject = new FindingSubject(
+                assemblyPath,
+                Path.GetFileName(assemblyPath));
             var membersByToken = targetMembers
                 .SelectMany(static member => SourceTokens(member)
                     .Select(entry => (entry.Token, Candidate: (Member: member, entry.Rank))))

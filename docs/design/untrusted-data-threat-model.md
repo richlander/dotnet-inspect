@@ -398,16 +398,28 @@ actual package, project, platform, or designated acquisition, forwarded types
 retain their supplying descriptor, and decompiler-backed member and whole-type
 sections consume the descriptor overloads.
 `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
-derives that boundary from compiled CLI call sites. The snapshot overload
+derives that boundary from compiled transitive reachability to path-designating
+Decompiler methods, so wrapper indirection cannot hide a designation. The
+snapshot overload
 preserves the descriptor's acquisition registration and rejects a different
 assembly identity. Every descriptor-backed metadata consumer performs that
-check before deriving facts or granting core-library trust, and whole-type
+check before deriving facts, processing debug-directory or PDB content, or
+granting core-library trust. Signature accessibility treats a resolved
+non-managed replacement as unavailable rather than as an empty successful type
+inventory, and whole-type
 composition uses one validated reader for both metadata facts and bodies.
 `ReaderConstructionSiteTests.DescriptorOpenReferences_MatchTheReviewedInventory`
 pins the direct-open inventory. Managed netmodule inspection roots retain the same typed
 acquisition, but every descriptor-backed open and snapshot revalidates the
 module MVID, and modules never enter assembly candidate resolution. Whole-type
 composition resolves their exact TypeDef directly through an MVID-bound address.
+
+Scanner execution is a separate failure origin from metadata acquisition. A
+scanner that throws an artifact-shaped runtime exception such as
+`ObjectDisposedException`, `ArgumentOutOfRangeException`, or
+`OverflowException` crosses a typed scanner-execution boundary and propagates;
+the command's malformed-artifact catch cannot silently reinterpret that
+programming or lifetime failure as an inspection miss.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
 `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate those properties.
 

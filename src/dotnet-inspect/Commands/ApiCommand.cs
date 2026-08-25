@@ -1002,7 +1002,11 @@ public class ApiCommand
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            var assembly = options.AssemblyReference
+                ?? ResolvedAssemblyReference.CreateFromPath(
+                    dllPath,
+                    AssemblyResolutionProvenance.Local("PDB acquisition"));
+            using var service = SourceLinkService.Open(assembly, logger.Log);
             var context = service.Context;
             if (context.NeedsPdb)
             {
@@ -1497,10 +1501,13 @@ public class ApiCommand
         string? PdbSourceUnavailableReason = null);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
-        string dllPath, string typeName, string methodName, int overloadIndex,
+        string dllPath,
+        ResolvedAssemblyReference assembly,
+        string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
         bool publicOnly = true, int sourceMetadataToken = 0,
-        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
+        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0,
+        ResolvedAssemblyReference? memberMetadataAssembly = null)
     {
         try
         {
@@ -1519,7 +1526,9 @@ public class ApiCommand
                 publicOnly,
                 memberMetadataAssemblyPath,
                 memberMetadataToken,
-                logger.Log);
+                logger.Log,
+                assembly,
+                memberMetadataAssembly);
             if (memberHasBody == false)
             {
                 return new ResolvedMethodSource(
@@ -1528,7 +1537,7 @@ public class ApiCommand
                     MemberHasNoBody: true);
             }
 
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            using var service = SourceLinkService.Open(assembly, logger.Log);
             var context = service.Context;
 
             // Acquire PDB if needed (same flow as SourceEnricher)
@@ -1646,7 +1655,9 @@ public class ApiCommand
         bool publicOnly,
         string? memberMetadataAssemblyPath,
         int memberMetadataToken,
-        Action<string>? log)
+        Action<string>? log,
+        ResolvedAssemblyReference? lookupAssembly = null,
+        ResolvedAssemblyReference? memberMetadataAssembly = null)
     {
         bool hasMemberToken =
             memberMetadataToken != 0
@@ -1661,15 +1672,25 @@ public class ApiCommand
 
         if (hasMemberToken)
         {
-            using var memberContext = PdbContext.OpenMetadataOnly(
+            ResolvedAssemblyReference? tokenAssembly =
                 tokenAddressesLookupImage
-                    ? dllPath
-                    : memberMetadataAssemblyPath!,
-                tokenAddressesLookupImage ? log : null);
+                    ? lookupAssembly
+                    : memberMetadataAssembly;
+            using var memberContext = tokenAssembly is not null
+                ? PdbContext.OpenMetadataOnly(
+                    tokenAssembly,
+                    tokenAddressesLookupImage ? log : null)
+                : PdbContext.OpenMetadataOnly(
+                    tokenAddressesLookupImage
+                        ? dllPath
+                        : memberMetadataAssemblyPath!,
+                    tokenAddressesLookupImage ? log : null);
             return memberContext.MethodHasBody(memberMetadataToken);
         }
 
-        using var lookupContext = PdbContext.OpenMetadataOnly(dllPath, log);
+        using var lookupContext = lookupAssembly is not null
+            ? PdbContext.OpenMetadataOnly(lookupAssembly, log)
+            : PdbContext.OpenMetadataOnly(dllPath, log);
         return lookupContext.MethodHasBody(
             typeName,
             methodName,

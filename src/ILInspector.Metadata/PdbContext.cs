@@ -411,7 +411,7 @@ public class PdbContext : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
         return OpenValidated(
             assembly,
-            stream => Open(
+            (stream, expectedAssembly) => Open(
                 stream,
                 assembly.Path,
                 assembly.Identity.Name,
@@ -421,7 +421,8 @@ public class PdbContext : IDisposable
                 loadLocalPdb: false,
                 loadEmbeddedPdb: true,
                 maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
-                expansionBudget: expansionBudget));
+                expansionBudget: expansionBudget,
+                expectedAssembly: expectedAssembly));
     }
 
     /// <summary>
@@ -435,7 +436,7 @@ public class PdbContext : IDisposable
         ArgumentNullException.ThrowIfNull(assembly);
         return OpenValidated(
             assembly,
-            stream => Open(
+            (stream, expectedAssembly) => Open(
                 stream,
                 assembly.Path,
                 assembly.Identity.Name,
@@ -443,7 +444,8 @@ public class PdbContext : IDisposable
                 PEStreamOptions.Default,
                 assembly.LastWriteTimeUtc,
                 loadLocalPdb: false,
-                loadEmbeddedPdb: false));
+                loadEmbeddedPdb: false,
+                expectedAssembly: expectedAssembly));
     }
 
     /// <summary>
@@ -457,13 +459,14 @@ public class PdbContext : IDisposable
         ArgumentNullException.ThrowIfNull(assembly);
         return OpenValidated(
             assembly,
-            stream => Open(
+            (stream, expectedAssembly) => Open(
                 stream,
                 assembly.Path,
                 assembly.Identity.Name,
                 log,
                 PEStreamOptions.Default,
-                assembly.LastWriteTimeUtc));
+                assembly.LastWriteTimeUtc,
+                expectedAssembly: expectedAssembly));
     }
 
     /// <summary>
@@ -511,35 +514,21 @@ public class PdbContext : IDisposable
         ArgumentNullException.ThrowIfNull(assembly);
         return OpenValidated(
             assembly,
-            stream => Open(
+            (stream, expectedAssembly) => Open(
                 stream,
                 assembly.Path,
                 assembly.Identity.Name,
                 log,
                 PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
                 assembly.LastWriteTimeUtc,
-                loadLocalPdb: true));
+                loadLocalPdb: true,
+                expectedAssembly: expectedAssembly));
     }
 
     static PdbContext OpenValidated(
         ResolvedAssemblyReference assembly,
-        Func<Stream, PdbContext> open)
-    {
-        PdbContext context = open(assembly.OpenRead());
-        try
-        {
-            if (!context._peReader.HasMetadata)
-                throw new BadImageFormatException("The resolved image has no managed metadata.");
-
-            assembly.ValidateOpenedMetadata(context._peReader.GetMetadataReader());
-            return context;
-        }
-        catch
-        {
-            context.Dispose();
-            throw;
-        }
-    }
+        Func<Stream, ResolvedAssemblyReference, PdbContext> open)
+        => open(assembly.OpenRead(), assembly);
 
     static PdbContext Open(
         string assemblyPath,
@@ -571,7 +560,8 @@ public class PdbContext : IDisposable
         bool loadLocalPdb = true,
         bool loadEmbeddedPdb = true,
         int maxEmbeddedPdbBytes = int.MaxValue,
-        PdbExpansionBudget? expansionBudget = null)
+        PdbExpansionBudget? expansionBudget = null,
+        ResolvedAssemblyReference? expectedAssembly = null)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -594,6 +584,17 @@ public class PdbContext : IDisposable
                 log,
                 (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
                 lastWriteTimeUtc);
+            if (expectedAssembly is not null)
+            {
+                if (!peReader.HasMetadata)
+                {
+                    throw new BadImageFormatException(
+                        "The resolved image has no managed metadata.");
+                }
+
+                expectedAssembly.ValidateOpenedMetadata(
+                    peReader.GetMetadataReader());
+            }
             if (!peReader.HasMetadata)
                 return context;
 

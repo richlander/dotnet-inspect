@@ -100,21 +100,27 @@ The rule above is implemented and carried through product inspection paths.
 API-source resolution creates one `ResolvedAssemblyReference` with the actual
 `PackageAsset`, `ProjectAsset`, `PlatformAsset`, or `DesignatedAsset`
 acquisition. Type-forwarder resolution retains the descriptor of the assembly
-that supplied each type. Member code, Body Shapes, Match implementation diffs,
-whole-type Decompiled Source, and prefetched scanner images consume those
-descriptors rather than reopening their retained paths as designations.
+that supplied each type. Member metadata and IL, source and PDB lookup, Body
+Shapes, Match structural comparison and implementation diffs, whole-type
+Decompiled Source, and prefetched scanner images consume those descriptors
+rather than reopening their retained paths as designations.
 
 `MetadataSource.Open(path)` and `MetadataSource.OpenFromPrefetchedImage(path,
 image)` remain compatibility entry points whose contract is explicit caller
 designation. A retained package-extraction path must not reach them:
 `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
-derives every CLI call to those factories from compiled IL and requires the
-descriptor overload, while
+derives the complete transitive set of Decompiler methods that can designate a
+path from compiled IL, then requires every CLI call into that set to carry a
+descriptor. The reachability derivation makes a renamed or inserted wrapper
+part of the boundary without adding its name to the test. Meanwhile,
 `PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`
 drives package provenance through the snapshot reader. Snapshotting preserves
 the original acquisition registration and rejects bytes with a different
 assembly identity. Descriptor-backed metadata consumers perform the same
-identity check before deriving facts or granting core-library trust, and
+identity check before deriving facts, reading PE debug-directory or PDB
+content, or granting core-library trust. A resolved accessibility dependency
+that has no managed metadata is unavailable evidence, not an empty successful
+non-public-type inventory. Finally,
 whole-type composition resolves metadata facts and bodies from one validated
 reader. Inspection-root netmodules use the same carrier without
 becoming assembly-binding candidates: their module name is diagnostic and their

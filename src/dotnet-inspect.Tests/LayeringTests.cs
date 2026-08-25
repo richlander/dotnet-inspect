@@ -138,17 +138,52 @@ public sealed class LayeringTests
     [Fact]
     public void Cli_MetadataSourceFactories_RetainAcquisitionDescriptors()
     {
-        using var stream = File.OpenRead(typeof(LibraryInspection).Assembly.Location);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
-        var calls = new List<string>();
+        Dictionary<string, HashSet<string>> decompilerCalls =
+            ReadCallGraph(typeof(ILInspector.Decompiler.MemberBodyProducer).Assembly.Location);
+        HashSet<string> descriptorDesignatingMethods =
+            FindTransitivelyTainted(
+                decompilerCalls,
+                ReadDirectCallers(
+                    typeof(ILInspector.Decompiler.MemberBodyProducer).Assembly.Location,
+                    "ResolvedAssemblyReference::Create(",
+                    "ResolvedAssemblyReference::CreateFromPath(",
+                    "ResolvedAssemblyReference::TryCreateFromPath("));
+        List<string> calls = ReadCalls(
+                typeof(LibraryInspection).Assembly.Location)
+            .Where(call => descriptorDesignatingMethods.Contains(CallKey(call)))
+            .ToList();
 
+        Assert.NotEmpty(calls);
+        Assert.All(
+            calls,
+            call => Assert.Contains(
+                "ILInspector.Metadata.ResolvedAssemblyReference",
+                call));
+    }
+
+    [Fact]
+    public void DescriptorFactoryReachability_TraversesWrapperIndirection()
+    {
+        var calls = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        {
+            ["Wrapper::Renamed"] = ["Core::Designates"],
+            ["Core::Designates"] = [],
+        };
+
+        HashSet<string> tainted =
+            FindTransitivelyTainted(calls, ["Core::Designates"]);
+
+        Assert.Contains("Wrapper::Renamed", tainted);
+    }
+
+    static List<string> ReadCalls(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var calls = new List<string>();
         foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
         {
-            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-            if (method.RelativeVirtualAddress == 0)
-                continue;
-
             List<ILInstructionText>? instructions =
                 MetadataInstructionProducer.DisassembleMethod(
                     peReader,
@@ -159,27 +194,115 @@ public sealed class LayeringTests
 
             calls.AddRange(
                 instructions
-                    .Where(instruction =>
-                        instruction.OpCodeName == "call"
-                        && instruction.Operand is { } operand
-                        && (operand.Contains(
-                                "MetadataSource::Open(",
-                                StringComparison.Ordinal)
-                            || operand.Contains(
-                                "MetadataSource::OpenFromPrefetchedImage(",
-                                StringComparison.Ordinal)
-                            || operand.Contains(
-                                "MemberBodyProducer::Project(",
-                                StringComparison.Ordinal)))
-                    .Select(instruction => instruction.Operand!));
+                    .Where(static instruction =>
+                        instruction.OpCodeName is "call" or "callvirt"
+                        && instruction.Operand is not null)
+                    .Select(static instruction => instruction.Operand!));
         }
 
-        Assert.NotEmpty(calls);
-        Assert.All(
-            calls,
-            call => Assert.Contains(
-                "ILInspector.Metadata.ResolvedAssemblyReference",
-                call));
+        return calls;
+    }
+
+    static Dictionary<string, HashSet<string>> ReadCallGraph(
+        string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var graph = new Dictionary<string, HashSet<string>>(
+            StringComparer.Ordinal);
+        foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
+        {
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            string key =
+                $"{reader.GetFullTypeName(reader.GetTypeDefinition(method.GetDeclaringType()))}"
+                + $"::{reader.GetString(method.Name)}";
+            graph.TryAdd(key, []);
+            List<ILInstructionText>? instructions =
+                MetadataInstructionProducer.DisassembleMethod(
+                    peReader,
+                    reader,
+                    methodHandle);
+            if (instructions is null)
+                continue;
+
+            foreach (string call in instructions
+                .Where(static instruction =>
+                    instruction.OpCodeName is "call" or "callvirt"
+                    && instruction.Operand is not null)
+                .Select(static instruction => instruction.Operand!))
+            {
+                graph[key].Add(CallKey(call));
+            }
+        }
+
+        return graph;
+    }
+
+    static HashSet<string> ReadDirectCallers(
+        string assemblyPath,
+        params string[] targets)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var callers = new HashSet<string>(StringComparer.Ordinal);
+        foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
+        {
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            List<ILInstructionText>? instructions =
+                MetadataInstructionProducer.DisassembleMethod(
+                    peReader,
+                    reader,
+                    methodHandle);
+            if (instructions?.Any(instruction =>
+                    instruction.Operand is { } operand
+                    && targets.Any(target =>
+                        operand.Contains(
+                            target,
+                            StringComparison.Ordinal))) != true)
+            {
+                continue;
+            }
+
+            callers.Add(
+                $"{reader.GetFullTypeName(reader.GetTypeDefinition(method.GetDeclaringType()))}"
+                + $"::{reader.GetString(method.Name)}");
+        }
+
+        return callers;
+    }
+
+    static HashSet<string> FindTransitivelyTainted(
+        IReadOnlyDictionary<string, HashSet<string>> calls,
+        IEnumerable<string> direct)
+    {
+        var tainted = new HashSet<string>(direct, StringComparer.Ordinal);
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach ((string caller, HashSet<string> callees) in calls)
+            {
+                if (callees.Overlaps(tainted) && tainted.Add(caller))
+                    changed = true;
+            }
+        }
+        while (changed);
+
+        return tainted;
+    }
+
+    static string CallKey(string operand)
+    {
+        int separator = operand.IndexOf("::", StringComparison.Ordinal);
+        if (separator < 0)
+            return operand;
+        int start = operand.LastIndexOf(' ', separator);
+        int end = operand.IndexOf('(', separator);
+        if (end < 0)
+            end = operand.Length;
+        return operand[(start + 1)..end];
     }
 
     [Theory]

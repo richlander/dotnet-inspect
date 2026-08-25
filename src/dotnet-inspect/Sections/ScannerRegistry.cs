@@ -21,6 +21,11 @@ internal sealed class ScannerCostDeclarationException(string message)
 internal sealed class QueryCostDeclarationException(string message)
     : CostDeclarationException(message);
 
+internal sealed class ScannerExecutionException(
+    string scannerKey,
+    Exception innerException)
+    : Exception($"Scanner '{scannerKey}' failed.", innerException);
+
 /// <summary>
 /// Shared resource context passed to scanners and typed-query adapters during data collection.
 /// </summary>
@@ -591,9 +596,19 @@ public sealed class ScannerRegistry
         }
 
         using IDisposable declaration = context.EnterScanner(key, _costs[key]);
-        if (context.Trace is { } trace)
-            trace.Time(key, isBundle: false, () => scan(context));
-        else
-            scan(context);
+        try
+        {
+            if (context.Trace is { } trace)
+                trace.Time(key, isBundle: false, () => scan(context));
+            else
+                scan(context);
+        }
+        catch (Exception ex) when (
+            ex is ObjectDisposedException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            throw new ScannerExecutionException(key, ex);
+        }
     }
 }

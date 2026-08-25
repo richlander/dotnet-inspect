@@ -95,8 +95,16 @@ public static class MatchCommand
                 return 1;
             }
 
+            if (left.OriginAssembly is not { } originAssembly
+                || right.OriginAssembly is null)
+            {
+                CommandError.Write(
+                    "Could not retain the acquired assembly for structural comparison.");
+                return 1;
+            }
+
             ResearchMatchResult result = ResearchMatch.Compare(
-                left.OriginAssemblyPath!,
+                originAssembly,
                 MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
                 MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
 

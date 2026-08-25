@@ -54,6 +54,39 @@ public class MemberCodeProviderOverloadAddressingTests
             code.Attributes is null || code.Attributes.All(a => a.Name != "EditorBrowsable"),
             "EditorBrowsable must not be misattributed onto the surviving overload.");
     }
+
+    [Fact]
+    public void SelectedOverload_UsesDescriptorInsteadOfDisplayPath()
+    {
+        string assemblyPath = typeof(MemberOverloadDriftSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        ApiType type = ApiSurfaceExtractor.Extract(pe, includeAll: false)
+            .Types.Single(t =>
+                t.FullName == typeof(MemberOverloadDriftSpecimen).FullName);
+        List<ApiMember> methods =
+            type.Members.Where(m => m.Name == "Describe").ToList();
+        var request = new MemberCodeProvider.Request(
+            DecompiledSource: false,
+            AnnotatedSource: false,
+            CostOverlay: false,
+            SemanticsOverlay: false,
+            IL: true,
+            Attributes: false,
+            Calls: false,
+            Callers: false,
+            CallGraph: false,
+            UnsafeOperations: false,
+            AssemblyReference: TestAssemblyReferences.Designated(assemblyPath));
+
+        var results = MemberCodeProvider.Collect(
+            type,
+            methods,
+            "/path-that-must-not-be-opened.dll",
+            overloadIndex: 0,
+            request);
+
+        Assert.NotNull(Assert.Single(results).Code.ILText);
+    }
 }
 
 public class MemberOverloadDriftSpecimen

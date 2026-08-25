@@ -4394,6 +4394,42 @@ public class SectionPipelineTests
                 scannerRegistry: registry));
     }
 
+    [Theory]
+    [InlineData("disposed")]
+    [InlineData("range")]
+    [InlineData("overflow")]
+    public async Task ProductionScannerCatchBoundary_DoesNotMistakeScannerFailuresForArtifactFailures(
+        string failure)
+    {
+        Exception scannerFailure = failure switch
+        {
+            "disposed" => new ObjectDisposedException("scanner"),
+            "range" => new ArgumentOutOfRangeException("scanner"),
+            "overflow" => new OverflowException("scanner"),
+            _ => throw new InvalidOperationException(failure),
+        };
+        var registry = new ScannerRegistry()
+            .Add(
+                "artifact-shaped-programming-failure",
+                SectionCost.NetworkFree,
+                _ => throw scannerFailure);
+        using var httpClient = new HttpClient();
+
+        ScannerExecutionException exception =
+            await Assert.ThrowsAsync<ScannerExecutionException>(() =>
+                LibraryMetadataService.InspectAsync(
+                    typeof(SectionPipelineTests).Assembly.Location,
+                    new LibraryOptions(),
+                    new DotnetInspector.Output.VerboseLogger(false),
+                    packageName: null,
+                    packageVersion: null,
+                    httpClient,
+                    scanners: ["artifact-shaped-programming-failure"],
+                    scannerRegistry: registry));
+
+        Assert.Same(scannerFailure, exception.InnerException);
+    }
+
     [Fact]
     public async Task PackageParticipantCatchBoundary_PreservesCancellation()
     {

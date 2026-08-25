@@ -56,6 +56,40 @@ public sealed class DescriptorContentIdentityTests
     }
 
     [Fact]
+    public void PdbContextDescriptorOpen_ValidatesBeforeReadingDebugDirectory()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(DescriptorContentIdentityTests).Assembly.Location);
+        using (var pe = new PEReader(new MemoryStream(bytes)))
+        {
+            PEHeader header = pe.PEHeaders.PEHeader!;
+            int directoryBase = pe.PEHeaders.PEHeaderStartOffset
+                + (header.Magic == PEMagic.PE32Plus ? 112 : 96);
+            int debugDirectory = directoryBase + (6 * 8);
+            // One more than PdbContext's 64-entry defensive bound.
+            BitConverter.GetBytes(65 * 28)
+                .CopyTo(bytes, debugDirectory + 4);
+        }
+
+        ResolvedAssemblyReference acquired =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(DescriptorContentIdentityTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local("test"));
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                acquired.Identity with { Name = "Different" },
+                path: null,
+                () => new MemoryStream(bytes),
+                acquired.Provenance);
+
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => PdbContext.Open(descriptor));
+
+        Assert.Contains("identity", exception.Message);
+    }
+
+    [Fact]
     public void MetadataContextDescriptorOpen_RejectsBeforeGrantingTrust()
     {
         ResolvedAssemblyReference descriptor = MismatchedAssemblyDescriptor();

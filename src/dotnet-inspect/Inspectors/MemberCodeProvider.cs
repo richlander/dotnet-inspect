@@ -62,7 +62,12 @@ internal static class MemberCodeProvider
             
         // Read metadata/IL through the assembly seam; decompiler-backed sections
         // still own their symbol-aware MetadataSource below.
-        using var image = ILInspector.Metadata.AssemblyInspectionSession.Open(dllPath);
+        var assembly = request.AssemblyReference
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                dllPath,
+                AssemblyResolutionProvenance.Local("member code"));
+        using var image = ILInspector.Metadata.AssemblyInspectionSession.Open(
+            assembly);
         if (!image.HasMetadata)
             return results;
 

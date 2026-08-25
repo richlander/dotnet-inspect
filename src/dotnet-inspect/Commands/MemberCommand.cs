@@ -312,8 +312,15 @@ public static class MemberCommand
             if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
+                var locationAssembly =
+                    ApiServices.AssemblyReferenceForPath(
+                        loaded,
+                        apiType,
+                        locationDllPath)
+                    ?? throw new InvalidOperationException(
+                        "Could not retain the acquired assembly for member source location.");
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
-                    apiType, locationDllPath, packageName, packageVersion,
+                    apiType, locationAssembly, packageName, packageVersion,
                     effectiveOptions, context.HttpClient, logger);
                 if (pdbPath != null)
                     effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
@@ -361,14 +368,31 @@ public static class MemberCommand
                         Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
+                ResolvedAssemblyReference? memberMetadataAssembly =
+                    sourceMember is null
+                        ? null
+                        : ApiServices.AssemblyReferenceForPath(
+                            loaded,
+                            apiType,
+                            tokenOriginAssembly)
+                            ?? throw new InvalidOperationException(
+                                "Could not retain the acquired assembly for member metadata.");
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    pdbLookupPath, sourceTypeName,
+                    pdbLookupPath,
+                    ApiServices.AssemblyReferenceForPath(
+                        loaded,
+                        apiType,
+                        pdbLookupPath)
+                    ?? throw new InvalidOperationException(
+                        "Could not retain the acquired assembly for member source resolution."),
+                    sourceTypeName,
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
                     sourceMetadataToken,
                     tokenOriginAssembly,
-                    sourceMember?.MetadataToken ?? 0);
+                    sourceMember?.MetadataToken ?? 0,
+                    memberMetadataAssembly);
 
                 effectiveOptions = effectiveOptions with
                 {

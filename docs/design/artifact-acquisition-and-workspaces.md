@@ -704,7 +704,11 @@ Several current types are migration inputs, not target precedent:
   current decompiler consumers retain typed acquisition. Those descriptors use
   module name only as a diagnostic label, bind snapshots by MVID, and are
   excluded from assembly candidate resolution. Every descriptor-backed open
-  revalidates assembly identity or module MVID before deriving metadata facts;
+  revalidates assembly identity or module MVID before deriving metadata facts
+  or processing debug-directory and PDB content. Command-level metadata, IL,
+  source, Analysis, and Research consumers retain that descriptor rather than
+  reopening its path. A resolved image with no managed metadata is unavailable
+  evidence for signature accessibility, not an empty successful inventory;
   whole-type inspection uses one validated reader for both metadata facts and
   bodies and addresses module TypeDefs directly by MVID and token.
   `ReaderConstructionSiteTests.DescriptorOpenReferences_MatchTheReviewedInventory`

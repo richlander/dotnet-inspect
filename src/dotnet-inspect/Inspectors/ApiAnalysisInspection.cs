@@ -61,7 +61,10 @@ internal static class ApiAnalysisInspection
         }
 
         return MethodBodyInspectionSession.Open(
-            assemblyPath,
+            options?.AssemblyReference
+                ?? ResolvedAssemblyReference.CreateFromPath(
+                    assemblyPath,
+                    AssemblyResolutionProvenance.Local("type analysis")),
             CreateReferenceResolver(assemblyPath, options),
             allocations,
             opportunities,

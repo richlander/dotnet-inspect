@@ -82,6 +82,34 @@ public sealed class SignatureSpellabilityTests
     }
 
     [Fact]
+    public void InspectField_DegradesWhenResolvedReferenceHasNoManagedMetadata()
+    {
+        using var fixture = OpenFixture(new NativeReplacementResolver());
+
+        SignatureSpellabilityResult result = fixture.Spellability.InspectField(
+            fixture.Reader,
+            GetField(fixture.Reader, fixture.Type, "VisibleField"),
+            GenericContext.ForType(fixture.Reader, fixture.Type));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(SignatureDecodeStatus.Degraded, result.DecodeStatus);
+    }
+
+    [Fact]
+    public void InspectField_PreservesSpellabilityWhenReferenceIsUnresolved()
+    {
+        using var fixture = OpenFixture(new MapResolver());
+
+        SignatureSpellabilityResult result = fixture.Spellability.InspectField(
+            fixture.Reader,
+            GetField(fixture.Reader, fixture.Type, "VisibleField"),
+            GenericContext.ForType(fixture.Reader, fixture.Type));
+
+        Assert.True(result.CanSpell);
+        Assert.Null(result.DecodeStatus);
+    }
+
+    [Fact]
     public void InspectMethod_RejectsInaccessibleRequiredModifier()
     {
         using var fixture = OpenRequiredModifierFixture();
@@ -259,6 +287,30 @@ public sealed class SignatureSpellabilityTests
                     _path,
                     AssemblyResolutionProvenance.Local("VersionRelaxing"))
                 : null;
+    }
+
+    sealed class NativeReplacementResolver : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(ImageWithoutCliHeader()),
+                AssemblyResolutionProvenance.Local("native replacement"));
+
+        static byte[] ImageWithoutCliHeader()
+        {
+            byte[] bytes = File.ReadAllBytes(
+                typeof(SignatureSpellabilityTests).Assembly.Location);
+            using var pe = new PEReader(new MemoryStream(bytes));
+            PEHeader header = pe.PEHeaders.PEHeader!;
+            int directoryBase = pe.PEHeaders.PEHeaderStartOffset
+                + (header.Magic == PEMagic.PE32Plus ? 112 : 96);
+            Array.Clear(bytes, directoryBase + (14 * 8), 8);
+            return bytes;
+        }
     }
 
     sealed record Fixture(

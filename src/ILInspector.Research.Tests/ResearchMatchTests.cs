@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis;
 using ILInspector.Analysis.StructuralCloneFixtures;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
@@ -69,6 +70,32 @@ public class ResearchMatchTests
 
         Assert.Equal(StructuralCloneRelation.Exact, result.Document.Relation);
         Assert.Equal(ResearchMatchOutcome.Unchanged, result.Outcome);
+    }
+
+    [Fact]
+    public void Compare_DescriptorBackedRouteDoesNotReopenItsPath()
+    {
+        string path = typeof(StructuralCloneFixture).Assembly.Location;
+        ResolvedAssemblyReference acquired =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("test"));
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                acquired.Identity,
+                "/path-that-must-not-be-opened/renamed.dll",
+                acquired.OpenRead,
+                acquired.Provenance);
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+
+        ResearchMatchResult result = ResearchMatch.Compare(
+            descriptor,
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)));
+
+        Assert.Equal(ResearchMatchOutcome.RenamedOrMoved, result.Outcome);
+        Assert.Equal("renamed.dll", result.Document.Left.FileName);
     }
 
     [Fact]

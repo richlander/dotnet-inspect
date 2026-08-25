@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
@@ -149,6 +150,27 @@ public static class ResearchMatch
         using var stream = File.OpenRead(assemblyPath);
         using var image = new PEReader(stream);
         return Compare(Path.GetFileName(assemblyPath), image, left, right, limits);
+    }
+
+    /// <summary>
+    /// Opens and validates a retained assembly descriptor before comparing two
+    /// of its methods.
+    /// </summary>
+    public static ResearchMatchResult Compare(
+        ResolvedAssemblyReference assembly,
+        MethodDefinitionHandle left,
+        MethodDefinitionHandle right,
+        StructuralCloneComparisonLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        using Stream stream = assembly.OpenRead();
+        using var image = new PEReader(stream);
+        assembly.ValidateOpenedMetadata(image.GetMetadataReader());
+        string fileName = assembly.Path is { } path
+            ? Path.GetFileName(path)
+            : assembly.Identity.Name;
+        return Compare(fileName, image, left, right, limits);
     }
 
 

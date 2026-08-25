@@ -111,13 +111,25 @@ public sealed class SignatureSpellability
     static bool IsDecodeException(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
 
-    bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
+    SpellabilityEvidence InspectTypeReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
     {
         if (AssemblyScope(reader, handle) is not { } reference)
-            return false;
+            return default;
 
         string fullName = reader.GetFullTypeName(reader.GetTypeReference(handle));
-        return NonPublicTypes(reference).Types?.Contains(fullName) == true;
+        NonPublicTypeSet inventory = NonPublicTypes(reference);
+        if (inventory.Types is not { } types)
+        {
+            return inventory.IsDegraded
+                ? SpellabilityEvidence.Degraded
+                : default;
+        }
+
+        return new SpellabilityEvidence(
+            types.Contains(fullName),
+            IsDegraded: false);
     }
 
     NonPublicTypeSet NonPublicTypes(ReferenceKey reference)
@@ -128,7 +140,7 @@ public sealed class SignatureSpellability
     NonPublicTypeSet LoadNonPublicTypes(ReferenceKey reference)
     {
         if (Resolve(reference) is not { } resolved)
-            return new NonPublicTypeSet(null);
+            return new NonPublicTypeSet(null, IsDegraded: false);
 
         var types = new HashSet<string>(StringComparer.Ordinal);
         Stream? stream = null;
@@ -137,20 +149,20 @@ public sealed class SignatureSpellability
         {
             stream = resolved.OpenRead();
             pe = new PEReader(stream);
-            if (pe.HasMetadata)
+            if (!pe.HasMetadata)
+                return new NonPublicTypeSet(null, IsDegraded: true);
+
+            var reader = pe.GetMetadataReader();
+            resolved.ValidateOpenedMetadata(reader);
+            foreach (var handle in reader.TypeDefinitions)
             {
-                var reader = pe.GetMetadataReader();
-                resolved.ValidateOpenedMetadata(reader);
-                foreach (var handle in reader.TypeDefinitions)
-                {
-                    if (!IsExternallyVisible(reader, handle))
-                        types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
-                }
+                if (!IsExternallyVisible(reader, handle))
+                    types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
             }
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
-            return new NonPublicTypeSet(null);
+            return new NonPublicTypeSet(null, IsDegraded: true);
         }
         finally
         {
@@ -158,7 +170,7 @@ public sealed class SignatureSpellability
             stream?.Dispose();
         }
 
-        return new NonPublicTypeSet(types);
+        return new NonPublicTypeSet(types, IsDegraded: false);
     }
 
     ResolvedAssemblyReference? Resolve(ReferenceKey reference)
@@ -205,7 +217,9 @@ public sealed class SignatureSpellability
         }
     }
 
-    sealed record NonPublicTypeSet(HashSet<string>? Types);
+    sealed record NonPublicTypeSet(
+        HashSet<string>? Types,
+        bool IsDegraded);
 
     sealed class InaccessibleTypeDetector(SignatureSpellability spellability)
         : ISignatureTypeProvider<SpellabilityEvidence, GenericContext?>
@@ -213,7 +227,7 @@ public sealed class SignatureSpellability
         public SpellabilityEvidence GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
         public SpellabilityEvidence GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => default;
         public SpellabilityEvidence GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => new(spellability.IsInaccessible(reader, handle), IsDegraded: false);
+            => spellability.InspectTypeReference(reader, handle);
         public SpellabilityEvidence GetTypeFromSpecification(
             MetadataReader reader,
             GenericContext? context,

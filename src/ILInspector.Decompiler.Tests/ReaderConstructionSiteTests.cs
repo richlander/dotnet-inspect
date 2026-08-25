@@ -250,7 +250,7 @@ public sealed class ReaderConstructionSiteTests
             "ILInspector.Metadata:ILInspector.Metadata.AssemblyImageSnapshot.OpenSource(ResolvedAssemblyReference)",
             "ILInspector.Metadata:ILInspector.Metadata.AssemblyInspector.ExtractReferenceIdentitiesAndCompany(ResolvedAssemblyReference)",
             "ILInspector.Metadata:ILInspector.Metadata.AssemblyTypeDeclarationInventoryReader.Read(ResolvedAssemblyReference)",
-            "ILInspector.Metadata:ILInspector.Metadata.PdbContext.OpenValidated(ResolvedAssemblyReference, Func`2<Stream, PdbContext>)",
+            "ILInspector.Metadata:ILInspector.Metadata.PdbContext.OpenValidated(ResolvedAssemblyReference, Func`3<Stream, ResolvedAssemblyReference, PdbContext>)",
             "ILInspector.Metadata:ILInspector.Metadata.ResolvedAssemblyReference+<>c__DisplayClass32_0.<ObserveOpenReadCancellation>b__0()",
             "ILInspector.Metadata:ILInspector.Metadata.ResolvedAssemblyReference.WithoutLocalPath()",
             "ILInspector.Metadata:ILInspector.Metadata.SignatureSpellability.LoadNonPublicTypes(ReferenceKey)",
