@@ -64,7 +64,10 @@ the STJ generator; a handwritten context cannot inherit generated-contract
 trust from a matching attribute, getter name, and signature alone.
 The property is accepted only when its metadata property identity is the
 row's `TypeInfoPropertyName`, or STJ's structured default generated name when
-that argument is absent, and its `T` identity matches the authenticated row.
+that argument is absent, its `T` identity matches the authenticated row, and
+it is an instance, parameterless, getter-only property. An indexed or
+otherwise user-shaped same-name sibling is reached failure evidence, not a
+generated registration.
 An unrelated same-`T` handwritten `JsonTypeInfo<T>` property on the same
 partial context is not a registration.
 The root and property argument are compared as one structured shape: primitive
@@ -169,9 +172,11 @@ requires an accessible getter, while deserialization requires an accessible
 setter. A public setter with a private or absent getter therefore remains an
 input member, while a private setter is not promised as accepted input merely
 because its getter is public. System.Text.Json can also bind a getter-only
-property through a constructor; constructor correspondence is not yet
-projected, so a reached deserialize contract containing such a candidate fails
-visibly instead of emitting an empty or partial interface. `[JsonInclude]`
+property, or a property whose setter does not participate, through a matching
+constructor parameter. Constructor correspondence is not yet projected, so a
+reached deserialize contract containing a getter-only candidate, or a
+non-participating setter with a matching constructor parameter, fails visibly
+instead of emitting an empty or partial interface. `[JsonInclude]`
 properties or fields must remain
 accessible to the source-generated context: private, private-protected, and
 protected members are excluded, while internal, protected internal, and public
@@ -185,8 +190,9 @@ orphaned or incomplete TypeScript shape;
 `DtsEmitterTests.Emit_UsesSetterAccessibilityForDeserializeDeclarations` and
 `SourceGeneratedJson_UsesSetterAccessibilityForDeserialization` gate the
 directional accessor contract against the real source generator, while
-`Emit_BlocksUnmodeledConstructorBoundDeserialization` gates the fail-visible
-constructor-binding boundary against a real generated context.
+`Emit_BlocksUnmodeledConstructorBoundDeserialization` and
+`Emit_BlocksConstructorBindingWithPrivateSetter` gate the fail-visible
+constructor-binding boundary against real generated contexts.
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
@@ -508,6 +514,12 @@ the same reason. Method generic arity and exact MethodDef body presence are
 likewise persisted: the runtime generator emits no generic, `abstract`, or
 `extern` method wrapper, so those `[JSExport]` shapes are rejected before
 publication.
+Metadata also retains only an exact `__Wrapper_<name>_<digits>` MethodDef
+backed by an authentic SDK `DynamicDependency` registration as a candidate,
+never treating that declaration fact as body provenance. Analysis
+authenticates the generated wrapper-to-local-stub-to-exact-export MethodDef
+call chain before tsbindgen emits declarations or JavaScript. A prefix sibling
+and a handwritten candidate therefore both fail before publication.
 `JsExportSurfaceBuilderTests.Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`,
 `Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
 `ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`
@@ -518,6 +530,9 @@ fails before declarations or wrappers are emitted.
 `JsExportSurfaceBuilderTests.Build_RejectsAuthenticJsExportOperatorBeforePublication`,
 `Build_RejectsGenericJsExportWithoutRuntimeWrapper`,
 `Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
+`Build_RejectsHandwrittenRuntimeWrapperCandidate`,
+`Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_RejectsIndexedGetterWithGeneratedRootName`,
 `Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
 `SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers`, and

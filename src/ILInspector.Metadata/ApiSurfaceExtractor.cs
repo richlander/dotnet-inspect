@@ -500,6 +500,23 @@ public static class ApiSurfaceExtractor
             }
         }
         surface.AssemblyIdentity = currentAssemblyIdentity;
+        var registeredRuntimeJsExportWrapperNames =
+            new HashSet<string>(StringComparer.Ordinal);
+        if (!typesOnly)
+        {
+            foreach (MethodDefinitionHandle methodHandle
+                in reader.MethodDefinitions)
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                registeredRuntimeJsExportWrapperNames.UnionWith(
+                    AttributeReader
+                        .ReadRuntimeJsExportWrapperRegistrations(
+                            reader,
+                            method.GetCustomAttributes(),
+                            observeDecodeWork));
+            }
+        }
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -811,7 +828,7 @@ public static class ApiSurfaceExtractor
             // property or event rows. Raiser and Other semantic methods have no
             // ApiMember token slots, so they stay methods.
             var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
-            var runtimeJsExportWrapperNames =
+            var runtimeJsExportWrapperCandidateNames =
                 new HashSet<string>(StringComparer.Ordinal);
 
             // Methods
@@ -833,7 +850,7 @@ public static class ApiSurfaceExtractor
                     "__Wrapper_",
                     StringComparison.Ordinal))
                 {
-                    runtimeJsExportWrapperNames.Add(methodName);
+                    runtimeJsExportWrapperCandidateNames.Add(methodName);
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
@@ -1036,14 +1053,19 @@ public static class ApiSurfaceExtractor
                         member => member.Name,
                         StringComparer.Ordinal))
             {
-                int wrapperCount = runtimeJsExportWrapperNames.Count(name =>
-                    name.StartsWith(
-                        $"__Wrapper_{exports.Key}_",
-                        StringComparison.Ordinal));
-                bool hasWrappers = wrapperCount >= exports.Count();
+                int wrapperCount =
+                    runtimeJsExportWrapperCandidateNames.Count(name =>
+                        registeredRuntimeJsExportWrapperNames.Contains(
+                            name)
+                        && RuntimeJsExportWrapperName.IsCandidateFor(
+                            name,
+                            exports.Key));
+                bool hasWrapperCandidates =
+                    wrapperCount >= exports.Count();
                 foreach (ApiMember member in exports)
                 {
-                    member.HasRuntimeJsExportWrapper = hasWrappers;
+                    member.HasRuntimeJsExportWrapperCandidate =
+                        hasWrapperCandidates;
                 }
             }
 

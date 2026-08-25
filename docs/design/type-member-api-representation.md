@@ -108,17 +108,23 @@ and `ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly` gate that
 contract.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
-the API member, and `HasRuntimeJsExportWrapper` preserves whether the SDK
-generator emitted its corresponding runtime wrapper MethodDef. Live extraction
-therefore distinguishes a publishable ordinary export from an `abstract`,
-`extern`, or non-partial declaration, while null remains the compatibility
-shape for older or hand-composed surfaces. Authentic `[JSExport]` rows on MethodDefs
+the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
+metadata contains enough exact wrapper-name MethodDefs with authentic SDK
+`DynamicDependency` registrations for the export's overload group. The
+candidate is deliberately not publication provenance:
+`ILInspector.JsExportSurface` authenticates the Analysis-owned
+wrapper-to-stub-to-export MethodDef call chain before publishing a runtime
+binding. This separates Metadata's declaration fact from body evidence and
+rejects prefix siblings or handwritten wrapper names. Null remains the
+compatibility shape for older or hand-composed surfaces. Authentic `[JSExport]` rows on MethodDefs
 that have no declarable `ApiMember` remain `FilteredRuntimeJsExportFact`
 evidence on their retained type, or on `ApiSurface` when the MethodDef belongs
 to a wholly filtered compiler-generated type. These are publishability facts,
 not invented API members.
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
+`Build_RejectsHandwrittenRuntimeWrapperCandidate`,
+`Build_DoesNotCreditPrefixSiblingWrapper`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`, and
 `ApiOutputFormatterTests.ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence`
 gate extraction, consumption, and persistence.

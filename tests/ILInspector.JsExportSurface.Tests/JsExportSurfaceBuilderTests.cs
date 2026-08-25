@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
@@ -416,7 +417,8 @@ public sealed class JsExportSurfaceBuilderTests
 
         Assert.True(method.HasRuntimeJsExport);
         Assert.True(method.HasMethodBody);
-        Assert.False(method.HasRuntimeJsExportWrapper);
+        Assert.False(
+            method.HasRuntimeJsExportWrapperCandidate);
         Assert.DoesNotContain(
             fixture.Members,
             member => member.Name.StartsWith(
@@ -429,6 +431,85 @@ public sealed class JsExportSurfaceBuilderTests
             "no compiler-generated runtime wrapper",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsHandwrittenRuntimeWrapperCandidate()
+    {
+        string path =
+            typeof(HandwrittenWrapperCandidateFixture)
+                .Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(HandwrittenWrapperCandidateFixture));
+        ApiMember method = Assert.Single(
+            fixture.Members,
+            member => member.Name
+                == nameof(
+                    HandwrittenWrapperCandidateFixture.AddOne));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+
+        Assert.False(
+            method.HasRuntimeJsExportWrapperCandidate);
+        method.HasRuntimeJsExportWrapperCandidate = true;
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    OpenWireContractBodyIndex(path)));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_DoesNotCreditPrefixSiblingWrapper()
+    {
+        string path =
+            typeof(WrapperPrefixCollisionFixture)
+                .Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(WrapperPrefixCollisionFixture));
+        ApiMember foo = Assert.Single(
+            fixture.Members,
+            member => member.Name
+                == nameof(WrapperPrefixCollisionFixture.Foo));
+        ApiMember fooBar = Assert.Single(
+            fixture.Members,
+            member => member.Name == "Foo_Bar");
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+
+        Assert.False(
+            foo.HasRuntimeJsExportWrapperCandidate);
+        Assert.True(
+            fooBar.HasRuntimeJsExportWrapperCandidate);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+
+        fixture.Members = [fooBar];
+        ILInspector.JsExportSurface.JsExportSurface
+            accepted = JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex);
+        Assert.Equal("Foo_Bar", Assert.Single(
+            accepted.Functions).Name);
     }
 
     [Fact]
@@ -564,7 +645,7 @@ public sealed class JsExportSurfaceBuilderTests
                     == nameof(
                         ScalarContextOptionsFixtureExports
                             .SerializeWriteAsStringInt))
-                .HasRuntimeJsExportWrapper);
+                .HasRuntimeJsExportWrapperCandidate);
         Assert.DoesNotContain(
             operatorMethodNames,
             name => name.StartsWith(
@@ -588,11 +669,6 @@ public sealed class JsExportSurfaceBuilderTests
                 && name.StartsWith(
                     "__Wrapper_",
                     StringComparison.Ordinal));
-        Assert.DoesNotContain(
-            publishabilityMethodNames,
-            name => name.StartsWith(
-                "__Wrapper_AddOne_",
-                StringComparison.Ordinal));
         Assert.Contains(
             publishabilityMethodNames,
             name => name.StartsWith(
@@ -1213,6 +1289,77 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsIndexedGetterWithGeneratedRootName()
+    {
+        string sourcePath =
+            typeof(IndexedRootExports).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        Assert.Equal(
+            2,
+            ReplaceAscii(
+                image,
+                "Fake",
+                "Root"));
+
+        Assembly patchedAssembly = Assembly.Load(image);
+        Type? patchedExports = patchedAssembly.GetType(
+            typeof(IndexedRootExports).FullName!);
+        Assert.NotNull(patchedExports);
+        MethodInfo? serialize = patchedExports.GetMethod(
+            nameof(IndexedRootExports.Serialize));
+        Assert.NotNull(serialize);
+        Assert.Equal(
+            """{"Value":"42"}""",
+            serialize.Invoke(null, null));
+
+        string patchedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"indexed-root-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(patchedPath, image);
+            ApiSurface apiSurface =
+                ExtractApiSurface(patchedPath);
+            apiSurface.FilteredRuntimeJsExportFacts = [];
+            apiSurface.Types =
+            [
+                .. apiSurface.Types.Where(type =>
+                    type.Name is nameof(IndexedRootDto)
+                        or nameof(IndexedRootJsonContext)
+                        or nameof(IndexedRootExports)),
+            ];
+            ApiType context = Assert.Single(
+                apiSurface.Types,
+                type => type.Name
+                    == nameof(IndexedRootJsonContext));
+            Assert.Equal(
+                [0, 1],
+                context.Members
+                    .Where(member => member.Name == "Root")
+                    .Select(member =>
+                        Assert.IsType<int>(
+                            member.IndexParameterCount))
+                    .Order()
+                    .ToArray());
+
+            UnsupportedJsExportSurfaceException exception =
+                Assert.Throws<UnsupportedJsExportSurfaceException>(
+                    () => JsExportSurfaceBuilder.Build(
+                        apiSurface,
+                        OpenWireContractBodyIndex(
+                            patchedPath)));
+            Assert.Contains(
+                "not the parameterless generated getter",
+                exception.Message,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(patchedPath);
+        }
+    }
+
+    [Fact]
     public void Extract_AcceptsGeneralAndRejectsWebSerializerDefaults()
     {
         ApiSurface fixtureSurface = ExtractFixtureApiSurface();
@@ -1824,6 +1971,34 @@ public sealed class JsExportSurfaceBuilderTests
                 },
             ],
         };
+
+    static int ReplaceAscii(
+        byte[] image,
+        string oldValue,
+        string newValue)
+    {
+        byte[] oldBytes = Encoding.ASCII.GetBytes(oldValue);
+        byte[] newBytes = Encoding.ASCII.GetBytes(newValue);
+        Assert.Equal(oldBytes.Length, newBytes.Length);
+
+        int replacements = 0;
+        for (int i = 0;
+            i <= image.Length - oldBytes.Length;
+            i++)
+        {
+            if (!image
+                .AsSpan(i, oldBytes.Length)
+                .SequenceEqual(oldBytes))
+            {
+                continue;
+            }
+
+            newBytes.CopyTo(image, i);
+            replacements++;
+        }
+
+        return replacements;
+    }
 
     static byte[] BuildFakeJsExportImage(
         bool trustedAssembly = false,

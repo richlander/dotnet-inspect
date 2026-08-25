@@ -1105,8 +1105,11 @@ public class ApiMember
     public bool? HasMethodBody { get; set; }
 
     /// <summary>
-    /// Whether the SDK source generator emitted runtime wrapper glue for this
-    /// JSExport MethodDef. Null preserves older or hand-composed surfaces.
+    /// Whether metadata contains an exact-name runtime-wrapper MethodDef and
+    /// an authentic SDK <c>DynamicDependency</c> registration candidate for
+    /// this JSExport MethodDef. This is not body provenance: consumers that
+    /// publish runtime bindings must authenticate the wrapper's call chain.
+    /// Null preserves older or hand-composed surfaces.
     /// </summary>
     /// <remarks>
     /// <c>JsExportSurfaceBuilderTests.Build_RejectsJsExportWithoutGeneratedRuntimeWrapper</c>
@@ -1115,7 +1118,7 @@ public class ApiMember
     /// gate extraction, enforcement, and persistence.
     /// </remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? HasRuntimeJsExportWrapper { get; set; }
+    public bool? HasRuntimeJsExportWrapperCandidate { get; set; }
 
     /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").

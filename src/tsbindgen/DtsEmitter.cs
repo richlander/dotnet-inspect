@@ -200,8 +200,10 @@ static class DtsEmitter
         if ((directions & JsonWireDirection.Deserialize)
                 != JsonWireDirection.None
             && record.Members.Any(
-                JsonWireMemberRules
-                    .RequiresConstructorBindingEvidence))
+                member => JsonWireMemberRules
+                    .RequiresConstructorBindingEvidence(
+                        record,
+                        member)))
         {
             ReportUnsupportedConstructorBinding(
                 record.Name,
@@ -630,7 +632,7 @@ static class DtsEmitter
         TsBindGenDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
-            "getter-only deserialization requires unmodeled constructor-binding evidence");
+            "deserialization without a participating setter requires unmodeled constructor-binding evidence");
 
     static void ReportUnsupportedJsonConverter(
         string location,

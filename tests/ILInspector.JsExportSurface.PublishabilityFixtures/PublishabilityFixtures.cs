@@ -1,4 +1,5 @@
 using System.CodeDom.Compiler;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
@@ -29,6 +30,32 @@ public static class NonPartialExportFixture
 {
     [JSExport]
     public static int AddOne(int value) => value + 1;
+}
+#pragma warning restore SYSLIB1071
+
+#pragma warning disable SYSLIB1071
+[SupportedOSPlatform("browser")]
+public static class HandwrittenWrapperCandidateFixture
+{
+    [JSExport]
+    public static int AddOne(int value) => value + 1;
+
+    private static unsafe void __Wrapper_AddOne_1(
+        JSMarshalerArgument* arguments)
+    {
+    }
+}
+
+[SupportedOSPlatform("browser")]
+public static partial class WrapperPrefixCollisionFixture
+{
+    [JSExport]
+    public static partial int Foo(int value);
+
+    public static partial int Foo(int value) => value + 1;
+
+    [JSExport]
+    public static int Foo_Bar(int value) => value + 2;
 }
 #pragma warning restore SYSLIB1071
 
@@ -100,4 +127,72 @@ public static partial class ConstructorBoundExports
             ConstructorBoundJsonContext.Default
                 .ConstructorBoundInput)!
             .Value;
+}
+
+public sealed class PrivateSetterConstructorBoundInput
+{
+    [JsonConstructor]
+    public PrivateSetterConstructorBoundInput(int value)
+    {
+        Value = value;
+    }
+
+    public int Value { get; private set; }
+}
+
+[JsonSerializable(typeof(PrivateSetterConstructorBoundInput))]
+public sealed partial class PrivateSetterConstructorBoundJsonContext
+    : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class PrivateSetterConstructorBoundExports
+{
+    [JSExport]
+    public static int ReadValue(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            PrivateSetterConstructorBoundJsonContext.Default
+                .PrivateSetterConstructorBoundInput)!
+            .Value;
+}
+
+public sealed class IndexedRootDto
+{
+    public int Value { get; set; }
+}
+
+[JsonSerializable(
+    typeof(IndexedRootDto),
+    TypeInfoPropertyName = "Root")]
+public sealed partial class IndexedRootJsonContext
+    : JsonSerializerContext
+{
+    [IndexerName("Fake")]
+    public JsonTypeInfo<IndexedRootDto> this[int index]
+    {
+        get
+        {
+            var resolver = new DefaultJsonTypeInfoResolver();
+            var options = new JsonSerializerOptions
+            {
+                TypeInfoResolver = resolver,
+                NumberHandling =
+                    JsonNumberHandling.WriteAsString,
+            };
+            return (JsonTypeInfo<IndexedRootDto>)
+                resolver.GetTypeInfo(
+                    typeof(IndexedRootDto),
+                    options);
+        }
+    }
+}
+
+[SupportedOSPlatform("browser")]
+public static partial class IndexedRootExports
+{
+    [JSExport]
+    public static string Serialize() =>
+        JsonSerializer.Serialize(
+            new IndexedRootDto { Value = 42 },
+            IndexedRootJsonContext.Default[0]);
 }

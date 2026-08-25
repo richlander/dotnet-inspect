@@ -163,10 +163,47 @@ public sealed class JsonWireMemberRulesTests
         ApiMember getterOnly = Property();
         getterOnly.HasGetter = true;
         getterOnly.HasSetter = false;
+        var declaringType = new ApiType
+        {
+            Name = "Input",
+            Members = [getterOnly],
+        };
 
         Assert.True(
             JsonWireMemberRules
-                .RequiresConstructorBindingEvidence(getterOnly));
+                .RequiresConstructorBindingEvidence(
+                    declaringType,
+                    getterOnly));
+
+        ApiMember privateSetter = Property();
+        privateSetter.HasGetter = true;
+        privateSetter.HasSetter = true;
+        privateSetter.SetterAccessibility = "private";
+        declaringType.Members =
+        [
+            privateSetter,
+            new ApiMember
+            {
+                Name = ".ctor",
+                Kind = "constructor",
+                SignatureModel = new ApiSignature
+                {
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "value",
+                            Type = "int",
+                        },
+                    ],
+                },
+            },
+        ];
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresConstructorBindingEvidence(
+                    declaringType,
+                    privateSetter));
 
         getterOnly.JsonIgnoreConditions =
         [
@@ -174,7 +211,9 @@ public sealed class JsonWireMemberRulesTests
         ];
         Assert.False(
             JsonWireMemberRules
-                .RequiresConstructorBindingEvidence(getterOnly));
+                .RequiresConstructorBindingEvidence(
+                    declaringType,
+                    getterOnly));
     }
 
     [Fact]

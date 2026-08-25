@@ -38,6 +38,8 @@ public static partial class AttributeReader
         "System.Runtime.InteropServices.JavaScript";
     private const string GeneratedCodeAttributeName =
         "System.CodeDom.Compiler.GeneratedCodeAttribute";
+    private const string DynamicDependencyAttributeName =
+        "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute";
     private const string SystemRuntimeAssemblyName = "System.Runtime";
     private const string SystemTextJsonSourceGeneratorName =
         "System.Text.Json.SourceGeneration";
@@ -665,6 +667,66 @@ public static partial class AttributeReader
         return false;
     }
 
+    /// <summary>
+    /// Reads exact runtime-wrapper MethodDef names registered by the SDK
+    /// JavaScript interop generator's authentic
+    /// <c>[DynamicDependency(string, string, string)]</c> rows.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsHandwrittenRuntimeWrapperCandidate</c>
+    /// and <c>Build_DoesNotCreditPrefixSiblingWrapper</c> gate the
+    /// registration and exact-name boundaries against compiler-produced
+    /// fixtures.
+    /// </remarks>
+    public static IReadOnlyList<string>
+        ReadRuntimeJsExportWrapperRegistrations(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        List<string> names = [];
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute =
+                reader.GetCustomAttribute(handle);
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    DynamicDependencyAttributeName,
+                    SystemRuntimeAssemblyName,
+                    beforeMaterialize)
+                || !HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind
+                        .StringStringString,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 3,
+                        NamedArguments.Length: 0,
+                    } decoded
+                || decoded.FixedArguments[0].Value
+                    is not string memberName
+                || decoded.FixedArguments[1].Value
+                    is not string
+                || decoded.FixedArguments[2].Value
+                    is not string
+                || !memberName.StartsWith(
+                    "__Wrapper_",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            names.Add(memberName);
+        }
+
+        return names;
+    }
 
     /// <summary>
     /// Reads one entry per authentic <c>[JsonIgnore]</c> row on a member, in
@@ -1496,6 +1558,7 @@ public static partial class AttributeReader
         SystemType,
         String,
         StringString,
+        StringStringString,
         JsonSerializerDefaults,
         JsonNumberHandling,
     }
@@ -1598,6 +1661,13 @@ public static partial class AttributeReader
                 FrameworkConstructorKind.StringString =>
                     signature.ParameterTypes is
                     [
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.StringStringString =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                     ],

@@ -57,10 +57,12 @@ public static class JsonWireMemberRules
             != IsSerialized(member, JsonWireDirection.Deserialize);
 
     /// <summary>
-    /// True when deserialization may bind a getter-only property through a
-    /// constructor, a shape this projection does not currently model.
+    /// True when deserialization may bind a getter-only property, or a
+    /// property without a participating setter, through a constructor shape
+    /// this projection does not currently model.
     /// </summary>
     public static bool RequiresConstructorBindingEvidence(
+        ApiType declaringType,
         ApiMember member)
     {
         int? indexParameterCount =
@@ -74,7 +76,23 @@ public static class JsonWireMemberRules
                     & JsonWireDirection.Deserialize)
                 != JsonWireDirection.None
             && indexParameterCount == 0
-            && member.HasSetter == false
+            && !IsIncludedAccessor(
+                member.HasSetter,
+                member.SetterAccessibility,
+                member.Accessibility,
+                member.HasJsonInclude)
+            && (member.HasSetter == false
+                || declaringType.Members
+                    .Where(candidate =>
+                        candidate.Kind == "constructor")
+                    .SelectMany(candidate =>
+                        candidate.SignatureModel?.Parameters
+                            ?? [])
+                    .Any(parameter =>
+                        string.Equals(
+                            parameter.Name,
+                            member.Name,
+                            StringComparison.OrdinalIgnoreCase)))
             && IsIncludedAccessor(
                 member.HasGetter,
                 member.GetterAccessibility,

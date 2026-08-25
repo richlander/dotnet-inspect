@@ -2412,7 +2412,85 @@ public sealed class DtsEmitterTests
                 diagnostic.Location
                     == "ConstructorBoundInput JSON wire shape"
                 && diagnostic.CSharpType
-                    == "getter-only deserialization requires unmodeled constructor-binding evidence");
+                    == "deserialization without a participating setter requires unmodeled constructor-binding evidence");
+    }
+
+    [Fact]
+    public void Emit_BlocksConstructorBindingWithPrivateSetter()
+    {
+        PrivateSetterConstructorBoundInput? value =
+            JsonSerializer.Deserialize(
+                """{"Value":42}""",
+                PrivateSetterConstructorBoundJsonContext.Default
+                    .PrivateSetterConstructorBoundInput);
+        Assert.NotNull(value);
+        Assert.Equal(42, value.Value);
+
+        string path =
+            typeof(PrivateSetterConstructorBoundExports)
+                .Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        apiSurface.Types =
+        [
+            .. apiSurface.Types.Where(type =>
+                type.Name is
+                    nameof(
+                        PrivateSetterConstructorBoundInput)
+                    or nameof(
+                        PrivateSetterConstructorBoundJsonContext)
+                    or nameof(
+                        PrivateSetterConstructorBoundExports)),
+        ];
+        ApiMember valueProperty = Assert.Single(
+            Assert.Single(
+                apiSurface.Types,
+                type => type.Name
+                    == nameof(
+                        PrivateSetterConstructorBoundInput))
+                .Members,
+            member => member.Name == "Value");
+        Assert.True(valueProperty.HasSetter);
+        Assert.Equal(
+            "private",
+            valueProperty.SetterAccessibility);
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresConstructorBindingEvidence(
+                    Assert.Single(
+                        apiSurface.Types,
+                        type => type.Name
+                            == nameof(
+                                PrivateSetterConstructorBoundInput)),
+                    valueProperty));
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures
+                    .JsonWireContractFlow);
+        var diagnostics = new TsBindGenDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                bodyIndex),
+            diagnostics);
+
+        Assert.Contains(
+            "export type PrivateSetterConstructorBoundInput = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "PrivateSetterConstructorBoundInput JSON wire shape"
+                && diagnostic.CSharpType
+                    == "deserialization without a participating setter requires unmodeled constructor-binding evidence");
     }
 
     [Fact]

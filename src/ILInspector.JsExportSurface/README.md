@@ -15,9 +15,12 @@
   JSExport glue. Authentic rows on filtered MethodDefs, including lambdas in
   compiler-generated types, remain surface-scoped failure evidence rather than
   disappearing with the filtered API declaration. Live extraction also
-  retains whether the SDK generator emitted the corresponding `__Wrapper_*`
-  MethodDef; an attributed body in a non-partial type is rejected because it
-  has no runtime publication glue.
+  retains exact-name `__Wrapper_*_<digits>` MethodDefs backed by authentic SDK
+  `DynamicDependency` registrations as candidates. Analysis then
+  authenticates the generated wrapper-to-stub-to-export MethodDef call chain;
+  a prefix sibling or handwritten candidate cannot publish another export.
+  An attributed body in a non-partial type is rejected because it has no
+  runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
   assembly's `JsonSerializerContext`-derived type's `[JsonSerializable(typeof(T))]`
   roots, since `[JSExport]` method signatures alone don't reveal the DTO shapes
@@ -36,8 +39,11 @@ context carries the authentic
 `[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
 the System.Text.Json source generator. A handwritten context with matching
 `[JsonSerializable]`, property name, and `JsonTypeInfo<T>` signature remains
-unsupported when reached. The generated getter's receiver must also flow from
-the same context's authenticated `Default` property. A custom context instance
+unsupported when reached. A matching property must be an instance,
+parameterless, getter-only property; an indexed or otherwise user-shaped
+sibling is retained as reached failure evidence rather than inheriting the
+registration. The generated getter's receiver must also flow from the same
+context's authenticated `Default` property. A custom context instance
 can carry runtime `JsonSerializerOptions` that change the wire shape
 independently of source-generation metadata, so an unproven receiver fails.
 
@@ -45,6 +51,9 @@ independently of source-generation metadata, so an unproven receiver fails.
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
 `Build_RejectsReachedHandwrittenSerializerContextGetter`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
+`Build_RejectsHandwrittenRuntimeWrapperCandidate`,
+`Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_RejectsIndexedGetterWithGeneratedRootName`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.

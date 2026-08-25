@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 
@@ -107,7 +108,12 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
-                if (member.HasRuntimeJsExportWrapper == false)
+                if (member.HasRuntimeJsExportWrapperCandidate == false
+                    || (member.HasRuntimeJsExportWrapperCandidate == true
+                        && bodyIndex is not null
+                        && !HasAuthenticatedRuntimeJsExportWrapper(
+                            bodyIndex,
+                            member)))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -295,8 +301,13 @@ public static class JsExportSurfaceBuilder
                         case RegisteredRootPropertyMatch.Unsupported:
                             if (member.GetterToken is { } unsupportedGetter)
                             {
-                                string reason = root?.UnsupportedReason
-                                    ?? "serializer root property identity is ambiguous";
+                                string reason =
+                                    !IsGeneratedRootPropertyShape(
+                                        member,
+                                        signature)
+                                        ? "serializer-context property is not the parameterless generated getter"
+                                        : root?.UnsupportedReason
+                                            ?? "serializer root property identity is ambiguous";
                                 if (!unsupportedJsonTypeInfoGetterReasons.TryAdd(
                                         unsupportedGetter,
                                         reason)
@@ -685,7 +696,22 @@ public static class JsExportSurfaceBuilder
     {
         root = null;
         if (member.GetterToken is null || signature is null)
+        {
             return RegisteredRootPropertyMatch.None;
+        }
+        if (!IsGeneratedRootPropertyShape(member, signature))
+        {
+            if (registeredRootProperties.Roots.TryGetValue(
+                    member.Name,
+                    out ApiJsonSerializableRoot? invalidCandidate)
+                && IsTrustedJsonTypeInfoProperty(signature))
+            {
+                root = invalidCandidate;
+                return RegisteredRootPropertyMatch.Unsupported;
+            }
+
+            return RegisteredRootPropertyMatch.None;
+        }
         if (registeredRootProperties.AmbiguousPropertyNames.Contains(
                 member.Name)
             && IsTrustedJsonTypeInfoProperty(signature))
@@ -729,6 +755,106 @@ public static class JsExportSurfaceBuilder
             ? RegisteredRootPropertyMatch.Supported
             : RegisteredRootPropertyMatch.Unsupported;
     }
+
+    static bool IsGeneratedRootPropertyShape(
+        ApiMember member,
+        ApiSignature? signature) =>
+        signature is not null
+        && !member.IsStatic
+        && member.HasSetter == false
+        && (member.IndexParameterCount
+                ?? signature.ParameterCount)
+            == 0;
+
+    static bool HasAuthenticatedRuntimeJsExportWrapper(
+        LibraryBodyIndex bodyIndex,
+        ApiMember export)
+    {
+        if (export.MetadataToken is not { } exportToken)
+            return false;
+
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+            callsByEvidenceMethod =
+                bodyIndex.GetDirectCallsByEvidenceMethod();
+        foreach (ImmutableArray<DirectCall> wrapperCalls
+            in callsByEvidenceMethod.Values)
+        {
+            MethodIdentity wrapper = wrapperCalls[0].EvidenceMethod;
+            if (!IsGeneratedRuntimeWrapper(wrapper, export.Name))
+                continue;
+
+            foreach (DirectCall wrapperCall in wrapperCalls)
+            {
+                if (wrapperCall.Kind != CallKind.Call
+                    || !callsByEvidenceMethod.TryGetValue(
+                        wrapperCall.CalleeDefinitionToken,
+                        out ImmutableArray<DirectCall>
+                            stubCalls))
+                {
+                    continue;
+                }
+
+                MethodIdentity stub = stubCalls[0].EvidenceMethod;
+                if (!IsGeneratedRuntimeWrapperStub(
+                        wrapper,
+                        stub))
+                {
+                    continue;
+                }
+
+                if (stubCalls.Any(call =>
+                        call.Kind == CallKind.Call
+                        && call.CalleeDefinitionToken == exportToken
+                        && call.Callee.DeclaringType.Equals(
+                            wrapper.DeclaringType)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static bool IsGeneratedRuntimeWrapper(
+        MethodIdentity method,
+        string exportName) =>
+        RuntimeJsExportWrapperName.IsCandidateFor(
+            method.Name,
+            exportName)
+        && method.IsStatic
+        && method.GenericArity == 0
+        && IsCoreVoid(method.ReturnType)
+        && method.ParameterTypes is [var parameter]
+        && parameter.Kind == TypeRefKind.Pointer
+        && parameter.ElementType is
+        {
+            Kind: TypeRefKind.Definition,
+            Namespace: "System.Runtime.InteropServices.JavaScript",
+            Name: "JSMarshalerArgument",
+            TrustedFrameworkAssembly: true,
+        };
+
+    static bool IsGeneratedRuntimeWrapperStub(
+        MethodIdentity wrapper,
+        MethodIdentity stub) =>
+        stub.IsStatic
+        && stub.GenericArity == 0
+        && stub.AssemblyName == wrapper.AssemblyName
+        && stub.ModuleVersionId == wrapper.ModuleVersionId
+        && stub.DeclaringType.Equals(wrapper.DeclaringType)
+        && stub.Name.StartsWith(
+            $"<{wrapper.Name}>g____Stub|",
+            StringComparison.Ordinal);
+
+    static bool IsCoreVoid(TypeRef type) =>
+        type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Void",
+        };
 
     /// <summary>
     /// Compares the root shape captured from the serialized
