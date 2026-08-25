@@ -486,8 +486,8 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationOpportunitiesQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerBodyShapes, detailedScanners);
+        Assert.DoesNotContain(ResourceTriageQuery.Definition, detailedQueries);
         Assert.DoesNotContain(
             OptimizationOpportunitiesQuery.Definition,
             detailedQueries);
@@ -504,7 +504,7 @@ public class SectionPipelineTests
         var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, performance);
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, performance);
 
-        Assert.Contains(LibrarySections.ScannerResourceTriage, scanners);
+        Assert.Contains(ResourceTriageQuery.Definition, queries);
         Assert.Contains(
             TopLeverageQuery.Definition,
             queries);
@@ -520,6 +520,96 @@ public class SectionPipelineTests
                 {
                     SectionNames.BodyShapes,
                 }));
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    {
+        bool acquired = false;
+
+        ResourceTriageResult result =
+            LibrarySections.ExecuteResourceTriageQuery(
+                hasMetadata: false,
+                () =>
+                {
+                    acquired = true;
+                    throw new InvalidOperationException("must not acquire");
+                },
+                new FindingSubject("native.dll", "native.dll"));
+
+        Assert.IsType<ResourceTriageResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_CompleteEmptyJsonRemainsDistinctFromNoMetadata()
+    {
+        var inspection = new LibraryInspection();
+        var complete =
+            new FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete([]);
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Available(complete, []),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+
+        string completeJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using (JsonDocument document = JsonDocument.Parse(completeJson))
+        {
+            JsonElement resourceTriage =
+                document.RootElement.GetProperty("resource_triage");
+            Assert.Equal(JsonValueKind.Array, resourceTriage.ValueKind);
+            Assert.Equal(0, resourceTriage.GetArrayLength());
+        }
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.NoMetadata(),
+            () => throw new InvalidOperationException(
+                "NoMetadata must not acquire the drill map"));
+
+        string noMetadataJson = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using JsonDocument noMetadataDocument =
+            JsonDocument.Parse(noMetadataJson);
+        Assert.False(
+            noMetadataDocument.RootElement.TryGetProperty(
+                "resource_triage",
+                out _));
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_FailureProjectsToArrayPoolEscapes()
+    {
+        var inspection = new LibraryInspection();
+        var error = new InspectionError(
+            new FindingSubject("broken.dll", "broken.dll"),
+            Analysis.AnalysisFindings.ResourceLifecycleDescriptor,
+            "body index failed");
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Failed(error),
+            () => throw new InvalidOperationException(
+                "failed results must not acquire the drill map"));
+
+        var failed =
+            Assert.IsType<ResourceTriageResult.Failed>(
+                inspection.ResourceTriageQueryResult);
+        Assert.Same(error, failed.Error);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.ArrayPoolEscapes, projected.Section);
+        Assert.Equal(
+            Analysis.AnalysisFindings.ResourceLifecycleDescriptor.Title,
+            projected.Finding);
+        Assert.Equal(error.Reason, projected.Reason);
+        Assert.Empty(inspection.ResourceTriageAssessments);
+        Assert.Null(inspection.ResourceTriage);
     }
 
     [Fact]
@@ -1704,6 +1794,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 OptimizationOpportunitiesQuery.Definition,
+                ResourceTriageQuery.Definition,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
@@ -4532,11 +4623,11 @@ public class SectionPipelineTests
         // the family this change moved off the ladder.
         string[] expectedScannerBodyIndexFamily =
         [
-            SectionNames.ArrayPoolEscapes,
             SectionNames.BodyShapes,
         ];
         string[] expectedQueryBodyIndexFamily =
         [
+            SectionNames.ArrayPoolEscapes,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -5314,6 +5405,40 @@ public class SectionPipelineTests
         Assert.Empty(inspection.PerformanceTriageOpportunities);
         Assert.Null(inspection.OptimizationOpportunities);
         Assert.Null(inspection.InspectionFailures);
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_RecordsBodyIndexAndDrillMapDuringExecution()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [ResourceTriageQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        Assert.IsType<ResourceTriageResult.Available>(
+            results.Get(ResourceTriageQuery.Definition));
+        var bodyIndex = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+        Assert.Contains("LeakTriage", bodyIndex.Detail.ToString());
+        Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "drill map");
     }
 
     [Fact]

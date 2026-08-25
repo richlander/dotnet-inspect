@@ -6,6 +6,7 @@ import {
   bindGraphPanZoom,
   bindTypeGraphNodes,
 } from "../src/graph-interactions.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeClassList {
@@ -33,6 +34,7 @@ class FakeElement {
     createElementNS: () => ({ textContent: null as string | null }),
   };
   readonly style: Record<string, string> = {};
+  readonly attributes = new Map<string, string>();
   firstChild = null;
   hidden = false;
   tabIndex = -1;
@@ -64,7 +66,13 @@ class FakeElement {
   }
 
   getAttribute(name: string) {
-    return name === "data-id" ? this.dataId : null;
+    return name === "data-id"
+      ? this.dataId
+      : this.attributes.get(name) ?? null;
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
   }
 
   insertBefore(node: { textContent: string | null }) {
@@ -86,7 +94,6 @@ class FakeNodeRoot {
 }
 
 class FakeSvg extends FakeElement {
-  readonly attributes = new Map<string, string>();
   readonly viewBox = { baseVal: { width: 100, height: 50 } };
   private readonly nodes: FakeElement[];
 
@@ -172,6 +179,30 @@ function graphTransform(element: FakeElement) {
   };
 }
 
+function dispatchKey(
+  keybindings: KeybindingRegistry,
+  target: FakeElement,
+  values: Record<string, unknown>,
+) {
+  let prevented = false;
+  const event = fakeDom.keyboardEvent({
+    altKey: false,
+    ctrlKey: false,
+    defaultPrevented: false,
+    metaKey: false,
+    shiftKey: false,
+    target,
+    composedPath: () => [target],
+    preventDefault: () => prevented = true,
+    ...values,
+  });
+  const result = keybindings.dispatch(event);
+  return {
+    prevented,
+    result,
+  };
+}
+
 test("graph back binding dispatches only from the rendered control", () => {
   const back = new FakeElement();
   let calls = 0;
@@ -248,16 +279,20 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   reset.dataset.zoom = "reset";
   const container = new FakeContainer([zoomIn, zoomOut, reset]);
   const calls: string[] = [];
+  const keybindings = new KeybindingRegistry();
 
   bindGraphPanZoom(
     fakeDom.parentNode(container),
     fakeDom.htmlElement(viewport),
     {
+      keybindings,
       resolveCallGraphNode: nodeId => nodeId
         ? {
             onSelect: () => calls.push(nodeId),
-            platform: nodeId === "n2",
-          }
+          label: `Open ${nodeId}`,
+          platform: nodeId === "n2",
+          blocked: nodeId === "n2",
+        }
         : null,
     });
 
@@ -268,8 +303,18 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   assert.equal(regular.classList.contains("nav-node"), true);
   assert.equal(regular.classList.contains("platform-node"), false);
   assert.equal(platform.classList.contains("platform-node"), true);
+  assert.equal(regular.attributes.get("role"), "button");
+  assert.equal(regular.attributes.get("tabindex"), "0");
+  assert.equal(regular.attributes.get("aria-label"), "Open n1");
+  assert.equal(platform.style.cursor, "not-allowed");
   regular.dispatch("click");
   assert.deepEqual(calls, ["n1"]);
+  assert.equal(dispatchKey(
+    keybindings,
+    platform,
+    { key: "Enter" },
+  ).prevented, true);
+  assert.deepEqual(calls, ["n1", "n2"]);
 
   assert.equal(viewport.dispatch("wheel", {
     clientX: 100,
@@ -289,15 +334,23 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   const fitted = "translate(50px, 25px) scale(1)";
   assert.equal(svg.style.transform, fitted);
   for (const key of ["+", "="]) {
-    assert.equal(viewport.dispatch("keydown", { key }), true);
+    assert.equal(dispatchKey(keybindings, viewport, { key }).prevented, true);
     assert.ok(graphTransform(svg).scale > 1);
-    assert.equal(viewport.dispatch("keydown", { key: "0" }), true);
+    assert.equal(dispatchKey(
+      keybindings,
+      viewport,
+      { key: "0" },
+    ).prevented, true);
     assert.equal(svg.style.transform, fitted);
   }
   for (const key of ["-", "_"]) {
-    assert.equal(viewport.dispatch("keydown", { key }), true);
+    assert.equal(dispatchKey(keybindings, viewport, { key }).prevented, true);
     assert.ok(graphTransform(svg).scale < 1);
-    assert.equal(viewport.dispatch("keydown", { key: "0" }), true);
+    assert.equal(dispatchKey(
+      keybindings,
+      viewport,
+      { key: "0" },
+    ).prevented, true);
     assert.equal(svg.style.transform, fitted);
   }
   const arrowPositions = new Map([
@@ -307,11 +360,26 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
     ["ArrowDown", { x: 50, y: -20 }],
   ]);
   for (const [key, expected] of arrowPositions) {
-    assert.equal(viewport.dispatch("keydown", { key }), true);
+    assert.equal(dispatchKey(keybindings, viewport, { key }).prevented, true);
     assert.deepEqual(graphTransform(svg), { ...expected, scale: 1 });
-    assert.equal(viewport.dispatch("keydown", { key: "0" }), true);
+    assert.equal(dispatchKey(
+      keybindings,
+      viewport,
+      { key: "0" },
+    ).prevented, true);
   }
-  assert.equal(viewport.dispatch("keydown", { key: "x" }), false);
+  assert.equal(
+    dispatchKey(keybindings, viewport, { key: "x" }).result.handled,
+    false,
+  );
+  assert.equal(dispatchKey(keybindings, viewport, {
+    key: "ArrowLeft",
+    shiftKey: true,
+  }).result.handled, false);
+  assert.equal(dispatchKey(keybindings, viewport, {
+    altKey: true,
+    key: "ArrowRight",
+  }).result.handled, false);
 
   viewport.dispatch("pointerdown", {
     button: 1,
@@ -351,7 +419,7 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   assert.equal(viewport.capturedPointer, null);
   assert.equal(viewport.classList.contains("panning"), false);
   platform.dispatch("click");
-  assert.deepEqual(calls, ["n1"]);
+  assert.deepEqual(calls, ["n1", "n2"]);
 
   viewport.dispatch("pointerdown", {
     button: 0,
@@ -369,7 +437,7 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   assert.equal(viewport.capturedPointer, null);
   assert.equal(viewport.classList.contains("panning"), false);
   platform.dispatch("click");
-  assert.deepEqual(calls, ["n1"]);
+  assert.deepEqual(calls, ["n1", "n2"]);
 
   viewport.dispatch("pointerdown", {
     button: 0,
@@ -379,10 +447,11 @@ test("graph pan, zoom, keyboard, controls, and call-node clicks stay coordinated
   });
   viewport.dispatch("pointerup", { pointerId: 9 });
   platform.dispatch("click");
-  assert.deepEqual(calls, ["n1", "n2"]);
+  assert.deepEqual(calls, ["n1", "n2", "n2"]);
 });
 
 test("graph bindings tolerate missing rendered surfaces", () => {
+  const keybindings = new KeybindingRegistry();
   const root = fakeDom.parentNode(new FakeNodeRoot([]));
   assert.doesNotThrow(() => bindTypeGraphNodes(root, () => null));
   assert.doesNotThrow(() => bindDependencyGraphNodes(root, () => null));
@@ -393,5 +462,6 @@ test("graph bindings tolerate missing rendered surfaces", () => {
     fakeDom.parentNode(new FakeContainer([])),
     fakeDom.htmlElement({
       querySelector: () => null,
-    })));
+    }),
+    { keybindings }));
 });

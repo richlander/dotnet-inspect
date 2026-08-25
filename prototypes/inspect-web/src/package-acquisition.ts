@@ -277,6 +277,7 @@ export function createPackageAcquisition(
 
   const runRuntimeOperation = async (
     operation: () => Promise<AppPackage | null>,
+    isCurrent: () => boolean,
   ): Promise<RuntimeAcquisitionResult> => {
     dependencies.beginRuntimeLoad();
     try {
@@ -285,7 +286,7 @@ export function createPackageAcquisition(
         error: null,
       };
     } catch (error) {
-      dependencies.failRuntimeLoad(error);
+      if (isCurrent()) dependencies.failRuntimeLoad(error);
       return {
         packageModel: null,
         error,
@@ -342,7 +343,7 @@ export function createPackageAcquisition(
           }
           dependencies.retainPackage(packageModel, existing);
           return packageModel;
-        });
+        }, isCurrent);
       });
     },
 
@@ -400,7 +401,7 @@ export function createPackageAcquisition(
             requestedAssembly);
           dependencies.retainPackage(packageModel, existing);
           return packageModel;
-        });
+        }, isCurrent);
       });
     },
   };
