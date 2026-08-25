@@ -3451,8 +3451,7 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && (options is MemberOptions { MemberSectionsPreResolved: true }
-               || HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
 
     private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
         => options.JsonOutput
@@ -3460,15 +3459,22 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && (options is MemberOptions { MemberSectionsPreResolved: true }
-               ? sections.Count != 1
-               : options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
-                 && (sections.Count != 1
-                     || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options)));
+           && HasExplicitAnnotatedSourceDocumentSelector(options)
+           && (sections.Count != 1
+               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
-        => options.Select is { Length: > 0 } selectors
-           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.AnnotatedSourceDocument)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool HasExplicitAnnotatedSourceDocumentSelector(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.AnnotatedSourceDocument) == true
+            : options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true;
 
     private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
         => selector.Equals(

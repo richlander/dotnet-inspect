@@ -312,7 +312,7 @@ public record MemberOptions : ApiOptions
     /// preamble. Retained raw selectors are provenance only and must not override that set or
     /// control later member-pipeline transitions.
     /// </summary>
-    public bool MemberSectionsPreResolved { get; init; }
+    internal bool MemberSectionsPreResolved { get; init; }
 
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }

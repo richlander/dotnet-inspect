@@ -13250,6 +13250,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_NonExactSingletonUsesOrdinaryDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                IncludeSections = [SectionNames.AnnotatedSourceDocument],
+                ExactIncludeSectionsOverride = [],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("name", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_NonExactCompositionUsesOrdinaryDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSourceDocument,
+                    SectionNames.Signature
+                ],
+                ExactIncludeSectionsOverride = [],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("name", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
     public async Task Member_AnnotatedSourceDocument_UsesTheSyntaxThePrinterSelected()
     {
         await AssertNodeKind(
