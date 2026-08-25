@@ -274,9 +274,11 @@ check the production site's status bar for the same version and linked commit.
   environment unapproved and retry package publication with the same CI and
   certification run IDs.
 - **The release commit's staging run was cancelled by a newer push:** wait for
-  active staging work to finish, then rerun the original push-triggered run with
-  `gh run rerun <staging-run-id>`. Use that successful rerun for promotion; a
-  manually dispatched staging run is still not promotable.
+  active staging work to finish, then rerun only the failed or cancelled jobs
+  with `gh run rerun <staging-run-id> --failed`. This preserves a successful
+  build's single uploaded artifact while retrying deployment; do not rerun all
+  jobs. Use that successful rerun for promotion. A manually dispatched staging
+  run is still not promotable.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
 - **Either side resolves a different SHA:** cancel the package workflow

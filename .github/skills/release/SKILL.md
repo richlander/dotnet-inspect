@@ -97,8 +97,11 @@ If a newer `main` push cancels the release commit's staging run, wait for active
 staging work to finish and rerun the original push-triggered run:
 
 ```bash
-gh run rerun "$staging_run_id"
+gh run rerun "$staging_run_id" --failed
 ```
 
-Promote that successful rerun. Do not substitute a manual staging dispatch;
-promotion rejects non-push runs.
+Rerun only failed or cancelled jobs so a successful build keeps its single
+uploaded artifact while deployment retries. Do not rerun all jobs, which can
+upload another artifact that promotion rejects. Promote the successful
+failed-job rerun. Do not substitute a manual staging dispatch; promotion rejects
+non-push runs.
