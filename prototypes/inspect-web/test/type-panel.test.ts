@@ -16,6 +16,7 @@ import type {
   TypePanelBindingActions,
   TypeSummary,
 } from "../src/type-panel.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
@@ -77,6 +78,33 @@ function keyboardEvent(key: string) {
     },
   });
   return { event, state };
+}
+
+function bindPanel(
+  root: FakeRoot,
+  actions: TypePanelBindingActions,
+): KeybindingRegistry {
+  const keybindings = new KeybindingRegistry();
+  bindTypePanel(fakeDom.parentNode(root), actions, keybindings);
+  return keybindings;
+}
+
+function dispatchKey(
+  keybindings: KeybindingRegistry,
+  target: FakeElement,
+  input: ReturnType<typeof keyboardEvent>,
+) {
+  const scopedTarget = fakeDom.eventTarget(target);
+  Object.assign(input.event, {
+    altKey: false,
+    ctrlKey: false,
+    defaultPrevented: false,
+    metaKey: false,
+    shiftKey: false,
+    target: scopedTarget,
+    composedPath: () => [scopedTarget],
+  });
+  return keybindings.dispatch(input.event);
 }
 
 function escapeHtml(value: unknown) {
@@ -156,7 +184,10 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("copy-type-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
-    onListKeyDown: event => calls.push(`list:${event.key}`),
+    onListKeyDown: event => {
+      calls.push(`list:${event.key}`);
+      return true;
+    },
     onMemberAccessibilityFilterSelect: value =>
       calls.push(`member-access:${value}`),
     onMemberBack: () => calls.push("member-back"),
@@ -168,8 +199,10 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
-    onMemberFilterKeyDown: (event, value) =>
-      calls.push(`member-filter-key:${event.key}:${value}`),
+    onMemberFilterKeyDown: (event, value) => {
+      calls.push(`member-filter-key:${event.key}:${value}`);
+      return true;
+    },
     onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
     onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
@@ -205,9 +238,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const clear = root.add("#clear-member-filter", new FakeElement());
   const calls: string[] = [];
 
-  bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
+  const keybindings = bindPanel(root, recordingActions(calls));
 
   assert.deepEqual(calls, []);
   kind.dispatch("click");
@@ -225,7 +256,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   ]);
   filter.dispatch("input");
   const arrow = keyboardEvent("ArrowDown");
-  filter.dispatch("keydown", arrow.event);
+  dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
   assert.deepEqual(calls, [
     "member-kind:method",
@@ -258,10 +289,10 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const actions = recordingActions(calls);
   actions.onListKeyDown = event => {
     forwardedListEvent = event;
-    event.preventDefault();
     calls.push(`list:${event.key}`);
+    return true;
   };
-  bindTypePanel(fakeDom.parentNode(root), actions);
+  const keybindings = bindPanel(root, actions);
   namespaceJump.value = "System.Text";
   filter.value = "json";
 
@@ -275,7 +306,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
-  typeList.dispatch("keydown", listKey.event);
+  dispatchKey(keybindings, typeList, listKey);
 
   assert.deepEqual(calls, [
     "type:System.String",
@@ -290,7 +321,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "list:End",
   ]);
   assert.equal(forwardedListEvent, listKey.event);
-  assert.equal(listKey.state.prevented, true);
+  assert.equal(listKey.state.prevented, false);
 });
 
 test("type panel bindings dispatch the rendered member navigation controls", () => {
@@ -304,16 +335,14 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   const showTypes = root.add("#nav-to-types", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
   const calls: string[] = [];
-  bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
+  const keybindings = bindPanel(root, recordingActions(calls));
 
   member.dispatch("click");
   secondMember.dispatch("click");
   overload.dispatch("click");
   secondOverload.dispatch("click");
   showTypes.dispatch("click");
-  typeList.dispatch("keydown", keyboardEvent("Home").event);
+  dispatchKey(keybindings, typeList, keyboardEvent("Home"));
 
   assert.deepEqual(calls, [
     "member:M:Length",
@@ -352,9 +381,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
   const calls: string[] = [];
 
-  bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
+  bindPanel(root, recordingActions(calls));
 
   assert.deepEqual(calls, []);
   jumpKind.dispatch("click");
@@ -402,10 +429,11 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   const typeList = root.add("#type-list", new FakeElement());
   let escapes = 0;
   let listKeys = 0;
-  bindTypePanel(fakeDom.parentNode(root), {
+  const keybindings = bindPanel(root, {
     ...recordingActions([]),
     onListKeyDown: () => {
       listKeys++;
+      return true;
     },
     onTypeFilterEscape: () => {
       escapes++;
@@ -413,14 +441,14 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   });
 
   const ignored = keyboardEvent("a");
-  filter.dispatch("keydown", ignored.event);
+  dispatchKey(keybindings, filter, ignored);
   assert.equal(typeList.focused, false);
   assert.equal(ignored.state.prevented, false);
   assert.equal(escapes, 0);
   assert.equal(listKeys, 0);
 
   const down = keyboardEvent("ArrowDown");
-  filter.dispatch("keydown", down.event);
+  dispatchKey(keybindings, filter, down);
   assert.equal(typeList.focused, true);
   assert.equal(down.state.prevented, true);
   assert.equal(escapes, 0);
@@ -429,7 +457,7 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   typeList.focused = false;
   filter.value = "json";
   const escape = keyboardEvent("Escape");
-  filter.dispatch("keydown", escape.event);
+  dispatchKey(keybindings, filter, escape);
   assert.equal(escapes, 1);
   assert.equal(escape.state.prevented, true);
   assert.equal(typeList.focused, false);
@@ -437,16 +465,14 @@ test("type filter keys preserve list focus and Escape behavior", () => {
 
   filter.value = "";
   const emptyEscape = keyboardEvent("Escape");
-  filter.dispatch("keydown", emptyEscape.event);
+  dispatchKey(keybindings, filter, emptyEscape);
   assert.equal(escapes, 1);
   assert.equal(emptyEscape.state.prevented, false);
 });
 
 test("type panel binding tolerates controls from the inactive nav being absent", () => {
   const root = new FakeRoot();
-  assert.doesNotThrow(() => bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions([])));
+  assert.doesNotThrow(() => bindPanel(root, recordingActions([])));
 });
 
 test("the type nav lists namespace groups with the current type selected", () => {

@@ -719,21 +719,40 @@ that intercepts same-origin in-app anchor clicks
 browser behavior. `dotnet-inspect.ts` remains the sole mutable
 application-state owner: it supplies typed snapshots and explicit transition
 callbacks, calls the one link-navigation binder instead of adding its own
-click listener, and declares its Escape-owning modal layers (Metadata
-Explorer, Settings, graph source, doc viewer, Spotlight) as one explicit
-ordered `KeydownLayer` list rather than an ad hoc if/else chain, so adding a
-new dismissable layer means adding one entry instead of re-deriving its
-priority. `dotnet-inspect.ts` retains asynchronous workspace restoration and
-its remaining DOM event binding. Alt+←/→ and Shift+←/→ drive `navBack()`/
-`navForward()` unless an element-scoped handler (the type list, the graph
-viewport) already claimed the same combo and called `preventDefault()` first;
-Shift+←/→ are further gated on the shared `typing` check so they never steal
-native text-selection inside an input or filter field — Shift+↑/↓ stay
-unclaimed. `test/workspace-navigation.test.ts` gates
+click listener, and registers application-level gestures and context
+predicates with the shared keybinding dispatcher.
+
+`src/keybinding-registry.ts` is a dependency-free general component with no
+inspect-web imports. A registration declares keys, exact modifiers by default,
+priority, an optional event-path scope and context predicate, and a handler
+whose Boolean result distinguishes "matched" from "handled". The registry
+orders active matches by priority and nearest event-path scope, stops at the
+first handled result, and centrally applies `preventDefault()`. A false result
+falls through to the next candidate. Equal-precedence matches produce a
+structured conflict callback while retaining deterministic registration order.
+Event-scoped registrations live in a `WeakMap`; registration also returns an
+explicit disposer.
+
+`src/workbench-keybindings.ts` is the inspect-web adapter: it defines the
+workspace, element, and modal priority policy and reports conflicts. Local
+owners including Spotlight, type/member filters, package tabs, and graph
+interactions register their gestures against the rendered element. The
+composition root registers workspace and modal gestures, then attaches the
+registry's only raw `keydown` listener to `document`. Alt+←/→ and Shift+←/→
+drive `navBack()`/`navForward()`; element-scoped gestures arbitrate in the same
+dispatcher instead of relying on bubbling order or `defaultPrevented`
+cooperation. Shift+←/→ remain gated by the shared typing check so they never
+steal native text selection inside an input or filter field; Shift+↑/↓ stay
+unclaimed globally.
+
+`test/keybinding-registry.test.ts` gates precedence, scoped arbitration,
+handled fallthrough, exact modifiers, conflict reporting, disposal, and the
+original stack-navigation collision. `test/spotlight-identity.test.js` gates
+the single-listener wiring and the complete workbench priority order.
+`test/workspace-navigation.test.ts` gates
 history traversal, stale-entry removal, navigation cancellation, rich and
 legacy URL compatibility, visible invalid-state failures, sandboxed history
-errors, and the link-interception rule;
-`test/spotlight-identity.test.js` gates the composition-root wiring.
+errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
@@ -930,8 +949,9 @@ image rather than the API surface within it, so they share one module the way
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
 the explorer's focus/history stack, lazy `IntersectionObserver` hydration,
-resize coordination, and the global keydown handler, supplying those effects
-through typed callbacks; the shared helpers used well beyond these views
+resize coordination, and global gesture effects, supplying those effects
+through typed callbacks and registry declarations; the shared helpers used
+well beyond these views
 (`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.
