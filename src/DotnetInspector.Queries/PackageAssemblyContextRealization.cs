@@ -294,11 +294,13 @@ public sealed partial class InspectionWorkspace
                 ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
                     openRead,
                     fallbackIdentity,
-                    provenance);
+                    provenance,
+                    out bool usedFallbackIdentity);
             assemblies.Add(new RoleAssembly(
                 asset.Package,
                 asset.Asset,
-                assembly));
+                assembly,
+                IdentityDecoded: !usedFallbackIdentity));
         }
 
         return assemblies.MoveToImmutable();
@@ -408,7 +410,11 @@ public sealed partial class InspectionWorkspace
                 ?? throw new InvalidOperationException(
                     $"The selected implementation asset '{implementationAsset.Path}' "
                     + "is not part of the implementation package role.");
-            if (!surface.Assembly.Identity.IsEquivalentTo(
+            bool identitiesDecoded =
+                surface.IdentityDecoded
+                && implementation.IdentityDecoded;
+            if (identitiesDecoded
+                && !surface.Assembly.Identity.IsEquivalentTo(
                     implementation.Assembly.Identity))
             {
                 throw new InvalidOperationException(
@@ -416,9 +422,10 @@ public sealed partial class InspectionWorkspace
                     + $"{surface.Asset.AssemblyName} have different assembly identities.");
             }
 
-            pairs.Add(new PackageAssemblyRoleCorrespondence(
+            pairs.Add(PackageAssemblyRoleCorrespondence.SelectedAssets(
                 surface.Assembly,
-                implementation.Assembly));
+                implementation.Assembly,
+                identitiesDecoded));
         }
 
         return pairs.ToImmutable();
@@ -472,7 +479,8 @@ public sealed partial class InspectionWorkspace
     sealed record RoleAssembly(
         PackageAssemblyContextSelection Package,
         PackageCompileAsset Asset,
-        ResolvedAssemblyReference Assembly);
+        ResolvedAssemblyReference Assembly,
+        bool IdentityDecoded);
 
     sealed class BoundedPackageEntryStream : Stream
     {

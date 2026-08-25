@@ -360,6 +360,7 @@ public sealed class ResolvedAssemblyReference
         Func<Stream> openRead,
         AssemblyReferenceIdentity fallbackIdentity,
         AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
         DateTime? lastWriteTimeUtc = null)
     {
         ArgumentNullException.ThrowIfNull(openRead);
@@ -400,6 +401,7 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
+        usedFallbackIdentity = identity is null;
         return Create(
             identity ?? fallbackIdentity,
             path: null,

@@ -165,6 +165,64 @@ public sealed class PackageAssemblyContextRealizationTests
             Assert.Single(result.Assemblies.Assemblies));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MalformedPairedAsset_RemainsRejectedAndCorrespondenceIsPreserved(
+        bool malformedSurface)
+    {
+        byte[] healthy =
+            File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
+        byte[] malformed = [1, 2, 3];
+        PackageAssemblyContextSelection package = Selection(
+            "Mixed.Health",
+            (
+                "ref/net11.0/ILInspector.Metadata.dll",
+                malformedSurface ? malformed : healthy),
+            (
+                "lib/net11.0/ILInspector.Metadata.dll",
+                malformedSurface ? healthy : malformed));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        PackageAssemblyRoleParticipant surface =
+            Assert.Single(realization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant implementation =
+            Assert.IsType<PackageAssemblyRoleParticipant>(
+                realization.ImplementationParticipant(surface));
+        AssemblyContextEntry<AssemblyApiSurface> surfaceEntry =
+            Assert.Single(
+                AssemblyContextApiSurfaceQuery.Execute(
+                    realization.SurfaceGroup)
+                .Assemblies.Assemblies);
+        AssemblyContextEntry<AssemblyApiSurface> implementationEntry =
+            Assert.Single(
+                AssemblyContextApiSurfaceQuery.Execute(
+                    realization.ImplementationGroup!)
+                .Assemblies.Assemblies);
+
+        if (malformedSurface)
+        {
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
+                surfaceEntry);
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                implementationEntry);
+        }
+        else
+        {
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                surfaceEntry);
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
+                implementationEntry);
+        }
+        Assert.Same(
+            implementation,
+            realization.ImplementationParticipant(surface));
+    }
+
     [Fact]
     public void IdentityMismatch_CreatesNoPartialRole()
     {
