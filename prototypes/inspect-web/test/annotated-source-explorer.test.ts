@@ -96,7 +96,8 @@ class FakeElement {
   }
 
   contains(value: unknown): boolean {
-    return value === this || this.sourceAffordances.includes(value as FakeElement);
+    return value === this
+      || this.sourceAffordances.some(element => element === value);
   }
 
   focus(): void {
@@ -1248,7 +1249,13 @@ test("roving focus removes the source container from reverse tab order", () => {
   });
   const htmlElementDescriptor =
     Object.getOwnPropertyDescriptor(globalThis, "HTMLElement");
+  const nodeDescriptor =
+    Object.getOwnPropertyDescriptor(globalThis, "Node");
   Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: FakeElement,
+  });
+  Object.defineProperty(globalThis, "Node", {
     configurable: true,
     value: FakeElement,
   });
@@ -1293,6 +1300,11 @@ test("roving focus removes the source container from reverse tab order", () => {
       Object.defineProperty(globalThis, "HTMLElement", htmlElementDescriptor);
     } else {
       Reflect.deleteProperty(globalThis, "HTMLElement");
+    }
+    if (nodeDescriptor) {
+      Object.defineProperty(globalThis, "Node", nodeDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "Node");
     }
   }
 });

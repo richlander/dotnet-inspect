@@ -236,7 +236,7 @@ export function bindAnnotatedSourceExplorer(
     if (event.target !== code) code.tabIndex = -1;
   });
   code?.addEventListener("focusout", event => {
-    if (!event.relatedTarget || !code.contains(event.relatedTarget as Node)) {
+    if (!(event.relatedTarget instanceof Node) || !code.contains(event.relatedTarget)) {
       code.tabIndex = 0;
     }
   });
