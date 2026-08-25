@@ -97,6 +97,8 @@ public static class MethodCorrespondenceResolver
                 Math.Max(sourceMetadataName.Length, 64);
             int correspondenceWorkRemaining =
                 MetadataSafetyPolicy.MaxCorrespondenceAnchorWorkChars;
+            var correspondenceContext =
+                new ApiMemberIdentity.MethodCorrespondenceContext();
             bool? sourceTypeHasExtensionAttribute = null;
             bool sourceIsExtensionMethod =
                 IsExtensionMethod(
@@ -120,7 +122,8 @@ public static class MethodCorrespondenceResolver
                     sourceDeclaringType,
                     sourceMetadataName,
                     ref correspondenceWorkRemaining,
-                    sourceIsExtensionMethod);
+                    sourceIsExtensionMethod,
+                    correspondenceContext);
             MemberAnchor anchor =
                 sourceAnchor.AnchorInfo.Anchor;
             ApiMethodSemantics sourceSemantics =
@@ -212,7 +215,8 @@ public static class MethodCorrespondenceResolver
                                 targetDeclaringType,
                                 sourceMetadataName,
                                 ref correspondenceWorkRemaining,
-                                targetIsExtensionMethod);
+                                targetIsExtensionMethod,
+                                correspondenceContext);
                 }
                 catch (BadImageFormatException ex)
                     when (correspondenceWorkRemaining <= 0

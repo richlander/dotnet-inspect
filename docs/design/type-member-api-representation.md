@@ -84,20 +84,42 @@ normalize to one intrinsic scope across reference and runtime images; all other
 assembly names, normalized cultures, and public-key tokens use
 ordinal-ignore-case comparison, with assembly versions alone omitted. Generic
 parameters compare by validated position rather than metadata spelling, and
-malformed generic indices, declaring-type arity, current-module scopes, or
-rejected type specifications fail visibly. Public durable anchors and strict
-definition correspondence do not request or pay for this API-only projection.
-Scope kinds must still agree: a local TypeDef does not correspond to an
-intrinsic-core-library TypeRef by name alone. Facade-reference normalization is
-reader-pair correspondence only; it does not entitle either reader or any
+malformed generic indices, declaring- or signature-type arity, generic
+instantiation counts, array shapes, current-module scopes, or rejected type
+specifications fail visibly; valid array sizes and lower bounds remain
+structural correspondence facts even though the durable C#-shaped anchor
+renders only rank. Public durable anchors and strict definition
+correspondence do not request or pay for this API-only projection. Scope kinds
+must still agree unless the image that spells the type as an
+intrinsic-core-library TypeRef supplies an exact type-forwarder root: a local
+TypeDef corresponds only when the other image forwards the same namespace and
+root segment to a platform-keyed core-library facade. This relationship covers
+reference-pack definitions that become runtime core-library references without
+permitting name-alone correspondence. Malformed or unrelated exported rows
+provide no authorization. Facade-reference and forwarder normalization are
+reader-pair correspondence only; they do not entitle either reader or any
 definition to mint core-library identity.
 `ResolveApiMember_AssemblyScopeCaseFoldingUsesOrdinalIdentity`,
 `ResolveApiMember_ReferencePackCoreLibraryFacadeMatchesRuntime`,
+`ResolveApiMember_ReferencePackTypeDefMatchesRuntimeCoreLibraryForwarder`,
+`ResolveApiMember_CurrentTypeDefMatchesTargetCoreLibraryForwarder`,
+`ResolveApiMember_CurrentTypeDefWithoutTargetForwarderIsAbsent`,
+`ResolveApiMember_NestedCurrentTypeDefUsesForwardedRoot`,
+`ResolveApiMember_NestedCurrentTypeDefDoesNotUseLeafForwarder`,
+`ResolveApiMember_TargetForwardersAreChargedOncePerReader`,
+`ResolveApiMember_UnrelatedMalformedForwarderDoesNotAuthorizeOrFail`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,
 `ResolveApiMember_OutOfRangeGenericParameterIndexFails`,
 `ResolveApiMember_RejectedTypeSpecificationFails`,
-`ResolveApiMember_DeclaringTypeArityMismatchFails`, and
-`DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlySize` are the gates.
+`ResolveApiMember_DeclaringTypeArityMismatchFails`,
+`ResolveApiMember_SignatureTypeDefArityMismatchFailsInEitherImage`,
+`ResolveApiMember_GenericInstantiationArgumentCountMismatchFails`,
+`ResolveApiMember_InvalidArrayShapeFailsInEitherImage`,
+`ResolveApiMember_ZeroRankArrayFails`,
+`ResolveApiMember_ArraySizeDifferenceIsAbsent`,
+`DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlySize`, and
+`DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlyMalformedShapes` are the
+gates.
 
 #### `DotnetInspector.Queries`
 

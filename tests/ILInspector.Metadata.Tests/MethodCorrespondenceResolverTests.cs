@@ -683,6 +683,174 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_CurrentTypeDefMatchesTargetCoreLibraryForwarder()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_CurrentTypeDefWithoutTargetForwarderIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: false));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_TargetForwardersAreChargedOncePerReader()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                methodCount: 100,
+                noiseForwarderCount: 2_000));
+
+        Assert.Equal(MethodCorrespondenceStatus.Ambiguous, result.Status);
+        Assert.Equal(100, result.Candidates.Count);
+    }
+
+    [Fact]
+    public void ResolveApiMember_UnrelatedMalformedForwarderDoesNotAuthorizeOrFail()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                includeMalformedForwarder: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_NestedCurrentTypeDefUsesForwardedRoot()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false,
+                nested: true),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                nested: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_NestedCurrentTypeDefDoesNotUseLeafForwarder()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false,
+                nested: true),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                nested: true,
+                forwardedRootName: "Inner"));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReferencePackTypeDefMatchesRuntimeCoreLibraryForwarder()
+    {
+        const string AssemblyFileName =
+            "System.Runtime.InteropServices.dll";
+        string? referencePath =
+            FindPlatformReferenceAssembly(AssemblyFileName);
+        string runtimePath = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            AssemblyFileName);
+        Assert.SkipWhen(
+            referencePath is null || !File.Exists(runtimePath),
+            "The matching reference-pack and runtime assemblies are unavailable.");
+
+        using var sourcePe =
+            new PEReader(File.OpenRead(referencePath));
+        using var targetPe =
+            new PEReader(File.OpenRead(runtimePath));
+        MetadataReader source = sourcePe.GetMetadataReader();
+        MetadataReader target = targetPe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod = FindMethod(
+            source,
+            "SecureStringMarshal",
+            "SecureStringToCoTaskMemAnsi");
+        MethodDefinitionHandle targetMethod = FindMethod(
+            target,
+            "SecureStringMarshal",
+            "SecureStringToCoTaskMemAnsi");
+        Assert.Equal(
+            HandleKind.TypeDefinition,
+            ReadSingleParameterTypeHandle(
+                source,
+                sourceMethod).Kind);
+        Assert.Equal(
+            HandleKind.TypeReference,
+            ReadSingleParameterTypeHandle(
+                target,
+                targetMethod).Kind);
+        EntityHandle targetParameter =
+            ReadSingleParameterTypeHandle(
+                target,
+                targetMethod);
+        TypeReference targetReference =
+            target.GetTypeReference(
+                (TypeReferenceHandle)targetParameter);
+        Assert.Equal(
+            HandleKind.AssemblyReference,
+            targetReference.ResolutionScope.Kind);
+        Assert.True(
+            PlatformKeys.IsCoreLibraryFacadeReference(
+                AssemblyReferenceIdentity.From(
+                    target,
+                    (AssemblyReferenceHandle)
+                        targetReference.ResolutionScope)));
+        AssertCoreLibraryForwarder(
+            target,
+            "System.Security",
+            "SecureString");
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.ResolveApiMember(
+                source,
+                MetadataMethodAddress.Create(source, sourceMethod),
+                target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+        Assert.Equal(targetMethod, result.Target?.Handle);
+    }
+
+    [Fact]
     public void ResolveApiMember_DifferentAssemblyCultureIsAbsent()
     {
         MethodCorrespondenceResult result = ResolveApiMember(
@@ -842,6 +1010,84 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_InvalidArrayShapeFailsInEitherImage()
+    {
+        byte[] valid = BuildMethodSignatureImage(
+            [0x00, 0x01, 0x01, 0x14, 0x08, 0x01, 0x00, 0x00]);
+        byte[] invalid = BuildMethodSignatureImage(
+            [0x00, 0x01, 0x01, 0x14, 0x08, 0x01, 0x02, 0x03, 0x04, 0x00]);
+
+        MethodCorrespondenceResult invalidTarget =
+            ResolveApiMember(valid, invalid);
+        MethodCorrespondenceResult invalidSource =
+            ResolveApiMember(invalid, valid);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, invalidTarget.Status);
+        Assert.Contains("array shape", invalidTarget.Failure);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, invalidSource.Status);
+        Assert.Contains("array shape", invalidSource.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ZeroRankArrayFails()
+    {
+        byte[] image = BuildMethodSignatureImage(
+            [0x00, 0x01, 0x01, 0x14, 0x08, 0x00, 0x00, 0x00]);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("array shape", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ArraySizeDifferenceIsAbsent()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildMethodSignatureImage(
+                [0x00, 0x01, 0x01, 0x14, 0x08, 0x01, 0x01, 0x03, 0x00]),
+            BuildMethodSignatureImage(
+                [0x00, 0x01, 0x01, 0x14, 0x08, 0x01, 0x01, 0x04, 0x00]));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_SignatureTypeDefArityMismatchFailsInEitherImage()
+    {
+        byte[] valid =
+            BuildSignatureGenericTypeImage(genericParameterRows: 2);
+        byte[] invalid =
+            BuildSignatureGenericTypeImage(genericParameterRows: 1);
+
+        MethodCorrespondenceResult invalidTarget =
+            ResolveApiMember(valid, invalid);
+        MethodCorrespondenceResult invalidSource =
+            ResolveApiMember(invalid, valid);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, invalidTarget.Status);
+        Assert.Contains("metadata-name arity", invalidTarget.Failure);
+        Assert.Equal(MethodCorrespondenceStatus.Failed, invalidSource.Status);
+        Assert.Contains("metadata-name arity", invalidSource.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_GenericInstantiationArgumentCountMismatchFails()
+    {
+        byte[] image = BuildSignatureGenericTypeImage(
+            genericParameterRows: 2,
+            encodedArgumentCount: 1);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("argument count", result.Failure);
+    }
+
+    [Fact]
     public void ResolveApiMember_TypeExtensionAttributesAreChargedOnce()
     {
         byte[] sourceImage =
@@ -977,6 +1223,49 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Equal(MethodCorrespondenceStatus.Exact, strict.Status);
         Assert.Equal(MethodCorrespondenceStatus.Failed, api.Status);
         Assert.Contains("encoded-character budget", api.Failure);
+    }
+
+    [Fact]
+    public void DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlyMalformedShapes()
+    {
+        byte[][] images =
+        [
+            BuildMethodSignatureImage(
+                [0x00, 0x01, 0x01, 0x14, 0x08, 0x00, 0x00, 0x00]),
+            BuildSignatureGenericTypeImage(genericParameterRows: 1),
+        ];
+
+        foreach (byte[] image in images)
+        {
+            using var sourcePe =
+                new PEReader(new MemoryStream(image));
+            using var targetPe =
+                new PEReader(new MemoryStream(image));
+            MetadataReader source = sourcePe.GetMetadataReader();
+            MetadataReader target = targetPe.GetMetadataReader();
+            MethodDefinitionHandle handle =
+                source.MethodDefinitions.Single();
+            MethodDefinition method =
+                source.GetMethodDefinition(handle);
+
+            _ = ApiMemberIdentity.CreateMethodAnchorInfo(
+                source,
+                method.GetDeclaringType(),
+                method);
+            MethodCorrespondenceResult strict =
+                MethodCorrespondenceResolver.Resolve(
+                    source,
+                    MetadataMethodAddress.Create(source, handle),
+                    target);
+            MethodCorrespondenceResult api =
+                MethodCorrespondenceResolver.ResolveApiMember(
+                    source,
+                    MetadataMethodAddress.Create(source, handle),
+                    target);
+
+            Assert.Equal(MethodCorrespondenceStatus.Exact, strict.Status);
+            Assert.Equal(MethodCorrespondenceStatus.Failed, api.Status);
+        }
     }
 
     [Fact]
@@ -1936,6 +2225,186 @@ public sealed class MethodCorrespondenceResolverTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildCurrentToCoreLibraryForwarderImage(
+        bool useTypeDefinition,
+        bool includeForwarder,
+        int methodCount = 1,
+        int noiseForwarderCount = 0,
+        bool nested = false,
+        string forwardedRootName = "T",
+        bool includeMalformedForwarder = false)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("CurrentToCoreLibrary");
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    }),
+                default,
+                default);
+        EntityHandle signatureType;
+        if (useTypeDefinition)
+        {
+            TypeDefinitionHandle root =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("T"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2));
+            signatureType = root;
+            if (nested)
+            {
+                TypeDefinitionHandle leaf =
+                    metadata.AddTypeDefinition(
+                        TypeAttributes.NestedPublic,
+                        default,
+                        metadata.GetOrAddString("Inner"),
+                        default,
+                        MetadataTokens.FieldDefinitionHandle(1),
+                        MetadataTokens.MethodDefinitionHandle(2));
+                metadata.AddNestedType(leaf, root);
+                signatureType = leaf;
+            }
+        }
+        else
+        {
+            TypeReferenceHandle root =
+                metadata.AddTypeReference(
+                    coreLibrary,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("T"));
+            signatureType = root;
+            if (nested)
+            {
+                signatureType =
+                    metadata.AddTypeReference(
+                        root,
+                        default,
+                        metadata.GetOrAddString("Inner"));
+            }
+        }
+        if (includeForwarder)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public
+                    | (TypeAttributes)0x00200000,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(forwardedRootName),
+                coreLibrary,
+                typeDefinitionId: 0);
+        }
+        for (int i = 0; i < noiseForwarderCount; i++)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public
+                    | (TypeAttributes)0x00200000,
+                metadata.GetOrAddString("Noise"),
+                metadata.GetOrAddString($"T{i}"),
+                coreLibrary,
+                typeDefinitionId: 0);
+        }
+        if (includeMalformedForwarder)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public
+                    | (TypeAttributes)0x00200000,
+                metadata.GetOrAddString("Noise"),
+                metadata.GetOrAddString("Malformed"),
+                MetadataTokens.AssemblyReferenceHandle(2),
+                typeDefinitionId: 0);
+        }
+
+        int codedIndex =
+            signatureType.Kind switch
+            {
+                HandleKind.TypeDefinition =>
+                    MetadataTokens.GetRowNumber(
+                        (TypeDefinitionHandle)signatureType)
+                        << 2,
+                HandleKind.TypeReference =>
+                    (MetadataTokens.GetRowNumber(
+                        (TypeReferenceHandle)signatureType)
+                        << 2) | 1,
+                _ => throw new InvalidOperationException(),
+            };
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(codedIndex);
+        BlobHandle signatureBlob =
+            metadata.GetOrAddBlob(signature);
+        StringHandle methodName =
+            metadata.GetOrAddString("M");
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signatureBlob,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSignatureGenericTypeImage(
+        int genericParameterRows,
+        int encodedArgumentCount = 2)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "SignatureGenericType",
+                "C",
+                out _);
+        TypeDefinitionHandle genericType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("G`2"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(genericType) << 2);
+        signature.WriteCompressedInteger(encodedArgumentCount);
+        for (int i = 0; i < encodedArgumentCount; i++)
+            signature.WriteByte(0x08);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        for (int i = 0; i < genericParameterRows; i++)
+        {
+            metadata.AddGenericParameter(
+                genericType,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{i}"),
+                index: i);
+        }
+        return Serialize(metadata);
+    }
+
     static byte[] BuildModifiedReturnMethodImage(
         bool? required,
         string? modifierName)
@@ -2598,7 +3067,7 @@ public sealed class MethodCorrespondenceResolverTests
         metadata.AddTypeReference(
             assembly,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("G"));
+            metadata.GetOrAddString($"G`{genericArity}"));
 
         var typeSpecSignature = new BlobBuilder();
         typeSpecSignature.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
@@ -3069,6 +3538,28 @@ public sealed class MethodCorrespondenceResolverTests
         throw new InvalidOperationException($"Method '{typeName}::{methodName}' was not found.");
     }
 
+    static EntityHandle ReadSingleParameterTypeHandle(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle)
+    {
+        BlobReader signature = reader.GetBlobReader(
+            reader.GetMethodDefinition(methodHandle).Signature);
+        _ = signature.ReadByte();
+        Assert.Equal(1, signature.ReadCompressedInteger());
+        _ = signature.ReadByte();
+        Assert.Equal(0x12, signature.ReadByte());
+        int codedIndex = signature.ReadCompressedInteger();
+        int row = codedIndex >> 2;
+        return (codedIndex & 3) switch
+        {
+            0 => MetadataTokens.TypeDefinitionHandle(row),
+            1 => MetadataTokens.TypeReferenceHandle(row),
+            2 => MetadataTokens.TypeSpecificationHandle(row),
+            _ => throw new BadImageFormatException(
+                "The signature contains an invalid TypeDefOrRef coded index."),
+        };
+    }
+
     static string? FindPlatformReferenceAssembly(
         string fileName)
     {
@@ -3116,6 +3607,50 @@ public sealed class MethodCorrespondenceResolverTests
         return AssemblyReferenceIdentity.From(
             reader,
             (AssemblyReferenceHandle)scope);
+    }
+
+    static void AssertCoreLibraryForwarder(
+        MetadataReader reader,
+        string @namespace,
+        string name)
+    {
+        Span<ExportedTypeHandle> rootToLeaf =
+            stackalloc ExportedTypeHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        foreach (ExportedTypeHandle handle in reader.ExportedTypes)
+        {
+            Assert.True(
+                MetadataRelationshipTraversal
+                    .TryWalkExportedTypeImplementationChain(
+                        reader,
+                        handle,
+                        rootToLeaf,
+                        out int consumed,
+                        out EntityHandle terminal,
+                        out _));
+            if (consumed == 0
+                || terminal.Kind != HandleKind.AssemblyReference)
+            {
+                continue;
+            }
+            ExportedType root =
+                reader.GetExportedType(rootToLeaf[0]);
+            if (!root.IsForwarder
+                || reader.GetString(root.Namespace) != @namespace
+                || reader.GetString(root.Name) != name)
+            {
+                continue;
+            }
+            Assert.True(
+                PlatformKeys.IsCoreLibraryFacadeReference(
+                    AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)terminal)));
+            return;
+        }
+        Assert.Fail(
+            $"Expected {reader.GetString(reader.GetAssemblyDefinition().Name)} "
+                + $"to forward '{@namespace}.{name}' to a core-library facade.");
     }
 
     static MethodCorrespondenceResult ResolveApiMember(

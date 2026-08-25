@@ -82,6 +82,29 @@ public sealed record ExtensionMemberAnchorInfo(
 /// </summary>
 public static class ApiMemberIdentity
 {
+    internal sealed class MethodCorrespondenceContext
+    {
+        readonly Dictionary<
+            MetadataReader,
+            HashSet<(string Namespace, string Name)>>
+            _intrinsicCoreLibraryForwardedRoots = [];
+
+        internal HashSet<(string Namespace, string Name)>
+            GetOrAddIntrinsicCoreLibraryForwardedRoots(
+            MetadataReader reader,
+            Func<HashSet<(string Namespace, string Name)>> create)
+        {
+            if (!_intrinsicCoreLibraryForwardedRoots.TryGetValue(
+                    reader,
+                    out HashSet<(string Namespace, string Name)>? roots))
+            {
+                roots = create();
+                _intrinsicCoreLibraryForwardedRoots.Add(reader, roots);
+            }
+            return roots;
+        }
+    }
+
     internal sealed class MethodTypeCorrespondence
     {
         readonly AnchorSignatureType _type;
@@ -119,13 +142,14 @@ public static class ApiMemberIdentity
         AssemblyReferenceIdentity? Assembly,
         string? ModuleName,
         string Namespace,
-        ImmutableArray<string> Segments)
+        ImmutableArray<string> Segments,
+        int GenericArity,
+        bool AuthorizesCurrentToIntrinsicCoreLibrary)
     {
         internal bool CorrespondsTo(
             NamedTypeCorrespondenceIdentity other)
         {
-            if (ScopeKind != other.ScopeKind
-                || !Namespace.Equals(
+            if (!Namespace.Equals(
                     other.Namespace,
                     StringComparison.Ordinal)
                 || !Segments.SequenceEqual(
@@ -134,6 +158,22 @@ public static class ApiMemberIdentity
             {
                 return false;
             }
+
+            if (ScopeKind == NamedTypeScopeKind.Current
+                && other.ScopeKind
+                    == NamedTypeScopeKind.IntrinsicCoreLibrary)
+            {
+                return other
+                    .AuthorizesCurrentToIntrinsicCoreLibrary;
+            }
+            if (ScopeKind
+                    == NamedTypeScopeKind.IntrinsicCoreLibrary
+                && other.ScopeKind == NamedTypeScopeKind.Current)
+            {
+                return AuthorizesCurrentToIntrinsicCoreLibrary;
+            }
+            if (ScopeKind != other.ScopeKind)
+                return false;
 
             return ScopeKind switch
             {
@@ -448,10 +488,14 @@ public static class ApiMemberIdentity
     {
         internal readonly AnchorSignatureType _elementType;
         internal readonly int _rank;
+        internal readonly ImmutableArray<int> _sizes;
+        internal readonly ImmutableArray<int> _lowerBounds;
 
         internal ArrayAnchorSignatureType(
             AnchorSignatureType elementType,
-            int rank)
+            int rank,
+            ImmutableArray<int> sizes,
+            ImmutableArray<int> lowerBounds)
             : base(
                 CheckedLength(
                     elementType.Length,
@@ -461,6 +505,8 @@ public static class ApiMemberIdentity
         {
             _elementType = elementType;
             _rank = rank;
+            _sizes = sizes;
+            _lowerBounds = lowerBounds;
         }
 
         internal override void AppendTo(StringBuilder builder)
@@ -875,6 +921,8 @@ public static class ApiMemberIdentity
             (ArrayAnchorSignatureType l,
                 ArrayAnchorSignatureType r) =>
                 l._rank == r._rank
+                && l._sizes.SequenceEqual(r._sizes)
+                && l._lowerBounds.SequenceEqual(r._lowerBounds)
                 && CorrespondenceTypesEqual(
                     l._elementType,
                     r._elementType,
@@ -1082,15 +1130,19 @@ public static class ApiMemberIdentity
     {
         readonly AnchorSignatureWorkBudget _workBudget;
         readonly bool _includeCorrespondence;
+        readonly MethodCorrespondenceContext?
+            _correspondenceContext;
         Dictionary<TypeDefinitionHandle, AnchorSignatureType>? _definitionCache;
         Dictionary<TypeReferenceHandle, AnchorSignatureType>? _referenceCache;
 
         internal AnchorSignatureTypeProvider(
             AnchorSignatureWorkBudget workBudget,
-            bool includeCorrespondence = false)
+            bool includeCorrespondence = false,
+            MethodCorrespondenceContext? correspondenceContext = null)
         {
             _workBudget = workBudget;
             _includeCorrespondence = includeCorrespondence;
+            _correspondenceContext = correspondenceContext;
         }
 
         public AnchorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
@@ -1218,10 +1270,22 @@ public static class ApiMemberIdentity
         public AnchorSignatureType GetArrayType(
             AnchorSignatureType elementType,
             ArrayShape shape)
-            => Composite(
+        {
+            if (_includeCorrespondence
+                && (shape.Rank <= 0
+                    || shape.Sizes.Length > shape.Rank
+                    || shape.LowerBounds.Length > shape.Rank))
+            {
+                throw new BadImageFormatException(
+                    "The signature contains an invalid array shape.");
+            }
+            return Composite(
                 new ArrayAnchorSignatureType(
                     elementType,
-                    shape.Rank));
+                    shape.Rank,
+                    shape.Sizes,
+                    shape.LowerBounds));
+        }
 
         public AnchorSignatureType GetByReferenceType(
             AnchorSignatureType elementType)
@@ -1241,8 +1305,21 @@ public static class ApiMemberIdentity
         public AnchorSignatureType GetGenericInstantiation(
             AnchorSignatureType genericType,
             ImmutableArray<AnchorSignatureType> typeArguments)
-            => Composite(
+        {
+            if (_includeCorrespondence)
+            {
+                NamedTypeCorrespondenceIdentity identity =
+                    GetPreparedNamedTypeCorrespondenceIdentity(
+                        genericType);
+                if (identity.GenericArity != typeArguments.Length)
+                {
+                    throw new BadImageFormatException(
+                        "The generic instantiation argument count does not match the named type's arity.");
+                }
+            }
+            return Composite(
                 new GenericAnchorSignatureType(genericType, typeArguments));
+        }
 
         public AnchorSignatureType GetGenericTypeParameter(
             GenericContext? context,
@@ -1650,6 +1727,11 @@ public static class ApiMemberIdentity
             MetadataReader reader,
             TypeDefinitionHandle handle)
         {
+            int genericArity =
+                ValidateCorrespondenceTypeDefinitionGenericArity(
+                    reader,
+                    handle,
+                    _workBudget);
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[
                     MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1684,7 +1766,9 @@ public static class ApiMemberIdentity
                 MetadataSafetyPolicy.ReadStructuralString(
                     reader,
                     reader.GetTypeDefinition(chain[0]).Namespace),
-                segments.MoveToImmutable());
+                segments.MoveToImmutable(),
+                genericArity,
+                AuthorizesCurrentToIntrinsicCoreLibrary: false);
         }
 
         NamedTypeCorrespondenceIdentity
@@ -1761,14 +1845,150 @@ public static class ApiMemberIdentity
                         reader,
                         reader.GetTypeReference(chain[i]).Name));
             }
+            ImmutableArray<string> segmentArray =
+                segments.MoveToImmutable();
+            string @namespace =
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetTypeReference(chain[0]).Namespace);
             return new NamedTypeCorrespondenceIdentity(
                 scopeKind,
                 assembly,
                 moduleName,
-                MetadataSafetyPolicy.ReadStructuralString(
+                @namespace,
+                segmentArray,
+                GetMetadataNameGenericArity(segmentArray),
+                scopeKind
+                    == NamedTypeScopeKind.IntrinsicCoreLibrary
+                    && IsIntrinsicCoreLibraryForwardedRoot(
+                        reader,
+                        @namespace,
+                        segmentArray[0]));
+        }
+
+        bool IsIntrinsicCoreLibraryForwardedRoot(
+            MetadataReader reader,
+            string @namespace,
+            string name)
+        {
+            MethodCorrespondenceContext context =
+                _correspondenceContext
+                ?? throw new InvalidOperationException(
+                    "Correspondence construction requires an operation context.");
+            HashSet<(string Namespace, string Name)> roots =
+                context.GetOrAddIntrinsicCoreLibraryForwardedRoots(
                     reader,
-                    reader.GetTypeReference(chain[0]).Namespace),
-                segments.MoveToImmutable());
+                    ReadIntrinsicCoreLibraryForwardedRoots);
+            return roots.Contains((@namespace, name));
+
+            HashSet<(string Namespace, string Name)>
+                ReadIntrinsicCoreLibraryForwardedRoots()
+            {
+                var forwardedRoots =
+                    new HashSet<(string Namespace, string Name)>();
+                Span<ExportedTypeHandle> rootToLeaf =
+                    stackalloc ExportedTypeHandle[
+                        MetadataSafetyPolicy.MaxRelationshipNodes];
+                foreach (ExportedTypeHandle handle in reader.ExportedTypes)
+                {
+                    _workBudget.Charge(LeafNodeWorkUnits);
+                    if (!MetadataRelationshipTraversal
+                            .TryWalkExportedTypeImplementationChain(
+                                reader,
+                                handle,
+                                rootToLeaf,
+                                out int consumed,
+                                out EntityHandle terminal,
+                                out _)
+                        || consumed == 0)
+                    {
+                        // A malformed unrelated row cannot authorize a scope
+                        // equivalence. Treat it as absent evidence rather than
+                        // failing correspondence for another type.
+                        continue;
+                    }
+                    if (terminal.Kind != HandleKind.AssemblyReference)
+                        continue;
+
+                    try
+                    {
+                        ExportedType root =
+                            reader.GetExportedType(rootToLeaf[0]);
+                        if (!root.IsForwarder)
+                            continue;
+                        AssemblyReferenceIdentity target =
+                            AssemblyReferenceIdentity.From(
+                                reader,
+                                (AssemblyReferenceHandle)terminal);
+                        if (!PlatformKeys.IsCoreLibraryFacadeReference(target))
+                            continue;
+
+                        forwardedRoots.Add(
+                            (
+                                ReadStructuralString(
+                                    reader,
+                                    root.Namespace,
+                                    _workBudget),
+                                ReadStructuralString(
+                                    reader,
+                                    root.Name,
+                                    _workBudget)));
+                    }
+                    catch (Exception ex) when (
+                        ex is BadImageFormatException
+                            or ArgumentOutOfRangeException)
+                    {
+                        // As above, an invalid row supplies no authority for
+                        // a correspondence involving another type.
+                        continue;
+                    }
+                }
+                return forwardedRoots;
+            }
+        }
+
+        static int GetMetadataNameGenericArity(
+            ImmutableArray<string> segments)
+        {
+            try
+            {
+                int arity = 0;
+                foreach (string segment in segments)
+                {
+                    if (MetadataNameArity.TryReadSuffix(
+                            segment,
+                            out int segmentArity,
+                            out _))
+                    {
+                        arity = checked(arity + segmentArity);
+                    }
+                }
+                return arity;
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The named type's generic arity exceeds the metadata limit.",
+                    ex);
+            }
+        }
+
+        static NamedTypeCorrespondenceIdentity
+            GetPreparedNamedTypeCorrespondenceIdentity(
+            AnchorSignatureType type)
+        {
+            switch (type)
+            {
+                case LazyTypeDefinitionAnchorSignatureType definition:
+                    definition.PrepareCorrespondenceIdentity();
+                    return definition.GetCorrespondenceIdentity();
+                case LazyTypeReferenceAnchorSignatureType reference:
+                    reference.PrepareCorrespondenceIdentity();
+                    return reference.GetCorrespondenceIdentity();
+                default:
+                    throw new BadImageFormatException(
+                        "A generic instantiation must reference a named type.");
+            }
         }
 
         static void ValidateCurrentModuleScope(
@@ -2002,13 +2222,19 @@ public static class ApiMemberIdentity
             TypeDefinitionHandle typeHandle,
             MethodDefinition method,
             bool isExtensionMethod = false)
-        => CreateMethodCorrespondenceAnchorInfo(
+    {
+        var correspondenceContext =
+            new MethodCorrespondenceContext();
+        return CreateMethodCorrespondenceAnchorInfo(
             CreateMethodAnchorShape(
                 reader,
                 typeHandle,
                 method,
                 isExtensionMethod,
-                includeCorrespondence: true));
+                includeCorrespondence: true,
+                correspondenceContext:
+                    correspondenceContext));
+    }
 
     /// <summary>
     /// Creates a method anchor while drawing from a caller-owned cumulative
@@ -2113,7 +2339,8 @@ public static class ApiMemberIdentity
         MethodAnchorDeclaringTypeContext declaringType,
         string metadataName,
         ref int scanWorkRemaining,
-        bool isExtensionMethod = false)
+        bool isExtensionMethod = false,
+        MethodCorrespondenceContext? correspondenceContext = null)
     {
         ArgumentNullException.ThrowIfNull(declaringType);
         ArgumentNullException.ThrowIfNull(metadataName);
@@ -2134,6 +2361,8 @@ public static class ApiMemberIdentity
             MetadataSafetyPolicy.MaxAnchorSignatureWorkChars);
         var workBudget =
             new AnchorSignatureWorkBudget(anchorAllowance);
+        correspondenceContext ??=
+            new MethodCorrespondenceContext();
         try
         {
             MethodAnchorShape shape =
@@ -2145,7 +2374,9 @@ public static class ApiMemberIdentity
                     workBudget,
                     declaringType,
                     metadataName,
-                    includeCorrespondence: true);
+                    includeCorrespondence: true,
+                    correspondenceContext:
+                        correspondenceContext);
             UpdateScanWorkRemaining(
                 ref scanWorkRemaining,
                 anchorAllowance,
@@ -2313,7 +2544,8 @@ public static class ApiMemberIdentity
         AnchorSignatureWorkBudget? workBudget = null,
         MethodAnchorDeclaringTypeContext? declaringType = null,
         string? knownMetadataName = null,
-        bool includeCorrespondence = false)
+        bool includeCorrespondence = false,
+        MethodCorrespondenceContext? correspondenceContext = null)
     {
         var type = reader.GetTypeDefinition(typeHandle);
         workBudget ??= new AnchorSignatureWorkBudget();
@@ -2337,14 +2569,15 @@ public static class ApiMemberIdentity
                 workBudget.Charge);
         if (includeCorrespondence)
         {
-            ValidateCorrespondenceDeclaringTypeGenericArity(
+            ValidateCorrespondenceTypeDefinitionGenericArity(
                 reader,
                 typeHandle,
                 workBudget);
         }
         var provider = new AnchorSignatureTypeProvider(
             workBudget,
-            includeCorrespondence);
+            includeCorrespondence,
+            correspondenceContext);
         var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
@@ -2428,7 +2661,7 @@ public static class ApiMemberIdentity
             signature.RequiredParameterCount);
     }
 
-    static void ValidateCorrespondenceDeclaringTypeGenericArity(
+    static int ValidateCorrespondenceTypeDefinitionGenericArity(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         AnchorSignatureWorkBudget workBudget)
@@ -2480,10 +2713,11 @@ public static class ApiMemberIdentity
                     && introducedGenericCount != 0))
             {
                 throw new BadImageFormatException(
-                    "The declaring type's metadata-name arity does not match its generic parameters.");
+                    "The type's metadata-name arity does not match its generic parameters.");
             }
             enclosingGenericCount = cumulativeGenericCount;
         }
+        return enclosingGenericCount;
     }
 
     static string ReadStructuralString(
