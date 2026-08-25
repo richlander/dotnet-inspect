@@ -144,7 +144,7 @@ export function renderPackageQueryView(options: RenderPackageQueryOptions): stri
         // non-empty results), just with the failure folded into the same
         // message rather than dropped.
         : state.outcome.completion.kind === "bounded"
-          ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches within the bound</h2><p>Searched ${escapeHtml(state.outcome.completion.reason)} — not the whole scope.${state.outcome.failures.length ? " Some sources also failed above." : ""} Broaden the facets or raise the limit to look further.</p></section>`
+          ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches within the bound</h2><p>Searched ${escapeHtml(state.outcome.completion.reason)} — not the whole scope.${state.outcome.failures.length ? " Some sources also failed above, so this is not a confirmed empty result within that bound." : ""} Broaden the facets or raise the limit to look further.</p></section>`
           : state.outcome.failures.length
           ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
           : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`

@@ -229,6 +229,11 @@ test("a bounded-complete zero-row outcome with a partial failure keeps the bound
   assert.match(html, /first 1,500 relevance-ranked ids/);
   assert.match(html, /feed Y unreachable/);
   assert.doesNotMatch(html, /<h2>No matches found — with failures<\/h2>/);
+  // The bound alone isn't enough: every other failure-adjacent empty state
+  // in this file says explicitly that the result isn't confirmed. This one
+  // must too, or a reader could mistake "no matches within the bound" for a
+  // confident zero despite the concurrent source failure.
+  assert.match(html, /not a confirmed empty result/);
 });
 
 test("zero rows plus a failure never renders as a confirmed empty result", () => {
