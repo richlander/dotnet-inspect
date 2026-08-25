@@ -111,6 +111,11 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
 
 const MAX_SELECTION_DETAILS = 50;
 const MAX_FINDING_PEEK_LINES = 8;
+const REMOTE_FINDING_DESCRIPTORS = new Set([
+  "cost.callee",
+  "safety.callee",
+  "semantics.callee",
+]);
 const preparedDocuments = new WeakMap<AnnotatedSourceDocument, PreparedAnnotatedView>();
 const preparedSyntax = new WeakMap<
   AnnotatedSourceDocument,
@@ -235,7 +240,9 @@ export function bindAnnotatedSourceExplorer(
   const code = root.querySelector<HTMLElement>(".ase-code-scroll");
   code?.addEventListener("keydown", event => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const spans = [...code.querySelectorAll<HTMLElement>("[data-ase-offset]")];
+    const spans = [
+      ...code.querySelectorAll<HTMLElement>("[data-ase-source-affordance]"),
+    ];
     if (spans.length === 0) return;
     const currentIndex = code.ownerDocument.activeElement instanceof HTMLElement
       ? spans.indexOf(code.ownerDocument.activeElement)
@@ -301,15 +308,21 @@ export function createAnnotatedSourceExplorerState(
   document: AnnotatedSourceDocument,
   initial: Partial<Omit<AnnotatedSourceExplorerState, "prepared">> = {},
 ): AnnotatedSourceExplorerState {
+  const prepared = preparedDocument(document);
   const anchoredFactIds = new Set(document.targets.map(target => target.fact_id));
   const media = {
     CSharp: initial.media?.CSharp !== false,
     Il: initial.media?.Il === true,
   };
-  if (!MEDIA.some(medium => media[medium])) media.CSharp = true;
+  if (!hasVisibleSource(prepared, media)) {
+    media.CSharp = prepared.lines.some(line =>
+      line.medium === "CSharp" || line.medium === "Mixed");
+    media.Il = !media.CSharp
+      && prepared.lines.some(line => line.medium === "Il");
+  }
 
   return {
-    prepared: preparedDocument(document),
+    prepared,
     media,
     codeLens: initial.codeLens !== false,
     selectedFactId: initial.selectedFactId ?? null,
@@ -332,7 +345,7 @@ export function reduceAnnotatedSourceExplorerState(
   switch (action.type) {
     case "toggle-medium": {
       const media = { ...state.media, [action.medium]: !state.media[action.medium] };
-      return MEDIA.some(medium => media[medium]) ? { ...state, media } : state;
+      return hasVisibleSource(state.prepared, media) ? { ...state, media } : state;
     }
     case "toggle-codelens":
       return { ...state, codeLens: !state.codeLens };
@@ -601,7 +614,7 @@ export function renderAnnotatedSourceExplorer(
         const accessibleLabel = descriptions
           ? ` aria-label="${escapeHtml(`${segment.text}; ${descriptions}`)}"`
           : "";
-        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}" data-ase-offset="${segment.start}" data-ase-node-ids="${segment.nodeIds.join(" ")}" title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
+        return `<button type="button" tabindex="-1" class="annotated-span addressable${factCount > 0 ? " has-fact" : ""}${captureCount > 0 ? " has-capture" : ""}${captureScope ? " capture-scope" : ""}${suppressPersistentStructure ? "" : selectionClass}" data-ase-source-affordance data-ase-offset="${segment.start}" data-ase-node-ids="${segment.nodeIds.join(" ")}" title="${escapeHtml(titleText)}"${accessibleLabel}>${content}</button>`;
       }
       return `<span class="annotated-span${selectionClass}">${content}</span>`;
     }).join("");
@@ -614,7 +627,7 @@ export function renderAnnotatedSourceExplorer(
           `<div class="annotated-codelens-row">
             <span class="annotated-line-number"></span>
             ${showMediumGutter ? `<span class="annotated-line-medium"></span>` : ""}
-            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" data-ase-codelens-node="${annotation.nodeId}" title="Preview ${escapeHtml(annotation.label)} for six seconds">${escapeHtml(annotation.label)}</button></span>
+            <span class="annotated-line-text">${escapeHtml(annotation.prefix)}<button type="button" tabindex="-1" data-ase-source-affordance data-ase-codelens-node="${annotation.nodeId}" title="Preview ${escapeHtml(annotation.label)} for six seconds">${escapeHtml(annotation.label)}</button></span>
           </div>`,
         ).join("") ?? ""
       : "";
@@ -672,7 +685,7 @@ export function renderAnnotatedSourceExplorer(
             </div>
             <p>${result.document.nodes.length} nodes · ${result.document.targets.length} targets${view.hiddenLines ? ` · ${view.hiddenLines} hidden lines` : ""}</p>
           </div>
-          <div class="ase-code-scroll" tabindex="0" aria-label="Annotated source text. Use arrow keys to move between structural spans.">
+          <div class="ase-code-scroll" tabindex="0" aria-label="Annotated source text. Use arrow keys to move between source affordances.">
             <pre class="annotated-text"><code>${lines}</code></pre>
           </div>
           ${findingPeeks.map(peek => findingPeekHtml(
@@ -913,7 +926,9 @@ function sourceFindingCaretAnnotations(
           label: `${factDescription(fact)} · ${coordinates}`,
           length: end - start,
           nodeId: node.id,
-          peek,
+          ...(!findingEvidence && REMOTE_FINDING_DESCRIPTORS.has(fact.descriptor)
+            ? {}
+            : { peek }),
           plane: "finding" as const,
           prefix: text.slice(line.start, start).replace(/[^\t]/g, " "),
         };
@@ -1006,7 +1021,7 @@ function caretLabelHtml(
   if (!label.peek) {
     return `<span class="${cssClass}">${escapeHtml(label.text)}</span>`;
   }
-  return `<button type="button" class="${cssClass}" data-ase-finding-peek="${label.peek.id}" popovertarget="${label.peek.id}" aria-label="Show evidence for Finding ${escapeHtml(label.peek.finding)}">${escapeHtml(label.text)}</button>`;
+  return `<button type="button" tabindex="-1" class="${cssClass}" data-ase-source-affordance data-ase-finding-peek="${label.peek.id}" popovertarget="${label.peek.id}" aria-label="Show evidence for Finding ${escapeHtml(label.peek.finding)}">${escapeHtml(label.text)}</button>`;
 }
 
 function findingPeekHtml(
@@ -1047,6 +1062,16 @@ function preparedDocument(document: AnnotatedSourceDocument): PreparedAnnotatedV
   const prepared = prepareAnnotatedView(document);
   preparedDocuments.set(document, prepared);
   return prepared;
+}
+
+function hasVisibleSource(
+  prepared: PreparedAnnotatedView,
+  media: Readonly<Record<SourceMedium, boolean>>,
+): boolean {
+  return prepared.lines.some(line =>
+    line.medium === "Mixed"
+      ? media.CSharp || media.Il
+      : media[line.medium]);
 }
 
 function limitationHtml(result: AnnotatedSourceResult, escapeHtml: EscapeHtml): string {

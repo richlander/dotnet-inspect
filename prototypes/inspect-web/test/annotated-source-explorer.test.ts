@@ -622,6 +622,39 @@ test("Safety Finding provenance peeks render the callee stackalloc evidence", ()
   assert.doesNotMatch(html, /finding-peek-line-text">[^<]*return new object/);
 });
 
+test("remote aggregate Findings never present caller code as callee evidence", () => {
+  const aggregateDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: sampleDocument.facts.map(fact =>
+      fact.id === 0
+        ? {
+            ...fact,
+            descriptor: "cost.callee",
+            detail: "callee has high leverage",
+          }
+        : fact),
+  };
+  const html = renderAnnotatedSourceExplorer({
+    result: {
+      ...result,
+      document: aggregateDocument,
+      findingEvidence: [],
+    },
+    state: createAnnotatedSourceExplorerState(
+      aggregateDocument,
+      { activeFactIds: [0] },
+    ),
+    title: "Example.InvokeExpensiveCallee",
+    subtitle: "void InvokeExpensiveCallee()",
+    escapeHtml,
+  });
+
+  assert.match(html, /annotated-caret-label plane-finding">cost\.callee:/);
+  assert.doesNotMatch(html, /data-ase-finding-peek/);
+  assert.doesNotMatch(html, /<strong>Finding evidence<\/strong>/);
+  assert.doesNotMatch(html, /finding-peek-evidence/);
+});
+
 test("media actions refuse an empty-looking document", () => {
   const initial = createAnnotatedSourceExplorerState(sampleDocument);
   assert.deepEqual(initial.media, { CSharp: true, Il: false });
@@ -643,6 +676,39 @@ test("media actions refuse an empty-looking document", () => {
     { type: "toggle-medium", medium: "Il" },
   );
   assert.equal(refused, csharpOff);
+});
+
+test("media state cannot hide every line in a single-medium document", () => {
+  const csharpOnlyDocument: AnnotatedSourceDocument = {
+    text: "return;",
+    nodes: [{
+      id: 0,
+      kind: "ReturnStatement",
+      medium: "CSharp",
+      spans: [{ start: 0, length: 7 }],
+    }],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+  const normalized = createAnnotatedSourceExplorerState(
+    csharpOnlyDocument,
+    { media: { CSharp: false, Il: true } },
+  );
+  assert.deepEqual(normalized.media, { CSharp: true, Il: false });
+
+  const both = reduceAnnotatedSourceExplorerState(
+    csharpOnlyDocument,
+    normalized,
+    { type: "toggle-medium", medium: "Il" },
+  );
+  assert.deepEqual(both.media, { CSharp: true, Il: true });
+  const refused = reduceAnnotatedSourceExplorerState(
+    csharpOnlyDocument,
+    both,
+    { type: "toggle-medium", medium: "CSharp" },
+  );
+  assert.equal(refused, both);
 });
 
 test("explorer presentation escapes document and member text", () => {
@@ -710,7 +776,10 @@ test("product labels render as toggleable structural CodeLens annotations", () =
   });
   assert.match(html, /class="annotated-codelens-row"/);
   assert.match(html, /data-ase-codelens-node="0"/);
-  assert.match(html, /annotated-line-text"><button type="button" data-ase-codelens-node="0"/);
+  assert.match(
+    html,
+    /annotated-line-text"><button type="button"[^>]*data-ase-codelens-node="0"/,
+  );
   assert.match(html, />For loop<\/button>/);
   assert.doesNotMatch(styles, /CodeLens ·/);
 
@@ -737,7 +806,7 @@ test("product labels render as toggleable structural CodeLens annotations", () =
   });
   assert.match(
     indentedHtml,
-    /annotated-line-text">    <button type="button" data-ase-codelens-node="0"/,
+    /annotated-line-text">    <button type="button"[^>]*data-ase-codelens-node="0"/,
   );
   assert.doesNotMatch(html, /data-ase-kind=/);
 
@@ -1069,12 +1138,27 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
   });
 
   assert.match(html, /class="ase-code-scroll" tabindex="0"/);
-  assert.match(html, /<button type="button" tabindex="-1" class="annotated-span addressable/);
+  assert.match(
+    html,
+    /<button type="button" tabindex="-1" class="annotated-span addressable[^"]*" data-ase-source-affordance/,
+  );
+  assert.match(
+    html,
+    /<button type="button" tabindex="-1" data-ase-source-affordance data-ase-codelens-node=/,
+  );
+  assert.match(
+    html,
+    /<button type="button" tabindex="-1" class="annotated-caret-label plane-finding" data-ase-source-affordance data-ase-finding-peek=/,
+  );
   assert.match(
     styles,
     /\.annotated-span\.addressable\s*\{[^}]*user-select:\s*text;/,
   );
   assert.match(explorerSource, /case "ArrowRight":/);
+  assert.match(
+    explorerSource,
+    /querySelectorAll<HTMLElement>\("\[data-ase-source-affordance\]"\)/,
+  );
   assert.match(
     explorerSource,
     /if \(event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return;/,

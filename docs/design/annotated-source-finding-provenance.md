@@ -26,6 +26,8 @@ substitute for missing remote evidence.
   source or infer a remote node.
 - Show a visible source or correspondence failure rather than falling back to
   caller code for a remote descriptor.
+- Keep a remote aggregate without singular evidence non-interactive rather than
+  manufacturing a caller-code peek.
 - Create focused issues and tracker rows for decompiler gaps. The current
   blockers are **none**: `ThrowStatement`, `StackAllocationExpression`, and
   `IndirectInvocationExpression` provide the necessary remote mappings. The
@@ -49,6 +51,8 @@ row both fail.
 `ResearchFactRegistryTests.Registry_RejectsDescriptorsNotDeclaredByTheirProducer`
 makes that producer declaration non-vacuous by rejecting any emitted descriptor
 missing from the catalog. Markdown is not parsed as a source of truth.
+`remote aggregate Findings never present caller code as callee evidence` gates
+the `cost.callee` non-fabrication boundary in the browser.
 
 | Descriptor | Producer | Evidence scope and retained typed data | Required node/provenance | Fidelity and browser behavior | Blocker / issue |
 | --- | --- | --- | --- | --- | --- |

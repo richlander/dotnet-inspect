@@ -549,7 +549,8 @@ changes and later reopens reuse that immutable projection. Publishing a new
 annotated result resets every document-local selection, including active Finding
 carets, while reopening the same unchanged document preserves them. The explorer renders
 canonical lines beside anchored and explicitly unanchored facts; starts with C#
-visible and IL hidden; supports independent fact and exact-node selection; and
+visible and IL hidden; refuses any persisted or toggled media state that would
+hide every line actually present; supports independent fact and exact-node selection; and
 follows pointer or keyboard activation to the tightest structural node. Source
 activation toggles that node in a persistent set even when a Finding targets
 it: each active node has a blue exact caret until that node is activated again
@@ -562,9 +563,11 @@ after the caret run. When source and Finding attribution share one exact node,
 the renderer emits one caret and stacks the distinct source and Finding chips
 beneath it. Inline source chips use the product kind and range without exposing
 the portable document's internal node number; the inspector retains that typed
-identity for detailed selection. Finding chips are roomier interactive
-affordances: activating one opens a dismissible evidence peek without changing
-selection. For `semantics.callee`, Research retains the resolved callee identity
+identity for detailed selection. Finding chips with exact evidence are roomier
+interactive affordances: activating one opens a dismissible evidence peek
+without changing selection. The aggregate `cost.callee` relationship remains a
+non-interactive chip until it has an honest evidence presentation. For
+`semantics.callee`, Research retains the resolved callee identity
 and exception-construction offsets; for `safety.callee`, it retains the resolved
 callee and every physical `localloc`/`calli` coordinate. The group-scoped query
 projects that callee's source and maps those coordinates only to its
@@ -607,8 +610,8 @@ then the renderer intersects those token ranges with the document's addressable
 spans so syntax color never changes canonical coordinates or opens markup
 across a structural button boundary. Token ranges are cached per document and
 tokenizer for interaction-time reuse. The source panel is one tab stop; arrow
-keys move among its structural spans, while Tab proceeds directly to the
-inspector.
+keys move among structural spans, CodeLens chips, and Finding evidence chips,
+while Tab proceeds directly to the inspector.
 Each selection plane keeps its own visual treatment: green Finding affordances,
 orange active Finding targets and carets, blue source-node carets and transient
 CodeLens previews, and purple capture scope and uses. Selection highlights
