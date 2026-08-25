@@ -997,6 +997,14 @@ public class PackageCommand
         string packageName,
         string notFoundMessage)
     {
+        if (DotnetInspector.Core.HttpClientFactory.IsOffline)
+        {
+            CommandError.Write(
+                "Network access is disabled (--offline mode). "
+                + notFoundMessage);
+            return;
+        }
+
         var sourceFailure =
             FeedFailureTelemetry.Current?.DescribeFailure(packageName);
         CommandError.Write(sourceFailure?.ToString() ?? notFoundMessage);

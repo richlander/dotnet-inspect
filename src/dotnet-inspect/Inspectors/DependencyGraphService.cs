@@ -308,7 +308,8 @@ internal static class DependencyGraphService
                         packageName,
                         cachedVersions,
                         offline: true)
-                    : $"Package '{packageName}' is not available offline; "
+                    : "Network access is disabled (--offline mode). "
+                        + $"Package '{packageName}' is not available offline; "
                         + "no cached version was found.";
                 return PackageNuspecResolution.Error(
                     packageName,
@@ -454,7 +455,7 @@ internal static class DependencyGraphService
         {
             return InertString.Format(
                 TextPolicy.Field,
-                $"Package '{packageName}' version '{version}' is not available offline; no cached package was found.")
+                $"Network access is disabled (--offline mode). Package '{packageName}' version '{version}' is not available offline; no cached package was found.")
                 .ToString();
         }
 
@@ -543,8 +544,8 @@ internal static class DependencyGraphService
             ? $" (+{cachedVersions.Count - DisplayLimit} more)"
             : "";
         string reason = offline
-            ? $"Package '{packageName}' cannot resolve its latest version "
-                + "while offline."
+            ? "Network access is disabled (--offline mode). "
+                + $"Package '{packageName}' cannot resolve its latest version."
             : $"Package '{packageName}' could not resolve its latest version "
                 + "before the online lookup timed out.";
 
