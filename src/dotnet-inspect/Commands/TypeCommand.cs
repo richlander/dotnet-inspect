@@ -87,7 +87,9 @@ public static class TypeCommand
                     platformFramework)
                     ? ApiServices.LoadPlatformApiSummary(
                         searchPath,
+                        source.AssemblyReference!,
                         runtimeAssemblyPath!,
+                        source.RuntimeAssemblyReference,
                         apiSource,
                         apiVersion,
                         selectedTfm,

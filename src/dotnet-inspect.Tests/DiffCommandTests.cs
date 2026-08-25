@@ -808,6 +808,52 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildAllocationFindingTransitions_UsesDescriptorsInsteadOfDisplayPaths()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        ResolvedAssemblyReference oldSelected =
+            TestAssemblyReferences.Designated(oldPath);
+        ResolvedAssemblyReference newSelected =
+            TestAssemblyReferences.Designated(newPath);
+        ResolvedAssemblyReference oldAssembly =
+            ResolvedAssemblyReference.Create(
+                oldSelected.Identity,
+                "/path-that-must-not-be-opened/old.dll",
+                oldSelected.OpenRead,
+                oldSelected.Provenance);
+        ResolvedAssemblyReference newAssembly =
+            ResolvedAssemblyReference.Create(
+                newSelected.Identity,
+                "/path-that-must-not-be-opened/new.dll",
+                newSelected.OpenRead,
+                newSelected.Provenance);
+        ApiSurface oldSurface = Assert.IsType<ApiSurface>(
+            AssemblyReader.ExtractApiSurface(oldSelected));
+        ApiSurface newSurface = Assert.IsType<ApiSurface>(
+            AssemblyReader.ExtractApiSurface(newSelected));
+
+        IReadOnlyList<FindingTransitionRow> rows =
+            DiffCommand.BuildAllocationFindingTransitions(
+                [oldAssembly],
+                [newAssembly],
+                oldSurface,
+                newSurface,
+                "v1",
+                "v2",
+                new DiffOptions
+                {
+                    Finding = AnalysisFindings.AllocationDescriptor.Id,
+                    TypeFilter = ["DiffFixtureSample.DiffSample"],
+                    MemberFilter = ["RegressesAllocInLoop"],
+                });
+
+        Assert.Contains(
+            rows,
+            row => row.Transition == "PairFinding.Added");
+    }
+
+    [Fact]
     public void BuildAllocationFindingTransitions_RetainsPresentAndRemovedOccurrences()
     {
         var rows = BuildAllocationFindingTransitions("ImprovesAlloc");

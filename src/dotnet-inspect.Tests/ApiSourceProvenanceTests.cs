@@ -195,4 +195,31 @@ public sealed class ApiSourceProvenanceTests
             File.Delete(packagePath);
         }
     }
+
+    [Fact]
+    public async Task MetadataOverflow_IsReportedAsAcquisitionFailure()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                LibraryFindingConsumerTests.CorruptMetadataStreamCount(
+                    File.ReadAllBytes(
+                        typeof(ApiSourceProvenanceTests).Assembly.Location)));
+
+            var (result, error) = await ApiSourceResolver.ResolveAsync(
+                new ApiOptions
+                {
+                    DllPath = path,
+                });
+
+            Assert.Null(result);
+            Assert.Equal(1, error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

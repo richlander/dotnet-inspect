@@ -119,20 +119,20 @@ public sealed class MethodBodyInspectionSession
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
-        string assemblyPath = assembly.Path
-            ?? throw new ArgumentException(
-                "Method-body inspection requires a path-backed assembly.",
-                nameof(assembly));
+        string displayName =
+            assembly.Path is { } path
+                ? Path.GetFileNameWithoutExtension(path)
+                : assembly.Identity.Name;
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
             Analysis.LibraryBodyIndex.Open(
-                assemblyPath,
+                assembly,
                 features,
                 resolver,
                 bodyScope,
                 bodyTypeScope),
             assembly,
-            Path.GetFileNameWithoutExtension(assemblyPath),
+            displayName,
             BindingPolicyFor(resolver));
     }
 

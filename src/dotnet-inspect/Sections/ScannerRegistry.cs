@@ -606,7 +606,8 @@ public sealed class ScannerRegistry
         catch (Exception ex) when (
             ex is ObjectDisposedException
                 or ArgumentOutOfRangeException
-                or OverflowException)
+                or OverflowException
+                or NotSupportedException)
         {
             throw new ScannerExecutionException(key, ex);
         }

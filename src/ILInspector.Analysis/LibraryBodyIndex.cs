@@ -1087,6 +1087,37 @@ public sealed class LibraryBodyIndex
             rootSnapshot: null);
     }
 
+    public static LibraryBodyIndex Open(
+        ResolvedAssemblyReference assembly,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        string displayPath =
+            assembly.Path ?? assembly.Identity.Name;
+        using Stream stream = assembly.OpenRead();
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        if (!peReader.HasMetadata)
+        {
+            throw new BadImageFormatException(
+                "The selected image has no managed metadata.");
+        }
+
+        assembly.ValidateOpenedMetadata(
+            peReader.GetMetadataReader());
+        return OpenFromPrefetchedImage(
+            displayPath,
+            peReader.GetEntireImage().GetContent(),
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope);
+    }
+
     /// <summary>
     /// Builds an index over caller-provided immutable PE image content without
     /// reopening the target file.

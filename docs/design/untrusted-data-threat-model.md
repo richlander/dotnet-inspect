@@ -396,10 +396,18 @@ explicit caller designation. Product inspection paths do not use that shortcut:
 API-source resolution creates one `ResolvedAssemblyReference` carrying the
 actual package, project, platform, or designated acquisition, forwarded types
 retain their supplying descriptor, and decompiler-backed member and whole-type
-sections consume the descriptor overloads.
+sections consume the descriptor overloads. Descriptor ownership is independent
+of an optional path, so pathless roots and forwarded targets remain attributable.
+Netmodule and platform-summary extraction, member Analysis and exception
+regions, SourceLink discovery and source-file collection, and diff endpoints
+use the same acquired descriptor as the facts they compose.
 `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
-derives that boundary from compiled transitive reachability to path-designating
-Decompiler methods, so wrapper indirection cannot hide a designation. The
+derives that boundary from a signature-sensitive compiled call graph across
+owned product assemblies. It seeds every path-designating Decompiler factory,
+follows ordinary and delegate call edges, and stops only at typed
+acquisition-bearing boundaries, so cross-assembly wrapper indirection cannot
+hide a designation. Source-specific acquisition owners still mint descriptors;
+the gate prevents a downstream consumer from minting one from a retained path. The
 snapshot overload
 preserves the descriptor's acquisition registration and rejects a different
 assembly identity. Every descriptor-backed metadata consumer performs that
@@ -417,7 +425,8 @@ composition resolves their exact TypeDef directly through an MVID-bound address.
 Scanner execution is a separate failure origin from metadata acquisition. A
 scanner that throws an artifact-shaped runtime exception such as
 `ObjectDisposedException`, `ArgumentOutOfRangeException`, or
-`OverflowException` crosses a typed scanner-execution boundary and propagates;
+`OverflowException` or `NotSupportedException` crosses a typed
+scanner-execution boundary and propagates;
 the command's malformed-artifact catch cannot silently reinterpret that
 programming or lifetime failure as an inspection miss.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and

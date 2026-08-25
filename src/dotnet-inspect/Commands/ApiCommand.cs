@@ -2012,6 +2012,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
+                    options.AssemblyReference,
                     type.Members.Where(member => member.MetadataToken is not null
                         && ApiMemberSectionDescriptors.IsMethodLike(member)));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegions, options.IncludeSections);
@@ -2934,6 +2935,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
+                    renderOptions.AssemblyReference,
                     type.Members.Where(member => member.MetadataToken is not null
                         && ApiMemberSectionDescriptors.IsMethodLike(member)));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(

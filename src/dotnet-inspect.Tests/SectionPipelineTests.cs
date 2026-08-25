@@ -4398,6 +4398,7 @@ public class SectionPipelineTests
     [InlineData("disposed")]
     [InlineData("range")]
     [InlineData("overflow")]
+    [InlineData("unsupported")]
     public async Task ProductionScannerCatchBoundary_DoesNotMistakeScannerFailuresForArtifactFailures(
         string failure)
     {
@@ -4406,6 +4407,7 @@ public class SectionPipelineTests
             "disposed" => new ObjectDisposedException("scanner"),
             "range" => new ArgumentOutOfRangeException("scanner"),
             "overflow" => new OverflowException("scanner"),
+            "unsupported" => new NotSupportedException("scanner"),
             _ => throw new InvalidOperationException(failure),
         };
         var registry = new ScannerRegistry()

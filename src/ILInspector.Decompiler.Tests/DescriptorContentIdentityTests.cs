@@ -146,6 +146,57 @@ public sealed class DescriptorContentIdentityTests
         }
     }
 
+    [Fact]
+    public void ModuleApiExtraction_ValidatesDescriptorMvid()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"descriptor-module-api-{Guid.NewGuid():N}.netmodule");
+        File.WriteAllBytes(path, BuildModuleImage(Guid.NewGuid()));
+        try
+        {
+            ResolvedAssemblyReference descriptor =
+                Assert.IsType<ResolvedAssemblyReference>(
+                    ResolvedAssemblyReference.CreateFromModulePathIfManaged(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            File.WriteAllBytes(path, BuildModuleImage(Guid.NewGuid()));
+
+            BadImageFormatException exception =
+                Assert.Throws<BadImageFormatException>(
+                    () => AssemblyReader.ExtractModuleApiSurface(descriptor));
+
+            Assert.Contains("MVID", exception.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void PathlessApiExtraction_RetainsDescriptorOwnership()
+    {
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromPath(
+                    typeof(DescriptorContentIdentityTests).Assembly.Location,
+                    AssemblyResolutionProvenance.Local("test"))
+                .WithoutLocalPath();
+
+        ApiSurface surface = Assert.IsType<ApiSurface>(
+            AssemblyReader.ExtractApiSummarySurface(descriptor));
+
+        Assert.NotEmpty(surface.Types);
+        Assert.All(
+            surface.Types,
+            type => Assert.Same(
+                descriptor,
+                type.SourceAssemblyReference));
+        Assert.All(
+            surface.Types,
+            type => Assert.Null(type.SourceAssemblyPath));
+    }
+
     static byte[] BuildModuleImage(Guid mvid)
     {
         var metadata = new MetadataBuilder();

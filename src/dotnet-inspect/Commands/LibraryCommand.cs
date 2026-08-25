@@ -574,12 +574,35 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
 
+                AssemblyResolutionProvenance inspectionProvenance =
+                    AssemblyResolutionProvenance.Platform(
+                        framework!,
+                        version,
+                        "library --platform");
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                resolvedPath!,
+                                inspectionProvenance),
+                        ],
+                        trace);
+                ResolvedAssemblyReference? inspectionAssemblyReference =
+                    integrations?.AssemblyForInspection(resolvedPath!)
+                    ?? ResolvedAssemblyReference
+                        .CreateInspectionReferenceFromPathIfManaged(
+                            resolvedPath!,
+                            inspectionProvenance);
+
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
+                    && inspectionAssemblyReference is not null
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
-                        resolvedPath!,
+                        inspectionAssemblyReference,
                         context.HttpClient,
                         logger,
                         isPlatformAssembly: true,
@@ -601,30 +624,11 @@ public class LibraryCommand
                     }
                 }
 
-                AssemblyResolutionProvenance inspectionProvenance =
-                    AssemblyResolutionProvenance.Platform(
-                        framework!,
-                        version,
-                        "library --platform");
-                AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
-                        queries,
-                        groupQueryRegistry,
-                        [
-                            new AssemblyContextIntegrationsInput(
-                                resolvedPath!,
-                                inspectionProvenance),
-                        ],
-                        trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries,                     queryRegistry: queryRegistry,
-                    assemblyReference:
-                        integrations?.AssemblyForInspection(resolvedPath!)
-                        ?? ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(
-                            resolvedPath!,
-                            inspectionProvenance),
+                    assemblyReference: inspectionAssemblyReference,
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
@@ -697,10 +701,51 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
+                var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
+                    ? [assemblyPaths[0]]
+                    : assemblyPaths;
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        inspectionPaths.Select(path =>
+                            new AssemblyContextIntegrationsInput(
+                                path,
+                                PackageIntegrationProvenance(
+                                    path,
+                                    extractPath,
+                                    packageName,
+                                    packageVersion))),
+                        trace);
+                ResolvedAssemblyReference? primaryAssemblyReference = null;
+                if (assemblyPaths.Count > 0)
+                {
+                    try
+                    {
+                        primaryAssemblyReference =
+                            integrations?.AssemblyForInspection(assemblyPaths[0])
+                            ?? ResolvedAssemblyReference
+                                .CreateInspectionReferenceFromPathIfManaged(
+                                    assemblyPaths[0],
+                                    PackageIntegrationProvenance(
+                                        assemblyPaths[0],
+                                        extractPath,
+                                        packageName,
+                                        packageVersion));
+                    }
+                    catch (Exception ex) when (
+                        IsPackageAssemblyAcquisitionFailure(ex))
+                    {
+                        // Collection retries this participant inside its per-file
+                        // failure boundary so healthy package assemblies survive.
+                    }
+                }
+
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
+                    && primaryAssemblyReference is not null
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
-                        assemblyPaths[0],
+                        primaryAssemblyReference,
                         context.HttpClient,
                         logger,
                         isPlatformAssembly: false,
@@ -732,29 +777,13 @@ public class LibraryCommand
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
                 }
 
-                // Inspect all assemblies
-                var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
-                    ? [assemblyPaths[0]]
-                    : assemblyPaths;
-                AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
-                        queries,
-                        groupQueryRegistry,
-                        inspectionPaths.Select(path =>
-                            new AssemblyContextIntegrationsInput(
-                                path,
-                                PackageIntegrationProvenance(
-                                    path,
-                                    extractPath,
-                                    packageName,
-                                    packageVersion))),
-                        trace);
                 PackageInspectionCollection collection =
                     await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
                     queries, queryRegistry, integrations,
-                    discoveryInspection && !fullEffectiveDiscovery, trace);
+                    discoveryInspection && !fullEffectiveDiscovery, trace,
+                    primaryAssemblyReference);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
 
@@ -869,10 +898,30 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
 
+                AssemblyResolutionProvenance inspectionProvenance =
+                    AssemblyResolutionProvenance.Designated("library path");
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                assemblyPath!,
+                                inspectionProvenance),
+                        ],
+                        trace);
+                ResolvedAssemblyReference? inspectionAssemblyReference =
+                    integrations?.AssemblyForInspection(assemblyPath!)
+                    ?? ResolvedAssemblyReference
+                        .CreateInspectionReferenceFromPathIfManaged(
+                            assemblyPath!,
+                            inspectionProvenance);
+
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
+                    && inspectionAssemblyReference is not null
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
-                        assemblyPath!,
+                        inspectionAssemblyReference,
                         context.HttpClient,
                         logger,
                         isPlatformAssembly: false,
@@ -892,27 +941,11 @@ public class LibraryCommand
                     }
                 }
 
-                AssemblyResolutionProvenance inspectionProvenance =
-                    AssemblyResolutionProvenance.Designated("library path");
-                AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
-                        queries,
-                        groupQueryRegistry,
-                        [
-                            new AssemblyContextIntegrationsInput(
-                                assemblyPath!,
-                                inspectionProvenance),
-                        ],
-                        trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries,                     queryRegistry: queryRegistry,
-                    assemblyReference:
-                        integrations?.AssemblyForInspection(assemblyPath!)
-                        ?? ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(
-                            assemblyPath!,
-                            inspectionProvenance),
+                    assemblyReference: inspectionAssemblyReference,
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
@@ -2772,7 +2805,8 @@ public class LibraryCommand
         HashSet<InspectionQueryDefinition>? queries = null,
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
         AssemblyContextIntegrationsBatch? integrations = null,
-        bool discoveryOnly = false, InspectionTrace? trace = null)
+        bool discoveryOnly = false, InspectionTrace? trace = null,
+        ResolvedAssemblyReference? primaryAssemblyReference = null)
     {
         List<LibraryInspection> inspections = [];
         List<(
@@ -2797,20 +2831,17 @@ public class LibraryCommand
             try
             {
                 assemblyReference =
-                    integrations?.AssemblyForInspection(targetPath)
+                    targetPath == assemblyPaths[0]
+                        && primaryAssemblyReference is not null
+                        ? primaryAssemblyReference
+                    : integrations?.AssemblyForInspection(targetPath)
                     ?? ResolvedAssemblyReference
                         .CreateInspectionReferenceFromPathIfManaged(
                             targetPath,
                             inspectionProvenance);
             }
             catch (Exception ex) when (
-                ex is IOException
-                    or UnauthorizedAccessException
-                    or NotSupportedException
-                    or ObjectDisposedException
-                    or BadImageFormatException
-                    or ArgumentOutOfRangeException
-                    or OverflowException)
+                IsPackageAssemblyAcquisitionFailure(ex))
             {
                 logger.LogWarning(
                     $"Could not read library: {Path.GetFileName(targetPath)}: "
@@ -2878,6 +2909,15 @@ public class LibraryCommand
             inspections,
             identifierAuditFailures);
     }
+
+    static bool IsPackageAssemblyAcquisitionFailure(Exception ex)
+        => ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ObjectDisposedException
+            or BadImageFormatException
+            or ArgumentOutOfRangeException
+            or OverflowException;
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(
         string assemblyPath,

@@ -258,7 +258,9 @@ public sealed class ReaderConstructionSiteTests
             "ILInspector.Decompiler:Pipeline.MetadataSource.OpenCore(ResolvedAssemblyReference, String, Boolean, IAssemblyBindingPolicy, MetadataContext)",
             "ILInspector.Decompiler:Pipeline.OpenedAssembly.TryOpen(ResolvedAssemblyReference)",
             "ILInspector.Analysis:ILInspector.Analysis.CallerScopeReachabilityPlan.ReadCandidate(ResolvedAssemblyReference, MetadataTypeDefinitionName)",
+            "ILInspector.Analysis:ILInspector.Analysis.LibraryBodyIndex.Open(ResolvedAssemblyReference, LibraryBodyAnalysisFeatures, IAssemblyReferenceResolver, IReadOnlySet`1<Int32>, Func`2<TypeRef, Boolean>)",
             "ILInspector.Analysis:ILInspector.Analysis.LibraryBodyReferenceMetadataResolver+ReferencedAssemblyMetadata.TryOpen(ResolvedAssemblyReference)",
+            "ILInspector.Research:ILInspector.Research.ResearchMatch.Compare(ResolvedAssemblyReference, MethodDefinitionHandle, MethodDefinitionHandle, StructuralCloneComparisonLimits)",
             "DotnetInspector.Services:DotnetInspector.Services.IntrinsicCoreLibraryBinding.Select(ResolvedAssemblyReference, Func`2<AssemblyReferenceIdentity, AssemblyBindingSelection>)");
 
     [Fact]
@@ -323,6 +325,7 @@ public sealed class ReaderConstructionSiteTests
             ("ILInspector.Metadata", typeof(ResolvedAssemblyReference).Assembly.Location),
             ("ILInspector.Decompiler", typeof(MetadataSource).Assembly.Location),
             ("ILInspector.Analysis", typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly.Location),
+            ("ILInspector.Research", typeof(ILInspector.Research.ResearchMatch).Assembly.Location),
             ("DotnetInspector.Services", typeof(DotnetInspector.Services.AssemblyDependencyResolver).Assembly.Location),
         ];
 

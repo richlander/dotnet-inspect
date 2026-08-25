@@ -141,8 +141,7 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             var read =
                 (ResolutionAwareApiSurfaceOutcome.Read)outcome;
             ApiSurface surface = read.Surface;
-            if (source.Path is not null)
-                surface.SetInspectionSourceAssembly(source);
+            surface.SetInspectionSourceAssembly(source);
 
             return surface;
         }

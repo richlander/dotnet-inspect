@@ -723,12 +723,23 @@ Several current types are migration inputs, not target precedent:
   revalidates assembly identity or module MVID before deriving metadata facts
   or processing debug-directory and PDB content. Command-level metadata, IL,
   source, Analysis, and Research consumers retain that descriptor rather than
-  reopening its path. A resolved image with no managed metadata is unavailable
-  evidence for signature accessibility, not an empty successful inventory;
+  reopening its path. API extraction retains descriptor ownership separately
+  from its optional diagnostic path, including pathless and forwarded types.
+  Netmodule, platform-summary, SourceLink discovery, source-file collection,
+  member Analysis, exception-region, and diff-endpoint routes all consume the
+  retained acquisition. A resolved image with no managed metadata is
+  unavailable evidence for signature accessibility, not an empty successful inventory;
   whole-type inspection uses one validated reader for both metadata facts and
   bodies and addresses module TypeDefs directly by MVID and token.
+  `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
+  builds a signature-sensitive call graph across owned product assemblies,
+  includes delegate edges and every path-designating Decompiler factory, and
+  treats typed acquisition inputs as the boundary that stops designation
+  reachability. Acquisition owners may still create descriptors from their
+  source-specific coordinates; the gate prevents downstream consumers from
+  laundering a retained path into a new designation.
   `ReaderConstructionSiteTests.DescriptorOpenReferences_MatchTheReviewedInventory`
-  pins the direct open inventory. A future neutral artifact handle
+  pins the direct open inventory, including Research. A future neutral artifact handle
   should represent this case without giving a module an assembly-shaped type.
 - `MetadataContext.Open(string)`, `MetadataSource.OpenCore(string, ...)`, and
   `MetadataSource.OpenFromPrefetchedImage` treat a raw path, or a path paired

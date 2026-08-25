@@ -95,6 +95,11 @@ public sealed class AssemblySetResolutionSession : IDisposable
         }
     }
 
+    public IReadOnlyList<ResolvedAssemblyReference> AssemblyReferences =>
+        _participants
+            .Select(static participant => participant.Assembly)
+            .ToArray();
+
     public ApiSurface? BuildApiSurface(
         bool includeAll = false,
         string? name = null,
@@ -143,6 +148,24 @@ public sealed class AssemblySetResolutionSession : IDisposable
 
         foreach (Participant participant in _participants)
         {
+            if (!participant.Assembly.IsAssembly)
+            {
+                ApiSurface? moduleSurface =
+                    AssemblyReader.ExtractModuleApiSurface(
+                        participant.Assembly,
+                        includeAll);
+                if (moduleSurface is not null)
+                {
+                    MergeSurface(
+                        merged,
+                        moduleSurface,
+                        participant.Path,
+                        sink);
+                    readSurface = true;
+                }
+                continue;
+            }
+
             ResolutionAwareApiSurfaceOutcome outcome =
                 _catalog.ExtractApiSurface(
                     participant.Assembly,
@@ -172,6 +195,8 @@ public sealed class AssemblySetResolutionSession : IDisposable
             ApiSurface surface =
                 ((ResolutionAwareApiSurfaceOutcome.Read)outcome)
                     .Surface;
+            surface.SetInspectionSourceAssembly(
+                participant.Assembly);
             MergeSurface(
                 merged,
                 surface,
@@ -219,7 +244,8 @@ public sealed class AssemblySetResolutionSession : IDisposable
         try
         {
             ResolvedAssemblyReference? assembly =
-                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                ResolvedAssemblyReference
+                    .CreateInspectionReferenceFromPathIfManaged(
                     path,
                     provenance);
             failure = assembly is null

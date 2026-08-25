@@ -311,7 +311,7 @@ public static class ImplementationDiff
             var newContents = OpenAssemblyContents(newAssemblies);
             try
             {
-                return Compare(
+                return CompareAcquired(
                     new ResearchDiffInput([])
                     {
                         AssemblyContents = oldContents,
@@ -331,6 +331,27 @@ public static class ImplementationDiff
         {
             DisposeAssemblyContents(oldContents);
         }
+    }
+
+    static ImplementationDiffResult CompareAcquired(
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        ImplementationDiffOptions? options)
+    {
+        options ??= new ImplementationDiffOptions();
+        ResearchComparison research =
+            ResearchDiff.CompareAcquiredImplementations(
+                oldInput,
+                newInput,
+                new ResearchDiffOptions(
+                    ToResearchMechanisms(options.Mechanisms),
+                    TypeFilters: options.TypeFilters,
+                    MemberTargetIdentities: options.MemberTargetIdentities)
+                {
+                    RetainedComparisonDescriptorIds =
+                        RetainedComparisonDescriptorIds(options.Mechanisms),
+                });
+        return FromResearchComparison(research, options);
     }
 
     public static ImplementationDiffResult FromResearchComparison(

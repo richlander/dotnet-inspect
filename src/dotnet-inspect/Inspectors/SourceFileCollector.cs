@@ -19,7 +19,42 @@ internal static class SourceFileCollector
         if (!service.HasPdb || !service.HasSourceLink)
             return Task.FromResult<List<SourceFileInfo>>([]);
 
-        var api = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll, typesOnly: true);
+        return CollectAsync(
+            service,
+            AssemblyReader.ExtractApiSurface(
+                assemblyPath,
+                includeAll,
+                typesOnly: true),
+            browsableUrls,
+            typeFilter);
+    }
+
+    public static Task<List<SourceFileInfo>> CollectAsync(
+        SourceLinkService service,
+        ResolvedAssemblyReference assembly,
+        bool includeAll = false,
+        bool browsableUrls = false,
+        string? typeFilter = null)
+    {
+        if (!service.HasPdb || !service.HasSourceLink)
+            return Task.FromResult<List<SourceFileInfo>>([]);
+
+        return CollectAsync(
+            service,
+            AssemblyReader.ExtractApiSurface(
+                assembly,
+                includeAll,
+                typesOnly: true),
+            browsableUrls,
+            typeFilter);
+    }
+
+    static Task<List<SourceFileInfo>> CollectAsync(
+        SourceLinkService service,
+        ApiSurface? api,
+        bool browsableUrls,
+        string? typeFilter)
+    {
         if (api == null)
             return Task.FromResult<List<SourceFileInfo>>([]);
 

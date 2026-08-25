@@ -168,14 +168,21 @@ public class AssemblySetResolutionSessionTests
         try
         {
             var messages = new List<string>();
+            using var session =
+                new AssemblySetResolutionSession(
+                    [path],
+                    messages.Add);
             ApiSurface surface =
                 Assert.IsType<ApiSurface>(
-                    AssemblySetSurfaceBuilder.Build(
-                        [path],
+                    session.BuildApiSurface(
                         log: messages.Add));
 
             ApiType type = Assert.Single(surface.Types);
+            ResolvedAssemblyReference module =
+                Assert.Single(session.AssemblyReferences);
             Assert.Equal("N.Widget", type.FullName);
+            Assert.False(module.IsAssembly);
+            Assert.Same(module, type.SourceAssemblyReference);
             Assert.Empty(surface.InspectionFailures);
             Assert.DoesNotContain(
                 messages,

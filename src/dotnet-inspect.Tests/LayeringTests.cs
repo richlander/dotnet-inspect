@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.RegularExpressions;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -138,27 +140,47 @@ public sealed class LayeringTests
     [Fact]
     public void Cli_MetadataSourceFactories_RetainAcquisitionDescriptors()
     {
-        Dictionary<string, HashSet<string>> decompilerCalls =
-            ReadCallGraph(typeof(ILInspector.Decompiler.MemberBodyProducer).Assembly.Location);
+        string decompilerPath =
+            typeof(ILInspector.Decompiler.MemberBodyProducer)
+                .Assembly.Location;
+        string[] productAssemblies = OwnedProductAssemblyPaths();
+        Dictionary<string, HashSet<string>> productCalls =
+            ReadCallGraph(productAssemblies);
         HashSet<string> descriptorDesignatingMethods =
             FindTransitivelyTainted(
-                decompilerCalls,
+                productCalls,
                 ReadDirectCallers(
-                    typeof(ILInspector.Decompiler.MemberBodyProducer).Assembly.Location,
+                    [decompilerPath],
                     "ResolvedAssemblyReference::Create(",
                     "ResolvedAssemblyReference::CreateFromPath(",
-                    "ResolvedAssemblyReference::TryCreateFromPath("));
-        List<string> calls = ReadCalls(
-                typeof(LibraryInspection).Assembly.Location)
+                    "ResolvedAssemblyReference::TryCreateFromPath(",
+                    "ResolvedAssemblyReference::CreateFromPathIfManaged(",
+                    "ResolvedAssemblyReference::CreateFromModulePathIfManaged(",
+                    "ResolvedAssemblyReference::CreateInspectionReferenceFromPathIfManaged(",
+                    "ResolvedAssemblyReference::CreateFromStreamIfManaged("));
+        List<string> cliCalls =
+            ReadCalls(typeof(LibraryInspection).Assembly.Location);
+        List<string> violations = cliCalls
             .Where(call => descriptorDesignatingMethods.Contains(CallKey(call)))
+            .Where(call => !call.Contains(
+                "ILInspector.Metadata.ResolvedAssemblyReference",
+                StringComparison.Ordinal))
             .ToList();
 
-        Assert.NotEmpty(calls);
-        Assert.All(
-            calls,
-            call => Assert.Contains(
+        Assert.NotEmpty(descriptorDesignatingMethods);
+        Assert.Contains(
+            cliCalls,
+            call => call.Contains(
                 "ILInspector.Metadata.ResolvedAssemblyReference",
-                call));
+                StringComparison.Ordinal));
+        Assert.True(
+            violations.Count == 0,
+            "CLI calls can reach path designation without a retained "
+            + "acquisition:"
+            + Environment.NewLine
+            + string.Join(
+                Environment.NewLine,
+                violations.Order(StringComparer.Ordinal)));
     }
 
     [Fact]
@@ -174,6 +196,55 @@ public sealed class LayeringTests
             FindTransitivelyTainted(calls, ["Core::Designates"]);
 
         Assert.Contains("Wrapper::Renamed", tainted);
+    }
+
+    [Fact]
+    public void CompiledCallGraph_TraversesDelegateFactoryEdges()
+    {
+        Dictionary<string, HashSet<string>> calls =
+            ReadCallGraph(typeof(LayeringTests).Assembly.Location);
+
+        Assert.Contains(
+            calls[
+                "DotnetInspector.Tests.LayeringTests"
+                + "::DescriptorFactoryDelegateTarget("
+                + "String, AssemblyResolutionProvenance)"],
+            call => call.StartsWith(
+                "ILInspector.Metadata.ResolvedAssemblyReference"
+                    + "::CreateFromPathIfManaged(",
+                StringComparison.Ordinal));
+    }
+
+    static ResolvedAssemblyReference? DescriptorFactoryDelegateTarget(
+        string path,
+        AssemblyResolutionProvenance provenance)
+    {
+        Func<
+            string,
+            AssemblyResolutionProvenance,
+            ResolvedAssemblyReference?> factory =
+                ResolvedAssemblyReference.CreateFromPathIfManaged;
+        return factory(path, provenance);
+    }
+
+    static string[] OwnedProductAssemblyPaths()
+    {
+        string directory = Path.GetDirectoryName(
+            typeof(LibraryInspection).Assembly.Location)!;
+        return Directory.GetFiles(directory, "*.dll")
+            .Where(path =>
+            {
+                string name = Path.GetFileNameWithoutExtension(path);
+                return name is "dotnet-inspect"
+                    or "CSharpText"
+                    or "InertText"
+                    || name.StartsWith("ILInspector.", StringComparison.Ordinal)
+                    || name.StartsWith("DotnetInspector.", StringComparison.Ordinal);
+            })
+            .Where(path =>
+                !Path.GetFileNameWithoutExtension(path)
+                    .EndsWith(".Tests", StringComparison.Ordinal))
+            .ToArray();
     }
 
     static List<string> ReadCalls(string assemblyPath)
@@ -195,7 +266,11 @@ public sealed class LayeringTests
             calls.AddRange(
                 instructions
                     .Where(static instruction =>
-                        instruction.OpCodeName is "call" or "callvirt"
+                        instruction.OpCodeName
+                            is "call"
+                            or "callvirt"
+                            or "ldftn"
+                            or "ldvirtftn"
                         && instruction.Operand is not null)
                     .Select(static instruction => instruction.Operand!));
         }
@@ -204,35 +279,40 @@ public sealed class LayeringTests
     }
 
     static Dictionary<string, HashSet<string>> ReadCallGraph(
-        string assemblyPath)
+        params string[] assemblyPaths)
     {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        MetadataReader reader = peReader.GetMetadataReader();
         var graph = new Dictionary<string, HashSet<string>>(
             StringComparer.Ordinal);
-        foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
+        foreach (string assemblyPath in assemblyPaths)
         {
-            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-            string key =
-                $"{reader.GetFullTypeName(reader.GetTypeDefinition(method.GetDeclaringType()))}"
-                + $"::{reader.GetString(method.Name)}";
-            graph.TryAdd(key, []);
-            List<ILInstructionText>? instructions =
-                MetadataInstructionProducer.DisassembleMethod(
-                    peReader,
-                    reader,
-                    methodHandle);
-            if (instructions is null)
-                continue;
-
-            foreach (string call in instructions
-                .Where(static instruction =>
-                    instruction.OpCodeName is "call" or "callvirt"
-                    && instruction.Operand is not null)
-                .Select(static instruction => instruction.Operand!))
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            MetadataReader reader = peReader.GetMetadataReader();
+            foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
             {
-                graph[key].Add(CallKey(call));
+                MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+                string key = MethodKey(reader, method);
+                graph.TryAdd(key, []);
+                List<ILInstructionText>? instructions =
+                    MetadataInstructionProducer.DisassembleMethod(
+                        peReader,
+                        reader,
+                        methodHandle);
+                if (instructions is null)
+                    continue;
+
+                foreach (string call in instructions
+                    .Where(static instruction =>
+                        instruction.OpCodeName
+                            is "call"
+                            or "callvirt"
+                            or "ldftn"
+                            or "ldvirtftn"
+                        && instruction.Operand is not null)
+                    .Select(static instruction => instruction.Operand!))
+                {
+                    graph[key].Add(CallKey(call));
+                }
             }
         }
 
@@ -240,34 +320,37 @@ public sealed class LayeringTests
     }
 
     static HashSet<string> ReadDirectCallers(
-        string assemblyPath,
+        IReadOnlyList<string> assemblyPaths,
         params string[] targets)
     {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        MetadataReader reader = peReader.GetMetadataReader();
         var callers = new HashSet<string>(StringComparer.Ordinal);
-        foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
+        foreach (string assemblyPath in assemblyPaths)
         {
-            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-            List<ILInstructionText>? instructions =
-                MetadataInstructionProducer.DisassembleMethod(
-                    peReader,
-                    reader,
-                    methodHandle);
-            if (instructions?.Any(instruction =>
-                    instruction.Operand is { } operand
-                    && targets.Any(target =>
-                        operand.Contains(
-                            target,
-                            StringComparison.Ordinal))) != true)
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            MetadataReader reader = peReader.GetMetadataReader();
+            foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
             {
-                continue;
-            }
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                List<ILInstructionText>? instructions =
+                    MetadataInstructionProducer.DisassembleMethod(
+                        peReader,
+                        reader,
+                        methodHandle);
+                if (instructions?.Any(instruction =>
+                        instruction.Operand is { } operand
+                        && targets.Any(target =>
+                            operand.Contains(
+                                target,
+                                StringComparison.Ordinal))) != true)
+                {
+                    continue;
+                }
 
-            callers.Add(
-                $"{reader.GetFullTypeName(reader.GetTypeDefinition(method.GetDeclaringType()))}"
-                + $"::{reader.GetString(method.Name)}");
+                callers.Add(
+                    MethodKey(reader, method));
+            }
         }
 
         return callers;
@@ -284,6 +367,9 @@ public sealed class LayeringTests
             changed = false;
             foreach ((string caller, HashSet<string> callees) in calls)
             {
+                if (IsAcquisitionBearingBoundary(caller))
+                    continue;
+
                 if (callees.Overlaps(tainted) && tainted.Add(caller))
                     changed = true;
             }
@@ -293,16 +379,144 @@ public sealed class LayeringTests
         return tainted;
     }
 
+    static bool IsAcquisitionBearingBoundary(string method) =>
+        method.Contains(
+            "ResolvedAssemblyReference",
+            StringComparison.Ordinal)
+        || method.Contains(
+            "ImplementationAssemblyInput",
+            StringComparison.Ordinal);
+
     static string CallKey(string operand)
     {
         int separator = operand.IndexOf("::", StringComparison.Ordinal);
         if (separator < 0)
             return operand;
         int start = operand.LastIndexOf(' ', separator);
-        int end = operand.IndexOf('(', separator);
-        if (end < 0)
-            end = operand.Length;
-        return operand[(start + 1)..end];
+        string key = operand[(start + 1)..];
+        int parameters = key.IndexOf('(', separator - start - 1);
+        if (parameters < 0)
+            return key;
+
+        string signature = Regex.Replace(
+            key[parameters..],
+            @"(?:[A-Za-z_][A-Za-z0-9_]*\.)+"
+                + @"([A-Za-z_][A-Za-z0-9_`]*)",
+            "$1");
+        signature = Regex.Replace(signature, @"`\d+", "");
+        signature = Regex.Replace(
+            signature,
+            @"\b(string|bool|byte|sbyte|short|ushort|int|uint|long|ulong|"
+                + @"float|double|char|object|nint|nuint)\b",
+            static match => match.Value switch
+            {
+                "string" => "String",
+                "bool" => "Boolean",
+                "byte" => "Byte",
+                "sbyte" => "SByte",
+                "short" => "Int16",
+                "ushort" => "UInt16",
+                "int" => "Int32",
+                "uint" => "UInt32",
+                "long" => "Int64",
+                "ulong" => "UInt64",
+                "float" => "Single",
+                "double" => "Double",
+                "char" => "Char",
+                "object" => "Object",
+                "nint" => "IntPtr",
+                "nuint" => "UIntPtr",
+                _ => match.Value,
+            });
+        return key[..parameters] + signature;
+    }
+
+    static string MethodKey(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        MethodSignature<string> signature = method.DecodeSignature(
+            SimpleSignatureTypeNames.Instance,
+            genericContext: null);
+        return
+            $"{reader.GetFullTypeName(reader.GetTypeDefinition(method.GetDeclaringType()))}"
+            + $"::{reader.GetString(method.Name)}"
+            + $"({string.Join(", ", signature.ParameterTypes)})";
+    }
+
+    sealed class SimpleSignatureTypeNames
+        : ISignatureTypeProvider<string, object?>
+    {
+        internal static readonly SimpleSignatureTypeNames Instance = new();
+
+        public string GetArrayType(string elementType, ArrayShape shape) =>
+            $"{elementType}[]";
+
+        public string GetByReferenceType(string elementType) =>
+            $"{elementType}&";
+
+        public string GetFunctionPointerType(
+            MethodSignature<string> signature) =>
+            "method";
+
+        public string GetGenericInstantiation(
+            string genericType,
+            ImmutableArray<string> typeArguments) =>
+            $"{TrimArity(genericType)}<{string.Join(", ", typeArguments)}>";
+
+        public string GetGenericMethodParameter(
+            object? genericContext,
+            int index) =>
+            $"!!{index}";
+
+        public string GetGenericTypeParameter(
+            object? genericContext,
+            int index) =>
+            $"!{index}";
+
+        public string GetModifiedType(
+            string modifier,
+            string unmodifiedType,
+            bool isRequired) =>
+            unmodifiedType;
+
+        public string GetPinnedType(string elementType) =>
+            elementType;
+
+        public string GetPointerType(string elementType) =>
+            $"{elementType}*";
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) =>
+            typeCode.ToString();
+
+        public string GetSZArrayType(string elementType) =>
+            $"{elementType}[]";
+
+        public string GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name);
+
+        public string GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) =>
+            reader.GetString(reader.GetTypeReference(handle).Name);
+
+        public string GetTypeFromSpecification(
+            MetadataReader reader,
+            object? genericContext,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) =>
+            reader.GetTypeSpecification(handle)
+                .DecodeSignature(this, genericContext);
+
+        static string TrimArity(string name)
+        {
+            int arity = name.IndexOf('`', StringComparison.Ordinal);
+            return arity < 0 ? name : name[..arity];
+        }
     }
 
     [Theory]

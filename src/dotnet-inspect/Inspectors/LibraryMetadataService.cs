@@ -498,11 +498,17 @@ internal static class LibraryMetadataService
 
             if (sourcePlan.CollectSourceFiles)
             {
-                inspection.SourceFiles = await SourceFileCollector.CollectAsync(
-                    service,
-                    path,
-                    browsableUrls: options.BrowsableUrls,
-                    typeFilter: options.TypeFilter);
+                inspection.SourceFiles = assemblyReference is not null
+                    ? await SourceFileCollector.CollectAsync(
+                        service,
+                        assemblyReference,
+                        browsableUrls: options.BrowsableUrls,
+                        typeFilter: options.TypeFilter)
+                    : await SourceFileCollector.CollectAsync(
+                        service,
+                        path,
+                        browsableUrls: options.BrowsableUrls,
+                        typeFilter: options.TypeFilter);
             }
 
             return inspection;
@@ -737,6 +743,40 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"SourceLink discovery probe failed for {assemblyPath}: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static async Task<bool> ProbeLocalSourceLinkAsync(
+        ResolvedAssemblyReference assembly,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool isPlatformAssembly = false,
+        string? packageName = null,
+        string? packageVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        try
+        {
+            using var service = SourceLinkService.Open(assembly, logger.Log);
+            var context = service.Context;
+
+            if (!context.HasPdb && !context.WindowsPdbDetected && context.NeedsPdb)
+            {
+                await SourceEnricher.AcquirePdbAsync(
+                    context, httpClient, packageName, packageVersion,
+                    isPlatformAssembly, logger.Log, cacheOnly: true,
+                    sourceOptions: sourceOptions);
+            }
+
+            return context.HasPdb && service.HasSourceLink;
+        }
+        catch (Exception ex)
+        {
+            logger.Log(
+                $"SourceLink discovery probe failed for "
+                + $"{assembly.Path ?? assembly.Identity.Name}: {ex.Message}");
             return false;
         }
     }

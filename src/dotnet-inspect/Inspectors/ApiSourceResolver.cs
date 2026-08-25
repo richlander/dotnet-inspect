@@ -413,7 +413,8 @@ internal static class ApiSourceResolver
             ex is IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
-                or ArgumentException)
+                or ArgumentException
+                or OverflowException)
         {
             CommandError.Write($"Could not acquire library '{searchPath}': {ex.Message}");
             return (null!, 1);

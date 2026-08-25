@@ -132,7 +132,7 @@ internal sealed class ApiMemberAnalysisInspection
         int methodToken,
         out string? error)
     {
-        using var context = PdbContext.Open(_assemblyPath);
+        using var context = PdbContext.Open(TargetAssembly);
         return context.ResolveExceptionRegions(methodToken, out error);
     }
 
@@ -190,9 +190,11 @@ internal sealed class ApiMemberAnalysisInspection
             _bodyScope);
 
     ResolvedAssemblyReference TargetAssembly =>
-        _targetAssembly ??= ResolvedAssemblyReference.CreateFromPath(
-            _assemblyPath,
-            AssemblyResolutionProvenance.Local("API member target"));
+        _targetAssembly ??=
+            _options?.AssemblyReference
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                _assemblyPath,
+                AssemblyResolutionProvenance.Local("API member target"));
 
     IReadOnlyList<ResolvedAssemblyReference> ScopeCandidates
     {

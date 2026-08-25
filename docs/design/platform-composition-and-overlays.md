@@ -103,15 +103,23 @@ acquisition. Type-forwarder resolution retains the descriptor of the assembly
 that supplied each type. Member metadata and IL, source and PDB lookup, Body
 Shapes, Match structural comparison and implementation diffs, whole-type
 Decompiled Source, and prefetched scanner images consume those descriptors
-rather than reopening their retained paths as designations.
+rather than reopening their retained paths as designations. Descriptor
+ownership does not depend on a path, so pathless and forwarded API types remain
+attributable. Netmodule and platform-summary API extraction, member Analysis
+and exception regions, SourceLink discovery and source-file collection, and
+diff endpoint composition retain the same acquisitions.
 
 `MetadataSource.Open(path)` and `MetadataSource.OpenFromPrefetchedImage(path,
 image)` remain compatibility entry points whose contract is explicit caller
 designation. A retained package-extraction path must not reach them:
 `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
-derives the complete transitive set of Decompiler methods that can designate a
-path from compiled IL, then requires every CLI call into that set to carry a
-descriptor. The reachability derivation makes a renamed or inserted wrapper
+derives the complete transitive set of methods that can reach a Decompiler path
+designation from compiled IL across owned product assemblies, then rejects CLI
+calls that cross that set without a typed acquisition. It includes every
+path-designating Decompiler factory plus ordinary and delegate call edges, and
+keys overloads by signature. Source-specific acquisition owners may still mint
+descriptors; downstream consumers may not mint one from a retained path. The
+reachability derivation makes a renamed, inserted, or cross-assembly wrapper
 part of the boundary without adding its name to the test. Meanwhile,
 `PlantedCoreLibraryIdentityTests.PackagePrefetchedImage_DoesNotMintCoreLibraryIdentity`
 drives package provenance through the snapshot reader. Snapshotting preserves

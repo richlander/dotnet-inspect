@@ -238,6 +238,69 @@ public static class ResearchDiff
         => Compare(ResearchDiffInput.FromApiSurface(oldSurface), ResearchDiffInput.FromApiSurface(newSurface),
             new ResearchDiffOptions(ResearchChangeMechanism.Api));
 
+    public static ResearchComparison CompareBodySignals(
+        IReadOnlyList<LibraryBodyIndex> oldIndexes,
+        IReadOnlyList<LibraryBodyIndex> newIndexes,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null,
+        IReadOnlySet<string>? retainedComparisonDescriptorIds = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldIndexes);
+        ArgumentNullException.ThrowIfNull(newIndexes);
+
+        var builder = new ResultBuilder();
+        AddBodySignalDiff(
+            builder,
+            new ResearchDiffInput([], BodyIndexes: oldIndexes),
+            new ResearchDiffInput([], BodyIndexes: newIndexes),
+            typeFilters,
+            memberTargetIdentities,
+            retainedComparisonDescriptorIds
+                ?? ImmutableHashSet<string>.Empty);
+        return builder.ToResult();
+    }
+
+    internal static ResearchComparison CompareAcquiredImplementations(
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        ResearchDiffOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(oldInput);
+        ArgumentNullException.ThrowIfNull(newInput);
+        ArgumentNullException.ThrowIfNull(options);
+        if (oldInput.AssemblyPaths.Count != 0
+            || newInput.AssemblyPaths.Count != 0)
+        {
+            throw new ArgumentException(
+                "Acquired implementation comparison cannot contain paths.");
+        }
+
+        var builder = new ResultBuilder();
+        if (options.Mechanisms.HasFlag(ResearchChangeMechanism.IlBody))
+        {
+            AddIlBodyDiff(
+                builder,
+                oldInput,
+                newInput,
+                options.TypeFilters,
+                options.MemberTargetIdentities,
+                options.RetainedComparisonDescriptorIds);
+        }
+
+        if (options.Mechanisms.HasFlag(ResearchChangeMechanism.CSharp))
+        {
+            AddCSharpDiff(
+                builder,
+                oldInput,
+                newInput,
+                options.TypeFilters,
+                options.MemberTargetIdentities,
+                options.RetainedComparisonDescriptorIds);
+        }
+
+        return builder.ToResult();
+    }
+
     public static ResearchComparison Compare(ResearchDiffInput oldInput, ResearchDiffInput newInput, ResearchDiffOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(oldInput);

@@ -447,6 +447,10 @@ public class DiffCommand
         public ApiSurface ToSurface => To.Surface;
         public IReadOnlyList<string> FromPaths => From.Paths;
         public IReadOnlyList<string> ToPaths => To.Paths;
+        public IReadOnlyList<ResolvedAssemblyReference> FromAssemblies =>
+            From.AssemblyReferences;
+        public IReadOnlyList<ResolvedAssemblyReference> ToAssemblies =>
+            To.AssemblyReferences;
 
         public void Dispose()
         {
@@ -737,8 +741,8 @@ public class DiffCommand
         {
             var descriptor when descriptor == AnalysisFindings.AllocationDescriptor.Id =>
                 BuildAllocationFindingTransitions(
-                    inputs.FromPaths,
-                    inputs.ToPaths,
+                    inputs.FromAssemblies,
+                    inputs.ToAssemblies,
                     inputs.FromSurface,
                     inputs.ToSurface,
                     inputs.FromVersion,
@@ -746,8 +750,8 @@ public class DiffCommand
                     options),
             var descriptor when descriptor == AnalysisFindings.CallSiteDescriptor.Id =>
                 BuildCallSiteFindingTransitions(
-                    inputs.FromPaths,
-                    inputs.ToPaths,
+                    inputs.FromAssemblies,
+                    inputs.ToAssemblies,
                     inputs.FromSurface,
                     inputs.ToSurface,
                     inputs.FromVersion,
@@ -755,8 +759,8 @@ public class DiffCommand
                     options),
             var descriptor when descriptor == AnalysisFindings.UnsafetyDescriptor.Id =>
                 BuildUnsafetyFindingTransitions(
-                    inputs.FromPaths,
-                    inputs.ToPaths,
+                    inputs.FromAssemblies,
+                    inputs.ToAssemblies,
                     inputs.FromSurface,
                     inputs.ToSurface,
                     inputs.FromVersion,
@@ -764,8 +768,8 @@ public class DiffCommand
                     options),
             var descriptor when descriptor == CSharpFindings.LineDescriptor.Id =>
                 BuildCSharpFindingTransitions(
-                    inputs.FromPaths,
-                    inputs.ToPaths,
+                    inputs.FromAssemblies,
+                    inputs.ToAssemblies,
                     inputs.FromSurface,
                     inputs.ToSurface,
                     inputs.FromVersion,
@@ -773,8 +777,8 @@ public class DiffCommand
                     options),
             var descriptor when descriptor == IlFindings.OperationDescriptor.Id =>
                 BuildIlFindingTransitions(
-                    inputs.FromPaths,
-                    inputs.ToPaths,
+                    inputs.FromAssemblies,
+                    inputs.ToAssemblies,
                     inputs.FromSurface,
                     inputs.ToSurface,
                     inputs.FromVersion,
@@ -999,12 +1003,27 @@ public class DiffCommand
     private static BodySignalComparisonInput CreateBodySignalComparisonInput(
         DiffInputs inputs,
         DiffOptions options)
-        => CreateBodySignalComparisonInput(
-            inputs.FromPaths,
-            inputs.ToPaths,
-            options,
-            inputs.FromSurface,
-            inputs.ToSurface);
+    {
+        var memberTargetIdentities = options.MemberFilter.Count == 0
+            ? null
+            : ResolveMemberTargetIdentities(
+                inputs.FromSurface,
+                inputs.ToSurface,
+                options.MemberFilter,
+                options.TypeFilter,
+                requireBodyTargets: true).MemberIdentities;
+        return new BodySignalComparisonInput(
+            inputs.FromAssemblies
+                .Select(assembly =>
+                    MethodBodyInspectionSession.Open(assembly).BodyIndex)
+                .ToArray(),
+            inputs.ToAssemblies
+                .Select(assembly =>
+                    MethodBodyInspectionSession.Open(assembly).BodyIndex)
+                .ToArray(),
+            options.TypeFilter,
+            memberTargetIdentities);
+    }
 
     internal static BodySignalComparisonInput CreateBodySignalComparisonInput(
         IReadOnlyList<string> fromPaths,
@@ -1052,12 +1071,26 @@ public class DiffCommand
         CreateImplementationComparisonInput(
             DiffInputs inputs,
             DiffOptions options)
-        => CreateImplementationComparisonInput(
-            inputs.FromPaths,
-            inputs.ToPaths,
-            options,
-            inputs.FromSurface,
-            inputs.ToSurface);
+    {
+        var memberTargetIdentities = options.MemberFilter.Count == 0
+            ? null
+            : ResolveMemberTargetIdentities(
+                inputs.FromSurface,
+                inputs.ToSurface,
+                options.MemberFilter,
+                options.TypeFilter,
+                requireBodyTargets: true,
+                bodySectionName: "Implementation Diff").MemberIdentities;
+        return new ImplementationComparisonInput(
+            inputs.FromAssemblies
+                .Select(CreateImplementationAssemblyInput)
+                .ToArray(),
+            inputs.ToAssemblies
+                .Select(CreateImplementationAssemblyInput)
+                .ToArray(),
+            options.TypeFilter,
+            memberTargetIdentities);
+    }
 
     internal static ImplementationComparisonInput
         CreateImplementationComparisonInput(
@@ -1091,6 +1124,19 @@ public class DiffCommand
             path,
             AssemblyResolutionProvenance.Local(
                 "diff implementation comparison"));
+        var session = MethodBodyInspectionSession.Open(assembly);
+        return new(
+            assembly,
+            MetadataSource.DefaultAssemblyReferenceResolver(path),
+            session.BodyIndex);
+    }
+
+    static ImplementationAssemblyInput CreateImplementationAssemblyInput(
+        ResolvedAssemblyReference assembly)
+    {
+        string path = assembly.Path
+            ?? throw new InvalidOperationException(
+                "Diff endpoint assemblies must retain their resolver path.");
         var session = MethodBodyInspectionSession.Open(assembly);
         return new(
             assembly,
@@ -1551,6 +1597,26 @@ public class DiffCommand
             AnalysisFindings.AllocationDescriptor,
             ToAllocationTransitionRow);
 
+    internal static IReadOnlyList<FindingTransitionRow> BuildAllocationFindingTransitions(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+        => BuildBodySignalFindingTransitions<AllocationOccurrence>(
+            fromAssemblies,
+            toAssemblies,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            emitEmptyComparison: false,
+            AnalysisFindings.AllocationDescriptor,
+            ToAllocationTransitionRow);
+
     internal static IReadOnlyList<FindingTransitionRow> BuildCallSiteFindingTransitions(
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
@@ -1568,6 +1634,26 @@ public class DiffCommand
             toVersion,
             options,
             ResearchChangeMechanism.BodySignals,
+            emitEmptyComparison: false,
+            AnalysisFindings.CallSiteDescriptor,
+            ToCallSiteTransitionRow);
+
+    static IReadOnlyList<FindingTransitionRow> BuildCallSiteFindingTransitions(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+        => BuildBodySignalFindingTransitions<DirectCall>(
+            fromAssemblies,
+            toAssemblies,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
             emitEmptyComparison: false,
             AnalysisFindings.CallSiteDescriptor,
             ToCallSiteTransitionRow);
@@ -1593,6 +1679,26 @@ public class DiffCommand
             AnalysisFindings.UnsafetyDescriptor,
             ToUnsafetyTransitionRow);
 
+    static IReadOnlyList<FindingTransitionRow> BuildUnsafetyFindingTransitions(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+        => BuildBodySignalFindingTransitions<UnsafetyOccurrence>(
+            fromAssemblies,
+            toAssemblies,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            emitEmptyComparison: false,
+            AnalysisFindings.UnsafetyDescriptor,
+            ToUnsafetyTransitionRow);
+
     internal static IReadOnlyList<FindingTransitionRow> BuildCSharpFindingTransitions(
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
@@ -1610,6 +1716,27 @@ public class DiffCommand
             toVersion,
             options,
             ResearchChangeMechanism.CSharp,
+            emitEmptyComparison: true,
+            CSharpFindings.LineDescriptor,
+            ToCSharpTransitionRow);
+
+    static IReadOnlyList<FindingTransitionRow> BuildCSharpFindingTransitions(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+        => BuildRetainedFindingTransitions<CSharpCanonicalLine>(
+            fromAssemblies,
+            toAssemblies,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            ImplementationDiffMechanism.CSharp,
             emitEmptyComparison: true,
             CSharpFindings.LineDescriptor,
             ToCSharpTransitionRow);
@@ -1635,15 +1762,37 @@ public class DiffCommand
             IlFindings.OperationDescriptor,
             ToIlTransitionRow);
 
-    static IReadOnlyList<FindingTransitionRow> BuildRetainedFindingTransitions<T>(
-        IReadOnlyList<string> fromPaths,
-        IReadOnlyList<string> toPaths,
+    static IReadOnlyList<FindingTransitionRow> BuildIlFindingTransitions(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+        => BuildRetainedFindingTransitions<CanonicalIlOperation>(
+            fromAssemblies,
+            toAssemblies,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            ImplementationDiffMechanism.IlBody,
+            emitEmptyComparison: true,
+            IlFindings.OperationDescriptor,
+            ToIlTransitionRow);
+
+    static IReadOnlyList<FindingTransitionRow>
+        BuildRetainedFindingTransitions<T>(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
         ApiSurface fromSurface,
         ApiSurface toSurface,
         string fromVersion,
         string toVersion,
         DiffOptions options,
-        ResearchChangeMechanism mechanism,
+        ImplementationDiffMechanism mechanism,
         bool emitEmptyComparison,
         FindingDescriptor descriptor,
         Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
@@ -1663,17 +1812,72 @@ public class DiffCommand
             options.TypeFilter,
             requireBodyTargets: true,
             bodySectionName: "Finding Transitions");
-        var research = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssemblies(fromPaths),
-            ResearchDiffInput.FromAssemblies(toPaths),
-            new ResearchDiffOptions(
-                mechanism,
-                TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: targets.MemberIdentities)
-            {
-                RetainedComparisonDescriptorIds =
-                    ImmutableHashSet.Create(StringComparer.Ordinal, descriptor.Id),
-            });
+        ImplementationDiffResult implementation =
+            ImplementationDiff.Compare(
+                fromAssemblies
+                    .Select(CreateImplementationAssemblyInput)
+                    .ToArray(),
+                toAssemblies
+                    .Select(CreateImplementationAssemblyInput)
+                    .ToArray(),
+                new ImplementationDiffOptions(
+                    mechanism,
+                    TypeFilters: options.TypeFilter,
+                    MemberTargetIdentities: targets.MemberIdentities));
+        return implementation.Research.RetainedComparisons.Get<T>(descriptor)
+            .SelectMany(comparison => RetainedComparisonRows(
+                comparison,
+                fromVersion,
+                toVersion,
+                emitEmptyComparison,
+                toTransitionRow))
+            .OrderBy(row => row.Target, StringComparer.Ordinal)
+            .ThenBy(row => row.Transition, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    static IReadOnlyList<FindingTransitionRow>
+        BuildBodySignalFindingTransitions<T>(
+        IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+        IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options,
+        bool emitEmptyComparison,
+        FindingDescriptor descriptor,
+        Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
+            toTransitionRow)
+        where T : notnull
+    {
+        if (options.MemberFilter.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"--finding {descriptor.Id} requires exactly one --member target.");
+        }
+
+        var targets = ResolveMemberTargetIdentities(
+            fromSurface,
+            toSurface,
+            options.MemberFilter,
+            options.TypeFilter,
+            requireBodyTargets: true,
+            bodySectionName: "Finding Transitions");
+        ResearchComparison research = ResearchDiff.CompareBodySignals(
+            fromAssemblies
+                .Select(assembly =>
+                    MethodBodyInspectionSession.Open(assembly).BodyIndex)
+                .ToArray(),
+            toAssemblies
+                .Select(assembly =>
+                    MethodBodyInspectionSession.Open(assembly).BodyIndex)
+                .ToArray(),
+            options.TypeFilter,
+            targets.MemberIdentities,
+            ImmutableHashSet.Create(
+                StringComparer.Ordinal,
+                descriptor.Id));
         return research.RetainedComparisons.Get<T>(descriptor)
             .SelectMany(comparison => RetainedComparisonRows(
                 comparison,
@@ -1683,7 +1887,75 @@ public class DiffCommand
                 toTransitionRow))
             .OrderBy(row => row.Target, StringComparer.Ordinal)
             .ThenBy(row => row.Transition, StringComparer.Ordinal)
-            .ToList();
+            .ToArray();
+    }
+
+    static IReadOnlyList<FindingTransitionRow> BuildRetainedFindingTransitions<T>(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options,
+        ResearchChangeMechanism mechanism,
+        bool emitEmptyComparison,
+        FindingDescriptor descriptor,
+        Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
+            toTransitionRow)
+        where T : notnull
+    {
+        ResolvedAssemblyReference[] fromAssemblies =
+            fromPaths
+                .Select(path => ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "diff compatibility comparison")))
+                .ToArray();
+        ResolvedAssemblyReference[] toAssemblies =
+            toPaths
+                .Select(path => ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "diff compatibility comparison")))
+                .ToArray();
+        if (mechanism == ResearchChangeMechanism.BodySignals)
+        {
+            return BuildBodySignalFindingTransitions(
+                fromAssemblies,
+                toAssemblies,
+                fromSurface,
+                toSurface,
+                fromVersion,
+                toVersion,
+                options,
+                emitEmptyComparison,
+                descriptor,
+                toTransitionRow);
+        }
+
+        ImplementationDiffMechanism implementationMechanism =
+            mechanism switch
+            {
+                ResearchChangeMechanism.CSharp =>
+                    ImplementationDiffMechanism.CSharp,
+                ResearchChangeMechanism.IlBody =>
+                    ImplementationDiffMechanism.IlBody,
+                _ => throw new InvalidOperationException(
+                    $"Unsupported retained implementation mechanism '{mechanism}'."),
+            };
+        return BuildRetainedFindingTransitions(
+            fromAssemblies,
+            toAssemblies,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            implementationMechanism,
+            emitEmptyComparison,
+            descriptor,
+            toTransitionRow);
     }
 
     internal static IEnumerable<FindingTransitionRow> RetainedComparisonRows<T>(

@@ -48,6 +48,31 @@ public static class AssemblyReader
     }
 
     /// <summary>
+    /// Extracts a module API surface from the image bound to an acquisition
+    /// descriptor.
+    /// </summary>
+    public static ApiSurface? ExtractModuleApiSurface(
+        ResolvedAssemblyReference module,
+        bool includeAll = false,
+        bool typesOnly = false)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        using AssemblyImage image = AssemblyImage.Open(module);
+        if (!image.HasMetadata
+            || image.PEReader.GetMetadataReader().IsAssembly)
+        {
+            return null;
+        }
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            image.PEReader,
+            includeAll,
+            typesOnly);
+        surface.SetInspectionSourceAssembly(module);
+        return surface;
+    }
+
+    /// <summary>
     /// Extracts the public API surface from a DLL file on disk.
     /// Returns null if the file cannot be read or has no metadata.
     /// </summary>
@@ -100,6 +125,28 @@ public static class AssemblyReader
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Extracts a full API surface from the image bound to an acquisition
+    /// descriptor.
+    /// </summary>
+    public static ApiSurface? ExtractApiSurface(
+        ResolvedAssemblyReference assembly,
+        bool includeAll = false,
+        bool typesOnly = false)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        using AssemblyImage image = AssemblyImage.Open(assembly);
+        if (!image.HasMetadata)
+            return null;
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            image.PEReader,
+            includeAll,
+            typesOnly);
+        surface.SetInspectionSourceAssembly(assembly);
+        return surface;
     }
 
     /// <summary>
@@ -162,9 +209,12 @@ public static class AssemblyReader
     {
         ArgumentNullException.ThrowIfNull(assembly);
         using AssemblyImage image = AssemblyImage.Open(assembly);
-        return image.HasMetadata
-            ? ApiSurfaceExtractor.ExtractSummary(image.PEReader)
-            : null;
+        if (!image.HasMetadata)
+            return null;
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractSummary(image.PEReader);
+        surface.SetInspectionSourceAssembly(assembly);
+        return surface;
     }
 
     /// <summary>

@@ -11,6 +11,12 @@ internal sealed record ApiSurfaceEndpoint(
     public IReadOnlyList<string> Paths =>
         AssemblySet.Assemblies.Select(static entry => entry.Path).ToList();
 
+    public IReadOnlyList<ResolvedAssemblyReference> AssemblyReferences
+    {
+        get;
+        init;
+    } = [];
+
     public void Dispose() => AssemblySet.Dispose();
 }
 
@@ -37,14 +43,46 @@ internal static class ApiSurfaceEndpointResolver
             }
 
             AssemblySetDiagnosticWriter.Write(assemblySet);
-            var surface = AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log);
+            IReadOnlyList<AssemblySetEntry> entries =
+                assemblySet.Assemblies;
+            string? packageName = entries.Count > 0
+                && entries.All(static entry =>
+                    entry.SourceKind
+                        == AssemblySetSourceKind.Package)
+                && entries.All(entry => string.Equals(
+                    entry.Source,
+                    entries[0].Source,
+                    StringComparison.Ordinal))
+                    ? entries[0].Source
+                    : null;
+            List<string?> tfms = entries
+                .Select(static entry => entry.Tfm)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            string? tfm = tfms.Count == 1 ? tfms[0] : null;
+            using var resolution =
+                new AssemblySetResolutionSession(
+                    assemblySet,
+                    logger.Log);
+            ApiSurface? surface = resolution.BuildApiSurface(
+                includeAll,
+                packageName,
+                tfm,
+                logger.Log);
             if (surface is null)
             {
                 assemblySet.Dispose();
                 return (null, "Failed to extract API surface.", true);
             }
 
-            return (new ApiSurfaceEndpoint(assemblySet, surface), null, true);
+            return (
+                new ApiSurfaceEndpoint(assemblySet, surface)
+                {
+                    AssemblyReferences =
+                        resolution.AssemblyReferences,
+                },
+                null,
+                true);
         }
         catch
         {
@@ -52,4 +90,5 @@ internal static class ApiSurfaceEndpointResolver
             throw;
         }
     }
+
 }

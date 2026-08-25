@@ -28,12 +28,10 @@ public static class BodySignalComparisonQuery
         ArgumentNullException.ThrowIfNull(input.OldIndexes);
         ArgumentNullException.ThrowIfNull(input.NewIndexes);
 
-        return ResearchDiff.Compare(
-            new ResearchDiffInput([], BodyIndexes: input.OldIndexes),
-            new ResearchDiffInput([], BodyIndexes: input.NewIndexes),
-            new ResearchDiffOptions(
-                ResearchChangeMechanism.BodySignals,
-                TypeFilters: input.TypeFilters,
-                MemberTargetIdentities: input.MemberTargetIdentities));
+        return ResearchDiff.CompareBodySignals(
+            input.OldIndexes,
+            input.NewIndexes,
+            input.TypeFilters,
+            input.MemberTargetIdentities);
     }
 }

@@ -51,9 +51,13 @@ internal static class ApiServices
             resolution is not null
                 ? resolution.ExtractApiSurface(
                     options.IncludeAll)
-                : AssemblyReader.ExtractModuleApiSurface(
-                    apiDllPath,
-                    options.IncludeAll);
+                : assemblyReference is not null
+                    ? AssemblyReader.ExtractModuleApiSurface(
+                        assemblyReference,
+                        options.IncludeAll)
+                    : AssemblyReader.ExtractModuleApiSurface(
+                        apiDllPath,
+                        options.IncludeAll);
         if (api is null)
             return null;
 
@@ -118,14 +122,16 @@ internal static class ApiServices
 
     internal static LoadedApiSurface? LoadPlatformApiSummary(
         string searchPath,
+        ResolvedAssemblyReference assemblyReference,
         string runtimeAssemblyPath,
+        ResolvedAssemblyReference? runtimeAssemblyReference,
         string? apiSource,
         string? apiVersion,
         string? selectedTfm,
         VerboseLogger logger)
     {
         logger.Log($"Extracting compact API summary from: {Path.GetFileName(searchPath)}");
-        var api = AssemblyReader.ExtractApiSummarySurface(searchPath);
+        var api = AssemblyReader.ExtractApiSummarySurface(assemblyReference);
         if (api == null)
             return null;
 
@@ -147,8 +153,8 @@ internal static class ApiServices
             api,
             searchPath,
             runtimeAssemblyPath,
-            AssemblyReference: null,
-            RuntimeAssemblyReference: null,
+            assemblyReference,
+            runtimeAssemblyReference,
             IsSummary: true);
     }
 
@@ -157,6 +163,12 @@ internal static class ApiServices
         ApiType type,
         string? path)
     {
+        if (type.SourceAssemblyReference is { } source
+            && type.SourceAssemblyPath is null)
+        {
+            return source;
+        }
+
         if (path is null)
             return null;
 

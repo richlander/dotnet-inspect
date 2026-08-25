@@ -314,14 +314,8 @@ public class ApiSurface
         ResolvedAssemblyReference assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        if (assembly.Path is not { } path)
-        {
-            throw new ArgumentException(
-                "An inspection source assembly must retain its path.",
-                nameof(assembly));
-        }
-
-        SetInspectionSourceAssemblyPath(path);
+        if (assembly.Path is { } path)
+            SetInspectionSourceAssemblyPath(path);
         foreach (ApiType type in Types)
             type.SourceAssemblyReference = assembly;
     }

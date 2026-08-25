@@ -1450,7 +1450,7 @@ public class LibraryFindingConsumerTests
             "The test assembly has no metadata table stream.");
     }
 
-    static byte[] CorruptMetadataStreamCount(byte[] bytes)
+    internal static byte[] CorruptMetadataStreamCount(byte[] bytes)
     {
         using var peReader = new PEReader(
             new MemoryStream(bytes, writable: false));
