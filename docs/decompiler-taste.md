@@ -504,7 +504,9 @@ for separated sibling conditionals. Compact setup is represented by
 `src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs:397-405`.
 
 `FourVisibleConstructor_DoesNotCountSuppressedBaseCall` and
-`FiveVisibleConstructor_SeparatesNonTerminatingLeadingConditional` enforce the
+`FourVisibleStatements_DoNotCountCommentOnlySibling` ensure suppressed
+constructor chains and comment-only diagnostics do not enter the visible count.
+`FiveVisibleConstructor_SeparatesNonTerminatingLeadingConditional` enforces the
 exact threshold and leading-conditional boundary.
 `LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact` and
 `LongMethod_SeparatesSiblingControlFlowGroups` enforce the remaining grouping

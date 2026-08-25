@@ -190,6 +190,47 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    public void FourVisibleStatements_DoNotCountCommentOnlySibling()
+    {
+        var then = new Block();
+        then.Add(new ExpressionStatement(new Constant(1, Int32)));
+        var entry = new Block(0);
+        entry.Add(new IfStatement(
+            new LoadArgument(0, "flag", Boolean),
+            then,
+            elseArm: null));
+        entry.Add(new ExpressionStatement(new Constant(2, Int32)));
+        entry.Add(new ExpressionStatement(new Constant(3, Int32)));
+        entry.Add(new ExpressionStatement(new Constant(4, Int32)));
+        entry.Add(new ExpressionStatement(
+            new UnsupportedNode(0x10, "probe", "comment-only sibling")));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "CommentOnlyThreshold",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Void,
+                [new Parameter("flag", Boolean)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains(
+            "_ = 1;\n" +
+            "}\n" +
+            "_ = 2;",
+            output);
+        Assert.Contains(
+            "/* Unsupported IL_0010 probe: comment-only sibling */",
+            output);
+        Assert.DoesNotContain("\n\n", output);
+    }
+
+    [Fact]
     public void CompactMethod_KeepsAdjacentStatementsCompact()
     {
         var (output, _) = Print(nameof(SemanticSpacingFixture.Compact));

@@ -2731,13 +2731,18 @@ public sealed partial class CSharpPrinter
     }
 
     bool IsVisibleStatement(IrNode statement)
-        => statement switch
+    {
+        if (RendersAsCommentOnly(statement))
+            return false;
+
+        return statement switch
         {
             StoreLocal store when _inlineReceiverTempStores.ContainsValue(store) => false,
             ExpressionStatement { Expression: Call call }
                 when IsImplicitParameterlessBaseCall(call) => false,
             _ => true,
         };
+    }
 
     bool RendersSourceLabel(IrNode statement)
         => statement.OwnsSourceLabel
