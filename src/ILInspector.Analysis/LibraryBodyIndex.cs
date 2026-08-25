@@ -56,6 +56,7 @@ public sealed class LibraryBodyIndex
 {
     LibraryBodyIndex(
         string path,
+        MetadataReader? reader,
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisFeatures features)
     {
@@ -73,6 +74,12 @@ public sealed class LibraryBodyIndex
                         Caller = call.EvidenceMethod,
                     }),
         ];
+        _exactVirtualTargets =
+            (features
+                & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0
+                && reader is not null
+                ? CollectExactVirtualTargets(reader)
+                : ImmutableArray<bool>.Empty;
         UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
         _rawOpportunities = analysis.Optimizations.Opportunities;
@@ -121,6 +128,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public ImmutableArray<DirectCall> DirectCalls { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
+    readonly ImmutableArray<bool> _exactVirtualTargets;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
@@ -270,9 +278,9 @@ public sealed class LibraryBodyIndex
                     .. AllocationFanout.Analyze(
                             Methods,
                             ClassifyExactCallTargets(
-                                Path,
                                 _physicalDirectCalls,
-                                Methods),
+                                Methods,
+                                _exactVirtualTargets),
                             _allocationOccurrences)
                         .Where(summary =>
                             !_scopeExcludedOpportunityTokens
@@ -328,13 +336,10 @@ public sealed class LibraryBodyIndex
     }
 
     static ImmutableArray<DirectCall> ClassifyExactCallTargets(
-        string path,
         ImmutableArray<DirectCall> calls,
-        ImmutableArray<MethodIdentity> methods)
+        ImmutableArray<MethodIdentity> methods,
+        ImmutableArray<bool> exactVirtualTargets)
     {
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
         var methodMap = MethodDefinitionMap.Create(methods);
         return
         [
@@ -344,7 +349,10 @@ public sealed class LibraryBodyIndex
                 bool exact = targetToken != 0 && call.Kind switch
                 {
                     CallKind.Call or CallKind.NewObject => true,
-                    CallKind.CallVirtual => IsExactVirtualTarget(reader, targetToken),
+                    CallKind.CallVirtual =>
+                        IsExactVirtualTarget(
+                            exactVirtualTargets,
+                            targetToken),
                     _ => false,
                 };
                 return call with { ExactTarget = exact };
@@ -352,12 +360,39 @@ public sealed class LibraryBodyIndex
         ];
     }
 
-    static bool IsExactVirtualTarget(MetadataReader reader, int methodToken)
+    internal static ImmutableArray<bool> CollectExactVirtualTargets(
+        MetadataReader reader)
     {
-        var handle = MetadataTokens.EntityHandle(methodToken);
+        var targets = ImmutableArray.CreateBuilder<bool>(
+            reader.MethodDefinitions.Count);
+        foreach (MethodDefinitionHandle handle
+            in reader.MethodDefinitions)
+        {
+            targets.Add(
+                IsExactVirtualTarget(reader, handle));
+        }
+        return targets.MoveToImmutable();
+    }
+
+    internal static bool IsExactVirtualTarget(
+        ImmutableArray<bool> exactVirtualTargets,
+        int methodToken)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(methodToken);
         if (handle.Kind != HandleKind.MethodDefinition)
             return false;
-        var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        int index =
+            MetadataTokens.GetRowNumber(
+                (MethodDefinitionHandle)handle) - 1;
+        return (uint)index < (uint)exactVirtualTargets.Length
+            && exactVirtualTargets[index];
+    }
+
+    static bool IsExactVirtualTarget(
+        MetadataReader reader,
+        MethodDefinitionHandle handle)
+    {
+        var method = reader.GetMethodDefinition(handle);
         if ((method.Attributes & MethodAttributes.Virtual) == 0
             || (method.Attributes & MethodAttributes.Final) != 0)
         {
@@ -980,6 +1015,7 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null)
         => new(
             path: "",
+            reader: null,
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
@@ -1190,7 +1226,11 @@ public sealed class LibraryBodyIndex
                 : rootSnapshot);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
-        return new LibraryBodyIndex(path, analysis, plan.Features);
+        return new LibraryBodyIndex(
+            path,
+            reader,
+            analysis,
+            plan.Features);
     }
 
     static bool UsesReferenceResolution(

@@ -52,12 +52,16 @@ internal static class ApiServices
                 ? resolution.ExtractApiSurface(
                     options.IncludeAll)
                 : assemblyReference is not null
-                    ? AssemblyReader.ExtractModuleApiSurface(
-                        assemblyReference,
-                        options.IncludeAll)
-                    : AssemblyReader.ExtractModuleApiSurface(
-                        apiDllPath,
-                        options.IncludeAll);
+                        ? assemblyReference.IsAssembly
+                            ? AssemblyReader.ExtractApiSurface(
+                                assemblyReference,
+                                options.IncludeAll)
+                            : AssemblyReader.ExtractModuleApiSurface(
+                                assemblyReference,
+                                options.IncludeAll)
+                        : AssemblyReader.ExtractModuleApiSurface(
+                            apiDllPath,
+                            options.IncludeAll);
         if (api is null)
             return null;
 

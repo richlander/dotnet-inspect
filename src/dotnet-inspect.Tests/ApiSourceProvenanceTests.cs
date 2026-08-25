@@ -29,6 +29,76 @@ public sealed class ApiSourceProvenanceTests
         Assert.Equal("net11.0", provenance.Tfm);
     }
 
+    [Theory]
+    [InlineData("LocalPackage.nupkg")]
+    [InlineData("1.0.0.nupkg")]
+    public void LocalPackageWithoutCompleteCoordinates_UsesLocalAcquisition(
+        string packagePath)
+    {
+        var (packageName, packageVersion) =
+            PackageExtractor.ParsePackageReference(packagePath);
+
+        Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+            ApiSourceResolver.CreateProvenance(
+                SourceKind.NuGet,
+                packageName,
+                packageVersion,
+                selectedTfm: null,
+                platformFramework: null,
+                apiVersion: null,
+                projectAssetsPath: null));
+    }
+
+    [Theory]
+    [InlineData("LocalPackage.nupkg")]
+    [InlineData("1.0.0.nupkg")]
+    public async Task LocalPackageWithoutCompleteCoordinates_ResolvesWithoutCrash(
+        string fileName)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"local-package-provenance-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string packagePath = Path.Combine(tempDir, fileName);
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                packagePath,
+                ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry library =
+                    archive.CreateEntry("RootOnly.dll");
+                await using Stream destination = library.Open();
+                await using FileStream source = File.OpenRead(
+                    typeof(ApiSourceProvenanceTests).Assembly.Location);
+                await source.CopyToAsync(
+                    destination,
+                    TestContext.Current.CancellationToken);
+            }
+
+            var (result, error) = await ApiSourceResolver.ResolveAsync(
+                new ApiOptions
+                {
+                    PackagePath = packagePath,
+                });
+            try
+            {
+                Assert.Null(error);
+                Assert.IsType<
+                    AssemblyResolutionProvenance.LocalAsset>(
+                    result.AssemblyReference!.Provenance);
+            }
+            finally
+            {
+                PackageExtractor.Cleanup(result?.TempDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public void ExplicitLibrarySource_IsDesignated()
     {

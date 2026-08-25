@@ -372,18 +372,18 @@ internal static class ApiSourceResolver
             }
         }
 
-        AssemblyResolutionProvenance provenance = CreateProvenance(
-            apiSource,
-            packageName,
-            packageVersion,
-            selectedTfm,
-            platformFramework,
-            apiVersion,
-            projectAssetsPath);
         ResolvedAssemblyReference? assemblyReference;
         ResolvedAssemblyReference? runtimeAssemblyReference = null;
         try
         {
+            AssemblyResolutionProvenance provenance = CreateProvenance(
+                apiSource,
+                packageName,
+                packageVersion,
+                selectedTfm,
+                platformFramework,
+                apiVersion,
+                projectAssetsPath);
             assemblyReference = ResolvedAssemblyReference
                 .CreateInspectionReferenceFromPathIfManaged(
                     searchPath,
@@ -450,13 +450,20 @@ internal static class ApiSourceResolver
         string? projectAssetsPath) =>
         apiSource switch
         {
-            SourceKind.NuGet => AssemblyResolutionProvenance.Package(
-                packageName!,
-                packageVersion!,
-                selectedTfm,
-                rid: null),
+            SourceKind.NuGet
+                when !string.IsNullOrWhiteSpace(packageName)
+                    && !string.IsNullOrWhiteSpace(packageVersion) =>
+                AssemblyResolutionProvenance.Package(
+                    packageName,
+                    packageVersion,
+                    selectedTfm,
+                    rid: null),
+            SourceKind.NuGet => AssemblyResolutionProvenance.Local(
+                "local package extraction"),
             SourceKind.Platform => AssemblyResolutionProvenance.Platform(
-                platformFramework ?? "InstalledPlatform",
+                string.IsNullOrWhiteSpace(platformFramework)
+                    ? "InstalledPlatform"
+                    : platformFramework,
                 apiVersion,
                 "ApiSourceResolver"),
             SourceKind.Project => AssemblyResolutionProvenance.Project(

@@ -81,16 +81,17 @@ public static class MatchCommand
                 return 1;
             }
 
-            // Both tokens must index the same physical module. A type resolved through a type
+            // Both tokens must index the same acquired module. A type resolved through a type
             // forwarder (e.g. a facade assembly forwarding to its implementation assembly) carries
             // metadata tokens that index that *target* assembly, not loaded.ApiDllPath — comparing
             // them against the wrong image would silently reinterpret an unrelated MethodDef row
-            // (issue #4304 Slice 3 review). Require both selectors to originate from the same file.
-            if (!string.Equals(left.OriginAssemblyPath, right.OriginAssemblyPath, StringComparison.Ordinal))
+            // (issue #4304 Slice 3 review). Display paths are not acquisition identity: pathless
+            // descriptors intentionally have none, and mutable paths can name different images.
+            if (!SelectorsShareAcquisition(left, right))
             {
                 CommandError.Write(
-                    $"'{options.LeftSelector}' and '{options.RightSelector}' resolve to different assemblies "
-                        + $"({Path.GetFileName(left.OriginAssemblyPath)} vs {Path.GetFileName(right.OriginAssemblyPath)}); "
+                    $"'{options.LeftSelector}' and '{options.RightSelector}' resolve to different acquisitions "
+                        + $"({OriginDisplay(left)} vs {OriginDisplay(right)}); "
                         + "match compares two methods within one retained assembly.");
                 return 1;
             }
@@ -150,6 +151,20 @@ public static class MatchCommand
                 TryDeleteTempDir(source.TempDir);
         }
     }
+
+    internal static bool SelectorsShareAcquisition(
+        ResolvedSelector left,
+        ResolvedSelector right) =>
+        left.OriginAssembly is { } leftAssembly
+        && right.OriginAssembly is { } rightAssembly
+        && ReferenceEquals(
+            leftAssembly.Registration,
+            rightAssembly.Registration);
+
+    static string OriginDisplay(ResolvedSelector selector) =>
+        selector.OriginAssembly?.Identity.Name
+        ?? Path.GetFileName(selector.OriginAssemblyPath)
+        ?? "<unknown>";
 
     static void TryDeleteTempDir(string tempDir)
     {

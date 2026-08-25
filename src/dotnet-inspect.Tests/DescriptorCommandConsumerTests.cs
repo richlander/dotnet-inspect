@@ -97,7 +97,35 @@ public sealed class DescriptorCommandConsumerTests
     }
 
     [Fact]
-    public async Task SourceFileCollection_UsesDescriptorBackedApiSurface()
+    public void FullApiLoading_AcceptsPathlessAssembly()
+    {
+        string path = typeof(DescriptorCommandConsumerTests).Assembly.Location;
+        ResolvedAssemblyReference assembly =
+            TestAssemblyReferences.Designated(path).WithoutLocalPath();
+
+        ApiServices.LoadedApiSurface loaded = Assert.IsType<
+            ApiServices.LoadedApiSurface>(
+            ApiServices.LoadFullApi(
+                "/display-only.dll",
+                assembly,
+                runtimeAssemblyReference: null,
+                runtimeAssemblyPath: null,
+                packagePath: null,
+                packageName: null,
+                apiSource: SourceKind.Library,
+                apiVersion: null,
+                selectedTfm: null,
+                new VerboseLogger(false),
+                new ApiOptions()));
+
+        Assert.Contains(
+            loaded.Api.Types,
+            type => type.FullName
+                == typeof(DescriptorCommandConsumerTests).FullName);
+    }
+
+    [Fact]
+    public async Task SourceFileCollection_UsesAlreadyOpenApiSurface()
     {
         string path =
             FixtureCatalog.SourceLinkNormalized.AssemblyPath();
@@ -106,7 +134,7 @@ public sealed class DescriptorCommandConsumerTests
         using var service = SourceLinkService.Open(assembly);
 
         List<SourceFileInfo> files =
-            await SourceFileCollector.CollectAsync(service, assembly);
+            await SourceFileCollector.CollectAsync(service);
 
         Assert.True(service.HasSourceLink);
         Assert.NotEmpty(files);

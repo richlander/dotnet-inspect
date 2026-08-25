@@ -498,15 +498,9 @@ internal static class LibraryMetadataService
 
             if (sourcePlan.CollectSourceFiles)
             {
-                inspection.SourceFiles = assemblyReference is not null
-                    ? await SourceFileCollector.CollectAsync(
+                inspection.SourceFiles =
+                    await SourceFileCollector.CollectAsync(
                         service,
-                        assemblyReference,
-                        browsableUrls: options.BrowsableUrls,
-                        typeFilter: options.TypeFilter)
-                    : await SourceFileCollector.CollectAsync(
-                        service,
-                        path,
                         browsableUrls: options.BrowsableUrls,
                         typeFilter: options.TypeFilter);
             }

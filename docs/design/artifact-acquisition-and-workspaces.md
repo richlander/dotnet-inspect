@@ -733,9 +733,13 @@ Several current types are migration inputs, not target precedent:
   bodies and addresses module TypeDefs directly by MVID and token.
   `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
   builds a signature-sensitive call graph across owned product assemblies,
-  includes delegate edges and every path-designating Decompiler factory, and
-  treats typed acquisition inputs as the boundary that stops designation
-  reachability. Acquisition owners may still create descriptors from their
+  includes direct delegate edges, compiler-emitted field-carried delegate
+  edges, constructor edges, and every path-designating Decompiler factory, and
+  treats exact typed acquisition inputs (but not descriptor-producing
+  `out` parameters) as the boundary that stops designation reachability.
+  Delegates injected through parameters, stored in collections, or carried
+  through fields across assembly boundaries remain unverified. Acquisition
+  owners may still create descriptors from their
   source-specific coordinates; the gate prevents downstream consumers from
   laundering a retained path into a new designation.
   `ReaderConstructionSiteTests.DescriptorOpenReferences_MatchTheReviewedInventory`

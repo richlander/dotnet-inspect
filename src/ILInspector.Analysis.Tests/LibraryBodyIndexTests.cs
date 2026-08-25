@@ -561,7 +561,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_PrefetchedImageDoesNotReopenRootPath()
+    public void OptimizationAnalyses_PrefetchedImageDoNotReopenRootPath()
     {
         string sourcePath = typeof(OptimizationOpportunityFixtures)
             .Assembly.Location;
@@ -593,6 +593,90 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.Name
                     == nameof(OptimizationOpportunityFixtures
                         .CallsFileReadLinesFromAsync));
+        _ = index.AllocationFanoutOpportunities;
+    }
+
+    [Fact]
+    public void AllocationFanout_PathlessDescriptorDoesNotOpenDisplayName()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        ResolvedAssemblyReference assembly = Assert.IsType<
+            ResolvedAssemblyReference>(
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "LibraryBodyIndexTests")));
+
+        var index = LibraryBodyIndex.Open(
+            assembly,
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        Assert.Null(assembly.Path);
+        _ = index.AllocationFanoutOpportunities;
+    }
+
+    [Fact]
+    public void ExactVirtualTargetMap_DistinguishesSealedAndOverridableTargets()
+    {
+        using var stream = File.OpenRead(
+            typeof(object).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        ImmutableArray<bool> targets =
+            LibraryBodyIndex.CollectExactVirtualTargets(reader);
+
+        int sealedTarget = MethodToken(
+            reader,
+            "System",
+            "String",
+            nameof(ToString));
+        int overridableTarget = MethodToken(
+            reader,
+            "System",
+            "Object",
+            nameof(ToString));
+
+        Assert.True(
+            LibraryBodyIndex.IsExactVirtualTarget(
+                targets,
+                sealedTarget));
+        Assert.False(
+            LibraryBodyIndex.IsExactVirtualTarget(
+                targets,
+                overridableTarget));
+
+        static int MethodToken(
+            MetadataReader reader,
+            string @namespace,
+            string typeName,
+            string methodName)
+        {
+            TypeDefinitionHandle typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle =>
+                {
+                    TypeDefinition type =
+                        reader.GetTypeDefinition(handle);
+                    return reader.GetString(type.Namespace)
+                            == @namespace
+                        && reader.GetString(type.Name)
+                            == typeName;
+                });
+            TypeDefinition type =
+                reader.GetTypeDefinition(typeHandle);
+            MethodDefinitionHandle methodHandle = Assert.Single(
+                type.GetMethods(),
+                handle =>
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(handle);
+                    return reader.GetString(method.Name)
+                            == methodName
+                        && method.GetParameters().Count == 0;
+                });
+            return MetadataTokens.GetToken(methodHandle);
+        }
     }
 
     [Fact]

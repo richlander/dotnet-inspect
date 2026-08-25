@@ -2502,7 +2502,6 @@ public class PackageCommand
                 {
                     List<SourceFileInfo> rows = await SourceFileCollector.CollectAsync(
                         source,
-                        libraryPath,
                         browsableUrls: options.BrowsableUrls,
                         typeFilter: options.TypeFilter).ConfigureAwait(false);
                     result.SourceFiles!.AddRange(rows.Select(row => new PackageSourceFileInfo(

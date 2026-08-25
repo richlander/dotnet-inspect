@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -230,6 +231,39 @@ public sealed class MatchCommandTests
         Assert.DoesNotContain("\"match\": {", output);
         Assert.DoesNotContain("\"implementation\": {", output);
         Assert.Contains("\"disposition\":", output);
+    }
+
+    [Fact]
+    public void SelectorsShareAcquisition_UsesRegistrationInsteadOfDisplayPath()
+    {
+        string path = typeof(MatchCommandTests).Assembly.Location;
+        ResolvedAssemblyReference retained =
+            TestAssemblyReferences.Designated(path);
+        ResolvedAssemblyReference sameAcquisition =
+            retained.WithoutLocalPath();
+        ResolvedAssemblyReference separateAcquisition =
+            TestAssemblyReferences.Designated(path).WithoutLocalPath();
+        var left = new MatchCommand.ResolvedSelector(
+            Token: 1,
+            Display: "left",
+            OriginAssemblyPath: "/same-display.dll",
+            OriginAssembly: retained,
+            Error: null);
+
+        Assert.True(
+            MatchCommand.SelectorsShareAcquisition(
+                left,
+                left with
+                {
+                    OriginAssembly = sameAcquisition,
+                }));
+        Assert.False(
+            MatchCommand.SelectorsShareAcquisition(
+                left,
+                left with
+                {
+                    OriginAssembly = separateAcquisition,
+                }));
     }
 
     [Theory]

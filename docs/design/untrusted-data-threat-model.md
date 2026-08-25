@@ -404,9 +404,13 @@ use the same acquired descriptor as the facts they compose.
 `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
 derives that boundary from a signature-sensitive compiled call graph across
 owned product assemblies. It seeds every path-designating Decompiler factory,
-follows ordinary and delegate call edges, and stops only at typed
-acquisition-bearing boundaries, so cross-assembly wrapper indirection cannot
-hide a designation. Source-specific acquisition owners still mint descriptors;
+follows ordinary, constructor, direct-delegate, and compiler-emitted
+field-carried delegate call edges, and stops only at exact typed
+acquisition-bearing inputs, so cross-assembly wrapper indirection cannot hide a
+designation. Descriptor-producing `out` parameters are not boundaries.
+Delegates injected through parameters, stored in collections, or carried
+through fields across assembly boundaries remain unverified. Source-specific
+acquisition owners still mint descriptors;
 the gate prevents a downstream consumer from minting one from a retained path. The
 snapshot overload
 preserves the descriptor's acquisition registration and rejects a different

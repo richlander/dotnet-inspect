@@ -11,7 +11,6 @@ internal static class SourceFileCollector
 {
     public static Task<List<SourceFileInfo>> CollectAsync(
         SourceLinkService service,
-        string assemblyPath,
         bool includeAll = false,
         bool browsableUrls = false,
         string? typeFilter = null)
@@ -21,28 +20,7 @@ internal static class SourceFileCollector
 
         return CollectAsync(
             service,
-            AssemblyReader.ExtractApiSurface(
-                assemblyPath,
-                includeAll,
-                typesOnly: true),
-            browsableUrls,
-            typeFilter);
-    }
-
-    public static Task<List<SourceFileInfo>> CollectAsync(
-        SourceLinkService service,
-        ResolvedAssemblyReference assembly,
-        bool includeAll = false,
-        bool browsableUrls = false,
-        string? typeFilter = null)
-    {
-        if (!service.HasPdb || !service.HasSourceLink)
-            return Task.FromResult<List<SourceFileInfo>>([]);
-
-        return CollectAsync(
-            service,
-            AssemblyReader.ExtractApiSurface(
-                assembly,
+            service.Context.ExtractApiSurface(
                 includeAll,
                 typesOnly: true),
             browsableUrls,
@@ -117,7 +95,6 @@ internal static class SourceFileCollector
             sourceOptions: sourceOptions);
         return await CollectAsync(
             service,
-            assemblyPath,
             includeAll,
             browsableUrls,
             typeFilter);

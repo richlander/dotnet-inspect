@@ -220,11 +220,11 @@ public sealed class LayeringTests
             typeof(ILInspector.Decompiler.MemberBodyProducer)
                 .Assembly.Location;
         string[] productAssemblies = OwnedProductAssemblyPaths();
-        Dictionary<string, HashSet<string>> productCalls =
+        CompiledCallGraph productCalls =
             ReadCallGraph(productAssemblies);
         HashSet<string> descriptorDesignatingMethods =
             FindTransitivelyTainted(
-                productCalls,
+                productCalls.Calls,
                 ReadDirectCallers(
                     [decompilerPath],
                     "ResolvedAssemblyReference::Create(",
@@ -233,7 +233,8 @@ public sealed class LayeringTests
                     "ResolvedAssemblyReference::CreateFromPathIfManaged(",
                     "ResolvedAssemblyReference::CreateFromModulePathIfManaged(",
                     "ResolvedAssemblyReference::CreateInspectionReferenceFromPathIfManaged(",
-                    "ResolvedAssemblyReference::CreateFromStreamIfManaged("));
+                    "ResolvedAssemblyReference::CreateFromStreamIfManaged("),
+                productCalls.AcquisitionBearingBoundaries);
         List<string> cliCalls =
             ReadCalls(typeof(LibraryInspection).Assembly.Location);
         List<string> violations = cliCalls
@@ -277,11 +278,11 @@ public sealed class LayeringTests
     [Fact]
     public void CompiledCallGraph_TraversesDelegateFactoryEdges()
     {
-        Dictionary<string, HashSet<string>> calls =
+        CompiledCallGraph graph =
             ReadCallGraph(typeof(LayeringTests).Assembly.Location);
 
         Assert.Contains(
-            calls[
+            graph.Calls[
                 "DotnetInspector.Tests.LayeringTests"
                 + "::DescriptorFactoryDelegateTarget("
                 + "String, AssemblyResolutionProvenance)"],
@@ -289,6 +290,110 @@ public sealed class LayeringTests
                 "ILInspector.Metadata.ResolvedAssemblyReference"
                     + "::CreateFromPathIfManaged(",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompiledCallGraph_TraversesConstructorEdges()
+    {
+        string assemblyPath = typeof(LayeringTests).Assembly.Location;
+        CompiledCallGraph graph = ReadCallGraph(assemblyPath);
+        string caller = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "::ConstructDescriptorFixture(",
+                StringComparison.Ordinal));
+        string constructor = Assert.Single(
+            graph.Calls[caller],
+            key => key.Contains(
+                "DescriptorConstructorFixture::.ctor(",
+                StringComparison.Ordinal));
+
+        Assert.Contains(
+            ReadCalls(assemblyPath),
+            call => CallKey(call) == constructor);
+
+        HashSet<string> tainted = FindTransitivelyTainted(
+            graph.Calls,
+            ReadDirectCallers(
+                [assemblyPath],
+                "ResolvedAssemblyReference::CreateFromPathIfManaged("),
+            graph.AcquisitionBearingBoundaries);
+        Assert.Contains(caller, tainted);
+    }
+
+    [Fact]
+    public void CompiledCallGraph_TraversesFieldBackedDelegateEdges()
+    {
+        CompiledCallGraph graph =
+            ReadCallGraph(typeof(LayeringTests).Assembly.Location);
+        string caller = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "DescriptorFactoryFieldFixture::Invoke(",
+                StringComparison.Ordinal));
+
+        Assert.Contains(
+            graph.Calls[caller],
+            call => call.StartsWith(
+                "ILInspector.Metadata.ResolvedAssemblyReference"
+                    + "::CreateFromPathIfManaged(",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AcquisitionBoundaryRecognition_UsesExactMetadataTypes()
+    {
+        string assemblyPath = typeof(LayeringTests).Assembly.Location;
+        CompiledCallGraph graph = ReadCallGraph(assemblyPath);
+        string exactBoundary = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "::ExactAcquisitionBoundary(",
+                StringComparison.Ordinal));
+        string lookalike = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "ResolvedAssemblyReferenceAdapter::Create(",
+                StringComparison.Ordinal));
+        string outProducer = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "::TryCreateOutAcquisition(",
+                StringComparison.Ordinal));
+        string refBoundary = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "::RefAcquisitionBoundary(",
+                StringComparison.Ordinal));
+        string inBoundary = Assert.Single(
+            graph.Calls.Keys,
+            key => key.Contains(
+                "::InAcquisitionBoundary(",
+                StringComparison.Ordinal));
+
+        Assert.Contains(
+            exactBoundary,
+            graph.AcquisitionBearingBoundaries);
+        Assert.DoesNotContain(
+            lookalike,
+            graph.AcquisitionBearingBoundaries);
+        Assert.DoesNotContain(
+            outProducer,
+            graph.AcquisitionBearingBoundaries);
+        Assert.Contains(
+            refBoundary,
+            graph.AcquisitionBearingBoundaries);
+        Assert.Contains(
+            inBoundary,
+            graph.AcquisitionBearingBoundaries);
+
+        HashSet<string> tainted = FindTransitivelyTainted(
+            graph.Calls,
+            ReadDirectCallers(
+                [assemblyPath],
+                "ResolvedAssemblyReference::CreateFromPathIfManaged("),
+            graph.AcquisitionBearingBoundaries);
+        Assert.Contains(lookalike, tainted);
     }
 
     static ResolvedAssemblyReference? DescriptorFactoryDelegateTarget(
@@ -301,6 +406,77 @@ public sealed class LayeringTests
             ResolvedAssemblyReference?> factory =
                 ResolvedAssemblyReference.CreateFromPathIfManaged;
         return factory(path, provenance);
+    }
+
+    sealed class DescriptorConstructorFixture
+    {
+        internal DescriptorConstructorFixture(
+            string path,
+            AssemblyResolutionProvenance provenance)
+        {
+            _ = ResolvedAssemblyReference.CreateFromPathIfManaged(
+                path,
+                provenance);
+        }
+    }
+
+    static void ConstructDescriptorFixture(
+        string path,
+        AssemblyResolutionProvenance provenance) =>
+        _ = new DescriptorConstructorFixture(path, provenance);
+
+    static class DescriptorFactoryFieldFixture
+    {
+        static readonly Func<
+            string,
+            AssemblyResolutionProvenance,
+            ResolvedAssemblyReference?> Factory =
+                ResolvedAssemblyReference.CreateFromPathIfManaged;
+
+        internal static ResolvedAssemblyReference? Invoke(
+            string path,
+            AssemblyResolutionProvenance provenance) =>
+            Factory(path, provenance);
+    }
+
+    static void ExactAcquisitionBoundary(
+        ResolvedAssemblyReference assembly)
+    {
+        _ = assembly.Identity;
+    }
+
+    static bool TryCreateOutAcquisition(
+        string path,
+        AssemblyResolutionProvenance provenance,
+        out ResolvedAssemblyReference? assembly)
+    {
+        assembly =
+            ResolvedAssemblyReference.CreateFromPathIfManaged(
+                path,
+                provenance);
+        return assembly is not null;
+    }
+
+    static void RefAcquisitionBoundary(
+        ref ResolvedAssemblyReference assembly)
+    {
+        _ = assembly.Identity;
+    }
+
+    static void InAcquisitionBoundary(
+        in ResolvedAssemblyReference assembly)
+    {
+        _ = assembly.Identity;
+    }
+
+    static class ResolvedAssemblyReferenceAdapter
+    {
+        internal static ResolvedAssemblyReference? Create(
+            string path,
+            AssemblyResolutionProvenance provenance) =>
+            ResolvedAssemblyReference.CreateFromPathIfManaged(
+                path,
+                provenance);
     }
 
     static string[] OwnedProductAssemblyPaths()
@@ -345,6 +521,7 @@ public sealed class LayeringTests
                         instruction.OpCodeName
                             is "call"
                             or "callvirt"
+                            or "newobj"
                             or "ldftn"
                             or "ldvirtftn"
                         && instruction.Operand is not null)
@@ -354,21 +531,39 @@ public sealed class LayeringTests
         return calls;
     }
 
-    static Dictionary<string, HashSet<string>> ReadCallGraph(
+    sealed record CompiledCallGraph(
+        Dictionary<string, HashSet<string>> Calls,
+        HashSet<string> AcquisitionBearingBoundaries);
+
+    static CompiledCallGraph ReadCallGraph(
         params string[] assemblyPaths)
     {
         var graph = new Dictionary<string, HashSet<string>>(
             StringComparer.Ordinal);
+        var boundaries = new HashSet<string>(StringComparer.Ordinal);
+        var delegateTargetsByField =
+            new Dictionary<string, HashSet<string>>(
+                StringComparer.Ordinal);
+        var delegateInvocations =
+            new List<(
+                string Caller,
+                ImmutableArray<string> CandidateFields)>();
         foreach (string assemblyPath in assemblyPaths)
         {
             using var stream = File.OpenRead(assemblyPath);
             using var peReader = new PEReader(stream);
             MetadataReader reader = peReader.GetMetadataReader();
+            string assemblyName = reader.IsAssembly
+                ? reader.GetString(
+                    reader.GetAssemblyDefinition().Name)
+                : Path.GetFileNameWithoutExtension(assemblyPath);
             foreach (MethodDefinitionHandle methodHandle in reader.MethodDefinitions)
             {
                 MethodDefinition method = reader.GetMethodDefinition(methodHandle);
                 string key = MethodKey(reader, method);
                 graph.TryAdd(key, []);
+                if (IsAcquisitionBearingBoundary(reader, method))
+                    boundaries.Add(key);
                 List<ILInstructionText>? instructions =
                     MetadataInstructionProducer.DisassembleMethod(
                         peReader,
@@ -382,6 +577,7 @@ public sealed class LayeringTests
                         instruction.OpCodeName
                             is "call"
                             or "callvirt"
+                            or "newobj"
                             or "ldftn"
                             or "ldvirtftn"
                         && instruction.Operand is not null)
@@ -389,10 +585,94 @@ public sealed class LayeringTests
                 {
                     graph[key].Add(CallKey(call));
                 }
+
+                for (int index = 0; index < instructions.Count; index++)
+                {
+                    ILInstructionText instruction = instructions[index];
+                    if (instruction.OpCodeName is "stsfld" or "stfld"
+                        && instruction.Operand is { } storedField)
+                    {
+                        int start = Math.Max(0, index - 4);
+                        ILInstructionText? target = instructions
+                            .Skip(start)
+                            .Take(index - start)
+                            .LastOrDefault(candidate =>
+                                candidate.OpCodeName
+                                    is "ldftn"
+                                    or "ldvirtftn"
+                                && candidate.Operand is not null);
+                        bool constructsDelegate = instructions
+                            .Skip(start)
+                            .Take(index - start)
+                            .Any(candidate =>
+                                candidate.OpCodeName == "newobj");
+                        if (target?.Operand is { } targetOperand
+                            && constructsDelegate)
+                        {
+                            string field =
+                                FieldKey(assemblyName, storedField);
+                            if (!delegateTargetsByField.TryGetValue(
+                                    field,
+                                    out HashSet<string>? targets))
+                            {
+                                targets = new HashSet<string>(
+                                    StringComparer.Ordinal);
+                                delegateTargetsByField[field] = targets;
+                            }
+                            targets.Add(CallKey(targetOperand));
+                        }
+                    }
+                }
+
+                for (int index = 0; index < instructions.Count; index++)
+                {
+                    ILInstructionText instruction = instructions[index];
+                    if (instruction.OpCodeName
+                            is not ("call" or "callvirt")
+                        || instruction.Operand?.Contains(
+                            "::Invoke(",
+                            StringComparison.Ordinal) != true)
+                    {
+                        continue;
+                    }
+
+                    ImmutableArray<string> candidateFields =
+                    [
+                        .. instructions
+                            .Take(index)
+                            .Reverse()
+                            .Where(candidate =>
+                                candidate.OpCodeName
+                                    is "ldsfld"
+                                    or "ldfld"
+                                && candidate.Operand is not null)
+                            .Select(candidate =>
+                                FieldKey(
+                                    assemblyName,
+                                    candidate.Operand!)),
+                    ];
+                    if (!candidateFields.IsDefaultOrEmpty)
+                    {
+                        delegateInvocations.Add(
+                            (key, candidateFields));
+                    }
+                }
             }
         }
 
-        return graph;
+        foreach ((string caller, ImmutableArray<string> candidateFields)
+            in delegateInvocations)
+        {
+            string? field = candidateFields.FirstOrDefault(
+                delegateTargetsByField.ContainsKey);
+            if (field is not null)
+            {
+                graph[caller].UnionWith(
+                    delegateTargetsByField[field]);
+            }
+        }
+
+        return new CompiledCallGraph(graph, boundaries);
     }
 
     static HashSet<string> ReadDirectCallers(
@@ -434,7 +714,8 @@ public sealed class LayeringTests
 
     static HashSet<string> FindTransitivelyTainted(
         IReadOnlyDictionary<string, HashSet<string>> calls,
-        IEnumerable<string> direct)
+        IEnumerable<string> direct,
+        IReadOnlySet<string>? acquisitionBearingBoundaries = null)
     {
         var tainted = new HashSet<string>(direct, StringComparer.Ordinal);
         bool changed;
@@ -443,7 +724,7 @@ public sealed class LayeringTests
             changed = false;
             foreach ((string caller, HashSet<string> callees) in calls)
             {
-                if (IsAcquisitionBearingBoundary(caller))
+                if (acquisitionBearingBoundaries?.Contains(caller) == true)
                     continue;
 
                 if (callees.Overlaps(tainted) && tainted.Add(caller))
@@ -455,13 +736,56 @@ public sealed class LayeringTests
         return tainted;
     }
 
-    static bool IsAcquisitionBearingBoundary(string method) =>
-        method.Contains(
-            "ResolvedAssemblyReference",
-            StringComparison.Ordinal)
-        || method.Contains(
-            "ImplementationAssemblyInput",
-            StringComparison.Ordinal);
+    static bool IsAcquisitionBearingBoundary(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        string assemblyName = reader.IsAssembly
+            ? reader.GetString(reader.GetAssemblyDefinition().Name)
+            : "";
+        TypeDefinition declaringType =
+            reader.GetTypeDefinition(method.GetDeclaringType());
+        if (AcquisitionSignatureTypes.IsAcquisitionType(
+                assemblyName,
+                reader.GetFullTypeName(declaringType)))
+        {
+            return true;
+        }
+
+        MethodSignature<bool> signature = method.DecodeSignature(
+            new AcquisitionSignatureTypes(assemblyName),
+            genericContext: null);
+        HashSet<int> outSequences = method.GetParameters()
+            .Select(reader.GetParameter)
+            .Where(parameter =>
+                parameter.SequenceNumber > 0
+                && (parameter.Attributes
+                    & System.Reflection.ParameterAttributes.Out) != 0)
+            .Select(parameter => parameter.SequenceNumber)
+            .ToHashSet();
+        for (int index = 0;
+            index < signature.ParameterTypes.Length;
+            index++)
+        {
+            if (signature.ParameterTypes[index]
+                && !outSequences.Contains(index + 1))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static string FieldKey(
+        string assemblyName,
+        string operand)
+    {
+        int separator = operand.IndexOf("::", StringComparison.Ordinal);
+        if (separator < 0)
+            return operand;
+        int start = operand.LastIndexOf(' ', separator);
+        return $"{assemblyName}:{operand[(start + 1)..]}";
+    }
 
     static string CallKey(string operand)
     {
@@ -592,6 +916,115 @@ public sealed class LayeringTests
         {
             int arity = name.IndexOf('`', StringComparison.Ordinal);
             return arity < 0 ? name : name[..arity];
+        }
+    }
+
+    sealed class AcquisitionSignatureTypes
+        : ISignatureTypeProvider<bool, object?>
+    {
+        readonly string _currentAssembly;
+
+        internal AcquisitionSignatureTypes(string currentAssembly) =>
+            _currentAssembly = currentAssembly;
+
+        internal static bool IsAcquisitionType(
+            string assemblyName,
+            string fullName) =>
+            (assemblyName == "ILInspector.Metadata"
+                && fullName
+                    == "ILInspector.Metadata.ResolvedAssemblyReference")
+            || (assemblyName == "ILInspector.Research"
+                && fullName
+                    == "ILInspector.Research.ImplementationAssemblyInput");
+
+        public bool GetArrayType(bool elementType, ArrayShape shape) =>
+            elementType;
+
+        public bool GetByReferenceType(bool elementType) =>
+            elementType;
+
+        public bool GetFunctionPointerType(
+            MethodSignature<bool> signature) =>
+            signature.ParameterTypes.Any(
+                static type => type);
+
+        public bool GetGenericInstantiation(
+            bool genericType,
+            ImmutableArray<bool> typeArguments) =>
+            genericType
+            || typeArguments.Any(static type => type);
+
+        public bool GetGenericMethodParameter(
+            object? genericContext,
+            int index) =>
+            false;
+
+        public bool GetGenericTypeParameter(
+            object? genericContext,
+            int index) =>
+            false;
+
+        public bool GetModifiedType(
+            bool modifier,
+            bool unmodifiedType,
+            bool isRequired) =>
+            unmodifiedType;
+
+        public bool GetPinnedType(bool elementType) =>
+            elementType;
+
+        public bool GetPointerType(bool elementType) =>
+            elementType;
+
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) =>
+            false;
+
+        public bool GetSZArrayType(bool elementType) =>
+            elementType;
+
+        public bool GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) =>
+            IsAcquisitionType(
+                _currentAssembly,
+                reader.GetFullTypeName(
+                    reader.GetTypeDefinition(handle)));
+
+        public bool GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) =>
+            IsAcquisitionType(
+                ReferenceAssemblyName(reader, handle),
+                reader.GetFullTypeName(
+                    reader.GetTypeReference(handle)));
+
+        public bool GetTypeFromSpecification(
+            MetadataReader reader,
+            object? genericContext,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) =>
+            reader.GetTypeSpecification(handle)
+                .DecodeSignature(this, genericContext);
+
+        string ReferenceAssemblyName(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            EntityHandle scope =
+                reader.GetTypeReference(handle).ResolutionScope;
+            while (scope.Kind == HandleKind.TypeReference)
+            {
+                scope = reader.GetTypeReference(
+                    (TypeReferenceHandle)scope).ResolutionScope;
+            }
+
+            return scope.Kind == HandleKind.AssemblyReference
+                ? reader.GetString(
+                    reader.GetAssemblyReference(
+                        (AssemblyReferenceHandle)scope).Name)
+                : _currentAssembly;
         }
     }
 
