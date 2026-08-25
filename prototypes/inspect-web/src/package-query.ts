@@ -10,9 +10,10 @@
 //                bounded subset of rows ("Deepen").
 //
 // It is deliberately data-source-agnostic: `PackageQueryDataSource` is supplied
-// by the caller so this module can be built, tested, and wired into the shell
-// before the real #4551-backed source client exists. Swapping the stub source
-// for the real one is the whole integration step; nothing else here changes.
+// by the caller so this module can be built and tested against fake sources
+// before the real #4551-backed source client exists and the shell wiring
+// lands. Swapping in the real source for whatever satisfies this interface at
+// wiring time is the intended integration step; nothing else here changes.
 
 /** A single named predicate a facet contributes to the request (1:1 with a
  * CLI-shipped profile flag; see the design doc's v1 non-goals). */

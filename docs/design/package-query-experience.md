@@ -343,10 +343,13 @@ preset never needs to "contain" its own history.
    it, not the query itself.
 
 The TypeScript shape (`src/package-query.ts` /
-`src/package-query-view.ts`) is scaffolded now against this contract with a
-stub data source, covering the result stream, facet rail, and selection/
-cancel state. Wiring in step 2 is a source-swap for that scaffolded surface,
-not a redesign of it — but the query bar (editable scope entry) and
-[Visualization](#visualization) are not scaffolded yet and remain separate,
-additive work, tracked alongside steps 2-5 above rather than implied by this
-scaffold.
+`src/package-query-view.ts`) is scaffolded now against this contract and
+exercised in tests against inline fake sources (`test/package-query.test.ts`,
+`test/package-query-view.test.ts`), covering the result stream, facet rail,
+and selection/cancel state — no reusable stub source module or shell
+integration exists yet. Wiring in step 2 is expected to be a source-swap for
+that scaffolded surface, not a redesign of it, but that expectation is
+unverified until a real `PackageQueryDataSource` is actually built and wired
+in; the query bar (editable scope entry) and [Visualization](#visualization)
+are not scaffolded yet either and remain separate, additive work, tracked
+alongside steps 2-5 above rather than implied by this scaffold.
