@@ -19,6 +19,16 @@ internal sealed record BrowserWorkspaceParticipant(
 }
 
 /// <summary>
+/// One selected package asset and the exact descriptor passed to product-owned
+/// assembly-role realization.
+/// </summary>
+[SupportedOSPlatform("browser")]
+internal sealed record BrowserRoleAssembly(
+    BrowserPackageCoordinate Coordinate,
+    PackageCompileAsset Asset,
+    ResolvedAssemblyReference Assembly);
+
+/// <summary>
 /// The workspace every browser inspection runs inside: one <see cref="InspectionWorkspace"/> and
 /// separate binding-consistent <see cref="AssemblyContextGroup"/> views over the product-selected
 /// compile and implementation assemblies of one or more exact package/version/framework
@@ -56,8 +66,9 @@ internal sealed class BrowserInspectionScope : IDisposable
     internal const int MaxAssembliesPerRole = 256;
 
     readonly InspectionWorkspace _workspace = new();
-    readonly BrowserWorkspaceGroup _surface;
-    readonly BrowserWorkspaceGroup? _implementation;
+    readonly PackageAssemblyContextRoles _roles;
+    readonly BrowserWorkspaceRole _surface;
+    readonly BrowserWorkspaceRole? _implementation;
 
     public BrowserInspectionScope(IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
@@ -80,35 +91,50 @@ internal sealed class BrowserInspectionScope : IDisposable
         long groupBudget = hasSeparateImplementation
             ? MaxRetainedImageBytes / 2
             : MaxRetainedImageBytes;
-        BrowserWorkspaceGroup.ValidateAssets(surfaceAssets, groupBudget);
+        BrowserWorkspaceRole.ValidateAssets(surfaceAssets, groupBudget);
         if (hasSeparateImplementation)
-            BrowserWorkspaceGroup.ValidateAssets(implementationAssets, groupBudget);
+            BrowserWorkspaceRole.ValidateAssets(implementationAssets, groupBudget);
 
-        // Group construction itself refuses a role it cannot bind — an empty role, or one whose
-        // participants collide on assembly identity — so it is inside the cleanup, not before it:
-        // a refused scope must not leave its workspace holding retained images.
-        BrowserWorkspaceGroup? surface = null;
-        BrowserWorkspaceGroup? implementation = null;
+        BrowserRoleAssembly[] surfaceRole = CreateRole(surfaceAssets);
+        BrowserRoleAssembly[] implementationRole = shared
+            ? surfaceRole
+            : CreateRole(implementationAssets);
+        AssemblyContextGroupOptions roleOptions = new()
+        {
+            MaxRetainedImageBytes = groupBudget,
+        };
+
+        PackageAssemblyContextRoles? roles = null;
         try
         {
-            surface = new BrowserWorkspaceGroup(_workspace, surfaceAssets, groupBudget);
-            implementation = shared
-                ? surface
-                : implementationAssets.Length == 0
+            // Product construction is inside the cleanup boundary: a refused
+            // implementation role must not leave the surface group registered.
+            roles = _workspace.CreatePackageAssemblyContextRoles(
+                surfaceRole.Select(entry => entry.Assembly),
+                implementationRole.Length == 0
                     ? null
-                    : new BrowserWorkspaceGroup(
-                        _workspace,
-                        implementationAssets,
-                        groupBudget);
-            _surface = surface;
-            _implementation = implementation;
-            ValidateImplementationPairs();
+                    : implementationRole.Select(entry => entry.Assembly),
+                Correspondences(surfaceRole, implementationRole),
+                shareImplementationGroup: shared,
+                surfaceOptions: roleOptions,
+                implementationOptions: roleOptions);
+            _roles = roles;
+            _surface = new BrowserWorkspaceRole(
+                roles.SurfaceGroup,
+                surfaceRole,
+                roles.SurfaceParticipants);
+            _implementation = roles.ImplementationGroup is null
+                ? null
+                : roles.SharesGroup
+                    ? _surface
+                    : new BrowserWorkspaceRole(
+                        roles.ImplementationGroup,
+                        implementationRole,
+                        roles.ImplementationParticipants);
         }
         catch
         {
-            if (!ReferenceEquals(implementation, surface))
-                implementation?.Dispose();
-            surface?.Dispose();
+            roles?.Dispose();
             _workspace.Dispose();
             throw;
         }
@@ -125,7 +151,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public ImmutableArray<BrowserWorkspaceParticipant> ReferenceOnlySurfaceParticipants =>
     [
         .. SurfaceParticipants.Where(participant =>
-            participant.Coordinate.Selection.FindImplementationAsset(participant.Asset) is null),
+            _roles.ImplementationParticipant(participant.Participant) is null),
     ];
 
     /// <summary>
@@ -198,62 +224,86 @@ internal sealed class BrowserInspectionScope : IDisposable
                 nameof(surfaceParticipant));
         }
 
-        PackageCompileAsset implementationAsset =
-            surfaceParticipant.Coordinate.Selection.FindImplementationAsset(
-                surfaceParticipant.Asset)
+        AssemblyContextParticipant implementation =
+            _roles.ImplementationParticipant(surfaceParticipant.Participant)
             ?? throw new InvalidOperationException(
                 $"{surfaceParticipant.Coordinate.PackageId} "
                 + $"{surfaceParticipant.Coordinate.Version} ships "
                 + $"{surfaceParticipant.Asset.AssemblyName} for "
                 + $"{surfaceParticipant.Coordinate.Framework} as a reference assembly only.");
-        BrowserWorkspaceParticipant implementation =
-            Implementation.FindParticipant(
-                surfaceParticipant.Coordinate,
-                implementationAsset);
-        if (!implementation.Assembly.Identity.IsEquivalentTo(
-                surfaceParticipant.Assembly.Identity))
-        {
-            throw new InvalidOperationException(
-                $"The selected reference and implementation assets for "
-                + $"{surfaceParticipant.Asset.AssemblyName} have different assembly identities.");
-        }
-
-        return implementation;
+        return Implementation.FindParticipant(implementation);
     }
 
     public void Dispose()
     {
-        if (!ReferenceEquals(_implementation, _surface))
-            _implementation?.Dispose();
-        _surface.Dispose();
+        _roles.Dispose();
         _workspace.Dispose();
     }
 
-    void ValidateImplementationPairs()
+    static BrowserRoleAssembly[] CreateRole(
+        IReadOnlyList<(
+            BrowserPackageCoordinate Coordinate,
+            PackageCompileAsset Asset)> assets)
+        =>
+        [
+            .. assets.Select(entry => new BrowserRoleAssembly(
+                entry.Coordinate,
+                entry.Asset,
+                entry.Coordinate.Package.CreateReference(
+                    entry.Asset.Path,
+                    AssemblyResolutionProvenance.Package(
+                        entry.Coordinate.PackageId,
+                        entry.Coordinate.Version,
+                        entry.Asset.TargetFramework,
+                        rid: null)))),
+        ];
+
+    static ImmutableArray<PackageAssemblyRoleCorrespondence> Correspondences(
+        IReadOnlyList<BrowserRoleAssembly> surfaces,
+        IReadOnlyList<BrowserRoleAssembly> implementations)
     {
-        foreach (BrowserWorkspaceParticipant surfaceParticipant in SurfaceParticipants)
+        var pairs =
+            ImmutableArray.CreateBuilder<PackageAssemblyRoleCorrespondence>();
+        foreach (BrowserRoleAssembly surface in surfaces)
         {
             PackageCompileAsset? implementationAsset =
-                surfaceParticipant.Coordinate.Selection.FindImplementationAsset(
-                    surfaceParticipant.Asset);
+                surface.Coordinate.Selection.FindImplementationAsset(
+                    surface.Asset);
             if (implementationAsset is null)
                 continue;
 
-            BrowserWorkspaceParticipant implementation =
-                Implementation.FindParticipant(
-                    surfaceParticipant.Coordinate,
-                    implementationAsset);
-            if (!implementation.Assembly.Identity.IsEquivalentTo(
-                surfaceParticipant.Assembly.Identity))
+            BrowserRoleAssembly? implementation =
+                implementations.FirstOrDefault(candidate =>
+                    candidate.Coordinate.Key.Equals(
+                        surface.Coordinate.Key,
+                        StringComparison.Ordinal)
+                    && candidate.Asset.Path.Equals(
+                        implementationAsset.Path,
+                        StringComparison.Ordinal));
+            if (implementation is null)
+            {
+                throw new InvalidOperationException(
+                    $"The selected implementation asset '{implementationAsset.Path}' "
+                    + "is not part of the implementation workspace role.");
+            }
+            if (!surface.Assembly.Identity.IsEquivalentTo(
+                    implementation.Assembly.Identity))
             {
                 throw new InvalidOperationException(
                     $"The selected reference and implementation assets for "
-                    + $"{surfaceParticipant.Asset.AssemblyName} have different assembly identities.");
+                    + $"{surface.Asset.AssemblyName} have different assembly identities.");
             }
+
+            pairs.Add(
+                new PackageAssemblyRoleCorrespondence(
+                    surface.Assembly,
+                    implementation.Assembly));
         }
+
+        return pairs.ToImmutable();
     }
 
-    BrowserWorkspaceGroup Implementation => _implementation
+    BrowserWorkspaceRole Implementation => _implementation
         ?? throw new InvalidOperationException(
             "The selected packages ship no managed implementation assembly for their selected "
             + "frameworks, so this operation has no method bodies to inspect.");
@@ -272,93 +322,53 @@ internal sealed class BrowserInspectionScope : IDisposable
 }
 
 /// <summary>
-/// One binding-consistent participant role inside a browser workspace. Compile and implementation
-/// groups deliberately have distinct policies so references resolve within the same asset role.
+/// Browser package and asset provenance projected over one product-owned
+/// assembly-context role.
 /// </summary>
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceResolver
+internal sealed class BrowserWorkspaceRole
 {
-    AssemblyContextGroup? _group;
+    readonly AssemblyContextGroup _group;
 
-    public BrowserWorkspaceGroup(
-        InspectionWorkspace workspace,
-        IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> assets,
-        long maxRetainedImageBytes)
+    public BrowserWorkspaceRole(
+        AssemblyContextGroup group,
+        IReadOnlyList<BrowserRoleAssembly> assemblies,
+        ImmutableArray<AssemblyContextParticipant> participants)
     {
-        ArgumentNullException.ThrowIfNull(workspace);
-        ArgumentNullException.ThrowIfNull(assets);
-        ValidateAssets(assets, maxRetainedImageBytes);
-
-        // One binding-policy snapshot per role: a reference assembly resolves other references,
-        // while an implementation assembly resolves other implementations.
-        var policy = new AssemblyReferenceBindingPolicy(this);
-        var participants = ImmutableArray.CreateBuilder<BrowserWorkspaceParticipant>();
-        foreach ((BrowserPackageCoordinate coordinate, PackageCompileAsset asset) in assets)
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (assemblies.Count != participants.Length)
         {
-            ResolvedAssemblyReference reference = coordinate.Package.CreateReference(
-                asset.Path,
-                AssemblyResolutionProvenance.Package(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    asset.TargetFramework,
-                    rid: null));
-
-            participants.Add(new BrowserWorkspaceParticipant(
-                coordinate,
-                asset,
-                new AssemblyContextParticipant(reference, policy)));
+            throw new ArgumentException(
+                "Browser role provenance must have one entry per product participant.",
+                nameof(assemblies));
         }
 
-        if (participants.Count == 0)
+        _group = group;
+        Participants =
+        [
+            .. assemblies.Zip(
+                participants,
+                (assembly, participant) =>
+                    new BrowserWorkspaceParticipant(
+                        assembly.Coordinate,
+                        assembly.Asset,
+                        participant)),
+        ];
+        for (int index = 0; index < assemblies.Count; index++)
         {
-            throw new InvalidOperationException(
-                "The selected packages contain no managed assembly for this workspace role.");
-        }
-
-        Participants = participants.ToImmutable();
-        RejectEquivalentIdentities(Participants);
-        _group = workspace.CreateAssemblyContextGroup(
-            Participants.Select(participant => participant.Participant),
-            new AssemblyContextGroupOptions
+            if (!ReferenceEquals(
+                    assemblies[index].Assembly,
+                    participants[index].Assembly))
             {
-                // Preserve the workspace's own retained-snapshot defense after the host preflight.
-                MaxRetainedImageBytes = maxRetainedImageBytes,
-            });
-    }
-
-    public ImmutableArray<BrowserWorkspaceParticipant> Participants { get; }
-
-    /// <summary>
-    /// Refuses a workspace role in which two participants carry equivalent assembly identities.
-    /// </summary>
-    /// <remarks>
-    /// This is the invariant <c>WorkspaceContextLoader.FirstIdentityCollision</c> holds for a
-    /// desktop workspace context, applied here for the same reason: <see cref="Resolve"/> answers
-    /// an in-context reference by matching <see cref="AssemblyReferenceIdentity.IsEquivalentTo"/>
-    /// against the role's participants, so two equivalent identities make the answer depend on
-    /// asset path or declaration order — the first request would bind the reference to one image
-    /// and a differently ordered workspace would bind it to the other. Assemblies with different
-    /// versions are not equivalent and still coexist. The identity is decoded out of a package
-    /// artifact, so the failure names neither it nor the asset that carried it.
-    /// </remarks>
-    static void RejectEquivalentIdentities(
-        ImmutableArray<BrowserWorkspaceParticipant> participants)
-    {
-        for (int index = 1; index < participants.Length; index++)
-        {
-            AssemblyReferenceIdentity identity = participants[index].Assembly.Identity;
-            for (int earlier = 0; earlier < index; earlier++)
-            {
-                if (!participants[earlier].Assembly.Identity.IsEquivalentTo(identity))
-                    continue;
-
-                throw new InvalidOperationException(
-                    "The selected packages contribute more than one assembly with the same "
-                    + "assembly identity to one workspace role, so a reference to it could not "
-                    + "bind to a single image.");
+                throw new ArgumentException(
+                    "Browser role provenance must preserve product participant order.",
+                    nameof(assemblies));
             }
         }
     }
+
+    public ImmutableArray<BrowserWorkspaceParticipant> Participants { get; }
 
     internal static void ValidateAssets(
         IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> assets,
@@ -431,29 +441,17 @@ internal sealed class BrowserWorkspaceGroup : IDisposable, IAssemblyReferenceRes
                 + $"{coordinate.Version} {coordinate.Framework} workspace role.");
     }
 
-    public ResolvedAssemblyReference? Resolve(
-        AssemblyReferenceIdentity identity,
-        AssemblyResolutionScope scope)
+    public BrowserWorkspaceParticipant FindParticipant(
+        AssemblyContextParticipant participant)
     {
-        ArgumentNullException.ThrowIfNull(identity);
-        if (scope == AssemblyResolutionScope.Platform)
-            return null;
-
-        // At most one participant can match: RejectEquivalentIdentities refused the role
-        // otherwise, so this is the role's only image for that identity rather than the first one
-        // enumeration happened to reach.
-        return Participants
-            .FirstOrDefault(participant =>
-                participant.Assembly.Identity.IsEquivalentTo(identity))
-            ?.Assembly;
+        ArgumentNullException.ThrowIfNull(participant);
+        return Participants.FirstOrDefault(
+                candidate => ReferenceEquals(
+                    candidate.Participant,
+                    participant))
+            ?? throw new InvalidOperationException(
+                "The product participant is not part of this browser workspace role.");
     }
 
-    public void Dispose()
-    {
-        _group?.Dispose();
-        _group = null;
-    }
-
-    AssemblyContextGroup Group => _group
-        ?? throw new InvalidOperationException("The assembly context group is not open.");
+    AssemblyContextGroup Group => _group;
 }

@@ -40,18 +40,25 @@ shortening the selected assembly set.
    stable result. Neither path requests the NuGet.org v3 service index. The
    Browser adapter then selects one target framework — never "whatever the
    package happens to ship".
-2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
+2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
    admits the package from the Gallery package CDN through the shared typed
    source, transport, and archive policy. The Gallery payload carries its
    advertised length into the Browser reservation policy before body
    materialization.
    `PackageCompileAssetSelector` adds reference-group semantics around the
-   implementation universe selected by `PackageAssetSelector`, decodes each
-   healthy entry's real metadata identity, and creates one
+   implementation universe selected by `PackageAssetSelector`. The narrow
+   Browser acquisition adapter decodes each healthy entry's real metadata
+   identity and creates one
    `ResolvedAssemblyReference` per selected compile asset and, when the roles
    differ, per matching implementation asset. Malformed selected entries remain
    participants so queries report their rejection. Acquisition never inspects
    one.
+   `InspectionWorkspace.CreatePackageAssemblyContextRoles` then owns the
+   coordinated surface and implementation binding snapshots, equivalent-
+   identity rejection, group construction, reference-only surfaces, and exact
+   surface-to-implementation participant correspondence. Browser retains the
+   selected package/asset provenance used by source and navigation operations,
+   but does not implement assembly binding or group composition.
    The Browser adapter places one 30-second operation deadline around coordinate
    resolution and payload acquisition. The deadline token flows through the
    shared resolver, retry, response-body, archive-validation, and store paths;
@@ -92,9 +99,10 @@ shortening the selected assembly set.
    `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
    `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
    consumption.
-3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
-   and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
-   exposes exactly two hand-offs — `Use(group => query(group))` and
+3. **Hand a role group to a query.** The participants open one
+   `InspectionWorkspace` and one or two binding-consistent
+   `AssemblyContextGroup` instances. `BrowserInspectionScope` exposes exactly
+   two hand-offs — `Use(group => query(group))` and
    `UseParticipant(participant, (group, participant) => query(...))` — and no
    accessor for a session, an image, or a descriptor.
 
@@ -212,10 +220,10 @@ assemblies that receive a .NET platform lookup on click.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, participant minting, and the bounded workspace registry |
+| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, descriptor minting, and the bounded workspace registry |
 | `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
-| `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
+| `engine/BrowserInspectionScope.cs` | package/asset provenance over product-owned surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |

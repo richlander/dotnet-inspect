@@ -2007,16 +2007,31 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate coordinate = Coordinate(
             "Platform.Confusable",
             Package(image, "lib/net11.0/Platform.Confusable.dll"));
-        PackageCompileAsset asset = Assert.Single(coordinate.Selection.Assets);
-        using var workspace = new InspectionWorkspace();
-        using var group = new BrowserWorkspaceGroup(
-            workspace,
-            [(coordinate, asset)],
-            BrowserInspectionScope.MaxRetainedImageBytes);
-        AssemblyReferenceIdentity identity = Assert.Single(group.Participants).Assembly.Identity;
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.SurfaceParticipants);
+        AssemblyBindingSelection any =
+            participant.Participant.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(
+                        participant.Assembly),
+                    AssemblyResolutionScope.Any));
+        AssemblyBindingSelection platform =
+            participant.Participant.BindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        participant.Assembly.Identity),
+                    AssemblyBindingOrigin.FromAssembly(
+                        participant.Assembly),
+                    AssemblyResolutionScope.Platform));
 
-        Assert.NotNull(group.Resolve(identity, AssemblyResolutionScope.Any));
-        Assert.Null(group.Resolve(identity, AssemblyResolutionScope.Platform));
+        Assert.Same(
+            participant.Assembly,
+            Assert.IsType<AssemblyBindingSelection.Selected>(any).Assembly);
+        Assert.IsType<AssemblyBindingSelection.Missing>(platform);
     }
 
     [Fact]
