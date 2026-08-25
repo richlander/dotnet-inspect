@@ -22,8 +22,9 @@ From `main`, collect:
 1. The successful `ci.yml` main-push run ID that selects the release commit.
 2. A fresh successful Deep Inspect `test` run ID that certifies that commit or
    an explicitly accepted ancestor.
-3. The successful `deploy-inspect-web.yml` **push** run ID for the exact release
-   commit. A manual staging run cannot be promoted.
+3. The successful `deploy-inspect-web.yml` run ID for the exact release commit.
+   Use the main-push run by default. An operator-dispatched main staging run
+   requires explicit authorization during promotion.
 
 Compare the full CI and staging SHAs before dispatching:
 
@@ -52,8 +53,15 @@ fi
 printf 'release SHA: %s\n' "$ci_sha"
 ```
 
-`allow_later_commit` changes the package target; it never relaxes site
-identity. When using it, select a staging run for the later exact SHA.
+The standard path uses exact certification and leaves both overrides disabled.
+For urgent relief, a person may set `allow_later_commit` to ship a later `main`
+descendant whose target commit is not itself certified. This never relaxes site
+identity: select a staging run for that same exact SHA. If that staging run was
+operator-dispatched, the person must also set `allow_manual_staging`.
+
+After relief ships, keep package and site together on that commit and wait for
+the next exact certification before the next ordinary release. Neither override
+is standing authorization.
 
 The SHA comparison is the last dependable veto before dispatch. The `nuget`
 environment has no approval gate; package publication proceeds automatically
@@ -70,7 +78,8 @@ Open `release.yml` and `promote-inspect-web.yml` together:
 1. Dispatch `release.yml` with the CI run ID, certification run ID, the intended
    `allow_later_commit` value, and `confirm=publish`.
 2. Dispatch `promote-inspect-web.yml` with the matching staging run ID and
-   `confirm=promote`.
+   `confirm=promote`. Leave `allow_manual_staging=false` for a push run; set it
+   only with explicit authorization for an operator-dispatched staging run.
 3. Confirm immediately that both resolve jobs report the same full release SHA.
    If either is wrong, cancel both workflow runs before package publication
    starts. Do not leave a stale promotion run waiting for approval.
@@ -105,4 +114,6 @@ while deployment retries. If GitHub reruns a cancelled build after upload, the
 workflow replaces the retained same-name artifact;
 `PromotionWorkflowContract` gates that promotion still sees exactly one.
 Promote the successful failed-job rerun. Do not substitute a manual staging
-dispatch; promotion rejects non-push runs.
+dispatch by default. If exceptional circumstances require one, obtain explicit
+authorization, confirm its SHA still equals the package target, and enable
+`allow_manual_staging` during promotion.

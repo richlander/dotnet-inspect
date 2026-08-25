@@ -187,6 +187,12 @@ internal static class PromotionWorkflowContract
             "Promotion workflow contract accepted disabled revalidation.");
         AssertMutationRejected(
             promotionWorkflow,
+            "          ALLOW_MANUAL_STAGING: ${{ inputs.allow_manual_staging }}\n",
+            "",
+            ValidatePromotion,
+            "Promotion workflow contract accepted an unpinned manual-staging override.");
+        AssertMutationRejected(
+            promotionWorkflow,
             "      - name: Revalidate staged site\n",
             "      - name: Download staged site artifact\n",
             ValidatePromotion,
@@ -492,6 +498,7 @@ internal static class PromotionWorkflowContract
             {
                 ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
                 ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
+                ["ALLOW_MANUAL_STAGING"] = "${{ inputs.allow_manual_staging }}",
                 ["EXPECTED_SHA"] = "${{ needs.resolve.outputs.sha }}",
                 ["EXPECTED_ATTEMPT"] = "${{ needs.resolve.outputs.run_attempt }}",
                 ["EXPECTED_ARTIFACT_ID"] =
@@ -510,6 +517,7 @@ internal static class PromotionWorkflowContract
               "$STAGING_RUN_ID" \
               720 \
               "$RUNNER_TEMP/revalidated-inspect-web" \
+              "$ALLOW_MANUAL_STAGING" \
               "$EXPECTED_SHA" \
               "$EXPECTED_ATTEMPT" \
               "$EXPECTED_ARTIFACT_ID" \
@@ -1311,7 +1319,7 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(dispatch, "inputs", "promotion workflow_dispatch");
         RequireExactKeys(
             inputs,
-            ["staging_run_id", "confirm"],
+            ["staging_run_id", "allow_manual_staging", "confirm"],
             "promotion workflow_dispatch.inputs");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -1325,6 +1333,20 @@ internal static class PromotionWorkflowContract
                 ["required"] = "true",
             },
             "promotion staging_run_id input");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "allow_manual_staging",
+                "promotion workflow_dispatch.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] =
+                    "Allow an operator-dispatched staging run instead of a main-push run",
+                ["required"] = "true",
+                ["default"] = "false",
+                ["type"] = "boolean",
+            },
+            "promotion allow_manual_staging input");
         RequireExactScalarValues(
             GetRequiredMapping(
                 inputs,
@@ -1444,6 +1466,7 @@ internal static class PromotionWorkflowContract
             {
                 ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
                 ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
+                ["ALLOW_MANUAL_STAGING"] = "${{ inputs.allow_manual_staging }}",
             },
             "staging evidence step.env");
         const string ExpectedValidation =
@@ -1451,7 +1474,8 @@ internal static class PromotionWorkflowContract
             bash eng/validate-inspect-web-promotion.sh \
               "$STAGING_RUN_ID" \
               720 \
-              "$GITHUB_OUTPUT"
+              "$GITHUB_OUTPUT" \
+              "$ALLOW_MANUAL_STAGING"
             """;
         if (GetRequiredScalar(validate, "run", "staging evidence step").TrimEnd() !=
             ExpectedValidation)

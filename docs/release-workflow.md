@@ -21,7 +21,7 @@ responsibilities:
 | `ci.yml` | Pull requests and pushes to `main` | Validate the changed commit |
 | `deep-inspect.yml` | Daily schedule or manual `lane=test` dispatch | Certify one `main` commit with the full slow test and corpus gates |
 | `release.yml` | Manual dispatch | Verify certification, rebuild packages, and publish one selected commit |
-| `deploy-inspect-web.yml` | Pushes to `main` | Build and deploy a staging site artifact for the pushed commit |
+| `deploy-inspect-web.yml` | Pushes to `main` or manual dispatch from `main` | Build and deploy a staging site artifact for that commit |
 | `promote-inspect-web.yml` | Manual dispatch | Verify and promote one staged artifact to `https://dotnet-inspect.net` |
 
 The publish workflow accepts a successful `main` CI run ID to resolve the exact
@@ -42,6 +42,13 @@ workflow proves that the target descends from the certified commit, but the
 operator owns the decision that those changes do not require another slow run.
 Divergent and older commits are never accepted.
 
+That override is the **relief release** path for an urgent fix whose target
+commit is not itself certified. Exact certification is normal practice, not an
+absolute prerequisite when a person explicitly accepts the gap. After a relief
+release, leave the published package and site together on the relief commit and
+wait for the next exact certification before the next ordinary release;
+`allow_later_commit` is not standing authorization.
+
 ## Lockstep release identity
 
 A release is one exact pair: the full commit SHA and the `VersionPrefix` read
@@ -50,8 +57,9 @@ release unit:
 
 - `release.yml` rebuilds and publishes the packages from the commit selected by
   the successful `main` CI run.
-- `deploy-inspect-web.yml` builds the staging site from a `main` push, embedding
-  that commit's `VersionPrefix`, full source SHA, and build timestamp.
+- `deploy-inspect-web.yml` builds the staging site from `main`, normally from
+  its push trigger and exceptionally from an operator dispatch, embedding that
+  commit's `VersionPrefix`, full source SHA, and build timestamp.
 - `promote-inspect-web.yml` promotes that exact staged artifact without
   rebuilding it.
 
@@ -113,8 +121,9 @@ Before dispatching a release:
 1. Select a successful CI run for the exact commit to publish.
 2. Select a successful Deep Inspect `test` run completed within the last 36
    hours. Prefer an exact-SHA match.
-3. Select the successful `deploy-inspect-web.yml` **push** run for the exact
-   commit to publish. Manual staging runs are not promotable.
+3. Select the successful `deploy-inspect-web.yml` run for the exact commit to
+   publish. Use its main-push run by default. A person may authorize a manual
+   main staging run as an explicit exception.
 4. Compare the CI and staging runs' full 40-character `head_sha` values. Stop
    if they differ.
 5. If publishing a later commit, review every intervening commit and decide
@@ -171,8 +180,8 @@ both before dispatching, and expect to update them:
 1. Open the selected successful `main` CI run and copy its run ID.
 2. Open the daily or manually dispatched Deep Inspect `test` run and copy its
    run ID.
-3. Open the matching successful `deploy-inspect-web.yml` push run and copy its
-   run ID.
+3. Open the matching successful `deploy-inspect-web.yml` run and copy its run
+   ID. Use the main-push run unless a person authorized manual staging.
 4. Compare the CI and staging run `head_sha` values. Both must name the exact
    release commit:
 
@@ -208,16 +217,20 @@ both before dispatching, and expect to update them:
 7. In **Promote inspect-web**, enter the staging run ID and type `promote` in
    the confirmation field.
 8. Leave `allow_later_commit` disabled for an exact certification. Enable it
-   only after reviewing the commits between the certified and target SHAs.
-9. Dispatch both workflows as one operator action. Do not substitute a newer
+   only after reviewing the commits between the certified and target SHAs and
+   explicitly authorizing a relief release.
+9. Leave `allow_manual_staging` disabled for a main-push staging run. Enable it
+   only when a person explicitly authorizes the selected operator-dispatched
+   staging run.
+10. Dispatch both workflows as one operator action. Do not substitute a newer
    run for either side after the exact-SHA comparison.
-10. Confirm immediately that both resolve jobs report the expected release SHA.
+11. Confirm immediately that both resolve jobs report the expected release SHA.
     If either is wrong, cancel both the package and promotion workflow runs
     before package publication starts. Do not leave a stale promotion run
     waiting for approval.
-11. Monitor the package builds and automatic NuGet publication. There is no
+12. Monitor the package builds and automatic NuGet publication. There is no
     NuGet environment approval after dispatch.
-12. Wait for the package workflow and GitHub release to succeed, then approve
+13. Wait for the package workflow and GitHub release to succeed, then approve
     the production-site environment. Never promote the site first.
 
 The package workflow then:
@@ -280,8 +293,14 @@ check the production site's status bar for the same version and linked commit.
   artifact; if GitHub reruns a cancelled build after its upload completed, the
   upload replaces the retained same-name artifact. `PromotionWorkflowContract`
   gates this rerun-safe wiring so promotion still sees exactly one artifact.
-  Use the successful rerun for promotion. A manually dispatched staging run is
-  still not promotable.
+  Use the successful rerun for promotion.
+- **A push staging run is unavailable:** prefer rerunning its failed jobs. When
+  exceptional circumstances require a new operator-dispatched staging build,
+  a person must explicitly authorize it and enable `allow_manual_staging` for
+  promotion. The exact package/site SHA comparison remains mandatory.
+- **A relief release shipped an uncertified target:** keep package and site on
+  that same relief commit. Return to the standard path by waiting for an exact
+  successful Deep Inspect certification before the next ordinary release.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
 - **Either side resolves a different SHA:** cancel the package workflow
