@@ -138,16 +138,21 @@ modal over one package:
 | Composing | Query tab opened with no predicate yet | Facet rail with no results pane; suggested starter queries (curated, matching product-home-demos conventions) |
 | Streaming | Request dispatched | Result rows append as pages arrive; running count; cancel affordance; facets stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a dismissible banner names the failed source, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
-| Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally |
-| Empty | Predicate matches nothing | Empty-state card suggesting a broader facet, not a bare blank pane |
+| Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally; if a source also failed partway, the footer says so ("all matches from sources that succeeded") rather than overclaiming completeness |
+| Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
+| Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
+| Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting a broader facet, not a bare blank pane |
 
 ## Sharing and URL shape
 
-`QueryRequest` is the shareable unit, and it is the same content as the
-`kind: "query"` record described in
-[Saving queries and results](#saving-queries-and-results) — the URL carries a
-terse projection of that record (the other destination being local storage,
-which keeps the full record), not a separate encoding. Following the
+`QueryRequest` is the request the Sharing/URL mechanism must round-trip, and
+its persisted/shareable form is the `kind: "query"` record described in
+[Saving queries and results](#saving-queries-and-results) — not a separate,
+independently-invented encoding. As that section now notes, the exact
+runtime-to-record mapping (in particular, how `scopeLabel`/`scopeQuery`
+collapse into the record's single `scope` field) is not yet specified; this
+section describes the intended destination and projection split, not a
+claim that the conversion is already implemented. Following the
 `encodeWorkspaceShareState`/`WorkspaceUrlState` convention already used for
 package tabs, a query tab's URL carries a terse projection of the preset
 (scope + facet references + `requestedLimit`), so a query tab round-trips

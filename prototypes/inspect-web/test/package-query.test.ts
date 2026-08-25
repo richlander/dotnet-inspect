@@ -94,6 +94,26 @@ test("controller run() streams pages into state and applies final completion", a
   assert.ok(updates > 0);
 });
 
+test("a data source that rejects transitions to a visible 'failed' completion, not a stuck 'streaming' one", async () => {
+  const state = initialQueryState();
+  const rejectingSource: PackageQueryDataSource = {
+    async run(_request, onPage) {
+      onPage([row("A")]);
+      throw new Error("feed unreachable");
+    },
+  };
+  const controller = createPackageQueryController(state, rejectingSource, () => {});
+
+  // run() itself must not reject past the controller — a caller awaiting it
+  // should see a settled outcome, not an unhandled rejection.
+  await assert.doesNotReject(controller.run(createQueryRequest("Microsoft.*", "Microsoft.")));
+
+  assert.notEqual(state.outcome.completion.kind, "streaming");
+  assert.equal(state.outcome.completion.kind, "failed");
+  assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["A"]);
+  assert.deepEqual(state.outcome.failures, ["feed unreachable"]);
+});
+
 test("starting a new run() aborts the previous generation's abortSignal, not just cancel()", async () => {
   const state = initialQueryState();
   let firstAborted = false;

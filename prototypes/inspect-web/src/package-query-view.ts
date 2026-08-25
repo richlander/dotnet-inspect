@@ -89,7 +89,9 @@ function renderCompletionFooter(
         // "all matches" would overclaim exactly the completeness this
         // footer exists to be honest about (see the zero-row case above).
         ? partialFailure ? "all matches from sources that succeeded" : "all matches"
-        : "cancelled";
+        : completion.kind === "failed"
+          ? `failed: ${escapeHtml(completion.reason)}`
+          : "cancelled";
   const cancelButton = completion.kind === "streaming"
     ? `<button data-query-cancel="1">Cancel</button>`
     : "";
@@ -114,13 +116,19 @@ export function renderPackageQueryView(options: RenderPackageQueryOptions): stri
     : "";
 
   if (!state.outcome.rows.length && state.outcome.completion.kind !== "streaming") {
-    // A failed source means "no rows" is not the same claim as "no matches" —
-    // some of the space was never searched, so the empty state must say so
-    // rather than implying a clean, confident zero (see the honesty rule in
+    // Zero rows only means "no matches" when the search actually finished
+    // (bounded/exhausted) with no failures. A cancelled run or a run with a
+    // failed source never got to search the whole scope, so "no rows" is not
+    // the same claim as "no matches" — the empty state must say so rather
+    // than implying a clean, confident zero (see the honesty rule in
     // package-query.ts's QueryOutcome doc comment).
-    const emptyState = state.outcome.failures.length
-      ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
-      : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`;
+    const emptyState = state.outcome.completion.kind === "cancelled"
+      ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Cancelled before any matches</h2><p>This was stopped before it found anything — not a confirmed empty result. Run it again to see whether it would have matched.</p></section>`
+      : state.outcome.completion.kind === "failed"
+        ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Query failed</h2><p>${escapeHtml(state.outcome.completion.reason)} — not a confirmed empty result. Try again.</p></section>`
+        : state.outcome.failures.length
+        ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
+        : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`;
     return `${failures}${emptyState}`;
   }
 

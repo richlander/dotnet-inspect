@@ -69,7 +69,8 @@ export type QueryCompletion =
   | { kind: "streaming" }
   | { kind: "bounded"; reason: string }
   | { kind: "exhausted" }
-  | { kind: "cancelled" };
+  | { kind: "cancelled" }
+  | { kind: "failed"; reason: string };
 
 /** Mirrors `NuGetSearchOutcome`'s shape: results and failures both carried, so
  * a partially-searched source never renders as a confident empty/complete
@@ -159,20 +160,35 @@ export function createPackageQueryController(
       state.selected = new Set();
       onUpdate();
 
-      const completion = await source.run(
-        request,
-        rows => {
-          if (requestGeneration !== generation) return;
-          state.outcome = appendRows(state.outcome, rows);
-          onUpdate();
-        },
-        failure => {
-          if (requestGeneration !== generation) return;
-          state.outcome = appendFailure(state.outcome, failure);
-          onUpdate();
-        },
-        abortController.signal,
-      );
+      let completion: QueryCompletion;
+      try {
+        completion = await source.run(
+          request,
+          rows => {
+            if (requestGeneration !== generation) return;
+            state.outcome = appendRows(state.outcome, rows);
+            onUpdate();
+          },
+          failure => {
+            if (requestGeneration !== generation) return;
+            state.outcome = appendFailure(state.outcome, failure);
+            onUpdate();
+          },
+          abortController.signal,
+        );
+      } catch (error) {
+        // An unhandled rejection here (as opposed to a page-level onFailure
+        // call) means the whole request never reached a completion at all —
+        // it must not leave the outcome stuck labeled "streaming" forever,
+        // which would silently look like an in-progress query rather than a
+        // failed one.
+        if (requestGeneration !== generation) return;
+        const reason = error instanceof Error ? error.message : String(error);
+        state.outcome = appendFailure(state.outcome, reason);
+        state.outcome = withCompletion(state.outcome, { kind: "failed", reason });
+        onUpdate();
+        return;
+      }
 
       if (requestGeneration !== generation) return;
       state.outcome = withCompletion(state.outcome, completion);

@@ -115,8 +115,22 @@ test("an exhausted outcome with a partial failure never claims 'all matches'", (
 
   assert.match(html, /feed Y unreachable/);
   // "all matches" alone would overclaim exhaustiveness when a source failed.
-  assert.doesNotMatch(html, />all matches</);
+  assert.doesNotMatch(html, /· all matches<\/span>/);
   assert.match(html, /all matches from sources that succeeded/);
+});
+
+test("an exhausted outcome with rows and no failures still says plain 'all matches'", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(appendRows(emptyOutcome(), [row("A")]), { kind: "exhausted" }),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  // Without a failure, the qualified wording would be an unwarranted hedge.
+  assert.match(html, /· all matches<\/span>/);
+  assert.doesNotMatch(html, /all matches from sources that succeeded/);
 });
 
 test("a bounded-complete outcome states the exact bound rather than a bare count", () => {
@@ -164,6 +178,21 @@ test("zero rows plus a failure never renders as a confirmed empty result", () =>
   // though a source failed and part of the space was never searched.
   assert.doesNotMatch(html, /<h2>No matches<\/h2>/);
   assert.match(html, /not a confirmed empty result/);
+});
+
+test("a cancelled query with zero rows never renders as a confirmed empty result", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(emptyOutcome(), { kind: "cancelled" }),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  // "No matches" alone would falsely claim a confirmed clean zero even
+  // though the run was stopped before it could search the whole scope.
+  assert.doesNotMatch(html, /<h2>No matches<\/h2>/);
+  assert.match(html, /Cancelled before any matches/);
 });
 
 test("deepen is disabled with no selection and enabled once a row is selected", () => {
