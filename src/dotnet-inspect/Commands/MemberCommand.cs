@@ -544,7 +544,7 @@ public static class MemberCommand
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
             // open the member's own assembly index for aggregated callers across all overloads.
-            if (RequiresCallerScopeResolution(effectiveOptions)
+            if (effectiveOptions.HasCallerScope
                 && effectiveOptions.DllPath == null
                 && apiDllPath != null)
             {
@@ -885,8 +885,10 @@ public static class MemberCommand
 
     private static bool HasAuthoredSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
-           || options.HasSectionQuery
-           || options.Discover is not null;
+           || options.Select is { Length: > 0 }
+           || options.Columns is { Length: > 0 }
+           || options.Fields is { Length: > 0 }
+           || options.BodyKindQuery.HasFilter;
 
     private static readonly string[] SingleOverloadSectionNames =
     [

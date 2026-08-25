@@ -13399,6 +13399,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallerScope_UnusedByBodySectionPreservesTargetAssembly()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-caller-body-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", missingDirectory,
+            "--count", "-S", SectionNames.CalledTypes, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.True(int.TryParse(result.Output.Trim(), out int count));
+        Assert.True(count > 0);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task Member_CallerScope_WithoutSectionSelectionStillAggregatesCallers()
     {
         string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
