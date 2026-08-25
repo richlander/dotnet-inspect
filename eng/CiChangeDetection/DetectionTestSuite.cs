@@ -579,6 +579,17 @@ internal static class DetectionTestSuite
             selected: "code",
             notSelected: "packaging");
 
+        Dictionary<string, string> metadataPackageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/metadata-confusion/1.0.0/metadata-confusion.nuspec",
+            outputs);
+        AssertRouting(
+            metadataPackageFixture,
+            selected: "code",
+            notSelected: "packaging");
+
         Dictionary<string, string> workflow = RunDetection(
             repository,
             body,

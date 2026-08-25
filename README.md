@@ -119,6 +119,8 @@ same check and prints this repair when a stale checkout reaches the test suite.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
+Windows Metadata (`.winmd`) is not a supported input format.
+
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
 Discover NuGet.org packages by ID prefix without downloading package archives:
@@ -226,6 +228,7 @@ permits a selected non-public member.
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Patternless `find --package-prefix PREFIX` discovers latest NuGet.org package manifests without downloading archives. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified PDB Source evidence. |
+| Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods in one retained assembly, with explicit exact, near, different, unsupported, failed, limit-reached, and ambiguous-correspondence results. Add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Explicit package-set Integration graphs, type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors, and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
@@ -243,9 +246,11 @@ permits a selected non-public member.
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), checksum-verified PDB Source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet.org package manifests. |
+| `match A B` | Compare two unambiguous `Type.Member` names from one retained assembly by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified PDB Source implementation evidence. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit, binding-consistent package set. |
+| `demo [id]` | List or run closed product-home inspection demos backed by real section output. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
@@ -359,7 +364,7 @@ transitive reference closure.
 | `library X -S "Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name, direct-reference, and resolved transitive-reference locations, classifications, similarity, and code points. |
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including signature provenance, Gallery listing state, identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 | `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
 | `package X -S "Signals,Audit: Findings"` | Package audit | Scans text-bearing package files and decoded SourceLink maps, listing each finding as path, kind, and safely encoded evidence. |
 | `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
