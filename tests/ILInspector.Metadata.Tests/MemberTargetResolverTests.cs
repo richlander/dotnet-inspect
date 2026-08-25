@@ -8,6 +8,7 @@ public class MemberTargetResolverTests
     [InlineData("Name~abc123", "Name", null, "abc123", null, null)]
     [InlineData("Name~abc123:2", "Name", 2, "abc123", null, null)]
     [InlineData("M<T>", "M", null, null, null, 1)]
+    [InlineData("M`1", "M", null, null, null, 1)]
     [InlineData("M<TKey,TValue>:3", "M", 3, null, null, 2)]
     [InlineData(".ctor", ".ctor", null, null, null, null)]
     [InlineData(".cctor", ".cctor", null, null, null, null)]
@@ -29,6 +30,18 @@ public class MemberTargetResolverTests
         Assert.Equal(digest, selector.DigestPrefix);
         Assert.Equal(kind, selector.Kind);
         Assert.Equal(genericArity, selector.GenericArity);
+    }
+
+    [Theory]
+    [InlineData("Map<T><>")]
+    [InlineData("Map<<T>>")]
+    public void Parse_MalformedGenericSelectorDoesNotBroaden(
+        string malformed)
+    {
+        var selector = MemberTargetSelector.Parse(malformed);
+
+        Assert.Equal(malformed, selector.Name);
+        Assert.Null(selector.GenericArity);
     }
 
     [Fact]
