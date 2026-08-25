@@ -529,6 +529,7 @@ test("Finding provenance peeks show the discovered throw and member actions", ()
   };
   validateAnnotatedSourceDocument(throwDocument);
   const fact = sampleDocument.facts[0];
+  assert.ok(fact);
   const evidenceResult: AnnotatedSourceResult = {
     ...result,
     findingEvidence: [{
@@ -586,11 +587,13 @@ test("Finding provenance peeks show the discovered throw and member actions", ()
     /finding-peek-line-text">[^<]*return new object/,
   );
 
+  const evidence = evidenceResult.findingEvidence[0];
+  assert.ok(evidence);
   const unavailableHtml = renderAnnotatedSourceExplorer({
     result: {
       ...evidenceResult,
       findingEvidence: [{
-        ...evidenceResult.findingEvidence[0],
+        ...evidence,
         document: null,
         nodeIds: [],
         unavailableReason: "The callee source document was unavailable.",
@@ -619,12 +622,14 @@ test("Safety Finding provenance peeks render the callee stackalloc evidence", ()
     facts: sampleDocument.facts.map((fact, index) =>
       index === 0 ? { ...fact, descriptor: "safety.callee" } : fact),
   };
+  const safetyFact = safetyDocument.facts[0];
+  assert.ok(safetyFact);
   const safetyResult: AnnotatedSourceResult = {
     ...result,
     document: safetyDocument,
     findingEvidence: [{
       descriptor: "safety.callee",
-      sourceOffset: safetyDocument.facts[0].source_offset,
+      sourceOffset: safetyFact.source_offset,
       member: "Example.UnsafeCallee()",
       target: {
         id: "finding-safety",
@@ -1228,7 +1233,10 @@ test("addressable source uses one tab stop and roving keyboard navigation", () =
     explorerSource,
     /if \(event\.altKey \|\| event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) return;/,
   );
-  assert.match(explorerSource, /spans\[nextIndex\]\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(
+    explorerSource,
+    /const next = spans\[nextIndex\];[\s\S]*if \(!next\) return;[\s\S]*next\.focus\(\{ preventScroll: true \}\)/,
+  );
 });
 
 test("roving focus removes the source container from reverse tab order", () => {

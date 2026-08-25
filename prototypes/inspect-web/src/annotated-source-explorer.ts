@@ -269,9 +269,11 @@ export function bindAnnotatedSourceExplorer(
         return;
     }
     event.preventDefault();
+    const next = spans[nextIndex];
+    if (!next) return;
     code.tabIndex = -1;
-    spans[nextIndex].focus({ preventScroll: true });
-    spans[nextIndex].scrollIntoView({ block: "nearest", inline: "nearest" });
+    next.focus({ preventScroll: true });
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
 }
 
@@ -526,7 +528,7 @@ export function renderAnnotatedSourceExplorer(
     ]));
   const selectedCapture = view.selectedCaptureIndex === null
     ? null
-    : view.captures[view.selectedCaptureIndex];
+    : view.captures[view.selectedCaptureIndex] ?? null;
   const kindCounts = nodeKindCounts(result.document, options.nodeKinds ?? []);
   const kindLabels = new Map(kindCounts.map(kind => [kind.id, kind.label]));
   const selectedRegions = result.document.regions
@@ -539,7 +541,7 @@ export function renderAnnotatedSourceExplorer(
       && state.selectedKind === ""
       && state.selectedRegionRole === ""
       && persistentSelectedNodes.length === 1
-      ? persistentSelectedNodes[0]
+      ? persistentSelectedNodes[0] ?? null
       : null;
   const directlySelectedNodeFacts = directlySelectedNode
     ? view.facts.filter(fact => fact.nodeIds.includes(directlySelectedNode.id))
@@ -918,11 +920,13 @@ function sourceFindingCaretAnnotations(
       candidate.spans.some(span =>
         span.start < line.end && line.start < span.start + span.length)));
     const visibleLines = relevantLines.slice(0, MAX_FINDING_PEEK_LINES);
-    const lineSummary = relevantLines.length === 0
+    const firstRelevantLine = relevantLines[0];
+    const lineSummary = !firstRelevantLine
       ? "unavailable"
       : relevantLines.length === 1
-      ? `line ${relevantLines[0]?.number ?? "unknown"}`
-      : `lines ${relevantLines[0].number}–${relevantLines.at(-1)?.number}`;
+      ? `line ${firstRelevantLine.number}`
+      : `lines ${firstRelevantLine.number}–${relevantLines.at(-1)?.number}`;
+    const firstPeekNode = peekNodes[0];
     const peek: SourceFindingPeek = {
       finding: factDescription(fact),
       hiddenLineCount: relevantLines.length - visibleLines.length,
@@ -938,8 +942,8 @@ function sourceFindingCaretAnnotations(
         number: line.number,
         start: line.start,
       })),
-      location: peekNodes.length > 0
-        ? `${MEDIUM_LABELS[peekNodes[0].medium]} · ${lineSummary} · ${peekNodes
+      location: firstPeekNode
+        ? `${MEDIUM_LABELS[firstPeekNode.medium]} · ${lineSummary} · ${peekNodes
           .flatMap(candidate => candidate.spans)
           .map(span => `[${span.start}..${span.start + span.length})`)
           .join(" · ")}`
@@ -1167,7 +1171,11 @@ function selectionTitle(
   if (selectedRegionRole) {
     return `${selectedRegionCount} ${selectedRegionRole} region${selectedRegionCount === 1 ? "" : "s"}`;
   }
-  if (nodes.length === 1) return `Node #${nodes[0].id}`;
+  if (nodes.length === 1) {
+    const node = nodes[0];
+    if (!node) throw new Error("A single-node selection did not contain its node.");
+    return `Node #${node.id}`;
+  }
   if (nodes.length > 1) return `${nodes.length} nodes`;
   return "Nothing selected";
 }
@@ -1237,11 +1245,17 @@ function regionSelectionHtml(
 ): string {
   const visible = regions.slice(0, MAX_SELECTION_DETAILS);
   const overflow = regions.length - visible.length;
-  return `<div class="ase-selection-list">${visible.map((region, index) => `
-      <button type="button" class="ase-region-selection" data-ase-offset="${region.spans[0].start}">
+  return `<div class="ase-selection-list">${visible.map((region, index) => {
+    const firstSpan = region.spans[0];
+    if (!firstSpan) {
+      throw new Error(`Annotated region '${region.role}' did not contain a span.`);
+    }
+    return `
+      <button type="button" class="ase-region-selection" data-ase-offset="${firstSpan.start}">
         <span><strong>${escapeHtml(region.role)} region ${index + 1}</strong></span>
         <small>${escapeHtml(regionLineSummary(region, prepared))}</small>
-      </button>`).join("")}
+      </button>`;
+  }).join("")}
       ${overflow > 0 ? `<p class="ase-overflow">${overflow} more regions; choose a source span to inspect its enclosing structure.</p>` : ""}
     </div>`;
 }
@@ -1332,6 +1346,9 @@ function renderSegmentText(
   const ordered = [...boundaries].sort((left, right) => left - right);
   return ordered.slice(0, -1).map((start, index) => {
     const end = ordered[index + 1];
+    if (end === undefined) {
+      throw new Error("A rendered source segment did not contain an end boundary.");
+    }
     const syntax = syntaxRanges.find(range => range.start <= start && end <= range.end);
     const inRegion = selectedRegionSpans.some(
       span => span.start <= start && end <= span.start + span.length);

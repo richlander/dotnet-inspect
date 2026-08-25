@@ -43,12 +43,16 @@ test("canonical lines carry their medium and the whole text buffer", () => {
 
 test("hiding a medium drops only that medium's lines and rebases no coordinate", () => {
   const view = buildAnnotatedView(sampleDocument, { media: { CSharp: true, Il: false } });
+  const firstLine = view.lines[0];
+  const thirdLine = view.lines[2];
+  assert.ok(firstLine);
+  assert.ok(thirdLine);
 
   assert.deepEqual(view.lines.map(line => line.number), [1, 3, 4, 6]);
   assert.equal(view.hiddenLines, 2);
-  assert.equal(view.lines[0].start, 0);
+  assert.equal(firstLine.start, 0);
   assert.equal(
-    view.lines[2].segments.map(segment => segment.text).join(""),
+    thirdLine.segments.map(segment => segment.text).join(""),
     "    return new object();",
   );
 });
@@ -114,8 +118,12 @@ test("captured variables project ambient uses and exact capture selection", () =
       .map(segment => segment.text),
     ["first"],
   );
-  assert.equal(selected.captures[0].selected, true);
-  assert.equal(selected.captures[1].selected, false);
+  const firstCapture = selected.captures[0];
+  const secondCapture = selected.captures[1];
+  assert.ok(firstCapture);
+  assert.ok(secondCapture);
+  assert.equal(firstCapture.selected, true);
+  assert.equal(secondCapture.selected, false);
 });
 
 test("a multi-span node highlights its spans without selecting interleaved IL", () => {
@@ -140,12 +148,14 @@ test("a multi-span node highlights its spans without selecting interleaved IL", 
 
 test("facts with no targets stay visible as explicitly unanchored", () => {
   const view = buildAnnotatedView(sampleDocument);
+  const unanchored = view.facts[2];
+  assert.ok(unanchored);
 
   assert.deepEqual(view.facts.map(fact => fact.id), [0, 1, 2]);
   assert.deepEqual(view.unanchoredFactIds, [2]);
-  assert.equal(view.facts[2].anchored, false);
-  assert.deepEqual(view.facts[2].nodeIds, []);
-  assert.equal(view.facts[2].origin, "MemberHeader");
+  assert.equal(unanchored.anchored, false);
+  assert.deepEqual(unanchored.nodeIds, []);
+  assert.equal(unanchored.origin, "MemberHeader");
 });
 
 test("clicking text selects the tightest node and its facts", () => {

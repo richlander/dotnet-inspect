@@ -138,11 +138,22 @@ export function prepareAnnotatedView(
   const captureIdsByNode = document.nodes.map((): number[] => []);
   const nodeIdsByFact = document.facts.map((): number[] => []);
   for (const target of document.targets) {
-    factIdsByNode[target.node_id].push(target.fact_id);
-    nodeIdsByFact[target.fact_id].push(target.node_id);
+    const nodeFacts = factIdsByNode[target.node_id];
+    const factNodes = nodeIdsByFact[target.fact_id];
+    if (!nodeFacts || !factNodes) {
+      throw new Error("An annotated target referenced an unavailable node or fact.");
+    }
+    nodeFacts.push(target.fact_id);
+    factNodes.push(target.node_id);
   }
   const captures = (document.captures ?? []).map((capture, index) => {
-    for (const nodeId of capture.use_node_ids) captureIdsByNode[nodeId].push(index);
+    for (const nodeId of capture.use_node_ids) {
+      const nodeCaptures = captureIdsByNode[nodeId];
+      if (!nodeCaptures) {
+        throw new Error("An annotated capture referenced an unavailable node.");
+      }
+      nodeCaptures.push(index);
+    }
     return {
       index,
       parentNodeId: capture.parent_node_id,
@@ -154,23 +165,43 @@ export function prepareAnnotatedView(
   const sourceLines = buildLines(document.text);
   const indexed = indexLines(sourceLines, document.nodes);
   const indexedLines = indexed.lines;
-  const lines = sourceLines.map((line, index) => ({
-    number: line.number,
-    medium: mediumForLine(indexedLines[index].media),
-    start: line.start,
-    end: line.end,
-    segments: segmentsForIntersections(document.text, line, indexedLines[index].intersections)
-      .map(segment => ({
+  const lines = sourceLines.map((line, index) => {
+    const indexedLine = indexedLines[index];
+    if (!indexedLine) {
+      throw new Error(`Annotated source line ${index} was not indexed.`);
+    }
+    return {
+      number: line.number,
+      medium: mediumForLine(indexedLine.media),
+      start: line.start,
+      end: line.end,
+      segments: segmentsForIntersections(
+        document.text,
+        line,
+        indexedLine.intersections,
+      ).map(segment => ({
         ...segment,
-        captureIds: [...new Set(segment.nodeIds.flatMap(nodeId => captureIdsByNode[nodeId]))],
-        factIds: [...new Set(segment.nodeIds.flatMap(nodeId => factIdsByNode[nodeId]))],
+        captureIds: [...new Set(segment.nodeIds.flatMap(nodeId => {
+          const ids = captureIdsByNode[nodeId];
+          if (!ids) throw new Error(`Annotated node ${nodeId} has no capture index.`);
+          return ids;
+        }))],
+        factIds: [...new Set(segment.nodeIds.flatMap(nodeId => {
+          const ids = factIdsByNode[nodeId];
+          if (!ids) throw new Error(`Annotated node ${nodeId} has no fact index.`);
+          return ids;
+        }))],
       })),
-  }));
+    };
+  });
   const codeLensCandidates = [...indexed.codeLensLineIndices]
     .flatMap(([node, lineIndices]) => {
       if (lineIndices.size < 2) return [];
       const lineIndex = Math.min(...lineIndices);
       const line = sourceLines[lineIndex];
+      if (!line) {
+        throw new Error(`CodeLens node ${node.id} has no source line.`);
+      }
       return [{
         kind: node.kind,
         lineStart: line.start,
@@ -179,18 +210,24 @@ export function prepareAnnotatedView(
       }];
     });
   const anchored = new Set(document.targets.map(target => target.fact_id));
-  const facts = document.facts.map(fact => ({
-    id: fact.id,
-    descriptor: fact.descriptor,
-    category: fact.category,
-    conditionality: fact.conditionality,
-    detail: fact.detail ?? null,
-    origin: fact.origin,
-    sourceOffset: fact.source_offset,
-    anchored: anchored.has(fact.id),
-    nodeIds: nodeIdsByFact[fact.id],
-    selected: false,
-  }));
+  const facts = document.facts.map(fact => {
+    const nodeIds = nodeIdsByFact[fact.id];
+    if (!nodeIds) {
+      throw new Error(`Annotated fact ${fact.id} has no target index.`);
+    }
+    return {
+      id: fact.id,
+      descriptor: fact.descriptor,
+      category: fact.category,
+      conditionality: fact.conditionality,
+      detail: fact.detail ?? null,
+      origin: fact.origin,
+      sourceOffset: fact.source_offset,
+      anchored: anchored.has(fact.id),
+      nodeIds,
+      selected: false,
+    };
+  });
   return {
     codeLensCandidates,
     document,
@@ -321,19 +358,30 @@ function indexLines(
       const spanEnd = span.start + span.length;
       for (
         let lineIndex = firstLineEndingAfter(lines, span.start);
-        lineIndex < lines.length && lines[lineIndex].start < spanEnd;
+        lineIndex < lines.length;
         lineIndex++
       ) {
         const line = lines[lineIndex];
+        const indexedLine = indexed[lineIndex];
+        if (!line || !indexedLine) {
+          throw new Error(`Annotated node ${node.id} reached an unavailable source line.`);
+        }
+        if (line.start >= spanEnd) break;
         if (span.start < line.end && line.start < spanEnd) {
-          indexed[lineIndex].media.add(node.medium);
+          indexedLine.media.add(node.medium);
         }
         const start = Math.max(line.start, span.start);
         const end = Math.min(line.end, spanEnd);
         if (start < end)
         {
-          indexed[lineIndex].intersections.push({ node, start, end });
-          if (isCodeLensCandidate) codeLensLineIndices.get(node)!.add(lineIndex);
+          indexedLine.intersections.push({ node, start, end });
+          if (isCodeLensCandidate) {
+            const lineIndices = codeLensLineIndices.get(node);
+            if (!lineIndices) {
+              throw new Error(`CodeLens node ${node.id} has no line index.`);
+            }
+            lineIndices.add(lineIndex);
+          }
         }
       }
     }
@@ -346,7 +394,9 @@ function firstLineEndingAfter(lines: readonly SourceLine[], offset: number): num
   let high = lines.length;
   while (low < high) {
     const middle = low + Math.floor((high - low) / 2);
-    if (lines[middle].end <= offset) low = middle + 1;
+    const line = lines[middle];
+    if (!line) throw new Error(`Source line ${middle} was unavailable.`);
+    if (line.end <= offset) low = middle + 1;
     else high = middle;
   }
   return low;
@@ -378,6 +428,9 @@ function segmentsForIntersections(
   for (let index = 0; index < ordered.length - 1; index++) {
     const start = ordered[index];
     const end = ordered[index + 1];
+    if (start === undefined || end === undefined) {
+      throw new Error("An annotated segment did not contain both boundaries.");
+    }
     for (const node of removals.get(start) ?? []) active.delete(node.id);
     for (const node of additions.get(start) ?? []) active.set(node.id, node);
     if (start === end) continue;
