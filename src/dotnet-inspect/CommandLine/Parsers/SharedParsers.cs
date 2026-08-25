@@ -198,13 +198,7 @@ public static class SharedParsers
 
         return (
             new HashSet<string>(
-                values.Select(
-                    value =>
-                    {
-                        MemberTargetSelector selector =
-                            MemberTargetSelector.Parse(value);
-                        return selector.FilterSelector;
-                    }),
+                values.Select(value => value.Trim()),
                 StringComparer.OrdinalIgnoreCase),
             null);
     }

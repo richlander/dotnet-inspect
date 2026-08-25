@@ -371,6 +371,16 @@ public static class TypeMatcher
         string name,
         MemberTargetSelector selector)
     {
+        if (selector.OverloadIndex.HasValue
+            || selector.DigestPrefix is { Length: > 0 }
+            || selector.GenericArity.HasValue)
+        {
+            return selector.RequestedText.Contains('*')
+                    || selector.RequestedText.Contains('?')
+                ? MatchesGlob(name, selector.RequestedText)
+                : MatchesMemberName(name, selector.RequestedText);
+        }
+
         if (selector.ExactNameFamily is { } exactNames)
         {
             return exactNames.Any(

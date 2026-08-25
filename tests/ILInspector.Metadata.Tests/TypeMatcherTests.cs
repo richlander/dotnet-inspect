@@ -443,6 +443,19 @@ public class TypeMatcherTests
                 filter));
     }
 
+    [Theory]
+    [InlineData("Add:1")]
+    [InlineData("Add~ffffffff")]
+    [InlineData("Add<X>")]
+    public void MemberTargetSelectorsRemainLiteralInCollectionFilters(
+        string selector)
+    {
+        Assert.False(
+            TypeMatcher.MatchesMemberFilter(
+                "Add",
+                selector));
+    }
+
     [Fact]
     public void KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind()
     {

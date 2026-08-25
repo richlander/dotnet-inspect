@@ -88,6 +88,20 @@ public class SharedParsersTests
         Assert.Null(limit);
     }
 
+    [Theory]
+    [InlineData("Add:1")]
+    [InlineData("Add~ffffffff")]
+    [InlineData("Add<X>")]
+    public void ParseMemberFilter_PreservesMemberSelectorSyntaxAsLiteral(
+        string selector)
+    {
+        var (filter, limit) =
+            SharedParsers.ParseMemberFilter([selector]);
+
+        Assert.Equal(selector, Assert.Single(filter));
+        Assert.Null(limit);
+    }
+
     // ── ParseOverloadShorthand ───────────────────────────────────────────
 
     [Fact]

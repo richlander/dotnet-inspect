@@ -39,11 +39,11 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    // The digest/index narrowing path and the generic-arity narrowing path must
-    // agree: an arity selector narrows the member list too, and lost sibling
-    // context there rendered `public static bool op_Equality(...)`.
+    // The name and overload-index narrowing paths must agree: either narrows
+    // the member list, and lost sibling context there rendered
+    // `public static bool op_Equality(...)`.
     [InlineData("op_Equality")]
-    [InlineData("op_Equality<>")]
+    [InlineData("op_Equality:1")]
     public async Task Member_SelectedOperator_KeepsSiblingContextThroughEveryNarrowingPath(
         string selector)
     {
@@ -61,6 +61,22 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("operator ==(", output);
         Assert.DoesNotContain("bool op_Equality(", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOperatorRejectsGenericAritySelector()
+    {
+        var (exit, _, _) = await RunAppAsync(
+            "member",
+            typeof(OperatorSelectionMoney).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "op_Equality<>",
+            "--markdown",
+            "-v:d");
+
+        Assert.Equal(1, exit);
     }
 
     [Fact]
