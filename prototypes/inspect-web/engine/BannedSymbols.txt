@@ -13,6 +13,7 @@
 ; entry behind.
 
 T:ILInspector.Metadata.AssemblyInspectionSession;Inspect through a public product query that owns the session, never by opening one.
+T:ILInspector.Metadata.AssemblyImage;Raw assembly images belong to product queries; the browser host must not open one from a descriptor or path.
 T:ILInspector.Metadata.AssemblyImageSnapshot;A group's immutable image belongs to the query layer; hand the group to a query instead.
 T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
 T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
@@ -27,6 +28,7 @@ T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding belongs to pro
 
 M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup(System.Collections.Generic.IEnumerable{DotnetInspector.Queries.AssemblyContextParticipant},DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns binding-consistent group composition.
 M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles(System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{DotnetInspector.Queries.PackageAssemblyRoleCorrespondence},System.Boolean,DotnetInspector.Queries.AssemblyContextGroupOptions,DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns package role construction and correspondence.
+M:DotnetInspector.Packages.PackageAssetSelector.Select(DotnetInspector.Packages.IPackageContent,System.String,System.String);Product package selections enter the browser through PackageAssemblyContextSelection.
 M:DotnetInspector.Packages.PackageCompileAssetSelector.Select(DotnetInspector.Packages.IPackageContent,System.String,System.String);Product package selections enter the browser through PackageAssemblyContextSelection.
 M:ILInspector.Metadata.ResolvedAssemblyReference.Create(ILInspector.Metadata.AssemblyReferenceIdentity,System.String,System.Func{System.IO.Stream},ILInspector.Metadata.AssemblyResolutionProvenance,System.Nullable{System.DateTime});Package descriptor minting belongs to product-owned package realization.
 M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromPath(System.String,ILInspector.Metadata.AssemblyResolutionProvenance);Package descriptor minting belongs to product-owned package realization.

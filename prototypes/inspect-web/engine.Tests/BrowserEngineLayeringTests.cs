@@ -29,6 +29,7 @@ public sealed class BrowserEngineLayeringTests
         IReadOnlyList<string> banned = BannedSymbols();
 
         Assert.Contains("T:ILInspector.Metadata.AssemblyInspectionSession", banned);
+        Assert.Contains("T:ILInspector.Metadata.AssemblyImage", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyImageSnapshot", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
@@ -48,6 +49,11 @@ public sealed class BrowserEngineLayeringTests
             banned,
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Packages.PackageAssetSelector.Select",
                 StringComparison.Ordinal));
         Assert.Contains(
             banned,
