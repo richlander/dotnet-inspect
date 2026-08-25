@@ -37,16 +37,33 @@ static class EnumUnderlyingPrimitive
             if ((field.Attributes & FieldAttributes.Static) != 0)
                 continue;
 
-            return SignatureBlobGuard.IsSafeToDecode(
+            PrimitiveTypeCode code = SignatureBlobGuard.IsSafeToDecode(
                     reader,
                     field.Signature,
                     SignatureBlobGuard.Kind.Field)
                 ? field.DecodeSignature(Provider.Instance, genericContext: null)
                 : PrimitiveTypeCode.Int32;
+            return Normalize(code);
         }
 
         return PrimitiveTypeCode.Int32;
     }
+
+    /// <summary>
+    /// SRM casts the provider result to <c>SerializationTypeCode</c> and
+    /// consumes a SerString for <see cref="PrimitiveTypeCode.String"/>.
+    /// Only fixed-width enum primitives stay; everything else, including
+    /// String, falls back to <see cref="PrimitiveTypeCode.Int32"/> so the
+    /// guard and decoder skip the same four bytes.
+    /// </summary>
+    public static PrimitiveTypeCode Normalize(PrimitiveTypeCode code) => code switch
+    {
+        PrimitiveTypeCode.Boolean or PrimitiveTypeCode.SByte or PrimitiveTypeCode.Byte
+            or PrimitiveTypeCode.Char or PrimitiveTypeCode.Int16 or PrimitiveTypeCode.UInt16
+            or PrimitiveTypeCode.Int32 or PrimitiveTypeCode.UInt32
+            or PrimitiveTypeCode.Int64 or PrimitiveTypeCode.UInt64 => code,
+        _ => PrimitiveTypeCode.Int32,
+    };
 
     public static PrimitiveTypeCode FromHandle(
         MetadataReader reader,
