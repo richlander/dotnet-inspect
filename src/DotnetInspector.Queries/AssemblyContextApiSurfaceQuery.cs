@@ -577,7 +577,11 @@ public static class AssemblyContextApiSurfaceQuery
         _ => ApiSurfaceExtractionScope.Public,
     };
 
-    internal static string MetadataTypeIdentity(ApiType type)
+    /// <summary>
+    /// Stable metadata/definition identity used to join a projected type back
+    /// to a product selector without relying on display text.
+    /// </summary>
+    public static string MetadataTypeIdentity(ApiType type)
     {
         ArgumentNullException.ThrowIfNull(type);
         if (type.DefinitionName is { } definitionName)

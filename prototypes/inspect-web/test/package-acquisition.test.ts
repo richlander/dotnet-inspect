@@ -172,6 +172,107 @@ test("NuGet projection selects the declared assembly and preserves package total
     /did not return its selected assembly descriptor/);
 });
 
+test("runtime assembly acquisition reports a missing selected descriptor", async () => {
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [],
+    })),
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /platform query returned no descriptor for System\.Text\.Json/);
+  assert.deepEqual(failures, [
+    "The platform query returned no descriptor for System.Text.Json.",
+  ]);
+});
+
+// Adversarial review (Claude Opus 5) found that validating the selected descriptor
+// *before* the merge branch regressed a surface the engine really emits.
+// `InspectionEngine.cs` permits an empty `assemblies` list whenever extraction truncates,
+// and then falls back to `coordinate.DefaultAsset.Id` -- an id with no matching
+// descriptor. Such a surface still carries types, and `mergeRuntimePackageSurface` reads
+// types, assemblies, accessibility, and counts but never the descriptor. Rejecting it
+// pre-merge turned a partially-successful load into a total failure.
+//
+// The merge path accepts that descriptor-free truncated surface so it can preserve the
+// partial inspection evidence. The non-merging path still requires a descriptor. These
+// tests pin both halves.
+test("a truncated platform surface merges instead of failing the whole load", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      // What the engine emits when extraction truncates: no descriptors, and a default
+      // id that matches none of them.
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
+    })),
+    runtimePackage: () => resident,
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+
+  assert.equal(result.error, null);
+  assert.equal(result.packageModel, resident);
+  assert.deepEqual(failures, []);
+  assert.ok(
+    resident.types.some(type => type.id === "System.Text.Json.JsonDocument"),
+    "the truncated surface's types were merged into the resident package");
+});
+
+test("a non-merging platform load still fails visibly without a descriptor", async () => {
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [],
+    })),
+    // No resident package, so there is nothing to merge into and the descriptor is
+    // genuinely required.
+    runtimePackage: () => null,
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /platform query returned no descriptor for System\.Text\.Json/);
+  assert.deepEqual(failures, [
+    "The platform query returned no descriptor for System.Text.Json.",
+  ]);
+});
+
 test("package acquisition publishes only current results", async () => {
   const events: string[] = [];
   const replacedPackage = createNuGetPackageModel(packageSurface({
@@ -282,7 +383,11 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
     mergedModel.types.map(candidate => candidate.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
   assert.equal(mergedModel.totalMembers, 5);
-  assert.equal(mergedModel.accessibility[0].count, 2);
+  // Main's added assertions, with this slice's checked-index guard on the one indexed
+  // read among them.
+  const publicAccessibility = mergedModel.accessibility[0];
+  assert.ok(publicAccessibility);
+  assert.equal(publicAccessibility.count, 2);
   assert.equal(mergedModel.assembly, "System.Private.CoreLib");
   assert.equal(mergedModel.assemblyId, "corelib");
   assert.equal(
@@ -421,6 +526,34 @@ test("stale runtime results do not publish after the engine returns", async () =
     packageModel: null,
     error: null,
   });
+  assert.deepEqual(events, ["begin", "end"]);
+});
+
+test("stale runtime assembly failures do not publish after navigation changes", async () => {
+  const response = deferred<string>();
+  const events: string[] = [];
+  let current = true;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => response.promise,
+    beginRuntimeLoad: () => events.push("begin"),
+    failRuntimeLoad: error =>
+      events.push(error instanceof Error ? `fail:${error.message}` : "fail"),
+    endRuntimeLoad: () => events.push("end"),
+  }));
+
+  const request = acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json.dll",
+    "",
+    () => current);
+  current = false;
+  response.reject(new Error("stale feed failure"));
+
+  const result = await request;
+  assert.equal(result.packageModel, null);
+  assert.match(
+    result.error instanceof Error ? result.error.message : "",
+    /stale feed failure/);
   assert.deepEqual(events, ["begin", "end"]);
 });
 

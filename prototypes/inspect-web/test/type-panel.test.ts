@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindTypePanel,
+  renderGraphMemberPending,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -15,6 +16,8 @@ import type {
   TypePanelBindingActions,
   TypeSummary,
 } from "../src/type-panel.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
@@ -67,15 +70,48 @@ class FakeRoot {
   }
 }
 
-function keyboardEvent(key: string) {
+function keyboardEvent(
+  key: string,
+  modifiers: Partial<Pick<
+    KeyboardEvent,
+    "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
+  >> = {},
+) {
   const state = { prevented: false };
   const event = fakeDom.keyboardEvent({
+    altKey: modifiers.altKey ?? false,
+    ctrlKey: modifiers.ctrlKey ?? false,
     key,
+    metaKey: modifiers.metaKey ?? false,
     preventDefault: () => {
       state.prevented = true;
     },
+    shiftKey: modifiers.shiftKey ?? false,
   });
   return { event, state };
+}
+
+function bindPanel(
+  root: FakeRoot,
+  actions: TypePanelBindingActions,
+): KeybindingRegistry {
+  const keybindings = new KeybindingRegistry();
+  bindTypePanel(fakeDom.parentNode(root), actions, keybindings);
+  return keybindings;
+}
+
+function dispatchKey(
+  keybindings: KeybindingRegistry,
+  target: FakeElement,
+  input: ReturnType<typeof keyboardEvent>,
+) {
+  const scopedTarget = fakeDom.eventTarget(target);
+  Object.assign(input.event, {
+    defaultPrevented: false,
+    target: scopedTarget,
+    composedPath: () => [scopedTarget],
+  });
+  return keybindings.dispatch(input.event);
 }
 
 function escapeHtml(value: unknown) {
@@ -155,7 +191,10 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("copy-type-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
-    onListKeyDown: event => calls.push(`list:${event.key}`),
+    onListKeyDown: event => {
+      calls.push(`list:${event.key}`);
+      return true;
+    },
     onMemberAccessibilityFilterSelect: value =>
       calls.push(`member-access:${value}`),
     onMemberBack: () => calls.push("member-back"),
@@ -167,8 +206,10 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
-    onMemberFilterKeyDown: (event, value) =>
-      calls.push(`member-filter-key:${event.key}:${value}`),
+    onMemberFilterKeyDown: (event, value) => {
+      calls.push(`member-filter-key:${event.key}:${value}`);
+      return true;
+    },
     onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
     onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
@@ -204,9 +245,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const clear = root.add("#clear-member-filter", new FakeElement());
   const calls: string[] = [];
 
-  bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
+  const keybindings = bindPanel(root, recordingActions(calls));
 
   assert.deepEqual(calls, []);
   kind.dispatch("click");
@@ -224,7 +263,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   ]);
   filter.dispatch("input");
   const arrow = keyboardEvent("ArrowDown");
-  filter.dispatch("keydown", arrow.event);
+  dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
   assert.deepEqual(calls, [
     "member-kind:method",
@@ -257,10 +296,10 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const actions = recordingActions(calls);
   actions.onListKeyDown = event => {
     forwardedListEvent = event;
-    event.preventDefault();
     calls.push(`list:${event.key}`);
+    return true;
   };
-  bindTypePanel(fakeDom.parentNode(root), actions);
+  const keybindings = bindPanel(root, actions);
   namespaceJump.value = "System.Text";
   filter.value = "json";
 
@@ -274,7 +313,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
-  typeList.dispatch("keydown", listKey.event);
+  dispatchKey(keybindings, typeList, listKey);
 
   assert.deepEqual(calls, [
     "type:System.String",
@@ -289,7 +328,51 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "list:End",
   ]);
   assert.equal(forwardedListEvent, listKey.event);
-  assert.equal(listKey.state.prevented, true);
+  assert.equal(listKey.state.prevented, false);
+});
+
+test("type list navigation yields Cmd/Ctrl+K to the command palette", () => {
+  const root = new FakeRoot();
+  const typeList = root.add("#type-list", new FakeElement());
+  const calls: string[] = [];
+  const keybindings = bindPanel(root, recordingActions(calls));
+  keybindings.register({
+    id: "workspace.open-commands",
+    key: "k",
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
+    run: () => {
+      calls.push("commands");
+      return true;
+    },
+  });
+
+  const controlK = keyboardEvent("k", { ctrlKey: true });
+  assert.equal(
+    dispatchKey(keybindings, typeList, controlK).bindingId,
+    "workspace.open-commands",
+  );
+  const metaK = keyboardEvent("k", { metaKey: true });
+  assert.equal(
+    dispatchKey(keybindings, typeList, metaK).bindingId,
+    "workspace.open-commands",
+  );
+  assert.deepEqual(calls, ["commands", "commands"]);
+
+  assert.equal(
+    dispatchKey(keybindings, typeList, keyboardEvent("k")).bindingId,
+    "type-list.navigate",
+  );
+  assert.equal(
+    dispatchKey(
+      keybindings,
+      typeList,
+      keyboardEvent("j", { ctrlKey: true }),
+    ).bindingId,
+    "type-list.navigate",
+  );
+  assert.deepEqual(calls, ["commands", "commands", "list:k", "list:j"]);
 });
 
 test("type panel bindings dispatch the rendered member navigation controls", () => {
@@ -303,16 +386,14 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   const showTypes = root.add("#nav-to-types", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
   const calls: string[] = [];
-  bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
+  const keybindings = bindPanel(root, recordingActions(calls));
 
   member.dispatch("click");
   secondMember.dispatch("click");
   overload.dispatch("click");
   secondOverload.dispatch("click");
   showTypes.dispatch("click");
-  typeList.dispatch("keydown", keyboardEvent("Home").event);
+  dispatchKey(keybindings, typeList, keyboardEvent("Home"));
 
   assert.deepEqual(calls, [
     "member:M:Length",
@@ -351,9 +432,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
   const calls: string[] = [];
 
-  bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions(calls));
+  bindPanel(root, recordingActions(calls));
 
   assert.deepEqual(calls, []);
   jumpKind.dispatch("click");
@@ -401,10 +480,11 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   const typeList = root.add("#type-list", new FakeElement());
   let escapes = 0;
   let listKeys = 0;
-  bindTypePanel(fakeDom.parentNode(root), {
+  const keybindings = bindPanel(root, {
     ...recordingActions([]),
     onListKeyDown: () => {
       listKeys++;
+      return true;
     },
     onTypeFilterEscape: () => {
       escapes++;
@@ -412,14 +492,14 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   });
 
   const ignored = keyboardEvent("a");
-  filter.dispatch("keydown", ignored.event);
+  dispatchKey(keybindings, filter, ignored);
   assert.equal(typeList.focused, false);
   assert.equal(ignored.state.prevented, false);
   assert.equal(escapes, 0);
   assert.equal(listKeys, 0);
 
   const down = keyboardEvent("ArrowDown");
-  filter.dispatch("keydown", down.event);
+  dispatchKey(keybindings, filter, down);
   assert.equal(typeList.focused, true);
   assert.equal(down.state.prevented, true);
   assert.equal(escapes, 0);
@@ -428,7 +508,7 @@ test("type filter keys preserve list focus and Escape behavior", () => {
   typeList.focused = false;
   filter.value = "json";
   const escape = keyboardEvent("Escape");
-  filter.dispatch("keydown", escape.event);
+  dispatchKey(keybindings, filter, escape);
   assert.equal(escapes, 1);
   assert.equal(escape.state.prevented, true);
   assert.equal(typeList.focused, false);
@@ -436,16 +516,14 @@ test("type filter keys preserve list focus and Escape behavior", () => {
 
   filter.value = "";
   const emptyEscape = keyboardEvent("Escape");
-  filter.dispatch("keydown", emptyEscape.event);
+  dispatchKey(keybindings, filter, emptyEscape);
   assert.equal(escapes, 1);
   assert.equal(emptyEscape.state.prevented, false);
 });
 
 test("type panel binding tolerates controls from the inactive nav being absent", () => {
   const root = new FakeRoot();
-  assert.doesNotThrow(() => bindTypePanel(
-    fakeDom.parentNode(root),
-    recordingActions([])));
+  assert.doesNotThrow(() => bindPanel(root, recordingActions([])));
 });
 
 test("the type nav lists namespace groups with the current type selected", () => {
@@ -576,6 +654,36 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /←→ sections/);
 });
 
+test("the member nav labels a selected graph-only target", () => {
+  const graphGroup = {
+    key: "graph:method:MoveNext",
+    name: "MoveNext",
+    kind: "method",
+    overloads: [{
+      signature: "void MoveNext()",
+      graphOnly: true,
+    }],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group: graphGroup }],
+    memberCount: 0,
+    visibleMemberCount: 0,
+    filterControlsHtml: "",
+    selectedMemberKey: graphGroup.key,
+    selectedOverloadIndex: 0,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /class="type-row member-row graph-member-row active-group/);
+  assert.match(html, /graph target · method/);
+  assert.match(html, /0 of 0/);
+});
+
 test("the member nav does not advertise sections without a selected member", () => {
   const html = renderMemberNav({
     type: jsonSerializer,
@@ -594,6 +702,31 @@ test("the member nav does not advertise sections without a selected member", () 
   assert.doesNotMatch(html, /←→ sections/);
 });
 
+test("an absent overload entry fails visibly rather than rendering an empty list", () => {
+  const group = {
+    key: "method:Serialize",
+    name: "Serialize",
+    kind: "method",
+    overloads: [{ signature: "string Serialize(object value)" }],
+  };
+
+  assert.throws(
+    () => renderMemberNav({
+      type: jsonSerializer,
+      entries: [{ kind: "overload", group, index: 1 }],
+      memberCount: 1,
+      visibleMemberCount: 0,
+      filterControlsHtml: "",
+      selectedMemberKey: "method:Serialize",
+      selectedOverloadIndex: 1,
+      escapeHtml,
+      typeDisplayName,
+      shortKind,
+      highlight,
+    }),
+    /Member group 'method:Serialize' has no overload 1\./);
+});
+
 test("the type heading reports the owning package and library", () => {
   const html = typeHeading({
     item: jsonSerializer,
@@ -607,6 +740,22 @@ test("the type heading reports the owning package and library", () => {
   assert.match(html, /<h1>JsonSerializer<\/h1>/);
   assert.match(html, /System\.Text\.Json\.dll/);
   assert.match(html, /System\.Text\.Json@9\.0\.0/);
+});
+
+test("pending graph-member rendering composes the extracted type heading", () => {
+  const html = renderGraphMemberPending({
+    item: jsonSerializer,
+    title: "JsonSerializer.<Open>",
+    packageContext: { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" },
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+
+  assert.match(html, /<h1>JsonSerializer<\/h1>/);
+  assert.match(html, /Opening JsonSerializer\.&lt;Open&gt;…/);
+  assert.match(html, /class="document-section graph-member-pending" aria-live="polite"/);
 });
 
 test("type metadata signature keys on the exact package, framework, and type coordinate", () => {
