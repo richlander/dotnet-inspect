@@ -167,6 +167,9 @@ public sealed record DecompilerResultMetadata(
 /// <summary>Stable diagnostic identifiers. Never renumber or reuse.</summary>
 public static class DiagnosticIds
 {
+    /// <summary>A whole-type projection legitimately had no C# source to compose.</summary>
+    public const string TypeSourceAbsent = "DI_TYPESOURCE_NONE";
+
     /// <summary>The pipeline threw while decompiling.</summary>
     public const string InternalError = "DEC0001";
 

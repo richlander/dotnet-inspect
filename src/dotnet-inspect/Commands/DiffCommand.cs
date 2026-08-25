@@ -279,8 +279,8 @@ public class DiffCommand
                     var implementation = await BuildImplementationDiffWithSourceAsync(
                         queryResults.Get(
                             ImplementationComparisonQuery.Definition),
-                        inputs.FromPaths,
-                        inputs.ToPaths,
+                        inputs.FromAssemblies,
+                        inputs.ToAssemblies,
                         options,
                         context.HttpClient,
                         logger);
@@ -901,8 +901,8 @@ public class DiffCommand
         {
             var implementation = await BuildImplementationDiffWithSourceAsync(
                 queryResults.Get(ImplementationComparisonQuery.Definition),
-                inputs.FromPaths,
-                inputs.ToPaths,
+                inputs.FromAssemblies,
+                inputs.ToAssemblies,
                 options,
                 httpClient,
                 logger);
@@ -1144,35 +1144,11 @@ public class DiffCommand
             session.BodyIndex);
     }
 
-    internal static async Task<ImplementationDiffResult> BuildImplementationDiffWithSourceAsync(
-        IReadOnlyList<string> fromPaths,
-        IReadOnlyList<string> toPaths,
-        DiffOptions options,
-        HttpClient httpClient,
-        VerboseLogger logger,
-        ApiSurface? fromSurface = null,
-        ApiSurface? toSurface = null)
-    {
-        var result = BuildImplementationDiff(
-            fromPaths,
-            toPaths,
-            options,
-            fromSurface,
-            toSurface);
-        return await BuildImplementationDiffWithSourceAsync(
-            result,
-            fromPaths,
-            toPaths,
-            options,
-            httpClient,
-            logger);
-    }
-
     internal static async Task<ImplementationDiffResult>
         BuildImplementationDiffWithSourceAsync(
             ImplementationDiffResult result,
-            IReadOnlyList<string> fromPaths,
-            IReadOnlyList<string> toPaths,
+            IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
+            IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
             DiffOptions options,
             HttpClient httpClient,
             VerboseLogger logger)
@@ -1185,14 +1161,14 @@ public class DiffCommand
             .Select(member => member.Subject)
             .ToDictionary(subject => subject.Id, StringComparer.Ordinal);
         var from = await AcquirePdbSourceInspectionsAsync(
-            fromPaths,
+            fromAssemblies,
             subjects,
             options,
             oldSide: true,
             httpClient,
             logger);
         var to = await AcquirePdbSourceInspectionsAsync(
-            toPaths,
+            toAssemblies,
             subjects,
             options,
             oldSide: false,
@@ -1215,8 +1191,8 @@ public class DiffCommand
                 MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
     }
 
-    static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
-        IReadOnlyList<string> paths,
+    internal static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
+        IReadOnlyList<ResolvedAssemblyReference> assemblies,
         IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
         DiffOptions options,
         bool oldSide,
@@ -1226,14 +1202,18 @@ public class DiffCommand
         var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
+        var candidates = new Dictionary<
+            string,
+            List<(ResolvedAssemblyReference Assembly, MethodIdentity Method)>>(
+                StringComparer.Ordinal);
 
-        foreach (string path in paths)
+        foreach (ResolvedAssemblyReference assembly in assemblies)
         {
             LibraryBodyIndex index;
             try
             {
                 index = MethodBodyInspectionSession.Open(
-                        path,
+                        assembly,
                         includeAllocations: false,
                         includeOpportunities: false)
                     .BodyIndex;
@@ -1243,23 +1223,63 @@ public class DiffCommand
                 or BadImageFormatException
                 or InvalidOperationException)
             {
-                logger.Log($"Could not index PDB-source targets in '{path}': {ex.Message}");
+                logger.Log(
+                    $"Could not index PDB-source targets in "
+                    + $"'{assembly.Path ?? assembly.Identity.Name}': "
+                    + ex.Message);
                 continue;
             }
 
-            var targets = index.DeclaredMethods
-                .Select(method => (
-                    Method: method,
-                    Subject: ResearchMemberIdentity.SubjectFromMethod(method)))
-                .Where(item => subjects.ContainsKey(item.Subject.Id))
-                .Where(item => !results.ContainsKey(item.Subject.Id))
-                .ToArray();
-            if (targets.Length == 0)
-                continue;
+            foreach (MethodIdentity method in index.DeclaredMethods)
+            {
+                ResearchSubjectKey subject =
+                    ResearchMemberIdentity.SubjectFromMethod(method);
+                if (!subjects.ContainsKey(subject.Id))
+                    continue;
+                if (!candidates.TryGetValue(
+                    subject.Id,
+                    out List<(ResolvedAssemblyReference Assembly,
+                        MethodIdentity Method)>? matches))
+                {
+                    matches = [];
+                    candidates.Add(subject.Id, matches);
+                }
+                matches.Add((assembly, method));
+            }
+        }
 
+        foreach ((string subjectId,
+            List<(ResolvedAssemblyReference Assembly, MethodIdentity Method)> matches)
+            in candidates.Where(static pair => pair.Value.Count > 1))
+        {
+            ResearchSubjectKey subject = subjects[subjectId];
+            results[subjectId] =
+                new FindingInspection<string>.Failed(
+                    new InspectionError(
+                        new FindingSubject(subject.Id, subject.Display),
+                        ILInspector.Text.TextFindings.LineDescriptor,
+                        "PDB-source acquisition is ambiguous because "
+                        + "more than one endpoint assembly contains this member."));
+        }
+
+        foreach (IGrouping<ResolvedAssemblyReference,
+            (ResolvedAssemblyReference Assembly, MethodIdentity Method)> group
+            in candidates
+                .Where(static pair => pair.Value.Count == 1)
+                .Select(static pair => pair.Value[0])
+                .GroupBy(static candidate => candidate.Assembly))
+        {
+            ResolvedAssemblyReference assembly = group.Key;
+            (MethodIdentity Method, ResearchSubjectKey Subject)[] targets =
+                group.Select(candidate => (
+                    candidate.Method,
+                    ResearchMemberIdentity.SubjectFromMethod(
+                        candidate.Method)))
+                    .ToArray();
             try
             {
-                using var source = SourceLinkService.Open(path, logger.Log);
+                using var source =
+                    SourceLinkService.Open(assembly, logger.Log);
                 if (source.Context.NeedsPdb)
                 {
                     await SourceEnricher.AcquirePdbAsync(

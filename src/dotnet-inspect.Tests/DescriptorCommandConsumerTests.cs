@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class DescriptorCommandConsumerTests
 {
     [Fact]
@@ -69,11 +70,13 @@ public sealed class DescriptorCommandConsumerTests
     }
 
     [Fact]
-    public void PathlessApiOwnership_DoesNotFallBackToDisplayPath()
+    public void PathlessApiOwnership_SelectsTypedAcquisitionRoles()
     {
         string path = typeof(DescriptorCommandConsumerTests).Assembly.Location;
         ResolvedAssemblyReference assembly =
             TestAssemblyReferences.Designated(path).WithoutLocalPath();
+        ResolvedAssemblyReference runtime =
+            TestAssemblyReferences.Designated(path);
         ApiSurface api = Assert.IsType<ApiSurface>(
             AssemblyReader.ExtractApiSurface(assembly));
         ApiType type = Assert.Single(
@@ -85,15 +88,63 @@ public sealed class DescriptorCommandConsumerTests
             "/display-only.dll",
             "/display-only.dll",
             assembly,
-            RuntimeAssemblyReference: null);
+            runtime);
 
         Assert.Null(type.SourceAssemblyPath);
         Assert.Same(
             assembly,
-            ApiServices.AssemblyReferenceForPath(
+            ApiServices.AssemblyReferenceForRole(
                 loaded,
                 type,
-                "/display-only.dll"));
+                ApiServices.AssemblyReferenceRole.TokenOrigin));
+        Assert.Same(
+            assembly,
+            ApiServices.AssemblyReferenceForRole(
+                loaded,
+                type,
+                ApiServices.AssemblyReferenceRole.Surface));
+        Assert.Same(
+            runtime,
+            ApiServices.AssemblyReferenceForRole(
+                loaded,
+                type,
+                ApiServices.AssemblyReferenceRole.RuntimeOrPdb));
+        Assert.NotSame(
+            assembly.Registration,
+            runtime.Registration);
+    }
+
+    [Fact]
+    public void ForwardedApiOwnership_PreservesTargetForRuntimeRole()
+    {
+        string path =
+            typeof(DescriptorCommandConsumerTests)
+                .Assembly.Location;
+        ResolvedAssemblyReference surface =
+            TestAssemblyReferences.Designated(path);
+        ResolvedAssemblyReference target =
+            TestAssemblyReferences.Designated(path);
+        ResolvedAssemblyReference runtime =
+            TestAssemblyReferences.Designated(path);
+        ApiSurface api = Assert.IsType<ApiSurface>(
+            AssemblyReader.ExtractApiSurface(target));
+        ApiType type = Assert.Single(
+            api.Types,
+            type => type.FullName
+                == typeof(DescriptorCommandConsumerTests).FullName);
+        var loaded = new ApiServices.LoadedApiSurface(
+            api,
+            path,
+            path,
+            surface,
+            runtime);
+
+        Assert.Same(
+            target,
+            ApiServices.AssemblyReferenceForRole(
+                loaded,
+                type,
+                ApiServices.AssemblyReferenceRole.RuntimeOrPdb));
     }
 
     [Fact]
@@ -122,6 +173,71 @@ public sealed class DescriptorCommandConsumerTests
             loaded.Api.Types,
             type => type.FullName
                 == typeof(DescriptorCommandConsumerTests).FullName);
+    }
+
+    [Fact]
+    public void FullApiLoading_RejectsPathlessForwardingAssembly()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"pathless-forwarder-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildForwarderAssembly());
+        try
+        {
+            ResolvedAssemblyReference assembly =
+                TestAssemblyReferences.Designated(path)
+                    .WithoutLocalPath();
+
+            Assert.Null(
+                ApiServices.LoadFullApi(
+                    "/display-only.dll",
+                    assembly,
+                    runtimeAssemblyReference: null,
+                    runtimeAssemblyPath: null,
+                    packagePath: null,
+                    packageName: null,
+                    apiSource: SourceKind.Library,
+                    apiVersion: null,
+                    selectedTfm: null,
+                    new VerboseLogger(false),
+                    new ApiOptions()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task WholeTypeDecompiledSource_NoCompositionIsNotAnError()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(
+                new TypeOptions
+                {
+                    TypeName =
+                        typeof(DescriptorCommandConsumerDelegate)
+                            .FullName,
+                    AssemblyPath =
+                        typeof(DescriptorCommandConsumerDelegate)
+                            .Assembly.Location,
+                    IncludeSections = [SectionNames.DecompiledSource],
+                    TipLevel = TipLevel.Quiet,
+                    Verbosity = Verbosity.Minimal,
+                    MarkdownExplicitlySet = true,
+                    FormatExplicitlySet = true,
+                }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain(
+            "DI_TYPESOURCE_NONE",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Decompiled Source",
+            result.Output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -175,4 +291,61 @@ public sealed class DescriptorCommandConsumerTests
             return 0;
         }
     }
+
+    static byte[] BuildForwarderAssembly()
+    {
+        var metadata = new System.Reflection.Metadata.Ecma335.MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Forwarder.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Forwarder"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.NotPublic,
+            @namespace: default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                System.Reflection.Metadata.Ecma335.MetadataTokens
+                    .FieldDefinitionHandle(1),
+            methodList:
+                System.Reflection.Metadata.Ecma335.MetadataTokens
+                    .MethodDefinitionHandle(1));
+        var target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddExportedType(
+            System.Reflection.TypeAttributes.Public
+                | (System.Reflection.TypeAttributes)0x00200000,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Forwarded"),
+            target,
+            typeDefinitionId: 0);
+        var pe = new System.Reflection.PortableExecutable.ManagedPEBuilder(
+            System.Reflection.PortableExecutable.PEHeaderBuilder
+                .CreateLibraryHeader(),
+            new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new System.Reflection.Metadata.BlobBuilder(),
+            flags:
+                System.Reflection.PortableExecutable.CorFlags.ILOnly);
+        var image = new System.Reflection.Metadata.BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 }
+
+public delegate void DescriptorCommandConsumerDelegate();

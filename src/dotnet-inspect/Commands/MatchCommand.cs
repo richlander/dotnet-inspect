@@ -267,10 +267,10 @@ public static class MatchCommand
         // silently reinterpret an unrelated MethodDef row in the wrong image.
         var originAssemblyPath =
             apiType.SourceAssemblyPath ?? loaded.ApiDllPath;
-        var originAssembly = ApiServices.AssemblyReferenceForPath(
+        var originAssembly = ApiServices.AssemblyReferenceForRole(
             loaded,
             apiType,
-            originAssemblyPath);
+            ApiServices.AssemblyReferenceRole.TokenOrigin);
         return new ResolvedSelector(
             MethodToken(candidates[0]),
             $"{apiType.FullName}.{memberName}",

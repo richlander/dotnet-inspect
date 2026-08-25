@@ -196,6 +196,111 @@ public class AssemblySetResolutionSessionTests
         }
     }
 
+    [Fact]
+    public async Task ExactAssemblyIsDesignated_ButDirectoryChildIsLocal()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "assembly-set-provenance-test")
+                .FullName;
+        string path = Path.Combine(
+            directory,
+            "Participant.dll");
+        File.Copy(
+            typeof(AssemblySetResolutionSessionTests)
+                .Assembly.Location,
+            path);
+        try
+        {
+            using var httpClient = new HttpClient();
+            using AssemblySet exact =
+                await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        Assemblies = [path],
+                    });
+            using AssemblySet discovered =
+                await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        Directories = [directory],
+                    });
+            using var exactSession =
+                new AssemblySetResolutionSession(exact);
+            using var discoveredSession =
+                new AssemblySetResolutionSession(discovered);
+
+            Assert.IsType<
+                AssemblyResolutionProvenance.DesignatedAsset>(
+                Assert.Single(exactSession.AssemblyReferences)
+                    .Provenance);
+            Assert.IsType<
+                AssemblyResolutionProvenance.LocalAsset>(
+                Assert.Single(discoveredSession.AssemblyReferences)
+                    .Provenance);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BuildApiSurface_NetmoduleDoesNotParticipateInAssemblyBinding()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "assembly-set-module-binding-test")
+                .FullName;
+        string dependencyPath =
+            Path.Combine(directory, "ConstraintDependency.dll");
+        string consumerPath =
+            Path.Combine(directory, "ConstraintConsumer.dll");
+        string modulePath =
+            Path.Combine(directory, "collision.netmodule");
+        try
+        {
+            File.WriteAllBytes(
+                dependencyPath,
+                BuildDependency());
+            File.WriteAllBytes(
+                consumerPath,
+                BuildConsumer());
+            File.WriteAllBytes(
+                modulePath,
+                BuildNetmodule(
+                    "ConstraintDependency",
+                    "CollisionModuleType"));
+
+            using var session =
+                new AssemblySetResolutionSession(
+                    [consumerPath, modulePath]);
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    session.BuildApiSurface());
+
+            ApiType consumer = Assert.Single(
+                surface.Types,
+                static type =>
+                    type.Name == "Consumer`1");
+            Assert.Equal(
+                TypeParameterTypeKind.ReferenceType,
+                Assert.Single(consumer.TypeParameters)
+                    .TypeKind);
+            Assert.Contains(
+                surface.Types,
+                static type =>
+                    type.Name == "CollisionModuleType");
+            Assert.Empty(surface.InspectionFailures);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static byte[] BuildDependency()
     {
         MetadataBuilder metadata =
@@ -325,14 +430,16 @@ public class AssemblySetResolutionSessionTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildNetmodule()
+    static byte[] BuildNetmodule(
+        string moduleName = "Widget.netmodule",
+        string typeName = "Widget")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             moduleName:
                 metadata.GetOrAddString(
-                    "Widget.netmodule"),
+                    moduleName),
             mvid:
                 metadata.GetOrAddGuid(Guid.NewGuid()),
             encId: default,
@@ -341,7 +448,7 @@ public class AssemblySetResolutionSessionTests
             metadata,
             "<Module>",
             TypeAttributes.NotPublic);
-        AddType(metadata, "Widget");
+        AddType(metadata, typeName);
         return Serialize(metadata);
     }
 

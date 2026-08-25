@@ -256,7 +256,9 @@ public static class MemberBodyProducer
             ? DecompilerResult.Success(
                 $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
             : composed.Text is null
-            ? DecompilerResult.Failure("DI_TYPESOURCE_NONE", $"No C# type source composed for {type.FullName}.")
+            ? DecompilerResult.Failure(
+                DiagnosticIds.TypeSourceAbsent,
+                $"No C# type source composed for {type.FullName}.")
             : DecompilerResult.Success(composed.Text);
     }
 
@@ -294,12 +296,11 @@ public static class MemberBodyProducer
             context,
             printerOptions);
         return composed.Error is { } error
-            ? DecompilerResult.Failure(
-                DiagnosticIds.InternalError,
-                $"Type source unavailable: {error.GetType().Name}: {error.Message}")
+            ? DecompilerResult.Success(
+                $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
             : composed.Text is null
             ? DecompilerResult.Failure(
-                "DI_TYPESOURCE_NONE",
+                DiagnosticIds.TypeSourceAbsent,
                 $"No C# type source composed for {type.FullName}.")
             : DecompilerResult.Success(composed.Text);
     }

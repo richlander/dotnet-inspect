@@ -289,6 +289,11 @@ public sealed class AssemblySetResolutionSession : IDisposable
             AssemblySetSourceKind.Project =>
                 AssemblyResolutionProvenance.Local(
                     "restored project asset"),
+            AssemblySetSourceKind.Assembly =>
+                AssemblyResolutionProvenance.Designated(
+                    string.IsNullOrWhiteSpace(entry.Source)
+                        ? entry.Path
+                        : entry.Source),
             _ => AssemblyResolutionProvenance.Local(
                 string.IsNullOrWhiteSpace(entry.Source)
                     ? "assembly-set API extraction"

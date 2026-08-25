@@ -2379,7 +2379,19 @@ public class ApiCommand
                 metadata,
                 options.RenderOptions,
                 options.PdbPath);
-            if (projection.Output is not { } listing)
+            if (projection.Output is { } listing)
+            {
+                // Surface pending config warnings only once the styled listing is
+                // actually produced.
+                options.RenderConfigWarnings?.EmitOnce();
+                view.MemberCode ??= new MemberCodeView();
+                view.MemberCode.DecompiledSourceCode =
+                    new Markout.CodeSection("csharp", listing);
+            }
+            else if (!projection.Diagnostics.Any(
+                static diagnostic =>
+                    diagnostic.Id
+                        == Decompiler.DiagnosticIds.TypeSourceAbsent))
             {
                 CommandError.Write(
                     projection.Diagnostics.Count == 0
@@ -2390,13 +2402,6 @@ public class ApiCommand
                                 static diagnostic => diagnostic.ToString())));
                 return 1;
             }
-
-            // Surface pending config warnings only once the styled listing is
-            // actually produced.
-            options.RenderConfigWarnings?.EmitOnce();
-            view.MemberCode ??= new MemberCodeView();
-            view.MemberCode.DecompiledSourceCode =
-                new Markout.CodeSection("csharp", listing);
         }
 
         if (options.Print)

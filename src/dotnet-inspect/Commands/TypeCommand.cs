@@ -261,10 +261,10 @@ public static class TypeCommand
                     effectiveOptions = effectiveOptions with
                     {
                         AssemblyReference =
-                            ApiServices.AssemblyReferenceForPath(
+                            ApiServices.AssemblyReferenceForRole(
                                 loaded,
                                 apiType,
-                                effectiveOptions.DllPath),
+                                ApiServices.AssemblyReferenceRole.RuntimeOrPdb),
                     };
 
                     // Real local names for the listing: acquire the portable

@@ -13,6 +13,13 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class ApiServices
 {
+    internal enum AssemblyReferenceRole
+    {
+        TokenOrigin,
+        Surface,
+        RuntimeOrPdb,
+    }
+
     // ===== Extraction Pipeline =====
 
     internal sealed record LoadedApiSurface(
@@ -64,6 +71,17 @@ internal static class ApiServices
                             options.IncludeAll);
         if (api is null)
             return null;
+
+        if (resolution is null
+            && assemblyReference is { IsAssembly: true }
+            && assemblyReference.Path is null
+            && api.TypeForwarders.Count > 0)
+        {
+            logger.Log(
+                "Pathless forwarding assemblies require a rooted "
+                + "type-resolution context.");
+            return null;
+        }
 
         if (resolution is not null)
         {
@@ -162,38 +180,39 @@ internal static class ApiServices
             IsSummary: true);
     }
 
-    internal static ResolvedAssemblyReference? AssemblyReferenceForPath(
+    internal static ResolvedAssemblyReference? AssemblyReferenceForRole(
         LoadedApiSurface loaded,
         ApiType type,
-        string? path)
-    {
-        if (type.SourceAssemblyReference is { } source
-            && type.SourceAssemblyPath is null)
+        AssemblyReferenceRole role) =>
+        role switch
         {
-            return source;
-        }
+            AssemblyReferenceRole.TokenOrigin =>
+                type.SourceAssemblyReference
+                    ?? loaded.AssemblyReference,
+            AssemblyReferenceRole.Surface =>
+                loaded.AssemblyReference,
+            AssemblyReferenceRole.RuntimeOrPdb =>
+                IsForwardedTypeAcquisition(
+                    loaded,
+                    type)
+                    ? type.SourceAssemblyReference
+                    : loaded.RuntimeAssemblyReference
+                        ?? loaded.AssemblyReference
+                        ?? type.SourceAssemblyReference,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(role),
+                role,
+                "Unknown assembly-reference role."),
+        };
 
-        if (path is null)
-            return null;
-
-        static bool SamePath(
-            ResolvedAssemblyReference? assembly,
-            string candidate) =>
-            assembly?.Path is { } assemblyPath
-            && (OperatingSystem.IsWindows()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal).Equals(
-                Path.GetFullPath(assemblyPath),
-                Path.GetFullPath(candidate));
-
-        if (SamePath(type.SourceAssemblyReference, path))
-            return type.SourceAssemblyReference;
-        if (SamePath(loaded.AssemblyReference, path))
-            return loaded.AssemblyReference;
-        if (SamePath(loaded.RuntimeAssemblyReference, path))
-            return loaded.RuntimeAssemblyReference;
-        return null;
-    }
+    static bool IsForwardedTypeAcquisition(
+        LoadedApiSurface loaded,
+        ApiType type) =>
+        type.SourceAssemblyReference is { } source
+        && loaded.AssemblyReference is { } surface
+        && !ReferenceEquals(
+            source.Registration,
+            surface.Registration);
 
     // ===== Type Lookup =====
 

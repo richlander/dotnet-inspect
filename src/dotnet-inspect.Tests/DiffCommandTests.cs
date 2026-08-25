@@ -11,6 +11,7 @@ using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using ILInspector.Text;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
 using InertText;
@@ -1934,6 +1935,85 @@ public class DiffCommandTests
         Assert.Equal("PDB Source", row.Mechanism);
         Assert.Equal("failed", row.Change);
         Assert.Contains("checksum mismatch", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PdbSourceAcquisition_UsesRetainedDescriptor()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        byte[] oldImage = File.ReadAllBytes(oldPath);
+        ResolvedAssemblyReference selected =
+            TestAssemblyReferences.Designated(newPath);
+        int opens = 0;
+        ResolvedAssemblyReference retained =
+            ResolvedAssemblyReference.Create(
+                selected.Identity,
+                newPath,
+                () =>
+                {
+                    opens++;
+                    return new MemoryStream(
+                        oldImage,
+                        writable: false);
+                },
+                selected.Provenance);
+        MethodIdentity method =
+            MethodBodyInspectionSession.Open(retained)
+                .BodyIndex.DeclaredMethods.First();
+        ResearchSubjectKey subject =
+            ResearchMemberIdentity.SubjectFromMethod(method);
+        opens = 0;
+
+        Dictionary<string, FindingInspection<string>> inspections =
+            await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                [retained],
+                new Dictionary<string, ResearchSubjectKey>(
+                    StringComparer.Ordinal)
+                {
+                    [subject.Id] = subject,
+                },
+                new DiffOptions(),
+                oldSide: true,
+                new HttpClient(),
+                new VerboseLogger(false));
+
+        Assert.True(opens >= 2);
+        Assert.Contains(subject.Id, inspections);
+    }
+
+    [Fact]
+    public async Task PdbSourceAcquisition_DuplicateMemberIdentityFailsVisibly()
+    {
+        string path = FixtureCatalog.DiffPair.OldAssemblyPath();
+        ResolvedAssemblyReference assembly =
+            TestAssemblyReferences.Designated(path);
+        MethodIdentity method =
+            MethodBodyInspectionSession.Open(assembly)
+                .BodyIndex.DeclaredMethods.First();
+        ResearchSubjectKey subject =
+            ResearchMemberIdentity.SubjectFromMethod(method);
+
+        Dictionary<string, FindingInspection<string>> inspections =
+            await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                [assembly, assembly],
+                new Dictionary<string, ResearchSubjectKey>(
+                    StringComparer.Ordinal)
+                {
+                    [subject.Id] = subject,
+                },
+                new DiffOptions(),
+                oldSide: true,
+                new HttpClient(),
+                new VerboseLogger(false));
+
+        FindingInspection<string>.Failed failure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                inspections[subject.Id].Value);
+        Assert.Contains(
+            "more than one endpoint assembly",
+            failure.Error.Reason,
+            StringComparison.Ordinal);
     }
 
     [Fact]

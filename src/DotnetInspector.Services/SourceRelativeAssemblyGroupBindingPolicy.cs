@@ -35,17 +35,24 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         ArgumentNullException.ThrowIfNull(participants);
         var roots = ImmutableArray.CreateBuilder<
             ResolvedAssemblyReference>();
+        IAssemblyBindingPolicy? firstPolicy = null;
+        IAssemblyBindingPolicy? firstAssemblyPolicy = null;
         foreach ((ResolvedAssemblyReference assembly,
             IAssemblyBindingPolicy policy) in participants)
         {
             ArgumentNullException.ThrowIfNull(assembly);
             ArgumentNullException.ThrowIfNull(policy);
-            roots.Add(assembly);
+            firstPolicy ??= policy;
+            if (assembly.IsAssembly)
+            {
+                roots.Add(assembly);
+                firstAssemblyPolicy ??= policy;
+            }
             _byOrigin.Add(assembly.Registration, policy);
             _assemblyByOrigin.Add(assembly.Registration, assembly);
         }
 
-        if (roots.Count == 0)
+        if (firstPolicy is null)
         {
             throw new ArgumentException(
                 "At least one assembly-group participant is required.",
@@ -53,7 +60,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         _roots = roots.ToImmutable();
-        _default = _byOrigin[_roots[0].Registration];
+        _default = firstAssemblyPolicy ?? firstPolicy;
     }
 
     public AssemblyBindingPolicyVersion Version { get; } = new();

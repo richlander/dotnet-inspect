@@ -724,7 +724,23 @@ Several current types are migration inputs, not target precedent:
   or processing debug-directory and PDB content. Command-level metadata, IL,
   source, Analysis, and Research consumers retain that descriptor rather than
   reopening its path. API extraction retains descriptor ownership separately
-  from its optional diagnostic path, including pathless and forwarded types.
+  from its optional diagnostic path, including pathless non-forwarding
+  assemblies and rooted forwarding assemblies. A pathless forwarding assembly
+  fails visibly because resolving its exported types requires a rooted
+  resolution context.
+  `AssemblySetResolutionSessionTests.ExactAssemblyIsDesignated_ButDirectoryChildIsLocal`
+  gates the distinction between an exact caller-named assembly and a
+  directory-discovered child. Netmodules remain API-surface participants but
+  never assembly-binding roots, gated by
+  `BuildApiSurface_NetmoduleDoesNotParticipateInAssemblyBinding`. API consumers
+  select token-origin, surface, and runtime/PDB acquisitions by typed role
+  rather than inferring acquisition identity from a display path.
+  `DescriptorCommandConsumerTests.PathlessApiOwnership_SelectsTypedAcquisitionRoles`
+  gates the pathless reference/runtime distinction;
+  `ForwardedApiOwnership_PreservesTargetForRuntimeRole` gates forwarded-target
+  preservation. Implementation-diff PDB enrichment reuses the endpoint
+  descriptors and reports duplicate member identities as ambiguous rather
+  than selecting the first path.
   Netmodule, platform-summary, SourceLink discovery, source-file collection,
   member Analysis, exception-region, and diff-endpoint routes all consume the
   retained acquisition. A resolved image with no managed metadata is

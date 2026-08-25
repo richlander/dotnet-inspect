@@ -416,12 +416,11 @@ public static class MemberCommand
 
             if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
-                var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var locationAssembly =
-                    ApiServices.AssemblyReferenceForPath(
+                    ApiServices.AssemblyReferenceForRole(
                         loaded,
                         apiType,
-                        locationDllPath)
+                        ApiServices.AssemblyReferenceRole.TokenOrigin)
                     ?? throw new InvalidOperationException(
                         "Could not retain the acquired assembly for member source location.");
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
@@ -457,39 +456,37 @@ public static class MemberCommand
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
                     && selectedMember?.Kind is not ("explicit-interface-implementation" or "finalizer");
-                // The selected member's metadata token indexes the assembly it
-                // was extracted from — apiType.SourceAssemblyPath (the target
-                // assembly for a forwarded type, otherwise the extraction dll).
-                // Only resolve source by token when the assembly opened for
-                // lookup (pdbLookupPath) IS that same assembly; otherwise the
-                // token's row would not align (forwarded facade, or a reference
-                // assembly for the surface vs an implementation assembly for
-                // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
-                var sourceMetadataToken = LibraryMetadataService
-                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
-                    .Equals(
-                        Path.GetFullPath(pdbLookupPath),
-                        Path.GetFullPath(tokenOriginAssembly))
-                    ? (sourceMember?.MetadataToken ?? 0)
-                    : 0;
                 ResolvedAssemblyReference? memberMetadataAssembly =
                     sourceMember is null
                         ? null
-                        : ApiServices.AssemblyReferenceForPath(
+                        : ApiServices.AssemblyReferenceForRole(
                             loaded,
                             apiType,
-                            tokenOriginAssembly)
+                            ApiServices.AssemblyReferenceRole.TokenOrigin)
                             ?? throw new InvalidOperationException(
                                 "Could not retain the acquired assembly for member metadata.");
-                var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    pdbLookupPath,
-                    ApiServices.AssemblyReferenceForPath(
+                ResolvedAssemblyReference sourceResolutionAssembly =
+                    ApiServices.AssemblyReferenceForRole(
                         loaded,
                         apiType,
-                        pdbLookupPath)
+                        ApiServices.AssemblyReferenceRole.RuntimeOrPdb)
                     ?? throw new InvalidOperationException(
-                        "Could not retain the acquired assembly for member source resolution."),
+                        "Could not retain the acquired assembly for member source resolution.");
+                // A metadata token is valid only when source resolution opens
+                // the same acquisition that produced it. Otherwise resolve by
+                // member identity rather than reinterpreting the row in a
+                // reference/runtime counterpart or forwarding facade.
+                var sourceMetadataToken =
+                    memberMetadataAssembly is not null
+                    && ReferenceEquals(
+                        memberMetadataAssembly.Registration,
+                        sourceResolutionAssembly.Registration)
+                        ? sourceMember?.MetadataToken ?? 0
+                        : 0;
+                var resolved = await ApiCommand.ResolveMethodSourceAsync(
+                    pdbLookupPath,
+                    sourceResolutionAssembly,
                     sourceTypeName,
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
@@ -514,10 +511,10 @@ public static class MemberCommand
             effectiveOptions = effectiveOptions with
             {
                 AssemblyReference =
-                    ApiServices.AssemblyReferenceForPath(
+                    ApiServices.AssemblyReferenceForRole(
                         loaded,
                         apiType,
-                        effectiveOptions.DllPath),
+                        ApiServices.AssemblyReferenceRole.RuntimeOrPdb),
             };
 
             if (effectiveOptions.EffectiveDiscovery)
