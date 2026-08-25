@@ -864,6 +864,11 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.Equal(
             "system.text.json",
             NuGetCache.GetPackageCacheIdComponent("System.Text.Json"));
+        Assert.Equal(
+            "system.text.json.1.0.0.nupkg",
+            NuGetCache.GetRetainedArchiveFileName(
+                "System.Text.Json",
+                "1.0.0"));
     }
 
     [Fact]
@@ -914,6 +919,79 @@ public sealed class PackagePayloadAcquisitionTests
                 NuGetCache.TryGetCachedPackage(
                     decomposed,
                     Version,
+                    [sourceKey]));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PackageCache_MaximumMultibyteIdCommitsAndReopensBoundedArchive()
+    {
+        string cacheRoot = TempDirectory();
+        string stagingRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string packageId = string.Concat(
+                Enumerable.Repeat("日", 100));
+            Directory.CreateDirectory(stagingRoot);
+            string nupkg = Path.Combine(stagingRoot, "package.nupkg");
+            File.WriteAllBytes(
+                nupkg,
+                TestPackageArchive.CreateWithContent(
+                    ("lib/net10.0/Sample.dll", [1, 2, 3]),
+                    (
+                        "package.nuspec",
+                        System.Text.Encoding.UTF8.GetBytes(
+                            $"<package><metadata><id>{packageId}</id></metadata></package>"))));
+            string extracted = Path.Combine(stagingRoot, "extracted");
+            ZipFile.ExtractToDirectory(nupkg, extracted);
+
+            CommittedPackage committed =
+                NuGetCache.CommitPackage(
+                    extracted,
+                    nupkg,
+                    packageId,
+                    Version,
+                    sourceKey);
+            CommittedPackage reopened =
+                NuGetCache.CommitPackage(
+                    extracted,
+                    nupkg,
+                    packageId,
+                    Version,
+                    sourceKey);
+
+            Assert.NotNull(committed.NupkgPath);
+            Assert.True(File.Exists(committed.NupkgPath));
+            Assert.Equal(
+                NuGetCache.GetRetainedArchiveFileName(
+                    packageId,
+                    Version),
+                Path.GetFileName(committed.NupkgPath));
+            Assert.True(
+                System.Text.Encoding.UTF8.GetByteCount(
+                    Path.GetFileName(committed.NupkgPath)) <= 255);
+            Assert.Equal(committed.NupkgPath, reopened.NupkgPath);
+            Assert.NotNull(
+                NuGetCache.TryGetCachedPackage(
+                    packageId,
+                    Version,
+                    [sourceKey]));
+            Assert.Equal(
+                [Version],
+                NuGetCache.GetCachedVersions(
+                    packageId,
                     [sourceKey]));
         }
         finally

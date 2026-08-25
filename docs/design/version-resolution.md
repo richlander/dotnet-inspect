@@ -407,7 +407,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
 | Selected-member `PDB Source` downloads | Not cached by this command path. |
 | `SourceLink: Availability` URL checks | Not cached by this command path. |
-| Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
+| Service-index `PackageBaseAddress` discovery | Cached only within one typed source-client operation. Desktop NuGet.org and custom-feed version/payload operations each discover their service index; the legacy `NuGetClient` compatibility path retains its canonical NuGet.org shortcut. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
 ## Package and pack publication

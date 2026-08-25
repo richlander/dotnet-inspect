@@ -263,7 +263,7 @@ a cache miss. The payload is then requested from an authorized producer and
 cached under that producer's identity. Product-owned cache paths retain readable
 ASCII package IDs; non-ASCII IDs use a fixed-width digest component so valid
 Unicode coordinates cannot exceed filesystem component limits or alias through
-filesystem normalization.
+filesystem normalization. Retained archive filenames use the same component.
 
 When payload sources must be queried, configured local-folder feeds are
 considered before HTTP feeds, matching NuGet's documented source tiers. No
@@ -566,6 +566,7 @@ admission and commit.
 `PackagePayloadAcquisitionTests.GlobalPackageIdentityMismatch_IsIgnored`,
 `PackagePayloadAcquisitionTests.GlobalPackageMalformedIdentity_IsIgnored`,
 `PackagePayloadAcquisitionTests.GlobalPackageOversizeIdentity_IsIgnored`,
+`PackagePayloadAcquisitionTests.PackageCache_MaximumMultibyteIdCommitsAndReopensBoundedArchive`,
 `PackagePayloadAcquisitionTests.PackageCache_UnicodeCoordinatesCommitToDistinctSlots`,
 `SourcePrecedenceTests`, `VersionCacheTests`,
 `PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`, and

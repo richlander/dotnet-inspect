@@ -514,6 +514,11 @@ public static class NuGetCache
         return $"u-{Convert.ToHexStringLower(digest.AsSpan(0, 16))}";
     }
 
+    internal static string GetRetainedArchiveFileName(
+        string packageName,
+        string version) =>
+        $"{GetPackageCacheIdComponent(packageName)}.{version.ToLowerInvariant()}.nupkg";
+
     /// <summary>
     /// Validates and atomically publishes an extracted package to the app cache.
     /// Concurrent publishers either win the final rename or converge on the
@@ -611,7 +616,9 @@ public static class NuGetCache
             // contain the marker (marker + nupkg remain the only allowed extras).
             string committedNupkgPath = Path.Combine(
                 stagingPath,
-                $"{normalizedName}.{normalizedVersion}.nupkg");
+                GetRetainedArchiveFileName(
+                    normalizedName,
+                    normalizedVersion));
             if (nupkgPath is not null)
             {
                 File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
@@ -932,7 +939,7 @@ public static class NuGetCache
     {
         string nupkgPath = Path.Combine(
             targetPath,
-            $"{packageName}.{version}.nupkg");
+            GetRetainedArchiveFileName(packageName, version));
         return new CommittedPackage(
             targetPath,
             File.Exists(nupkgPath) ? nupkgPath : null,
