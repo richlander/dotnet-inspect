@@ -419,7 +419,10 @@ ComparisonEndpointPairingPlan
 
 ComparisonEndpointOutcome
   Key                    exact originating ComparisonEndpointKey
-  Result                 Realized | Unavailable | Rejected | Failed
+  Result                 Realized(ArtifactParticipantManifest) |
+                         Unavailable(typed reason + diagnostic) |
+                         Rejected(typed reason + diagnostic) |
+                         Failed(typed reason + diagnostic)
 
 ComparisonEndpointOutcomeSet
   Requests               sealed declared ComparisonEndpointKey set
@@ -442,7 +445,7 @@ AssemblyParticipantRoleManifest
   Bindings               sealed map, exactly one binding per selection
 
 ArtifactParticipantManifestEntry
-  Input                  opaque manifest-local participant-input identity
+  InputId                opaque manifest-local participant-input identity
   LogicalSlot            endpoint-owner-issued cross-version slot
   Roles                  exact AssemblyParticipantRoleBinding
 
@@ -450,16 +453,21 @@ ArtifactParticipantManifest
   Revision               sealed endpoint/workspace inventory identity
   Entries                complete ArtifactParticipantManifestEntry set
 
+ArtifactParticipantInputKey
+  Origin                 Planned(ComparisonEndpointKey + manifest revision) |
+                         Direct(designation id + Before | After)
+  LocalId                originating manifest-/designation-local input id
+
 ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
   Authority              LogicalSlot | DirectMemberDesignation
   Kind                   Paired | BeforeOnly | AfterOnly
-  Before/After           manifest entry's exact role binding and input id |
+  Before/After           exact role binding + ArtifactParticipantInputKey |
                          proven Absent
 
 ArtifactParticipantPairingOutcome
   Id                     opaque slot-local outcome identity
-  Inputs                 non-empty participant-input identity set
+  Inputs                 non-empty ArtifactParticipantInputKey set
   Result                 Admitted(ArtifactParticipantPairing) |
                          Ambiguous(typed reason + complete input-keyed
                          candidate payload + diagnostic) |
@@ -468,15 +476,29 @@ ArtifactParticipantPairingOutcome
 
 ArtifactParticipantPairingOutcomeSet
   EndpointSlot           exact ComparisonEndpointPairingSlot.Id
-  Inputs                 exact participant-input identity set
+  Inputs                 exact ArtifactParticipantInputKey set
   Outcomes               sealed non-empty outcome map
   InputMap               every input -> exactly one outcome id
+
+EndpointSlotRequestOutcome
+  Key                    exact originating ComparisonEndpointKey
+  Result                 Realized(manifest revision + exact qualified
+                         participant-input-key set) |
+                         Unavailable(exact typed reason + diagnostic) |
+                         Rejected(exact typed reason + diagnostic) |
+                         Failed(exact typed reason + diagnostic)
+
+EndpointSlotFailure
+  EndpointSlot           exact ComparisonEndpointPairingSlot.Id
+  Outcomes               exact request-keyed map, one entry for every
+                         Request arm in the slot
+  TerminalKeys           non-empty exact set of non-Realized outcome keys
 
 ComparisonEndpointPairingSlotOutcome
   EndpointSlot           exact ComparisonEndpointPairingSlot.Id
   Result                 EndpointAbsent(before/after proofs) |
                          Participants(ArtifactParticipantPairingOutcomeSet) |
-                         Failed(typed slot failure + diagnostic)
+                         Failed(EndpointSlotFailure)
 
 ComparisonEndpointPairingSlotOutcomeSet
   Plan                   exact sealed endpoint-pairing plan identity
@@ -492,9 +514,9 @@ its map key, and sealing requires exact set equality between request and
 outcome keys. A duplicate, missing, extra, cross-side, or rekeyed outcome
 rejects the entire outcome set; it cannot let endpoint A occupy endpoint B's
 slot. A realized endpoint carries one sealed 1:N manifest; an unavailable,
-rejected, or failed endpoint remains a terminal comparison input failure keyed
-by its request. It never becomes an empty manifest or disappears because
-another endpoint succeeded.
+rejected, or failed endpoint carries its typed reason and diagnostic and
+remains a terminal comparison input failure keyed by its request. It never
+becomes an empty manifest or disappears because another endpoint succeeded.
 
 The endpoint owner seals its manifest from the complete selected artifact
 inventory that acquisition admitted and the workspace projected into assembly
@@ -545,16 +567,26 @@ dependencies; a directory endpoint may realize multiple files. Empty or wholly
 non-projectable acquisition remains the typed member failure defined above,
 not a successful manifest.
 
+`ArtifactParticipantManifestEntry.InputId` is unique only inside its exact
+manifest revision. Before forming any union or partition, the comparison
+coordinator qualifies every planned input as
+`ArtifactParticipantInputKey.Planned(endpoint key, manifest revision,
+local id)`. The endpoint key includes `Side`; equal local ids in independently
+sealed before/after manifests therefore remain distinct, and a manifest from
+another endpoint or revision cannot occupy the input's place. The manifest
+validates local-id uniqueness, while every later binding, candidate/affected
+payload, `Inputs` set, and `InputMap` uses only the qualified key.
+
 The comparison coordinator accepts only a sealed pairing plan and endpoint
 outcome set and emits one sealed
 `ComparisonEndpointPairingSlotOutcomeSet`. A slot whose two sides are explicit
 `Absent(proof)` becomes `EndpointAbsent` and retains both proofs. For a slot
 whose requested sides realize, the coordinator forms the exact union of the
-before/after manifests and seals one
+before/after **qualified input keys** and seals one
 `ArtifactParticipantPairingOutcomeSet`. Its outcomes form a disjoint,
 non-empty partition of that union: the set's `Inputs` equals the exact manifest
-union, `InputMap` and every outcome's `Inputs` agree, and the outcome-input
-union equals the set's `Inputs`. An admitted outcome alone
+union after qualification, `InputMap` and every outcome's `Inputs` agree, and
+the outcome-input union equals the set's `Inputs`. An admitted outcome alone
 contains an `ArtifactParticipantPairing`; `Paired`, `BeforeOnly`, and
 `AfterOnly` therefore always have validated binding/proven-absence arms. An
 ambiguous outcome instead retains every colliding candidate entry and its typed
@@ -565,27 +597,38 @@ one-sided admitted participants.
 
 The result payload and its partition identity are one fact, not independently
 trusted fields. For an admitted outcome, its `Inputs` must equal exactly the
-originating input ids on its non-absent before/after bindings. For an ambiguous
-outcome, they must equal exactly the input ids represented by its complete
-candidate payload. For a failed outcome, they must equal exactly the input ids
-represented by its complete affected-input payload. The direct path applies the
-same admitted equality to the two designated participant-input identities.
-Missing, extra, foreign, or swapped payload identities reject sealing even when
-`InputMap` by itself is a total partition.
+originating qualified input keys on its non-absent before/after bindings. For
+an ambiguous outcome, they must equal exactly the qualified keys represented by
+its complete candidate payload. For a failed outcome, they must equal exactly
+the qualified keys represented by its complete affected-input payload. The
+direct path applies the same admitted equality after qualifying its two local
+ids as `Direct(designation id, Before)` and
+`Direct(designation id, After)`. Those keys remain distinct even when both
+methods use one live source. Missing, extra, foreign, or swapped payload
+identities reject sealing even when `InputMap` by itself is a total partition.
 
 The outer slot-outcome set requires exact plan-slot/outcome equality and
 validates each embedded slot id. The participant outcome set requires exact
 input coverage, validates each embedded outcome id and input set, and validates
 the result-payload/input equality above. On planned paths, those inputs must
-equal the exact manifest union.
+equal the exact qualified manifest union.
 A missing, extra, duplicate, rekeyed, cross-slot, overlapping, or uncovered
 outcome rejects the comparison plan rather than shortening it.
 
 If any requested side is unavailable, rejected, or failed, the entire endpoint
-pairing slot is failed. The coordinator retains one terminal failed comparison
-input as `ComparisonEndpointPairingSlotOutcome.Failed` with its typed failure
-and diagnostic. It does **not** classify entries from a realized opposite
-manifest as one-sided; the missing manifest cannot prove their absence. The
+pairing slot is failed. The coordinator seals one `EndpointSlotFailure` whose
+outcome-map keys equal every `Request` arm in that slot. Each terminal entry
+retains the exact originating outcome's key, typed reason, and diagnostic; each
+realized entry retains its manifest revision and exact qualified input-key set
+as tainted context without retaining live participant bindings. `TerminalKeys`
+must equal the non-`Realized` map keys and must be non-empty. Embedded request
+and slot keys, the requested-key set, outcome-map key set, and terminal-key set
+are all validated for exact equality.
+
+The failed slot does **not** classify entries from a realized opposite manifest
+as one-sided; the missing manifest cannot prove their absence. A two-sided
+terminal slot retains both independent failures, and a realized/terminal slot
+retains the realized input summary plus every terminal payload. The
 anti-omission claim is relative to the complete declared endpoint pairing plan
 and sealed manifests that the pairing stage did not author.
 
@@ -667,16 +710,19 @@ and never become cross-side participant identity.
 The direct live-member call is the one non-adapter designation.
 `ImplementationDiff.DesignateMemberPair` explicitly authorizes exactly two
 already-open participants as a pair and returns a typed
-`DirectMemberPairingDesignation`. The designation wraps one direct-slot
+`DirectMemberPairingDesignation`. The factory mints its opaque
+invocation-scoped designation id. The designation wraps one direct-slot
 admitted `ArtifactParticipantPairing` and retains that pairing's opaque id,
 exact live participant bindings, both MVIDs, and a lifetime bounded by the
 supplied sources. The direct factory also mints the corresponding internal
 one-slot/one-admitted-outcome receipt over the two designated participant-input
-identities used by query lowering. For each side it mints a single-participant
-role manifest whose selection and implementation roles share that participant,
-so each direct binding has `Body = SameSelection`; the caller cannot substitute
-a terminal or `ReferenceOnly` arm. The designation does not create a parallel
-pairing identity and contains no path, handle, token, or display identity.
+keys used by query lowering. It qualifies those keys by designation id and
+side before sealing, so they remain distinct even when both selections use one
+live source. For each side it mints a single-participant role manifest whose
+selection and implementation roles share that participant, so each direct
+binding has `Body = SameSelection`; the caller cannot substitute a terminal or
+`ReferenceOnly` arm. The designation does not create a parallel pairing
+identity and contains no path, handle, token, or display identity.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path
@@ -1143,12 +1189,14 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpointPairingPlan_UsesEveryRequestExactlyOnce`
 - `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
 - `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
+- `ComparisonEndpointFailure_RetainsEveryRequestedOutcome`
 - `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
 - `AssemblyParticipantRoleManifest_IsTotalAndRoleLocal`
 - `AssemblyParticipantRoleManifest_SharedGroupDoesNotInventCorrespondence`
 - `ComparisonParticipantManifest_EqualsSelectedArtifactInventory`
 - `ComparisonParticipantManifest_ConsumesWorkspaceRoleBindings`
 - `ComparisonParticipantManifest_ReferenceOnlyDoesNotFabricateImplementation`
+- `ComparisonParticipantInputKey_QualifiesManifestLocalIdentity`
 - `ComparisonParticipantPairing_IsTotalOverManifestUnion`
 - `ComparisonEndpointPairingSlotOutcomeSet_EqualsPairingPlan`
 - `ComparisonParticipantPairingOutcomeSet_PartitionsInputSet`
@@ -1165,6 +1213,7 @@ The target remains unverified until tests equivalent to these exist:
 - `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`
 - `DirectMemberPairingOutcome_InputsEqualDesignation`
+- `DirectMemberPairingInputKeys_DistinguishSameSourceSides`
 - `DirectMemberPairing_AllowsExplicitCrossIdentityPairWithoutWeakeningEndpoints`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
