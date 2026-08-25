@@ -52,7 +52,7 @@ test("an unstarted query renders the composing empty state", () => {
 
 test("a streaming result renders rows, tiers, facets, and the streaming footer", () => {
   const state: PackageQueryState = {
-    request: withFacet(createQueryRequest("Microsoft.*", "Microsoft."), FACETS[0]!),
+    request: withFacet(createQueryRequest("Microsoft.*", "Microsoft."), FACETS[0]),
     outcome: appendRows(emptyOutcome(), [row("Microsoft.Bcl.AsyncInterfaces")]),
     selected: new Set(),
   };
