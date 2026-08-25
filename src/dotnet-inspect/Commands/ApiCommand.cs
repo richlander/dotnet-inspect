@@ -1151,7 +1151,7 @@ public class ApiCommand
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
             Console.WriteLine(JsonSerializer.Serialize(
                 api,
-                ApiArtifactJson.SurfaceContext.ApiSurface));
+                ApiArtifactJson.Surface));
             return successExitCode;
         }
 
@@ -3125,11 +3125,11 @@ public class ApiCommand
         if (options.CompactJson)
             Console.WriteLine(JsonSerializer.Serialize(
                 outputType,
-                ApiArtifactJson.CompactTypeContext.ApiType));
+                ApiArtifactJson.CompactType));
         else
             Console.WriteLine(JsonSerializer.Serialize(
                 outputType,
-                ApiArtifactJson.TypeContext.ApiType));
+                ApiArtifactJson.Type));
     }
 
     private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)

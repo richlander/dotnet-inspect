@@ -1598,15 +1598,35 @@ public class OutputFormatterTests
         Assert.True(TypeView.SignatureDecodeIsEmpty(null));
         Assert.True(TypeView.SignatureDecodeIsEmpty(
         [
-            new MemberSignatureRow("void A()", "aaaa", "M:A", null, null),
-            new MemberSignatureRow("void B()", "bbbb", "M:B", "", null),
+            new MemberSignatureRow(
+                ApiViewText.Field("void A()"),
+                "aaaa",
+                ApiViewText.Field("M:A"),
+                null,
+                null),
+            new MemberSignatureRow(
+                ApiViewText.Field("void B()"),
+                "bbbb",
+                ApiViewText.Field("M:B"),
+                "",
+                null),
         ]));
 
         // A degraded member must keep the Decode column so the failure marker stays visible.
         Assert.False(TypeView.SignatureDecodeIsEmpty(
         [
-            new MemberSignatureRow("void A()", "aaaa", "M:A", null, null),
-            new MemberSignatureRow("void B()", "bbbb", "M:B", "degraded", null),
+            new MemberSignatureRow(
+                ApiViewText.Field("void A()"),
+                "aaaa",
+                ApiViewText.Field("M:A"),
+                null,
+                null),
+            new MemberSignatureRow(
+                ApiViewText.Field("void B()"),
+                "bbbb",
+                ApiViewText.Field("M:B"),
+                "degraded",
+                null),
         ]));
     }
 
@@ -1616,15 +1636,35 @@ public class OutputFormatterTests
         Assert.True(MemberIndexView.DecodeIsEmpty(null));
         Assert.True(MemberIndexView.DecodeIsEmpty(
         [
-            new MemberIndexRow("A:0", "A~0", "M:A", null, "d0"),
-            new MemberIndexRow("B:0", "B~0", "M:B", "", "d1"),
+            new MemberIndexRow(
+                ApiViewText.Field("A:0"),
+                ApiViewText.Field("A~0"),
+                ApiViewText.Field("M:A"),
+                null,
+                "d0"),
+            new MemberIndexRow(
+                ApiViewText.Field("B:0"),
+                ApiViewText.Field("B~0"),
+                ApiViewText.Field("M:B"),
+                "",
+                "d1"),
         ]));
 
         // A degraded member must keep the Decode column so the failure marker stays visible.
         Assert.False(MemberIndexView.DecodeIsEmpty(
         [
-            new MemberIndexRow("A:0", "A~0", "M:A", null, "d0"),
-            new MemberIndexRow("B:0", "B~0", "M:B", "degraded", "d1"),
+            new MemberIndexRow(
+                ApiViewText.Field("A:0"),
+                ApiViewText.Field("A~0"),
+                ApiViewText.Field("M:A"),
+                null,
+                "d0"),
+            new MemberIndexRow(
+                ApiViewText.Field("B:0"),
+                ApiViewText.Field("B~0"),
+                ApiViewText.Field("M:B"),
+                "degraded",
+                "d1"),
         ]));
     }
 

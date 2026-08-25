@@ -18,6 +18,12 @@ internal static class ApiViewText
 
     public static InertString? OptionalProse(string? value) =>
         value is null ? null : new InertString(TextPolicy.Prose, value);
+
+    public static InertString CSharpField(string value) =>
+        Field(CSharpIdentifier.DecodeRenderedText(value));
+
+    public static InertString? OptionalCSharpField(string? value) =>
+        value is null ? null : CSharpField(value);
 }
 
 /// <summary>
@@ -510,11 +516,16 @@ public class ExtensionMethodsView
 }
 
 [MarkoutSerializable]
-public class EnumValueRow
+public sealed class EnumValueRow(
+    InertString nameText,
+    string value,
+    InertString? descriptionText)
 {
-    public string Name { get; set; } = "";
-    public string Value { get; set; } = "";
-    public string? Description { get; set; }
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    public string Value { get; } = value;
+    [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    public string? Description => DescriptionText?.ToString();
 }
 
 [MarkoutSerializable]
@@ -705,27 +716,59 @@ public record ApiInspectionFailureRow(
     [property: MarkoutSkipNull] string? DependencyAssembly = null);
 
 [MarkoutSerializable]
-public record MemberRow(
-    [property: MarkoutSkipNull] string? Select,
-    string Name,
-    string Digest,
-    string Signature,
-    string? Description)
+public sealed class MemberRow(
+    InertString? selectText,
+    InertString nameText,
+    string digest,
+    InertString signatureText,
+    InertString? descriptionText)
 {
+    [MarkoutIgnore, JsonIgnore] public InertString? SelectText { get; } = selectText;
+    [MarkoutSkipNull] public string? Select => SelectText?.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
+    public string Name => NameText.ToString();
+    public string Digest { get; } = digest;
+    [MarkoutIgnore, JsonIgnore] public InertString SignatureText { get; } = signatureText;
+    public string Signature => SignatureText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    public string? Description => DescriptionText?.ToString();
+
     /// <summary>
     /// Creates a MemberRow without Select column.
     /// </summary>
-    public MemberRow(string name, string digest, string signature, string? description)
-        : this(null, name, digest, signature, description) { }
+    public MemberRow(
+        InertString nameText,
+        string digest,
+        InertString signatureText,
+        InertString? descriptionText)
+        : this(
+            null,
+            nameText,
+            digest,
+            signatureText,
+            descriptionText)
+    {
+    }
 }
 
 [MarkoutSerializable]
-public record MemberIndexRow(
-    string Selector,
-    string Stable,
-    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
-    [property: MarkoutSkipNull] string? Decode,
-    [property: MarkoutIgnore] string Digest);
+public sealed class MemberIndexRow(
+    InertString selectorText,
+    InertString stableText,
+    InertString canonicalSignatureText,
+    string? decode,
+    string digest)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString SelectorText { get; } = selectorText;
+    public string Selector => SelectorText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString StableText { get; } = stableText;
+    public string Stable => StableText.ToString();
+    [MarkoutIgnore, JsonIgnore] public InertString CanonicalSignatureText { get; } = canonicalSignatureText;
+    [MarkoutPropertyName("Canonical Signature")]
+    public string CanonicalSignature => CanonicalSignatureText.ToString();
+    [MarkoutSkipNull] public string? Decode { get; } = decode;
+    [MarkoutIgnore] public string Digest { get; } = digest;
+}
 
 [MarkoutSerializable]
 /// <inheritdoc cref="SourceFileRow"/>
@@ -781,12 +824,23 @@ public record MemberSourceLocationRow(
 }
 
 [MarkoutSerializable]
-public record MemberSignatureRow(
-    string Signature,
-    string Digest,
-    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
-    [property: MarkoutSkipNull] string? Decode,
-    [property: MarkoutSkipNull] string? Description);
+public sealed class MemberSignatureRow(
+    InertString signatureText,
+    string digest,
+    InertString canonicalSignatureText,
+    string? decode,
+    InertString? descriptionText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString SignatureText { get; } = signatureText;
+    public string Signature => SignatureText.ToString();
+    public string Digest { get; } = digest;
+    [MarkoutIgnore, JsonIgnore] public InertString CanonicalSignatureText { get; } = canonicalSignatureText;
+    [MarkoutPropertyName("Canonical Signature")]
+    public string CanonicalSignature => CanonicalSignatureText.ToString();
+    [MarkoutSkipNull] public string? Decode { get; } = decode;
+    [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    [MarkoutSkipNull] public string? Description => DescriptionText?.ToString();
+}
 
 /// <summary>
 /// Compact summary row for Minimal verbosity: one row per unique member name with overload count.

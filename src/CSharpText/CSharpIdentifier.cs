@@ -130,4 +130,12 @@ public static class CSharpIdentifier
     /// projection folded line endings but let a vertical tab through.
     /// </remarks>
     public static string ContainRenderedText(string text) => CSharpIdentifierCore.ContainComposedName(text);
+
+    /// <summary>
+    /// Recovers the untreated spelling produced by
+    /// <see cref="ContainRenderedText"/> for a caller that owns the next typed
+    /// presentation boundary.
+    /// </summary>
+    public static string DecodeRenderedText(string text) =>
+        CSharpIdentifierCore.DecodeComposedName(text);
 }

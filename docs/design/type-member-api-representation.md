@@ -81,7 +81,7 @@ of repeated in every row.
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `InertString` fields on API view rows | One rendered semantic API value | Which lossless visual spelling may cross a Markdown, table, TSV, JSONL, or shape sink | Raw type/member identity, lookup text, or correspondence |
-| `ApiArtifactJson` write contexts | One API document JSON serialization | Whether every decoded JSON string value is visually contained while preserving the established schema | A deserializable identity model; consumers that need raw identity use the ordinary `ApiTypeJsonContext` |
+| `ApiArtifactJson` write projections | One API document JSON serialization | Whether every decoded JSON string value is visually contained while preserving the established schema | A deserializable identity model; consumers that need raw identity use the ordinary `ApiTypeJsonContext` |
 
 `SemanticTypeOutputContainmentTests` gates the typed view currency, unchanged
 raw identity, decoded JSON values, and schema-neutral benign text.

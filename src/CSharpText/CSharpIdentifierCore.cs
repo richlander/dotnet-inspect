@@ -156,7 +156,8 @@ internal static class CSharpIdentifierCore
     /// an explicit interface implementation's dots, a generic instantiation's angle
     /// brackets, <c>.ctor</c> — and so cannot be spelled as a simple identifier.
     /// Folds the line terminators that would let it break out of a code fence, a
-    /// table row, or a tree gutter, and changes nothing else (issue #3319).
+    /// table row, or a tree gutter. Disambiguates literal <c>\uXXXX</c> spellings
+    /// from the visible escapes this method generates.
     /// </summary>
     /// <remarks>
     /// This is the weakest containment in this file, and it is the right one here:
@@ -171,17 +172,26 @@ internal static class CSharpIdentifierCore
     public static string ContainComposedName(string name)
     {
         var folded = name.ReplaceLineEndings(" ");
-        if (!folded.Any(IsRenderingHazard))
-            return folded;
-
-        // A visible \uXXXX keeps the identity legible, which matters more here than
-        // it does for an identifier: this text is already not compilable C#, so
-        // there is nothing to be gained by folding it to identifier characters and
-        // something to be lost by dropping the real bytes of the name.
-        var builder = new StringBuilder(folded.Length);
-        foreach (var ch in folded)
+        if (!folded.Any(IsRenderingHazard)
+            && !ContainsUnicodeEscapeSpelling(folded))
         {
-            if (IsRenderingHazard(ch))
+            return folded;
+        }
+
+        // Visible escapes keep the identity legible and distinguish generated
+        // \uXXXX spellings from literal metadata text with the same characters.
+        var builder = new StringBuilder(folded.Length);
+        for (var index = 0; index < folded.Length; index++)
+        {
+            char ch = folded[index];
+            if (ch == '\\'
+                && BackslashRunPrecedesUnicodeEscape(
+                    folded,
+                    index))
+            {
+                builder.Append(@"\\");
+            }
+            else if (IsRenderingHazard(ch))
                 builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
             else
                 builder.Append(ch);
@@ -189,6 +199,80 @@ internal static class CSharpIdentifierCore
 
         return builder.ToString();
     }
+
+    public static string DecodeComposedName(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
+        {
+            char ch = value[index];
+            if (ch != '\\')
+            {
+                builder.Append(ch);
+                continue;
+            }
+
+            int runEnd = index;
+            while (runEnd < value.Length && value[runEnd] == '\\')
+                runEnd++;
+
+            if (!IsUnicodeEscapeAt(value, runEnd))
+            {
+                builder.Append(value.AsSpan(index, runEnd - index));
+                index = runEnd - 1;
+                continue;
+            }
+
+            int backslashCount = runEnd - index;
+            builder.Append('\\', backslashCount / 2);
+
+            if (backslashCount % 2 == 0)
+                builder.Append(value.AsSpan(runEnd, 5));
+            else
+                builder.Append(
+                    (char)ushort.Parse(
+                        value.AsSpan(runEnd + 1, 4),
+                        NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture));
+
+            index = runEnd + 4;
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool ContainsUnicodeEscapeSpelling(string value)
+    {
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] == '\\'
+                && BackslashRunPrecedesUnicodeEscape(value, index))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool BackslashRunPrecedesUnicodeEscape(
+        string value,
+        int index)
+    {
+        while (index < value.Length && value[index] == '\\')
+            index++;
+
+        return IsUnicodeEscapeAt(value, index)
+            || (index < value.Length && IsRenderingHazard(value[index]));
+    }
+
+    private static bool IsUnicodeEscapeAt(string value, int index) =>
+        index + 4 < value.Length
+        && value[index] == 'u'
+        && char.IsAsciiHexDigit(value[index + 1])
+        && char.IsAsciiHexDigit(value[index + 2])
+        && char.IsAsciiHexDigit(value[index + 3])
+        && char.IsAsciiHexDigit(value[index + 4]);
 
     /// <summary>
     /// A character that is safe as C# syntax but not safe once rendered: a C0/C1

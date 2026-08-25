@@ -466,12 +466,25 @@ public sealed class PackageFixtureTests
                     AssertNoRawMetadataConfusionScalar);
             }
         }
+        else
+        {
+            AssertNoDoubledMetadataConfusionSpelling(output);
+        }
     }
 
     private static void AssertNoRawMetadataConfusionScalar(string value)
     {
         Assert.DoesNotContain('\u200B', value);
         Assert.DoesNotContain('\u2060', value);
+    }
+
+    private static void AssertNoDoubledMetadataConfusionSpelling(
+        string value)
+    {
+        Assert.DoesNotContain(@"\\u200B", value);
+        Assert.DoesNotContain(@"\\u2060", value);
+        Assert.DoesNotContain(@"\\u202E", value);
+        Assert.DoesNotContain(@"\\u202C", value);
     }
 
     private static IEnumerable<string> EnumerateJsonStrings(
