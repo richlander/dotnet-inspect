@@ -96,9 +96,26 @@ tmux set -w -t "$TMUX_PANE" -u @agent_state
 ```
 
 Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
-`pr` and `head`; add `round`, `reviews`, `blocked`, and `rec` when applicable.
-Values contain no spaces. `rec` is `continue`, `wait`, `merge`, `approve`, or
-`stop`. Clear both options when the window no longer owns a PR.
+`head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
+`blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
+is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
+window no longer owns the work.
+
+`blocked` and `waiting` are both things you are waiting on, split by **who can
+act on them**:
+
+- **`blocked`** takes issue or PR numbers only — things a person can open and
+  prioritise, and that the next agent hitting the same wall can find instead of
+  re-investigating it. If a flake blocks you and no issue exists, file one and
+  cite it.
+- **`waiting`** takes a predicate a tool can evaluate against your `head`:
+  `check:<name>`, `checks`, `merge`, or `review`. Use it when nothing is wrong
+  and nothing is openable — a check that has not reported yet is not a defect
+  and does not deserve an issue.
+
+`rec=wait` is coherent when either is populated. `blocked=ci` is the specific
+error this split exists to remove: it names nothing a person can open and
+nothing a tool can evaluate, so it reads as a wait on nothing.
 
 ### Signal when you need a person
 
