@@ -470,7 +470,7 @@ public class ApiCommand
             : options;
     }
 
-    private static HashSet<string>? ResolvePipelineIndependentMemberSections(
+    private static SelectResult? ResolvePipelineIndependentMemberSelection(
         MemberOptions options)
     {
         SectionPipeline<ApiType>[] pipelines =
@@ -480,7 +480,7 @@ public class ApiCommand
             ApiMemberDetailSectionDescriptors.CreatePipeline()
         ];
 
-        HashSet<string>? resolvedSections = null;
+        SelectResult? resolvedSelection = null;
         for (var i = 0; i < pipelines.Length; i++)
         {
             var pipeline = pipelines[i];
@@ -495,16 +495,17 @@ public class ApiCommand
                 selectDefault: options.SelectDefault);
             if (result.HasError || result.Sections is null)
                 return null;
-            if (resolvedSections is null)
+            if (resolvedSelection is null)
             {
-                resolvedSections = result.Sections;
+                resolvedSelection = result;
                 continue;
             }
-            if (!resolvedSections.SetEquals(result.Sections))
+            if (resolvedSelection.Sections is not { } resolvedSections
+                || !resolvedSections.SetEquals(result.Sections))
                 return null;
         }
 
-        return resolvedSections;
+        return resolvedSelection;
     }
 
     internal static int ExecuteStructuralTypeDiscovery(
@@ -870,10 +871,21 @@ public class ApiCommand
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionDeferred = options.SelectDeferredToListing
             || options is MemberOptions { MemberSelectionDeferredToLookup: true };
-        var selectionSections = selectionDeferred
+        var pipelineIndependentMemberSelection = selectionDeferred
             ? options is MemberOptions { MemberSelectionDeferredToLookup: true } deferredMember
-                ? ResolvePipelineIndependentMemberSections(deferredMember)
+                ? ResolvePipelineIndependentMemberSelection(deferredMember)
                 : null
+            : null;
+        if (pipelineIndependentMemberSelection is not null
+            && ApplyBodyShapeSelectionRequirements(
+                options,
+                pipelineIndependentMemberSelection) is { } deferredBodyShapeError)
+        {
+            CommandError.Write(deferredBodyShapeError);
+            return (null!, 1);
+        }
+        var selectionSections = selectionDeferred
+            ? pipelineIndependentMemberSelection?.Sections
             : options.IncludeSections;
         var selectionValidationDeferred = selectionDeferred && selectionSections is null;
         if (options.Discover == null && options.Count && !selectionValidationDeferred

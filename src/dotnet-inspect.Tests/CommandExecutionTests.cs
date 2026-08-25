@@ -4071,6 +4071,61 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("  Method Groups", explicitMember.Error);
     }
 
+    [Theory]
+    [InlineData(SectionNames.BodyShapes)]
+    [InlineData("Body*")]
+    public async Task Member_DottedTargetValidatesBodyShapesBeforeAcquisition(
+        string selector)
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            selector,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.BodyShapes}' requires --where",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedTargetValidatesBodyKindTargetBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            SectionNames.IL,
+            "--where",
+            "Kind=LiteralExpression",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"--where Kind=... targets section '{SectionNames.BodyShapes}'.",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
     [Fact]
     public async Task Router_DeferredPartialSectionDiagnosticIsEmittedOnce()
     {
