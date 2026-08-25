@@ -15,6 +15,14 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 - MetadataPrimitives owns bounded SRM traversal, signature-decode admission,
   neutral name segments and method coordinates, neutral structural keys, work
   budgets, and typed mechanical rejection.
+- A lossless raw-row reader is allowed only for a named table where public SRM
+  APIs discard required evidence or allocate it before product charging. The
+  first and only registered exception is `MethodSemantics`.
+- MetadataPrimitives owns the reader-independent assembly-format classifier
+  used before product metadata work. Its separately registered, fixed-prefix
+  metadata-root admission guard is not a raw-table decoder. Windows Metadata
+  (`WindowsMetadata` and `ManagedWindowsMetadata`) is outside project scope,
+  not another semantic model this layer must normalize.
 - Metadata, Analysis, Decompiler, Instructions, and ILDiff retain their own
   semantic models, signature providers, projections, and failure policy.
 - Analysis and Decompiler keep separate `TypeRef` types. They answer different
@@ -77,7 +85,8 @@ which differences are intentional policy.
 
 `ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
 references. That property is **not gated**; the first implementation slice must
-add a project-closure gate before citing it as enforced.
+add `LayeringTests.MetadataPrimitives_RemainsLeaf` in
+`src/dotnet-inspect.Tests` before citing it as enforced.
 
 ```text
                      ILInspector.MetadataPrimitives
@@ -103,6 +112,7 @@ references MetadataPrimitives directly.
 | Work budgets | Limits and typed exhaustion/rejection shared across consumers |
 | Generic metadata context | Bounded generic parameter names and constraint flags |
 | Neutral matching | Dependency-free name distance and similarity |
+| Lossless `MethodSemantics` rows | Bounded mechanical decode of raw semantics, MethodDef, and HasSemantics columns where SRM exposes no lossless row API |
 
 Metadata retains product-facing definition identities, including
 `MetadataTypeDefinitionName` and `MetadataTypeDefinitionAddress`. Moving those
@@ -129,6 +139,192 @@ Consumer-owned providers should call shared admission and traversal mechanics,
 then construct their native result. A neutral primitive must not return a
 plausible `object`, an empty signature, or a display string on rejection unless
 that value is itself an explicit typed result arm.
+
+### Supported assembly metadata format
+
+`MetadataImageFormatClassifier` is the sole mechanical format gate for product
+assembly metadata. It accepts the acquisition-owned `PEReader`, obtains that
+owner's metadata block, and uses one bounded `BlobReader` to inspect only the
+ECMA-335 root signature, fixed major/minor/reserved fields, signed version
+length, and at most the declared 256-byte padded version field. ECMA-335 limits
+the null-terminated version to 255 bytes and rounds the stored field length to
+four-byte alignment. The classifier scans those bytes only through the first
+null for the exact ordinal ASCII sequence
+`WindowsRuntime`. Finding it produces typed `UnsupportedWindowsMetadata`;
+absence produces `SupportedEcma335`. This is the same case-sensitive version
+discriminator SRM consults before applying optional WinRT projections, without
+constructing a `MetadataReader` whose table initialization may scan rows.
+
+`PEReader.HasMetadata == false` produces typed `NoMetadata` without requesting
+a metadata block. An unmappable metadata directory, block shorter than the
+fixed root prefix, invalid signature, negative or over-256 padded length, or
+length beyond the metadata block produces a typed malformed-root result. An
+I/O failure while a lazy owner materializes the block remains its acquisition
+failure rather than malformed metadata. SRM may accept a longer field when
+enough bytes remain; the guard deliberately rejects it because that field is
+outside the ECMA-335 bound and could carry an unexamined marker beyond the
+fixed admission window.
+
+The classifier does not decode or expose the version string, inspect stream
+headers, heaps, table headers, row counts, or rows, construct any
+`MetadataReader`, search for mscorlib, or create projected/raw handle
+correspondence. It retains no reader, block, pointer, handle, or mutable state.
+Supported images then use the ordinary SRM reader for all remaining root,
+stream, heap, and table validation. Obtaining the block may materialize the
+complete metadata directory for a lazy `PEReader`; that acquisition-owner cost
+is visible and measured separately. Once the block is available, classifier
+work and allocation are fixed by the root prefix and 256-byte ceiling and do
+not scale with stream, heap, table, or row content.
+Acquisition or direct projection APIs whose established return shape has no
+failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
+text for unsupported Windows Metadata and `BadImageFormatException` with the
+same text constraint for a malformed-root result. Typed query owners catch and
+preserve those distinct mechanisms as unsupported-input and malformed-input
+results. They must not translate either to `null`, an empty projection, or
+partial rows.
+
+`NoMetadata` preserves the acquisition or query owner's established typed
+no-metadata boundary. Neither it nor a malformed-root result is translated to
+`UnsupportedMetadataFormatException`.
+
+Acquisition owners call it before exposing metadata sessions. Public or
+reusable `PEReader` entry points that can bypass those owners call it directly.
+That closure includes `AssemblyImage`, `PdbContext`, Decompiler
+`MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector`
+table/row/reference/heap operation, and the defensive
+`MethodSemanticsRowReader` leaf check. `MDP017` in
+[member inspection planning and Metadata
+projection](design/member-inspection-planning-and-metadata-projection.md) gates
+the inventory, reader independence, bounded root work, typed failure, and
+no-work-before-reject properties.
+
+### Lossless `MethodSemantics` row boundary
+
+`MethodSemanticsRowReader` is the sole registered exception to the normal rule
+that product code uses SRM row accessors rather than decoding table rows. It
+exists because SRM exposes table location and shape but no public lossless
+`MethodSemantics` row API: its property/event convenience accessors allocate
+all `Other` rows, overwrite duplicate standard roles, and omit unrecognized
+combined role values.
+
+The reader accepts the acquisition-owned `PEReader` and a
+MetadataPrimitives-owned `MethodSemanticsReadBudget` that bounds retained
+associations. Metadata creates that neutral budget only after
+`MetadataOperationContext.AdmitImage` succeeds; the closure gate verifies this
+wiring without making the leaf reference the higher-layer operation type. The
+admission call is unconditional for every supported image: a compatibility
+caller may use an explicit `Unbounded` policy, while product entry points must
+supply a finite policy before semantic cutover. The reader obtains both the
+`MetadataReader` and metadata block from the one PE owner. It must not accept
+an independently supplied reader/block pair:
+an in-bounds whole-PE offset can otherwise be mistaken for a metadata-relative
+offset with no identity check capable of detecting the mismatch. The
+acquisition owner retains the lease; the primitive does not reopen a path, own
+or dispose the image, copy the whole metadata block, or retain a
+`PEMemoryBlock`, `BlobReader`, or unmanaged pointer after the call.
+The Metadata-owned `MethodSemanticsAssociationSession` must call its
+`AssemblyImage.EnsureAlive()` liveness check immediately before each product
+primitive invocation; passing a bare borrowed `PEReader` without that check is
+a contract violation. It is the sole product invocation owner. Direct primitive
+calls are confined to this leaf's boundary tests, where the test owns the
+reader lifetime.
+
+The Metadata-owned session calls `MetadataImageFormatClassifier` before image
+admission, `MetadataReader` construction, or primitive invocation. A direct
+boundary-test call reaches the same classifier from the leaf before it reads
+table layout. Unsupported Windows Metadata is not reported as malformed
+ECMA-335, and this boundary adds no projected-accessor fallback, dual-reader
+correspondence, or compatibility adapter.
+
+For a supported image, the implementation may use only public SRM layout facts
+to locate the table: its metadata offset, row size, table row counts used to
+derive ECMA-defined index widths, and
+`PEMemoryBlock.GetReader(start, length)` over the same `PEReader`. It decodes
+the table's complete three-column schema:
+
+- raw `Semantics` bits;
+- a `MethodDef` row identifier; and
+- a `HasSemantics` coded index restricted to Property and Event tags.
+
+Checked arithmetic and SRM-reported row counts bound every read and decoded row
+identifier. Whole-image admission charges each declared row once; the census
+records rows visited but does not debit `MaxMetadataRows` again. Before
+retaining a neutral row, it separately charges
+`MaxRetainedMethodSemanticsAssociations`. The reader must reach the physical end
+of the table before a consumer can treat any association range as complete.
+The neutral result preserves table row number, raw semantics bits,
+`MethodDefinitionHandle`, association kind, and association row identifier. It
+validates the computed column width against SRM's table row size, physical row
+access, the non-nil MethodDef and HasSemantics row identifiers, target row
+bounds, and records whether association values are actually nondecreasing. It
+does not parse the metadata stream's sorted bit or decide whether nonmonotonic
+ordering invalidates a declaration, which roles are legal for a property/event,
+whether a standard role is duplicated, whether a method belongs to the
+aggregate's declaring type, or how rejection is presented; those remain
+Metadata semantics.
+
+The retained-association budget protects the bytes held by the immutable
+Metadata-owned operation index, independently of the broader row-admission
+ceiling. Its corpus-derived ceiling may therefore be lower than
+`MaxMetadataRows`. Exhaustion rejects the semantics census for every
+property/event projection that depends on it; there is no unindexed streaming
+fallback. Independent declaration kinds may continue under their normal
+failure policy.
+
+The leaf receives neither a `MetadataOperationContext` nor an image/cache
+identity. It charges the supplied neutral budget before returning each retained
+row and retains no state after the call. Metadata owns generation/operation
+mapping, single-pass reuse, typed rejection caching, and both cold-pass and
+cache-observation session liveness; `MDP006` gates accounting and `MDP009`
+gates operation/liveness wiring.
+
+This is not a reusable general coded-index decoder or table projector. No
+public API accepts an arbitrary `TableIndex`, column schema, or coded-index
+kind. Adding another table requires a design change to
+[bounded metadata traversal](design/bounded-metadata-traversal.md), this
+registry, and the owning consumer contract.
+
+The boundary is unverified until a named architecture gate proves
+MetadataPrimitives remains an SRM-only leaf, no other MetadataPrimitives type
+decodes raw ECMA table-row bytes or table coded-index columns, and the primitive
+does not expose a general table decoder. The separately registered
+`MetadataImageFormatClassifier` may read only its fixed metadata-root admission
+prefix and bounded version field; it may not call table-layout APIs. Blob and
+heap `BlobReader` use is outside this table-layout closure. Existing
+hand-parsed metadata stream/header code outside these two named leaves is
+separate migration debt under the general bounded-traversal prohibition; these
+exceptions neither legitimize nor expand it. `MDP016` in
+[member inspection planning and Metadata
+projection](design/member-inspection-planning-and-metadata-projection.md) owns
+that boundary gate. Consumer migration is phased separately: `MDP011` closes
+Metadata-owned paths at slice 6, and `MDP013` closes all product bypasses at
+slice 8. Its outcome tests must establish:
+
+- ordered-multiset equality with `ildasm` over association owner, semantic
+  role, and method for conventional valid metadata in the required CI
+  environment; construction-known `ilasm` fixtures run in that same
+  external-tool-dependent group, and both may skip together locally;
+  tool-independent `MetadataBuilder` and byte-patched fixtures whose expected
+  physical row numbers and raw bits are fixed by construction provide the
+  non-skipping floor; `mdv` is explicitly not this oracle because it folds the
+  rows;
+- aggregate equality with SRM convenience accessors for conventional valid
+  property/event metadata;
+- exact preservation of multiple `Other` and duplicate standard-role rows,
+  zero/unknown/combined semantics values, physical row order, and observed
+  nonmonotonic ordering; nil or out-of-range MethodDef or association row
+  identifiers produce typed mechanical rejection, while a companion with the
+  same physically out-of-order rows and the sorted bit clear fails during SRM
+  reader construction; Metadata-semantic rejection of roles, duplicates,
+  declaring types, and ordering policy belongs to `MDP004`;
+- all four narrow/wide MethodDef and HasSemantics coded-index combinations,
+  generated once per test run rather than stored as multi-megabyte binaries;
+  each asserts decoded values, while SRM row-size equality separately checks
+  the total width;
+- bounded work and allocation before retention on oversized tables; and
+- the same supported ECMA-335 result under Browser/Wasm and
+  NativeAOT-compatible hosts; unsupported-format classification and its direct
+  leaf close-negative belong to `MDP017`.
 
 ## Why `TypeRef` remains local
 
@@ -378,6 +574,11 @@ Keep the work in independently reviewable slices:
    census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
+4. **Lossless `MethodSemantics` row boundary** — after the leaf project-closure
+   gate exists, add only the registered three-column reader and its raw-oracle,
+   malformed-row, budget, platform, and architecture-closure gates. Activate it
+   through the member-inspection plan's Metadata admission slice, not through a
+   general table-projection dependency.
 
 Do not combine these slices with a `TypeRef` redesign, provider-policy rewrite,
 rendering change, or TypeSpec acceptance widening. Each slice must preserve

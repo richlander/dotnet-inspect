@@ -145,15 +145,57 @@ work should follow the reference model rather than copy a legacy command.
 
 Package acquisition and symbol/source acquisition are separate.
 
-- A package may be downloaded to resolve the requested target.
-- Default gestures must not automatically fetch symbols or source content.
-- Embedded, adjacent, or cached symbols may be used by network-free gestures
-  when their latency budget permits.
-- Selecting a network-bound section or running full effective discovery for a
-  category may authorize the capability declared by that section.
+Capability-bearing gestures carry **request provenance**, not authority.
+Argument parsing retains the user's original verbosity, explicit
+section/category/glob selection, discovery mode, and explicit policy flags.
+After selection binds stable sections to typed queries, the planner closes
+their transitive producer graph and the disclosure policy maps that provenance
+to requests for capabilities declared on unconditional and conditional paths.
+The host preflight grants or denies every path before execution.
 
-Capability authorization comes from the user's gesture, not from an internal
-verbosity promotion.
+Conditional paths preserve fallback without granting authority late. A local
+symbol probe may run under `LocalPdbRead` and return a typed miss. A
+`PdbAcquire` successor is present in the closed graph and is independently
+granted or denied by preflight; the local probe may succeed even when that
+successor is denied. On a miss, execution follows only the recorded successor
+disposition and never requests new authority.
+
+Symbol policy distinguishes three capabilities:
+
+- `LocalPdbRead`: bounded reads from an embedded PDB, an adjacent PDB, or an
+  already-populated symbol cache, with no network acquisition;
+- `PdbAcquire`: acquiring a missing PDB from an authorized source;
+- `SourceContent`: fetching or reading authored source content.
+
+Exact render selection of a source-content section may request all three on
+the paths its producer graph declares. Discovery selection retains the same
+provenance but requests only capabilities declared by its discovery mode and
+probe policy.
+For example, plain library discovery may request `LocalPdbRead` for its bounded
+SourceLink-door probe, while named/category type/member discovery requests none
+of the three. An explicit effective-discovery policy may request more.
+Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
+source-audit work where the selected section's bound query and disclosure
+policy permit it, but it does not request `SourceContent` merely because code
+promoted the effective verbosity. Query definitions alone declare producer
+requirements and conditional successors. Section descriptors bind typed
+queries and apply disclosure/request policy to gesture provenance; they
+neither restate producer requirements nor grant authority. Artifact
+admission/query leases revalidate the authorized closure at content access.
+
+- A package may be downloaded to resolve the requested target.
+- Default gestures must not automatically acquire PDBs or access source
+  content.
+- Embedded, adjacent, or cached symbols avoid network cost, but may be used
+  only when the host-preflight-authorized plan includes `LocalPdbRead` for that
+  producer and coordinate. Availability is not authority.
+- Selecting a network-bound render section or running an explicitly
+  capability-bearing effective-discovery gesture may request the capability
+  required by the section's bound query and permitted by disclosure policy.
+
+Capability-request provenance comes from the user's gesture, not from an
+internal verbosity promotion. Capability authorization comes solely from host
+preflight.
 
 ## Projection
 
