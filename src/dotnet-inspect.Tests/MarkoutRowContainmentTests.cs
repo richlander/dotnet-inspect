@@ -387,11 +387,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt269MembersAcross59Types()
+    public void ResidualCensus_IsPinnedAt267MembersAcross58Types()
     {
-        Assert.Equal(269, NotSelfContaining.Length);
+        Assert.Equal(267, NotSelfContaining.Length);
         Assert.Equal(
-            59,
+            58,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
