@@ -564,8 +564,10 @@ public class ApiCommand
 
     private static bool HasAuthoredMemberSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
-           || options.HasSectionQuery
-           || options.Discover is not null;
+           || options.Select is { Length: > 0 }
+           || options.Columns is { Length: > 0 }
+           || options.Fields is { Length: > 0 }
+           || options.BodyKindQuery.HasFilter;
 
     internal static bool RequiresCallerScopeResolution(MemberOptions options, ApiType type)
         => !MemberCommand.IsWholeDocumentJson(options)
@@ -4188,12 +4190,8 @@ public class ApiCommand
     internal static bool RejectUnsupportedAnnotatedSourceDocumentJson(
         ApiOptions options)
     {
-        if (!IsInvalidAnnotatedSourceDocumentJsonSelection(options)
-            && !(options is MemberOptions { HasCallerScope: true }
-                 && IsAnnotatedSourceDocumentJson(options)))
-        {
+        if (!IsInvalidAnnotatedSourceDocumentJsonSelection(options))
             return false;
-        }
 
         CommandError.Write(
             $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");

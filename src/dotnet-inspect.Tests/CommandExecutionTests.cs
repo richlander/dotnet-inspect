@@ -16169,7 +16169,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_AnnotatedSourceDocumentJson_RejectsBeforeCallerScopeAcquisition()
+    public async Task Member_AnnotatedSourceDocumentJson_DoesNotAcquireUnusedCallerScope()
     {
         string missingDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -16179,10 +16179,11 @@ public partial class CommandExecutionTests
             "Pump:1", "-S", SectionNames.AnnotatedSourceDocument, "--json",
             "--bin", missingDirectory, "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("must be the only selected section under --json", error);
-        Assert.DoesNotContain("Directory not found", error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("namespace", out _));
     }
 
     [Fact]
