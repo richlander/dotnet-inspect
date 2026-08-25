@@ -1698,7 +1698,7 @@ public class SectionPipelineTests
             .. LibraryCommand.DiscoveryQueries.Select(demand => demand.Query),
             .. LibraryCommand.BareDiscoveryQueries.Select(demand => demand.Query),
         ];
-        scannerContextQueries.UnionWith(commandQueries);
+        perAssemblyQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
             catalog.QueryRegistry.ExpandRequired(perAssemblyQueries);
         closure.UnionWith(
