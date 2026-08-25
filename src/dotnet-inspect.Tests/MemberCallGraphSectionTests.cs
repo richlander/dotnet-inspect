@@ -178,6 +178,29 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task PreResolvedPerformanceTriageJson_NormalizesExactSectionComparer()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                OverloadIndex = 1,
+                IncludeSections = [SectionNames.PerformanceTriage],
+                ExactIncludeSectionsOverride = ["performance triage"],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Performance Triage analysis.",
+            result.Error);
+    }
+
+    [Fact]
     public async Task EmptyPreResolvedSection_DoesNotResolveStaleRawSelector()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

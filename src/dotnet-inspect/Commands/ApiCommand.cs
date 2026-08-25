@@ -505,7 +505,11 @@ public class ApiCommand
                 CommandError.Write(bodyShapeError);
                 return (null!, 1);
             }
-            options = options with { IncludeSections = selectResult.Sections };
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
         }
         if (options is
             {
