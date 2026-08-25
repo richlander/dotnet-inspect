@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
@@ -355,6 +356,11 @@ public sealed class DtsEmitterTests
     {
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Fixture",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
             Functions =
             [
                 new()
@@ -400,6 +406,39 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "const result = await queryWidgetExport();\n  return JSON.parse(result);",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_BindsAndEscapesInspectedAssemblyIdentity()
+    {
+        const string assemblyName =
+            "Exports.Library\"\n\\";
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                assemblyName,
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+        };
+
+        string js = JsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "runtime.getAssemblyExports(\""
+                + JavaScriptEncoder.Default.Encode(
+                    assemblyName)
+                + "\")",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "config.mainAssemblyName",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"getAssemblyExports(\"{assemblyName}\")",
             js,
             StringComparison.Ordinal);
     }

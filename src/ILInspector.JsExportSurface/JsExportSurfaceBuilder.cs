@@ -115,12 +115,12 @@ public static class JsExportSurfaceBuilder
                         "bodyless JS exports have no runtime wrapper");
                 }
                 if (member.HasRuntimeJsExportWrapperCandidate == false
-                    || (member.HasRuntimeJsExportWrapperCandidate == true
+                    || member.HasRuntimeJsExportWrapperCandidate == true
                         && bodyIndex is not null
                         && !HasAuthenticatedRuntimeJsExportWrapper(
                             bodyIndex,
                             member,
-                            incompleteBodyTokens)))
+                            incompleteBodyTokens))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -313,8 +313,12 @@ public static class JsExportSurfaceBuilder
                                         member,
                                         signature)
                                         ? "serializer-context property is not the parameterless generated getter"
-                                        : root?.UnsupportedReason
-                                            ?? "serializer root property identity is ambiguous";
+                                    : registeredRootProperties
+                                        .DuplicatePropertyNames
+                                        .Contains(member.Name)
+                                        ? "serializer-context property identity is duplicated"
+                                    : root?.UnsupportedReason
+                                        ?? "serializer root property identity is ambiguous";
                                 if (!unsupportedJsonTypeInfoGetterReasons.TryAdd(
                                         unsupportedGetter,
                                         reason)
@@ -689,10 +693,42 @@ public static class JsExportSurfaceBuilder
                 ambiguousPropertyNames.Add(propertyName);
             }
         }
+        var duplicatePropertyNames = new HashSet<string>(
+            roots
+                .Where(candidate =>
+                    context.Members.Count(member =>
+                        IsMatchingGeneratedRootProperty(
+                            member,
+                            candidate.Key,
+                            candidate.Value))
+                        > 1)
+                .Select(candidate => candidate.Key),
+            StringComparer.Ordinal);
         return new(
             roots,
             ambiguousPropertyNames,
+            duplicatePropertyNames,
             unnamedUnsupportedRoots);
+    }
+
+    static bool IsMatchingGeneratedRootProperty(
+        ApiMember member,
+        string propertyName,
+        ApiJsonSerializableRoot root)
+    {
+        ApiSignature? signature = member.SignatureModel;
+        return member.Kind == "property"
+            && member.Name == propertyName
+            && signature is not null
+            && IsGeneratedRootPropertyShape(member, signature)
+            && TryGetTrustedJsonTypeInfoArgument(
+                signature,
+                out ApiTypeShape? propertyRoot)
+            && root.Type is not null
+            && propertyRoot is not null
+            && AreEquivalentGeneratedRootShapes(
+                root.Type,
+                propertyRoot);
     }
 
     static RegisteredRootPropertyMatch TryGetRegisteredRootForProperty(
@@ -758,6 +794,12 @@ public static class JsExportSurfaceBuilder
             return RegisteredRootPropertyMatch.None;
         }
 
+        if (registeredRootProperties.DuplicatePropertyNames.Contains(
+                member.Name))
+        {
+            return RegisteredRootPropertyMatch.Unsupported;
+        }
+
         return candidate.UnsupportedReason is null
             ? RegisteredRootPropertyMatch.Supported
             : RegisteredRootPropertyMatch.Unsupported;
@@ -778,7 +820,9 @@ public static class JsExportSurfaceBuilder
         ApiMember export,
         IReadOnlySet<int> incompleteBodyTokens)
     {
-        if (export.MetadataToken is not { } exportToken)
+        if (export.MetadataToken is not { } exportToken
+            || export.RuntimeJsExportWrapperCandidates is not
+                { Count: > 0 } candidates)
             return false;
 
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
@@ -788,7 +832,16 @@ public static class JsExportSurfaceBuilder
             in callsByEvidenceMethod.Values)
         {
             MethodIdentity wrapper = wrapperCalls[0].EvidenceMethod;
-            if (!IsGeneratedRuntimeWrapper(wrapper, export.Name))
+            RuntimeJsExportWrapperCandidate? candidate =
+                candidates.FirstOrDefault(candidate =>
+                    candidate.WrapperMethodToken
+                        == wrapper.MetadataToken);
+            if (candidate is null
+                || !IsAuthenticatedRuntimeRegistration(
+                    callsByEvidenceMethod,
+                    candidate,
+                    incompleteBodyTokens)
+                || !IsGeneratedRuntimeWrapper(wrapper, export.Name))
                 continue;
             if (incompleteBodyTokens.Contains(wrapper.MetadataToken))
                 continue;
@@ -827,6 +880,89 @@ public static class JsExportSurfaceBuilder
 
         return false;
     }
+
+    static bool IsAuthenticatedRuntimeRegistration(
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+            callsByEvidenceMethod,
+        RuntimeJsExportWrapperCandidate candidate,
+        IReadOnlySet<int> incompleteBodyTokens)
+    {
+        if (candidate.RegistrationCount <= 0
+            || incompleteBodyTokens.Contains(
+                candidate.RegistrationMethodToken)
+            || !callsByEvidenceMethod.TryGetValue(
+                candidate.RegistrationMethodToken,
+                out ImmutableArray<DirectCall> registrationCalls))
+        {
+            return false;
+        }
+
+        return registrationCalls.Count(call =>
+            call.Kind == CallKind.Call
+            && IsRuntimeBindManagedFunction(call.Callee))
+            == candidate.RegistrationCount;
+    }
+
+    static bool IsRuntimeBindManagedFunction(MemberRef method) =>
+        method.Kind == MemberKind.Method
+        && !method.HasThis
+        && method.GenericArity == 0
+        && method.Name == "BindManagedFunction"
+        && IsTrustedRuntimeJavaScriptType(
+            method.DeclaringType,
+            "JSFunctionBinding")
+        && IsTrustedRuntimeJavaScriptType(
+            method.ReturnType,
+            "JSFunctionBinding")
+        && method.ParameterTypes is
+        [
+            var name,
+            var signatureHash,
+            var marshalerTypes,
+        ]
+        && IsCoreType(name, "String")
+        && IsCoreType(signatureHash, "Int32")
+        && marshalerTypes is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType:
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: "ReadOnlySpan`1",
+            },
+            TypeArguments:
+            [
+                var marshalerType,
+            ],
+        }
+        && IsTrustedRuntimeJavaScriptType(
+            marshalerType,
+            "JSMarshalerType");
+
+    static bool IsTrustedRuntimeJavaScriptType(
+        TypeRef type,
+        string name) =>
+        type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly:
+                "System.Runtime.InteropServices.JavaScript",
+            Namespace:
+                "System.Runtime.InteropServices.JavaScript",
+            TrustedFrameworkAssembly: true,
+        }
+        && type.Name == name;
+
+    static bool IsCoreType(TypeRef type, string name) =>
+        type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+        }
+        && type.Name == name;
 
     static bool IsGeneratedRuntimeWrapper(
         MethodIdentity method,
@@ -1075,6 +1211,7 @@ public static class JsExportSurfaceBuilder
     sealed record RegisteredRootProperties(
         IReadOnlyDictionary<string, ApiJsonSerializableRoot> Roots,
         IReadOnlySet<string> AmbiguousPropertyNames,
+        IReadOnlySet<string> DuplicatePropertyNames,
         IReadOnlyList<ApiJsonSerializableRoot> UnnamedUnsupportedRoots);
 
     static bool HasTopLevelDefinitionName(

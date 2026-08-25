@@ -101,6 +101,13 @@ allocations, arguments, and unresolved merges remain incomplete.
 and raw boundaries. This evidence lets consumers authenticate a stable receiver
 without turning Analysis into a general symbolic evaluator.
 
+When call analysis fails inside an async state machine, the retained diagnostic
+keeps both the physical `MoveNext` MethodDef and the declared source method
+token/type. Publication consumers can therefore invalidate the original export
+instead of losing source attribution at the recoverable failure boundary.
+`JsonWireContractResolverTests.Build_RejectsRealAsyncStateMachineCallAnalysisFailure`
+patches a compiled `MoveNext` call operand and gates this attribution.
+
 ## dotnet/runtime heritage and upstream tracking
 
 The byte reader is **ported from `dotnet/runtime`** — the same

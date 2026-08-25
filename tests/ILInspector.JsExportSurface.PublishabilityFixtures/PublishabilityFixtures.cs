@@ -214,6 +214,89 @@ public static partial class PopulateExports
             .Values.Count;
 }
 
+[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+public sealed class TypeAttributePopulateContract
+{
+    public List<int> Values { get; private set; } = [1];
+}
+
+[JsonObjectCreationHandling(JsonObjectCreationHandling.Replace)]
+public sealed class TypeAttributeReplaceContract
+{
+    public List<int> Values { get; set; } = [1];
+}
+
+public sealed class PropertyAttributePopulateContract
+{
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public List<int> Values { get; private set; } = [1];
+}
+
+[JsonSerializable(typeof(TypeAttributePopulateContract))]
+[JsonSerializable(typeof(TypeAttributeReplaceContract))]
+[JsonSerializable(typeof(PropertyAttributePopulateContract))]
+public sealed partial class AttributePopulateJsonContext
+    : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class AttributePopulateExports
+{
+    [JSExport]
+    public static int CountTypeValues(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            AttributePopulateJsonContext.Default
+                .TypeAttributePopulateContract)!
+            .Values.Count;
+
+    [JSExport]
+    public static int CountPropertyValues(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            AttributePopulateJsonContext.Default
+                .PropertyAttributePopulateContract)!
+            .Values.Count;
+}
+
+public sealed record DuplicateRootDto(string DisplayName);
+
+[JsonSerializable(
+    typeof(DuplicateRootDto),
+    TypeInfoPropertyName = "RealRoot")]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+public sealed partial class DuplicateRootJsonContext
+    : JsonSerializerContext
+{
+    public JsonTypeInfo<DuplicateRootDto> EvilRoot
+    {
+        get
+        {
+            var resolver = new DefaultJsonTypeInfoResolver();
+            var options = new JsonSerializerOptions
+            {
+                TypeInfoResolver = resolver,
+                PropertyNamingPolicy =
+                    JsonNamingPolicy.SnakeCaseLower,
+            };
+            return (JsonTypeInfo<DuplicateRootDto>)
+                resolver.GetTypeInfo(
+                    typeof(DuplicateRootDto),
+                    options);
+        }
+    }
+}
+
+[SupportedOSPlatform("browser")]
+public static partial class DuplicateRootExports
+{
+    [JSExport]
+    public static string Serialize() =>
+        JsonSerializer.Serialize(
+            new DuplicateRootDto("probe"),
+            DuplicateRootJsonContext.Default.EvilRoot);
+}
+
 public sealed class IndexedRootDto
 {
     public int Value { get; set; }

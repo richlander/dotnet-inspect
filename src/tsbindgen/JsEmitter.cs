@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using ILInspector.JsExportSurface;
 
 namespace tsbindgen;
@@ -23,6 +24,9 @@ static class JsEmitter
 {
     public static string Emit(ILInspector.JsExportSurface.JsExportSurface surface)
     {
+        string assemblyName = surface.AssemblyIdentity?.Name
+            ?? throw new InvalidOperationException(
+                "Runtime wrapper emission requires an assembly identity.");
         var sb = new StringBuilder();
         sb.Append("import { dotnet } from \"./_framework/dotnet.js\";\n\n");
 
@@ -36,8 +40,9 @@ static class JsEmitter
         sb.Append("\nexport async function initializeEngine(onStatus = () => {}) {\n");
         sb.Append("  onStatus(\"Loading .NET WebAssembly…\");\n");
         sb.Append("  const runtime = await dotnet.create();\n");
-        sb.Append("  const config = runtime.getConfig();\n");
-        sb.Append("  const exports = await runtime.getAssemblyExports(config.mainAssemblyName);\n");
+        sb.Append("  const exports = await runtime.getAssemblyExports(\"")
+          .Append(JavaScriptEncoder.Default.Encode(assemblyName))
+          .Append("\");\n");
 
         foreach (JsExportFunction function in functions)
         {

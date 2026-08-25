@@ -508,7 +508,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                         typeHandle,
                         methodHandle),
                     $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: caller.DeclaringType);
+                    SourceMethodToken:
+                        result.DeclaredSource?.MetadataToken,
+                    DeclaringType: caller.DeclaringType,
+                    SourceDeclaringType:
+                        result.DeclaredSource?.DeclaringType);
             }
             if (asyncStateMachineSource is not null
                 && resultSinks is not null)

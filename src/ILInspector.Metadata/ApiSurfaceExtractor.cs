@@ -503,9 +503,15 @@ public static class ApiSurfaceExtractor
         var registeredRuntimeJsExportWrapperNames =
             new Dictionary<
                 (string AssemblyName, string TypeName),
-                HashSet<string>>();
+                List<(
+                    string MemberName,
+                    int RegistrationMethodToken,
+                    int RegistrationCount)>>();
         if (!typesOnly)
         {
+            var registrationMethods = new List<(
+                MethodDefinitionHandle Handle,
+                MethodDefinition Definition)>();
             foreach (MethodDefinitionHandle methodHandle
                 in reader.MethodDefinitions)
             {
@@ -525,6 +531,14 @@ public static class ApiSurfaceExtractor
                         continue;
                     }
 
+                    if (method.RelativeVirtualAddress == 0
+                        || !HasVoidNullaryStaticSignature(
+                            reader,
+                            method))
+                    {
+                        continue;
+                    }
+
                     TypeDefinition type = reader.GetTypeDefinition(
                         method.GetDeclaringType());
                     if (!reader.StringComparer.Equals(
@@ -537,12 +551,36 @@ public static class ApiSurfaceExtractor
                         continue;
                     }
 
-                    foreach (RuntimeJsExportWrapperRegistration
-                        registration in AttributeReader
+                    registrationMethods.Add((
+                        methodHandle,
+                        method));
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    // Registration evidence is optional and fails closed.
+                }
+            }
+
+            if (registrationMethods is
+                [
+                    (
+                        MethodDefinitionHandle registrationHandle,
+                        MethodDefinition registrationMethod),
+                ])
+            {
+                try
+                {
+                    IReadOnlyList<RuntimeJsExportWrapperRegistration>
+                        registrations = AttributeReader
                             .ReadRuntimeJsExportWrapperRegistrations(
                                 reader,
-                                method.GetCustomAttributes(),
-                                observeDecodeWork))
+                                registrationMethod.GetCustomAttributes(),
+                                observeDecodeWork);
+                    int registrationCount = registrations.Count;
+                    foreach (RuntimeJsExportWrapperRegistration
+                        registration in registrations)
                     {
                         var key = (
                             registration.TargetAssemblyName,
@@ -550,22 +588,32 @@ public static class ApiSurfaceExtractor
                         if (!registeredRuntimeJsExportWrapperNames
                                 .TryGetValue(
                                     key,
-                                    out HashSet<string>? names))
+                                    out List<(
+                                        string MemberName,
+                                        int RegistrationMethodToken,
+                                        int RegistrationCount)>?
+                                            candidates))
                         {
-                            names = new(StringComparer.Ordinal);
+                            candidates = [];
                             registeredRuntimeJsExportWrapperNames.Add(
                                 key,
-                                names);
+                                candidates);
                         }
 
-                        names.Add(registration.MemberName);
+                        candidates.Add((
+                            registration.MemberName,
+                            MetadataTokens.GetToken(
+                                registrationHandle),
+                            registrationCount));
                     }
                 }
                 catch (Exception ex) when (
                     ex is BadImageFormatException
-                        or ArgumentOutOfRangeException)
+                    or InvalidOperationException
+                    or ArgumentOutOfRangeException)
                 {
                     // Registration evidence is optional and fails closed.
+                    registeredRuntimeJsExportWrapperNames.Clear();
                 }
             }
         }
@@ -880,8 +928,9 @@ public static class ApiSurfaceExtractor
             // property or event rows. Raiser and Other semantic methods have no
             // ApiMember token slots, so they stay methods.
             var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
-            var runtimeJsExportWrapperCandidateNames =
-                new HashSet<string>(StringComparer.Ordinal);
+            var runtimeJsExportWrapperCandidateMethods =
+                new Dictionary<string, List<int>>(
+                    StringComparer.Ordinal);
 
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
@@ -902,7 +951,17 @@ public static class ApiSurfaceExtractor
                     "__Wrapper_",
                     StringComparison.Ordinal))
                 {
-                    runtimeJsExportWrapperCandidateNames.Add(methodName);
+                    if (!runtimeJsExportWrapperCandidateMethods
+                            .TryGetValue(
+                                methodName,
+                                out List<int>? tokens))
+                    {
+                        tokens = [];
+                        runtimeJsExportWrapperCandidateMethods.Add(
+                            methodName,
+                            tokens);
+                    }
+                    tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
@@ -1105,27 +1164,55 @@ public static class ApiSurfaceExtractor
                         member => member.Name,
                         StringComparer.Ordinal))
             {
-                HashSet<string>? registeredNames = null;
+                List<(
+                    string MemberName,
+                    int RegistrationMethodToken,
+                    int RegistrationCount)>? registrations = null;
                 if (currentAssemblyIdentity is not null)
                 {
                     registeredRuntimeJsExportWrapperNames.TryGetValue(
                         (
                             currentAssemblyIdentity.Name,
                             apiType.FullName),
-                        out registeredNames);
+                        out registrations);
                 }
-                int wrapperCount =
-                    runtimeJsExportWrapperCandidateNames.Count(name =>
-                        registeredNames?.Contains(name) == true
-                        && RuntimeJsExportWrapperName.IsCandidateFor(
-                            name,
-                            exports.Key));
+                List<RuntimeJsExportWrapperCandidate> candidates =
+                    registrations?
+                        .Where(registration =>
+                            RuntimeJsExportWrapperName.IsCandidateFor(
+                                registration.MemberName,
+                                exports.Key)
+                            && runtimeJsExportWrapperCandidateMethods
+                                .ContainsKey(
+                                    registration.MemberName))
+                        .SelectMany(registration =>
+                            runtimeJsExportWrapperCandidateMethods[
+                                registration.MemberName]
+                                .Select(wrapperToken =>
+                                    new RuntimeJsExportWrapperCandidate(
+                                        wrapperToken,
+                                        registration
+                                            .RegistrationMethodToken,
+                                        registration
+                                            .RegistrationCount)))
+                        .Distinct()
+                        .ToList()
+                    ?? [];
+                int wrapperCount = candidates
+                    .Select(candidate =>
+                        candidate.WrapperMethodToken)
+                    .Distinct()
+                    .Count();
                 bool hasWrapperCandidates =
                     wrapperCount >= exports.Count();
                 foreach (ApiMember member in exports)
                 {
                     member.HasRuntimeJsExportWrapperCandidate =
                         hasWrapperCandidates;
+                    member.RuntimeJsExportWrapperCandidates =
+                        candidates.Count == 0
+                            ? null
+                            : candidates;
                 }
             }
 
@@ -2536,6 +2623,30 @@ public static class ApiSurfaceExtractor
         catch (BadImageFormatException)
         {
             // A truncated or otherwise malformed signature blob is not the object.Finalize slot.
+            return false;
+        }
+    }
+
+    private static bool HasVoidNullaryStaticSignature(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        try
+        {
+            BlobReader blob = reader.GetBlobReader(method.Signature);
+            SignatureHeader header = blob.ReadSignatureHeader();
+            return header.Kind == SignatureKind.Method
+                && header.CallingConvention
+                    == SignatureCallingConvention.Default
+                && !header.IsGeneric
+                && !header.IsInstance
+                && !header.HasExplicitThis
+                && blob.ReadCompressedInteger() == 0
+                && blob.ReadSignatureTypeCode()
+                    == SignatureTypeCode.Void;
+        }
+        catch (BadImageFormatException)
+        {
             return false;
         }
     }

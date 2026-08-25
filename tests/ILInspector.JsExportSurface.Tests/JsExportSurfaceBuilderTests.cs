@@ -526,6 +526,48 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsRegistrationBodyCountMismatch()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate generatedCandidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+
+        export.RuntimeJsExportWrapperCandidates =
+        [
+            generatedCandidate with
+            {
+                RegistrationCount =
+                    generatedCandidate.RegistrationCount + 1,
+            },
+        ];
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_DoesNotCreditPrefixSiblingWrapper()
     {
         string path =
@@ -607,6 +649,7 @@ public sealed class JsExportSurfaceBuilderTests
             JsEmitter.Emit(
                 new ILInspector.JsExportSurface.JsExportSurface
                 {
+                    AssemblyIdentity = extracted.AssemblyIdentity,
                     Functions = [function],
                 }),
             StringComparison.Ordinal);
@@ -642,6 +685,7 @@ public sealed class JsExportSurfaceBuilderTests
             JsEmitter.Emit(
                 new ILInspector.JsExportSurface.JsExportSurface
                 {
+                    AssemblyIdentity = extracted.AssemblyIdentity,
                     Functions = [function],
                 }),
             StringComparison.Ordinal);
@@ -1415,6 +1459,114 @@ public sealed class JsExportSurfaceBuilderTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(AttributePopulateExports.CountTypeValues),
+        nameof(TypeAttributePopulateContract))]
+    [InlineData(
+        nameof(AttributePopulateExports.CountPropertyValues),
+        nameof(PropertyAttributePopulateContract))]
+    public void Emit_BlocksReachedPopulateObjectCreationHandlingAttribute(
+        string exportName,
+        string contractName)
+    {
+        string path =
+            typeof(AttributePopulateExports).Assembly.Location;
+
+#pragma warning disable CA1416
+        Assert.Equal(
+            2,
+            exportName
+                == nameof(
+                    AttributePopulateExports.CountTypeValues)
+                ? AttributePopulateExports.CountTypeValues(
+                    """{"Values":[2]}""")
+                : AttributePopulateExports.CountPropertyValues(
+                    """{"Values":[2]}"""));
+#pragma warning restore CA1416
+
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType contract = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == contractName);
+        Assert.True(
+            contract.HasUnsupportedJsonWireAttributes
+            || Assert.Single(
+                    contract.Members,
+                    member => member.Name == "Values")
+                .HasUnsupportedJsonWireAttributes);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(AttributePopulateExports));
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(AttributePopulateJsonContext));
+        foreach (ApiMember export in exports.Members.Where(
+            member => member.HasRuntimeJsExport
+                && member.Name != exportName))
+        {
+            export.HasRuntimeJsExport = false;
+            export.RuntimeJsExportAttributeCount = 0;
+            export.HasMalformedRuntimeJsExportAttribute = false;
+        }
+        apiSurface.FilteredRuntimeJsExportFacts = [];
+        foreach (ApiType type in new[]
+        {
+            contract,
+            context,
+            exports,
+        })
+        {
+            type.FilteredRuntimeJsExportFacts = [];
+        }
+        apiSurface.Types =
+        [
+            contract,
+            context,
+            exports,
+        ];
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                OpenWireContractBodyIndex(path));
+        var diagnostics = new TsBindGenDiagnostics();
+        string dts = DtsEmitter.Emit(
+            surface,
+            diagnostics);
+        Assert.Contains(
+            $"export type {contractName} = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        TsBindGenDiagnostic diagnostic =
+            Assert.Single(diagnostics.UnmappedTypes);
+        Assert.Equal(
+            $"{contractName} JSON wire shape",
+            diagnostic.Location);
+    }
+
+    [Fact]
+    public void Extract_AcceptsExplicitReplaceObjectCreationHandlingAttribute()
+    {
+        ApiSurface apiSurface = ExtractApiSurface(
+            typeof(TypeAttributeReplaceContract)
+                .Assembly.Location);
+        ApiType contract = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(TypeAttributeReplaceContract));
+
+        Assert.False(
+            contract.HasUnsupportedJsonWireAttributes);
+        Assert.False(
+            Assert.Single(
+                    contract.Members,
+                    member => member.Name == "Values")
+                .HasUnsupportedJsonWireAttributes);
+    }
+
     [Fact]
     public void Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling()
     {
@@ -1599,6 +1751,67 @@ public sealed class JsExportSurfaceBuilderTests
                             patchedPath)));
             Assert.Contains(
                 "not the parameterless generated getter",
+                exception.Message,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(patchedPath);
+        }
+    }
+
+    [Fact]
+    public void Build_RejectsDuplicateGeneratedRootPropertyIdentity()
+    {
+        string sourcePath =
+            typeof(DuplicateRootExports).Assembly.Location;
+#pragma warning disable CA1416
+        Assert.Equal(
+            """{"display_name":"probe"}""",
+            DuplicateRootExports.Serialize());
+#pragma warning restore CA1416
+        byte[] image = File.ReadAllBytes(sourcePath);
+        Assert.Equal(
+            1,
+            ReplaceAscii(
+                image,
+                "EvilRoot",
+                "RealRoot"));
+
+        string patchedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"duplicate-root-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(patchedPath, image);
+            ApiSurface apiSurface =
+                ExtractApiSurface(patchedPath);
+            apiSurface.FilteredRuntimeJsExportFacts = [];
+            apiSurface.Types =
+            [
+                .. apiSurface.Types.Where(type =>
+                    type.Name is nameof(DuplicateRootDto)
+                        or nameof(DuplicateRootJsonContext)
+                        or nameof(DuplicateRootExports)),
+            ];
+            ApiType context = Assert.Single(
+                apiSurface.Types,
+                type => type.Name
+                    == nameof(DuplicateRootJsonContext));
+            Assert.Equal(
+                2,
+                context.Members.Count(member =>
+                    member.Kind == "property"
+                    && member.Name == "RealRoot"));
+
+            UnsupportedJsExportSurfaceException exception =
+                Assert.Throws<UnsupportedJsExportSurfaceException>(
+                    () => JsExportSurfaceBuilder.Build(
+                        apiSurface,
+                        OpenWireContractBodyIndex(
+                            patchedPath)));
+            Assert.Contains(
+                "property identity is duplicated",
                 exception.Message,
                 StringComparison.Ordinal);
         }

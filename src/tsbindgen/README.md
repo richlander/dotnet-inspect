@@ -39,7 +39,11 @@ the OM.
 JavaScript wrapper bindings use the namespace- and nesting-qualified declaring
 type path returned by `getAssemblyExports`, for example
 `exports.Acme.Widgets.Api.WidgetExports.GetWidget`. Global-namespace and nested
-types remain the corresponding shorter dotted paths. The same composed
+types remain the corresponding shorter dotted paths. The assembly passed to
+`getAssemblyExports` is the inspected assembly identity, not the runtime
+configuration's main assembly, and is JavaScript-string encoded before
+publication. `DtsEmitterTests.JsEmitter_BindsAndEscapesInspectedAssemblyIdentity`
+gates that binding. The same composed
 identifier validation runs before either declarations or wrappers are
 published. `JsExportSurfaceBuilderTests.Build_ProjectsRuntimeQualifiedDeclaringTypePath`
 and `Build_ProjectsNestedRuntimeDeclaringTypePath` gate the compiled namespaced
@@ -78,6 +82,8 @@ that argument is absent, its `T` identity matches the authenticated row, and
 it is an instance, parameterless, getter-only property. An indexed or
 otherwise user-shaped same-name sibling is reached failure evidence, not a
 generated registration.
+Duplicate matching PropertyDefs are also unsupported: declaration metadata
+cannot choose one identity while the compiled runtime call reaches another.
 An unrelated same-`T` handwritten `JsonTypeInfo<T>` property on the same
 partial context is not a registration.
 The root and property argument are compared as one structured shape: primitive
@@ -194,10 +200,12 @@ members are accessible. Indexed properties are also excluded because
 System.Text.Json does not include indexers in object contracts; extracted
 surfaces persist the property index-parameter count, while older or
 hand-composed surfaces without equivalent signature evidence fail closed. The
-non-default `PreferredObjectCreationHandling=Populate` option also fails
+non-default `PreferredObjectCreationHandling=Populate` option and authentic
+type- or member-level `[JsonObjectCreationHandling(Populate)]` also fail
 visibly: runtime population can mutate an existing reference value through its
 getter even when the setter does not participate, and that alternate member
-contract is not yet modeled. The same wire-member rule drives transitive DTO
+contract is not yet modeled. Explicit `Replace` remains supported. The same
+wire-member rule drives transitive DTO
 discovery and declaration emission so a discovered edge cannot become an
 orphaned or incomplete TypeScript shape;
 `DtsEmitterTests.Emit_UsesSetterAccessibilityForDeserializeDeclarations` and
@@ -207,7 +215,8 @@ directional accessor contract against the real source generator, while
 `Emit_BlocksConstructorBindingWithPrivateSetter` gate the fail-visible
 constructor-binding boundary against real generated contexts.
 `JsExportSurfaceBuilderTests.Build_RejectsReachedPopulateObjectCreationHandling`
-gates the Populate boundary against the source-generated runtime contract.
+and `Emit_BlocksReachedPopulateObjectCreationHandlingAttribute` gate the
+Populate boundary against the source-generated runtime contract.
 `DtsEmitterTests.Emit_IncludesJsonIncludedFieldsInParentInterface` and
 `DtsEmitterTests.SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers`
 plus `DtsEmitterTests.Emit_MatchesSourceGeneratedJsonIncludeAccessibility`
@@ -529,12 +538,15 @@ the same reason. Method generic arity and exact MethodDef body presence are
 likewise persisted: the runtime generator emits no generic, `abstract`, or
 `extern` method wrapper, so those `[JSExport]` shapes are rejected before
 publication.
-Metadata also retains only an exact `__Wrapper_<name>_<digits>` MethodDef
-backed by an authentic SDK `DynamicDependency` registration as a candidate,
-never treating that declaration fact as body provenance. Analysis
+Metadata also retains only an exact `__Wrapper_<name>_<digits>` MethodDef token
+backed by an authentic SDK `DynamicDependency` registration on one generated
+registration MethodDef, never treating that declaration fact as body
+provenance. Analysis authenticates the registration token as a body containing
+exactly the retained number of trusted `BindManagedFunction` calls and then
 authenticates the generated wrapper-to-local-stub-to-exact-export MethodDef
-call chain before tsbindgen emits declarations or JavaScript. A prefix sibling
-and a handwritten candidate therefore both fail before publication.
+call chain before tsbindgen emits declarations or JavaScript. A prefix sibling,
+a borrowed registration, and a handwritten candidate therefore fail before
+publication.
 `JsExportSurfaceBuilderTests.Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`,
 `Extract_RejectsDuplicateOrMixedAuthenticJsExportRows`, and
 `ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence`

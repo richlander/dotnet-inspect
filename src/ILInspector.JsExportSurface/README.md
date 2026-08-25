@@ -15,13 +15,15 @@
   JSExport glue. Authentic rows on filtered MethodDefs, including lambdas in
   compiler-generated types, remain surface-scoped failure evidence rather than
   disappearing with the filtered API declaration. Live extraction also
-  retains exact-name `__Wrapper_*_<digits>` MethodDefs backed by
-  target-matched `DynamicDependency` rows on the SDK-generated registration
-  container as candidates. A registration for another declaring type, or a
-  handwritten registration elsewhere, cannot be borrowed. Analysis then
-  authenticates a complete generated wrapper-to-stub-to-export MethodDef call
-  chain; a diagnosed wrapper/stub body, prefix sibling, or handwritten
-  candidate cannot publish another export.
+  retains exact-name `__Wrapper_*_<digits>` MethodDef tokens backed by
+  target-matched `DynamicDependency` rows on one SDK-generated registration
+  MethodDef. A registration for another declaring type, or a handwritten
+  registration elsewhere, cannot be borrowed. Analysis then authenticates the
+  exact registration token as a body containing the retained number of trusted
+  `BindManagedFunction` calls, plus a complete
+  wrapper-to-stub-to-export MethodDef call chain. A diagnosed registration,
+  wrapper, or stub body, prefix sibling, or handwritten candidate cannot
+  publish another export.
   An attributed body in a non-partial type is rejected because it has no
   runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
@@ -53,6 +55,9 @@ registration. The generated getter's receiver must also flow from the same
 context's authenticated `Default` property. A custom context instance
 can carry runtime `JsonSerializerOptions` that change the wire shape
 independently of source-generation metadata, so an unproven receiver fails.
+Two matching generated-root PropertyDefs with the same metadata identity also
+fail rather than letting declaration metadata select one while runtime code
+calls the other.
 
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
@@ -60,11 +65,13 @@ independently of source-generation metadata, so an unproven receiver fails.
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
 `Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
+`Build_RejectsRegistrationBodyCountMismatch`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Build_ProjectsRuntimeQualifiedDeclaringTypePath`,
 `Build_ProjectsNestedRuntimeDeclaringTypePath`,
 `Build_RejectsIndexedGetterWithGeneratedRootName`,
+`Build_RejectsDuplicateGeneratedRootPropertyIdentity`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.
@@ -88,9 +95,13 @@ reaches an export, despite having no DTO record on which to retain the policy;
 unused scalar contexts remain inert. Non-default
 `PreferredObjectCreationHandling=Populate` is likewise unsupported: it can
 deserialize through a getter without a participating setter, which the current
-wire-member projection does not model.
+wire-member projection does not model. Authentic type- and member-level
+`[JsonObjectCreationHandling(Populate)]` carry the same unsupported contract;
+explicit `Replace` remains supported.
 `Build_RejectsReachedUnsupportedScalarContextOptions`,
 `Build_RejectsReachedPopulateObjectCreationHandling`,
+`Emit_BlocksReachedPopulateObjectCreationHandlingAttribute`,
+`Extract_AcceptsExplicitReplaceObjectCreationHandlingAttribute`,
 `Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
 `TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
 are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication`,

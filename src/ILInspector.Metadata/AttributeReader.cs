@@ -58,6 +58,10 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonNumberHandlingAttribute";
     private const string JsonNumberHandlingTypeName =
         "System.Text.Json.Serialization.JsonNumberHandling";
+    private const string JsonObjectCreationHandlingAttributeName =
+        "System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute";
+    private const string JsonObjectCreationHandlingTypeName =
+        "System.Text.Json.Serialization.JsonObjectCreationHandling";
     private const string JsonPolymorphicAttributeName =
         "System.Text.Json.Serialization.JsonPolymorphicAttribute";
     private const string JsonDerivedTypeAttributeName =
@@ -75,6 +79,8 @@ public static partial class AttributeReader
                 ["System.Text.Json.JsonSerializerDefaults"] =
                     PrimitiveTypeCode.Int32,
                 [JsonNumberHandlingTypeName] =
+                    PrimitiveTypeCode.Int32,
+                [JsonObjectCreationHandlingTypeName] =
                     PrimitiveTypeCode.Int32,
             };
     private const string RequiredMembersFeatureName = "RequiredMembers";
@@ -540,6 +546,10 @@ public static partial class AttributeReader
             reader,
             attributes,
             beforeMaterialize)
+        || HasUnsupportedJsonObjectCreationHandlingAttribute(
+            reader,
+            attributes,
+            beforeMaterialize)
         || HasFrameworkAttribute(
             reader,
             attributes,
@@ -556,6 +566,10 @@ public static partial class AttributeReader
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize = null) =>
         HasUnsupportedJsonNumberHandlingAttribute(
+            reader,
+            attributes,
+            beforeMaterialize)
+        || HasUnsupportedJsonObjectCreationHandlingAttribute(
             reader,
             attributes,
             beforeMaterialize)
@@ -1568,6 +1582,7 @@ public static partial class AttributeReader
         StringStringString,
         JsonSerializerDefaults,
         JsonNumberHandling,
+        JsonObjectCreationHandling,
     }
 
     static bool HasExpectedConstructor(
@@ -1697,6 +1712,16 @@ public static partial class AttributeReader
                         type,
                         "System.Text.Json.Serialization",
                         "JsonNumberHandling",
+                        IsSystemTextJsonAssembly),
+                FrameworkConstructorKind.JsonObjectCreationHandling =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System.Text.Json.Serialization",
+                        "JsonObjectCreationHandling",
                         IsSystemTextJsonAssembly),
                 _ => false,
             };
@@ -1996,6 +2021,30 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize)
+        => HasUnsupportedJsonEnumAttribute(
+            reader,
+            attributes,
+            JsonNumberHandlingAttributeName,
+            FrameworkConstructorKind.JsonNumberHandling,
+            beforeMaterialize);
+
+    static bool HasUnsupportedJsonObjectCreationHandlingAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
+        => HasUnsupportedJsonEnumAttribute(
+            reader,
+            attributes,
+            JsonObjectCreationHandlingAttributeName,
+            FrameworkConstructorKind.JsonObjectCreationHandling,
+            beforeMaterialize);
+
+    static bool HasUnsupportedJsonEnumAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        string attributeTypeName,
+        FrameworkConstructorKind constructorKind,
+        Action<int>? beforeMaterialize)
     {
         bool found = false;
         foreach (CustomAttributeHandle attrHandle in attributes)
@@ -2004,7 +2053,7 @@ public static partial class AttributeReader
             if (!IsFrameworkAttributeType(
                     reader,
                     attr.Constructor,
-                    JsonNumberHandlingAttributeName,
+                    attributeTypeName,
                     SystemTextJsonAssemblyName,
                     beforeMaterialize))
             {
@@ -2015,7 +2064,7 @@ public static partial class AttributeReader
                 || !HasExpectedConstructor(
                     reader,
                     attr.Constructor,
-                    FrameworkConstructorKind.JsonNumberHandling,
+                    constructorKind,
                     beforeMaterialize)
                 || AttributeDecoder.TryDecode(
                     reader,

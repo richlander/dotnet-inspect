@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -5,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -839,6 +841,117 @@ public sealed class JsonWireContractResolverTests
             File.Delete(corruptedPath);
             Directory.Delete(scratchDirectory);
         }
+    }
+
+    [Fact]
+    public void Build_RejectsRealAsyncStateMachineCallAnalysisFailure()
+    {
+        string sourcePath = typeof(FixtureExports).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int exportToken;
+        int moveNextToken;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition fixtureType = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(FixtureExports));
+            MethodDefinitionHandle exportHandle =
+                fixtureType.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "GetWidgetAsync");
+            exportToken = MetadataTokens.GetToken(exportHandle);
+
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    .StartsWith(
+                        "<GetWidgetAsync>d__",
+                        StringComparison.Ordinal));
+            MethodDefinitionHandle moveNextHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "MoveNext");
+            MethodDefinition moveNext =
+                reader.GetMethodDefinition(moveNextHandle);
+            moveNextToken = MetadataTokens.GetToken(moveNextHandle);
+            MethodBodyBlock body = peReader.GetMethodBody(
+                moveNext.RelativeVirtualAddress);
+            DecodedInstruction call = MethodInstructions
+                .Decode(body)
+                .Instructions
+                .First(instruction =>
+                    instruction.OpCode == ILOpCode.Call);
+            int bodyOffset = RvaToFileOffset(
+                peReader.PEHeaders,
+                moveNext.RelativeVirtualAddress);
+            int headerSize = MethodHeaderSize(
+                image,
+                bodyOffset);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset
+                        + headerSize
+                        + call.OperandOffset,
+                    sizeof(int)),
+                0x06FFFFFF);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"tsbindgen-async-call-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(scratchDirectory);
+        string corruptedPath = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            File.WriteAllBytes(corruptedPath, image);
+            LibraryBodyIndex bodyIndex =
+                LibraryBodyIndex.Open(
+                    corruptedPath,
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                        | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+            AnalysisDiagnostic diagnostic = Assert.Single(
+                bodyIndex.Diagnostics,
+                candidate => candidate.MethodToken == moveNextToken);
+            Assert.Equal(exportToken, diagnostic.SourceMethodToken);
+
+            using FileStream source = File.OpenRead(sourcePath);
+            using var sourceReader = new PEReader(source);
+            ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+                sourceReader,
+                includeAll: false);
+
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+        }
+        finally
+        {
+            File.Delete(corruptedPath);
+            Directory.Delete(scratchDirectory);
+        }
+    }
+
+    static int MethodHeaderSize(
+        byte[] image,
+        int bodyOffset)
+    {
+        byte first = image[bodyOffset];
+        if ((first & 0x3) == 0x2)
+            return 1;
+        ushort flagsAndSize =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(
+                    bodyOffset,
+                    sizeof(ushort)));
+        return (flagsAndSize >> 12) * 4;
     }
 
     static int RvaToFileOffset(PEHeaders headers, int rva)

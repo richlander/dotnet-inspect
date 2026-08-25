@@ -728,6 +728,15 @@ public sealed record FilteredRuntimeJsExportFact(
     bool HasValidRow,
     bool HasMalformedRow);
 
+/// <summary>
+/// Exact MethodDef evidence associating a generated runtime wrapper with its
+/// unique generated registration method and decoded registration count.
+/// </summary>
+public sealed record RuntimeJsExportWrapperCandidate(
+    int WrapperMethodToken,
+    int RegistrationMethodToken,
+    int RegistrationCount);
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -1120,6 +1129,15 @@ public class ApiMember
     /// </remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasRuntimeJsExportWrapperCandidate { get; set; }
+
+    /// <summary>
+    /// Exact wrapper and registration MethodDef evidence behind
+    /// <see cref="HasRuntimeJsExportWrapperCandidate"/>. Runtime publishers
+    /// authenticate these tokens against Analysis-owned call evidence.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<RuntimeJsExportWrapperCandidate>?
+        RuntimeJsExportWrapperCandidates { get; set; }
 
     /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").

@@ -112,14 +112,21 @@ the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
 metadata contains enough exact wrapper-name MethodDefs with target-matched
 `DynamicDependency` rows on the SDK-generated registration container for the
 export's overload group. Another type's registration or a handwritten row
-outside that container cannot be borrowed. The
-candidate is deliberately not publication provenance:
+outside that container cannot be borrowed.
+`RuntimeJsExportWrapperCandidates` retains the exact wrapper MethodDef token,
+unique registration MethodDef token, and total decoded registration count
+rather than asking a Boolean to carry provenance. The candidate is deliberately
+not publication provenance:
 `ILInspector.JsExportSurface` authenticates the Analysis-owned
-wrapper-to-stub-to-export MethodDef call chain, including complete body
-analysis for the wrapper and stub, before publishing a runtime binding. This
-separates Metadata's declaration fact from body evidence and rejects diagnosed
-chains, prefix siblings, or handwritten wrapper names. Null remains the
-compatibility shape for older or hand-composed surfaces. Authentic `[JSExport]` rows on MethodDefs
+registration body and wrapper-to-stub-to-export MethodDef call chain, including
+an exact count of trusted `BindManagedFunction` calls and complete body analysis
+for the registration, wrapper, and stub, before publishing a runtime binding.
+This separates Metadata's declaration fact from body evidence and rejects
+diagnosed chains, prefix siblings, or handwritten wrapper names. Null remains
+the compatibility shape for older or hand-composed surfaces.
+`Build_RejectsRegistrationBodyCountMismatch` and
+`ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence` gate the exact evidence
+and persistence boundary. Authentic `[JSExport]` rows on MethodDefs
 that have no declarable `ApiMember` remain `FilteredRuntimeJsExportFact`
 evidence on their retained type, or on `ApiSurface` when the MethodDef belongs
 to a wholly filtered compiler-generated type. These are publishability facts,
