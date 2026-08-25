@@ -38,18 +38,24 @@ interface AttributeRead {
   decoder: string | null;
 }
 
+interface DomAliases {
+  datasets: Set<string>;
+  attributes: Map<string, string>;
+}
+
+function sourceFile(name: string, text: string): SourceFile {
+  const parsed = parseSync(name, text);
+  assert.deepEqual(
+    parsed.errors,
+    [],
+    `${name} must parse before its DOM boundary can be inspected`);
+  return { name, text, program: parsed.program };
+}
+
 function sources(): SourceFile[] {
   return readdirSync(sourceRoot)
     .filter(name => name.endsWith(".ts"))
-    .map(name => {
-      const text = readFileSync(join(sourceRoot, name), "utf8");
-      const parsed = parseSync(name, text);
-      assert.deepEqual(
-        parsed.errors,
-        [],
-        `${name} must parse before its DOM boundary can be inspected`);
-      return { name, text, program: parsed.program };
-    });
+    .map(name => sourceFile(name, readFileSync(join(sourceRoot, name), "utf8")));
 }
 
 function isNode(value: unknown): value is Node {
@@ -107,11 +113,50 @@ function dataAttributeName(attribute: string): string {
     .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
-function domAttribute(node: Node): string | null {
+function identifierName(value: unknown): string | null {
+  return isNode(value)
+    && value.type === "Identifier"
+    && typeof value.name === "string"
+    ? value.name
+    : null;
+}
+
+function propertyName(value: unknown): string | null {
+  const identifier = identifierName(value);
+  if (identifier !== null) return identifier;
+  return isNode(value)
+    && value.type === "Literal"
+    && typeof Reflect.get(value, "value") === "string"
+    ? String(Reflect.get(value, "value"))
+    : null;
+}
+
+function isDatasetExpression(node: Node, aliases: DomAliases): boolean {
+  const name = identifierName(node);
+  return (node.type === "MemberExpression" && memberName(node) === "dataset")
+    || (name !== null && aliases.datasets.has(name));
+}
+
+function domAttribute(
+  node: Node,
+  aliases: DomAliases = { datasets: new Set(), attributes: new Map() },
+): string | null {
   if (node.type === "MemberExpression"
     && node.object.type === "MemberExpression"
     && memberName(node.object) === "dataset") {
     return memberName(node);
+  }
+  const objectName = node.type === "MemberExpression"
+    ? identifierName(node.object)
+    : null;
+  if (node.type === "MemberExpression"
+    && objectName !== null
+    && aliases.datasets.has(objectName)) {
+    return memberName(node);
+  }
+  const alias = identifierName(node);
+  if (alias !== null && aliases.attributes.has(alias)) {
+    return aliases.attributes.get(alias) ?? null;
   }
   if (node.type === "CallExpression"
     && memberName(node.callee) === "getAttribute") {
@@ -125,10 +170,81 @@ function domAttribute(node: Node): string | null {
   return null;
 }
 
-function containsDomRead(root: Node): boolean {
+function domAliases(program: Program): DomAliases {
+  const aliases: DomAliases = {
+    datasets: new Set(),
+    attributes: new Map(),
+  };
+  let previousSize = -1;
+  while (previousSize !== aliases.datasets.size + aliases.attributes.size) {
+    previousSize = aliases.datasets.size + aliases.attributes.size;
+    walk(program, node => {
+      if (node.type !== "VariableDeclarator") return;
+      const id: unknown = Reflect.get(node, "id");
+      const init: unknown = Reflect.get(node, "init");
+      if (!isNode(id) || !isNode(init)) return;
+
+      const binding = identifierName(id);
+      if (binding !== null) {
+        if (isDatasetExpression(init, aliases)) {
+          aliases.datasets.add(binding);
+          return;
+        }
+        const attribute = domAttribute(init, aliases);
+        if (attribute !== null) aliases.attributes.set(binding, attribute);
+        return;
+      }
+
+      if (id.type !== "ObjectPattern"
+        || !isDatasetExpression(init, aliases)) {
+        return;
+      }
+      const properties: unknown = Reflect.get(id, "properties");
+      if (!Array.isArray(properties)) return;
+      for (const property of properties) {
+        if (!isNode(property) || property.type !== "Property") continue;
+        const attribute = propertyName(Reflect.get(property, "key"));
+        const local = identifierName(Reflect.get(property, "value"));
+        if (attribute !== null && local !== null) {
+          aliases.attributes.set(local, attribute);
+        }
+      }
+    });
+  }
+  return aliases;
+}
+
+function isReferenceNode(
+  node: Node,
+  ancestors: readonly Node[],
+): boolean {
+  if (identifierName(node) === null) return true;
+  if (ancestors.some(ancestor => ancestor.type === "ObjectPattern")) {
+    return false;
+  }
+  const parent = ancestors.at(-1);
+  if (parent?.type === "VariableDeclarator"
+    && Reflect.get(parent, "id") === node) {
+    return false;
+  }
+  if (parent?.type === "MemberExpression"
+    && Reflect.get(parent, "property") === node
+    && !parent.computed) {
+    return false;
+  }
+  return !(parent?.type === "Property"
+    && Reflect.get(parent, "key") === node
+    && !parent.computed
+    && Reflect.get(parent, "value") !== node);
+}
+
+function containsDomRead(root: Node, aliases: DomAliases): boolean {
   let found = false;
-  walk(root, node => {
-    if (domAttribute(node) !== null) found = true;
+  walk(root, (node, ancestors) => {
+    if (isReferenceNode(node, ancestors)
+      && domAttribute(node, aliases) !== null) {
+      found = true;
+    }
   });
   return found;
 }
@@ -172,6 +288,32 @@ function approvedDecoders(files: readonly SourceFile[]): Set<string> {
   return new Set(names);
 }
 
+function isDirectDecoderArgument(
+  read: Node,
+  ancestors: readonly Node[],
+  decoder: CallExpression,
+): boolean {
+  let expression = read;
+  for (let index = ancestors.length - 1; index >= 0; index--) {
+    const ancestor = ancestors[index];
+    if (!ancestor) continue;
+    if (ancestor === decoder) {
+      return decoder.arguments.some(argument => argument === expression);
+    }
+    if (new Set([
+      "ChainExpression",
+      "ParenthesizedExpression",
+      "TSNonNullExpression",
+    ]).has(ancestor.type)
+      && Reflect.get(ancestor, "expression") === expression) {
+      expression = ancestor;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
 function attributeReads(
   files: readonly SourceFile[],
   decoders: ReadonlySet<string>,
@@ -179,14 +321,17 @@ function attributeReads(
   const reads = new Map<string, AttributeRead[]>();
   for (const file of files) {
     if (file.name === parserModule) continue;
+    const aliases = domAliases(file.program);
     walk(file.program, (node, ancestors) => {
-      const attribute = domAttribute(node);
+      if (!isReferenceNode(node, ancestors)) return;
+      const attribute = domAttribute(node, aliases);
       if (attribute === null) return;
       let decoder: CallExpression | undefined;
       for (let index = ancestors.length - 1; index >= 0; index--) {
         const ancestor = ancestors[index];
         if (ancestor?.type === "CallExpression"
-          && decoders.has(callName(ancestor) ?? "")) {
+          && decoders.has(callName(ancestor) ?? "")
+          && isDirectDecoderArgument(node, ancestors, ancestor)) {
           decoder = ancestor;
           break;
         }
@@ -202,24 +347,53 @@ function attributeReads(
   return reads;
 }
 
-test("no browser payload is numerically coerced outside the canonical parsers", () => {
+function numericCoercionViolations(files: readonly SourceFile[]): string[] {
   const violations: string[] = [];
-  for (const file of sources()) {
+  for (const file of files) {
     if (file.name === parserModule) continue;
+    const aliases = domAliases(file.program);
     walk(file.program, node => {
-      if (!isNumericCoercion(node) || !containsDomRead(node)) return;
+      if (!isNumericCoercion(node) || !containsDomRead(node, aliases)) return;
       violations.push(
         `${file.name}:${lineOf(file.text, node.start)}: `
         + file.text.slice(node.start, node.end));
     });
   }
+  return violations;
+}
 
+test("no browser payload is numerically coerced outside the canonical parsers", () => {
   assert.deepEqual(
-    violations,
+    numericCoercionViolations(sources()),
     [],
     "a browser payload is coerced to a number directly. Numeric DOM payloads must go "
     + `through the canonical parsers in src/${parserModule}, which reject aliases such as `
     + "\"01\", \"+1\", \" 1\", \"1e0\", and \"-0\".");
+});
+
+test("the gate rejects preprocessing and destructured payload aliases", () => {
+  const probe = sourceFile("probe.ts", `
+const { overload } = button.dataset;
+Number(overload);
+parseNonNegativeInteger(button.dataset.slIndex?.trim());
+parseNonNegativeInteger(button.dataset.mdeRow);
+`);
+  const reads = attributeReads(
+    [probe],
+    new Set(["parseNonNegativeInteger"]));
+
+  assert.deepEqual(
+    reads.get("overload")?.map(site => site.decoder),
+    [null]);
+  assert.deepEqual(
+    reads.get("slIndex")?.map(site => site.decoder),
+    [null]);
+  assert.deepEqual(
+    reads.get("mdeRow")?.map(site => site.decoder),
+    ["parseNonNegativeInteger"]);
+  assert.deepEqual(
+    numericCoercionViolations([probe]),
+    ["probe.ts:3: Number(overload)"]);
 });
 
 test("every declared numeric attribute reaches a canonical parser at every numeric read", () => {

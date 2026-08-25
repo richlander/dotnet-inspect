@@ -350,6 +350,7 @@ function richSharePacketIsValid(
   if (typeof raw.a !== "number"
     || !Number.isInteger(raw.a)
     || raw.a < 0
+    || Object.is(raw.a, -0)
     || raw.a >= sourceIndexes.length) {
     return false;
   }
@@ -551,7 +552,7 @@ function parseOverloadCoordinate(value: string | number): number | null {
 
 export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   const params = new URLSearchParams(location.search);
-  const route = location.pathname.split("/").filter(Boolean);
+  const route = location.pathname.split("/");
   const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
   const share = decodeWorkspaceShareState(params.get("w"));
   // Every URL field that names nothing is recorded here rather than silently becoming a
@@ -561,8 +562,10 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   let pkg: string | null;
   let version: string | null;
   if (packageAt >= 0) {
-    pkg = decodeRouteComponent(route[packageAt + 1] || "");
-    version = decodeRouteComponent(route[packageAt + 2] || "");
+    const packageToken = route[packageAt + 1];
+    const versionToken = route[packageAt + 2];
+    pkg = packageToken ? decodeRouteComponent(packageToken) : null;
+    version = versionToken ? decodeRouteComponent(versionToken) : null;
     if (pkg === null) rejectedFields.push("package");
     if (version === null) rejectedFields.push("version");
   } else {

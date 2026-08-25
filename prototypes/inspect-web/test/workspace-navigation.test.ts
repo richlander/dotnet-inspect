@@ -485,6 +485,16 @@ test("a malformed percent-escape in a package route fails visibly instead of thr
   assert.equal(badVersion.package, "Example.Package");
   assert.equal(badVersion.version, null);
   assert.match(badVersion.workspaceNotice, /version/);
+
+  const missingPackage = parseWorkspaceLocation({
+    href: "https://inspect.example/packages//1.0.0",
+    pathname: "/packages//1.0.0",
+    search: "",
+    hash: "",
+  });
+  assert.equal(missingPackage.package, null);
+  assert.equal(missingPackage.version, "1.0.0");
+  assert.match(missingPackage.workspaceNotice, /package/);
 });
 
 test("the overload coordinate is parsed once, canonically, at the URL boundary", () => {
@@ -600,6 +610,16 @@ test("malformed rich packet fields cannot override the visible package", () => {
   const missingActive = invalidPackets[0];
   assert.ok(missingActive);
   delete missingActive.a;
+  const negativeZeroActive = Buffer.from(
+    '{"t":[["Hidden.Package","1.0.0","net10.0"]],"a":-0}')
+    .toString("base64url");
+  const rejectedNegativeZero = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?package=Visible.Package&w=${negativeZeroActive}`));
+  assert.equal(rejectedNegativeZero.package, "Visible.Package");
+  assert.deepEqual(rejectedNegativeZero.tabs, []);
+  assert.equal(
+    rejectedNegativeZero.workspaceNotice,
+    "The shared workspace state is invalid and was ignored.");
 
   for (const packet of invalidPackets) {
     const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");

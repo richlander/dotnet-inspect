@@ -1,6 +1,8 @@
 // DOM bindings for library and accessibility filters plus .NET platform
 // library selectors. The application root owns all resulting state and work.
 
+import { platformPackToken, type PlatformPack } from "./data.ts";
+
 export type PlatformLibraryLens =
   | "integrations"
   | "opportunities"
@@ -11,11 +13,11 @@ export interface LibraryControlBindingActions {
   onAccessibilityChipSelect: (accessibility: string) => void;
   onLibraryChipSelect: (library: string) => void;
   onLibraryJump: (library: string) => void;
-  onPlatformLibrarySelect: (name: string, pack: string) => void;
+  onPlatformLibrarySelect: (name: string, pack: PlatformPack) => void;
   onPlatformLensLibrarySelect: (
     lens: PlatformLibraryLens,
     name: string,
-    pack: string | undefined,
+    pack: PlatformPack | undefined,
   ) => void;
 }
 
@@ -56,7 +58,8 @@ export function bindLibraryControls(
         // which is a silent substitution rather than a default: the user would be shown
         // another pack's library without anything reporting it. There is no correct pack to
         // guess, so the selection is not made.
-        const pack = select.selectedOptions[0]?.dataset.pack;
+        const pack = platformPackToken(
+          select.selectedOptions[0]?.dataset.pack);
         if (!pack) return;
         actions.onPlatformLibrarySelect(name, pack);
       }));
@@ -66,10 +69,13 @@ export function bindLibraryControls(
       select.addEventListener("change", () => {
         const name = select.value;
         if (!name) return;
+        const packValue = select.selectedOptions[0]?.dataset.pack;
+        const pack = platformPackToken(packValue);
+        if (packValue !== undefined && pack === null) return;
         actions.onPlatformLensLibrarySelect(
           lens,
           name,
-          select.selectedOptions[0]?.dataset.pack);
+          pack ?? undefined);
       }));
   }
 }

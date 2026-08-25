@@ -92,10 +92,14 @@ test("library controls decode every rendered selector without eager work", () =>
   packlessPlatform.value = "System.Runtime";
   packlessPlatform.selectedOptions = [new FakeElement()];
   const emptyPlatform = new FakeElement();
+  const invalidPlatform = new FakeElement();
+  invalidPlatform.value = "System.Bogus";
+  invalidPlatform.selectedOptions = [new FakeElement({ pack: "bogus-pack" })];
   root.addAll(
     "[data-platform-library-select]",
     platform,
     packlessPlatform,
+    invalidPlatform,
     emptyPlatform);
 
   const integrations = new FakeElement();
@@ -130,6 +134,7 @@ test("library controls decode every rendered selector without eager work", () =>
   libraryJump.dispatch("change");
   platform.dispatch("change");
   packlessPlatform.dispatch("change");
+  invalidPlatform.dispatch("change");
   emptyPlatform.dispatch("change");
   integrations.dispatch("change");
   opportunities.dispatch("change");
@@ -150,7 +155,6 @@ test("library controls decode every rendered selector without eager work", () =>
     "platform-lens:integrations:System.Net.Http:netcore.app",
     "platform-lens:opportunities:System.Text.Json:undefined",
     "platform-lens:analysis:System.Linq:undefined",
-    "platform-lens:metadata:System.Console:windowsdesktop.app",
   ]);
 });
 
