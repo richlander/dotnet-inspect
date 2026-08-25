@@ -297,12 +297,10 @@ public static class MemberCommand
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
             var callersImplicitlySelected = effectiveOptions.HasCallerScope
-                && effectiveOptions.IncludeSections is null;
+                && !HasAuthoredSectionRequest(effectiveOptions);
             if (callersImplicitlySelected)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
-            var authoredSelection = callersImplicitlySelected
-                ? ExcludeCallersSection(effectiveOptions)
-                : effectiveOptions;
+            var authoredSelection = effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -879,20 +877,16 @@ public static class MemberCommand
         };
     }
 
-    private static MemberOptions ExcludeCallersSection(MemberOptions options)
-    {
-        var includeSections = options.IncludeSections is { } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : [];
-        includeSections.Remove(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
-    }
-
     private static bool RequiresCallerScopeResolution(MemberOptions options)
         => options.HasCallerScope
            && options.IncludeSections is { } sections
            && (sections.Contains(SectionNames.Callers)
                || sections.Contains(SectionNames.CallGraph));
+
+    private static bool HasAuthoredSectionRequest(MemberOptions options)
+        => options.MemberSectionsPreResolved
+           || options.HasSectionQuery
+           || options.Discover is not null;
 
     private static readonly string[] SingleOverloadSectionNames =
     [
