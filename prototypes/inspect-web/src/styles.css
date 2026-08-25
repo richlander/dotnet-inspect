@@ -706,6 +706,9 @@ kbd {
 .graph-viewport g.node.nav-node { cursor: pointer; }
 .graph-viewport g.node.nav-node:hover rect,
 .graph-viewport g.node.nav-node:hover polygon { stroke: var(--blue); stroke-width: 2px; }
+.graph-viewport g.node.nav-node:focus-visible { outline: none; }
+.graph-viewport g.node.nav-node:focus-visible rect,
+.graph-viewport g.node.nav-node:focus-visible polygon { stroke: var(--blue); stroke-width: 3px; }
 .graph-viewport g.node.non-nav { cursor: help; }
 .graph-viewport g.node.non-nav rect,
 .graph-viewport g.node.non-nav polygon { stroke-dasharray: 4 3; opacity: .85; }
@@ -722,6 +725,9 @@ kbd {
 .legend-swatch.same-type { background: var(--graph-same-type-fill); border-color: var(--graph-same-type-stroke); }
 .legend-swatch.different-type { background: var(--graph-different-type-fill); border-color: var(--graph-different-type-stroke); }
 .legend-swatch.different-assembly { background: var(--graph-different-assembly-fill); border-color: var(--graph-different-assembly-stroke); }
+.legend-swatch.loaded-node,
+.legend-swatch.platform-node { background: var(--panel); border-color: var(--line-strong); }
+.legend-swatch.platform-node { border-style: dashed; }
 .graph-mermaid { border-top: 1px solid var(--line); }
 .graph-mermaid summary { cursor: pointer; padding: 11px 10px; color: var(--dim); font: 10px var(--mono); }
 .graph-mermaid pre { overflow: auto; margin: 0; padding: 14px; border-top: 1px solid var(--line); background: var(--code-bg); color: var(--code-text); font: 10px/1.55 var(--mono); }
@@ -1791,6 +1797,19 @@ kbd {
   cursor: wait;
   transform: none;
 }
+.home-demo.home-demo-pending {
+  min-width: 11rem;
+  min-height: 3.4rem;
+  pointer-events: none;
+}
+.home-demo.home-demo-pending strong,
+.home-demo.home-demo-pending small {
+  display: block;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+}
+.home-demo.home-demo-pending strong { min-height: 0.85rem; }
+.home-demo.home-demo-pending small { min-height: 0.7rem; margin-top: 4px; }
 .home-demo strong { font: 13px var(--mono); color: var(--text); }
 .home-demo small { color: var(--muted); font-size: 11px; }
 

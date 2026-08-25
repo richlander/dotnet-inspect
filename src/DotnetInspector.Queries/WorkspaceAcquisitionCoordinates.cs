@@ -235,6 +235,9 @@ public enum WorkspaceContextLoadFailureKind
     /// <summary>The selected platform pack does not carry the requested assembly.</summary>
     PlatformAssemblyUnavailable,
 
+    /// <summary>The selected platform pack carries multiple identities with the requested name.</summary>
+    PlatformAssemblyAmbiguous,
+
     /// <summary>
     /// The producer a realized platform coordinate names is not authorized or
     /// did not serve its implementation pack.
@@ -854,11 +857,14 @@ public abstract record WorkspaceContextLoadOutcome
         internal Loaded(
             AssemblyContextGroup group,
             ImmutableArray<WorkspaceContextMember> members,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies,
             string? framework,
             string? runtimeIdentifier)
         {
             Group = group;
             Members = members;
+            AvailablePlatformAssemblies = availablePlatformAssemblies;
             Framework = framework;
             RuntimeIdentifier = runtimeIdentifier;
         }
@@ -870,6 +876,19 @@ public abstract record WorkspaceContextLoadOutcome
         /// contribute several participants.
         /// </summary>
         public ImmutableArray<WorkspaceContextMember> Members { get; }
+
+        /// <summary>
+        /// Metadata-derived assembly selection coordinates observed in the
+        /// selected platform asset universes, including assemblies not loaded
+        /// as participants. Selecting a name carried by more than one full
+        /// identity still produces a typed ambiguity failure.
+        /// </summary>
+        /// <remarks>
+        /// <c>WorkspaceContextLoaderTests.PlatformMember_AssemblyFilterUsesMetadataIdentity</c>
+        /// gates metadata identity and selected-universe ownership.
+        /// </remarks>
+        public ImmutableArray<RealizedMemberCoordinate.Platform>
+            AvailablePlatformAssemblies { get; }
 
         /// <summary>The effective acquisition framework, when the context needed one.</summary>
         public string? Framework { get; }
