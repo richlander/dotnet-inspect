@@ -83,9 +83,10 @@ export type QueryCompletion =
 /** The subset of `QueryCompletion` that represents a source having actually
  * stopped (as opposed to still running). A `PackageQueryDataSource.run()`
  * call settles when the source has stopped producing pages, so it can never
- * legitimately resolve with `"streaming"` — that kind only ever describes an
- * in-flight query as observed by the controller, never a source's own
- * verdict on its own completion. */
+ * legitimately resolve with `"streaming"` — that kind is never a source's
+ * own verdict on its own completion (it only ever describes a query the
+ * controller considers in-flight, whether or not one has actually been
+ * started yet — see `emptyOutcome()`). */
 export type TerminalQueryCompletion =
   | { kind: "bounded"; reason: string }
   | { kind: "exhausted" }
@@ -210,9 +211,16 @@ export function createPackageQueryController(
         // it must not leave the outcome stuck labeled "streaming" forever,
         // which would silently look like an in-progress query rather than a
         // failed one.
+        //
+        // This is deliberately NOT also appended to `failures`: that list is
+        // reserved for the "Partial failure" state (one source/page fails,
+        // the design doc's States table), a different, distinct signal from
+        // "Failed" (the request itself never reached completion). Recording
+        // the same reason in both would render a total failure as if it
+        // were merely a partial one — a "some sources failed" banner next
+        // to a "query failed" state that already names the same error.
         if (requestGeneration !== generation) return;
         const reason = error instanceof Error ? error.message : String(error);
-        state.outcome = appendFailure(state.outcome, reason);
         state.outcome = withCompletion(state.outcome, { kind: "failed", reason });
         onUpdate();
         return;

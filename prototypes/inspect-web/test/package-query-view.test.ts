@@ -302,6 +302,7 @@ test("a cancelled query with zero rows never renders as a confirmed empty result
   // though the run was stopped before it could search the whole scope.
   assert.doesNotMatch(html, /<h2>No matches<\/h2>/);
   assert.match(html, /Cancelled before any matches/);
+  assert.match(html, /not a confirmed empty result/);
 });
 
 test("deepen is disabled with no selection and enabled once a row is selected", () => {

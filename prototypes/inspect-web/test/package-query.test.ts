@@ -112,7 +112,13 @@ test("a data source that rejects transitions to a visible 'failed' completion, n
   assert.notEqual(state.outcome.completion.kind, "streaming");
   assert.equal(state.outcome.completion.kind, "failed");
   assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["A"]);
-  assert.deepEqual(state.outcome.failures, ["feed unreachable"]);
+  // A whole-query rejection is the "Failed" state, not "Partial failure" —
+  // the design doc's States table treats these as distinct (one source/page
+  // failing vs. the request itself never reaching completion). It must not
+  // also land in `failures`, or a total failure would render as if it were
+  // merely partial: a "some sources failed" banner duplicating the same
+  // reason the "Query failed" state already names.
+  assert.deepEqual(state.outcome.failures, []);
 });
 
 test("starting a new run() aborts the previous generation's abortSignal, not just cancel()", async () => {
