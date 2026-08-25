@@ -61,11 +61,15 @@ view's in-memory runtime shape, not the persisted/URL form byte-for-byte: the
 `kind: "query"` record in
 [Saving queries and results](#saving-queries-and-results) stores `facets` as
 `FacetRef`s (references into the fixed vocabulary) rather than full
-`QueryFacetTerm` objects, and adds `schemaVersion`/`id`. Converting between
-them is a pure, one-way-each mapping (`QueryFacetTerm` already carries the
-`key` a `FacetRef` needs) that has no persistence-format ambiguity to resolve,
-but it is not yet implemented or tested — tracked as part of landing-sequence
-step 1's remaining scope, not asserted as done here.
+`QueryFacetTerm` objects, and adds `schemaVersion`/`id`. The facet direction
+is unambiguous each way (`QueryFacetTerm` already carries the `key` a
+`FacetRef` needs; the reverse lookup is the fixed facet vocabulary table).
+The scope direction is not yet resolved, though: `QueryRequest` carries both
+`scopeLabel` (display) and `scopeQuery` (the actual predicate), while the
+record sketch above has only one `scope` field, and neither `FacetRef`'s nor
+`scope`'s exact shape is defined anywhere yet. None of this conversion is
+implemented or tested — tracked as part of landing-sequence step 1's
+remaining scope, not asserted as done or fully specified here.
 
 Every row carries a **tier tag**: `nuspec` (satisfied by manifest metadata
 alone) or `promoted` (the row was opened at the assembly/IL level after the

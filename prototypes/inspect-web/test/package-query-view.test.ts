@@ -101,6 +101,24 @@ test("failures render alongside already-streamed rows, never as a bare empty sta
   assert.match(html, /class="opp-type-name">A</);
 });
 
+test("an exhausted outcome with a partial failure never claims 'all matches'", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(
+      appendFailure(appendRows(emptyOutcome(), [row("A")]), "feed Y unreachable"),
+      { kind: "exhausted" },
+    ),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.match(html, /feed Y unreachable/);
+  // "all matches" alone would overclaim exhaustiveness when a source failed.
+  assert.doesNotMatch(html, />all matches</);
+  assert.match(html, /all matches from sources that succeeded/);
+});
+
 test("a bounded-complete outcome states the exact bound rather than a bare count", () => {
   const state: PackageQueryState = {
     request: createQueryRequest("Microsoft.*", "Microsoft."),

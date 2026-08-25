@@ -79,12 +79,16 @@ function renderCompletionFooter(
   escapeHtml: (value: unknown) => string,
 ): string {
   const { completion } = outcome;
+  const partialFailure = outcome.failures.length > 0;
   const label = completion.kind === "streaming"
     ? "streaming…"
     : completion.kind === "bounded"
       ? `bounded: ${escapeHtml(completion.reason)}`
       : completion.kind === "exhausted"
-        ? "all matches"
+        // A failed source means the search wasn't exhaustive after all —
+        // "all matches" would overclaim exactly the completeness this
+        // footer exists to be honest about (see the zero-row case above).
+        ? partialFailure ? "all matches from sources that succeeded" : "all matches"
         : "cancelled";
   const cancelButton = completion.kind === "streaming"
     ? `<button data-query-cancel="1">Cancel</button>`
