@@ -71,6 +71,7 @@ import {
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
+  bindWorkspaceLinkNavigation,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
@@ -81,6 +82,7 @@ import {
   type WorkspaceView,
 } from "./workspace-navigation.ts";
 import {
+  createNuGetPackageModel,
   createPackageAcquisition,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
@@ -110,12 +112,10 @@ import {
   type WorkbenchShellBindingActions,
 } from "./shell-controls.ts";
 import {
-  callGraphDemoRunnerSpec,
   homeDemoRowHtml,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
-  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -245,6 +245,7 @@ import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
+  BrowserHomeDemoRunResult,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -267,6 +268,7 @@ let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectListHomeDemos: EngineModule["listHomeDemos"];
 let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
+let inspectRunHomeDemo: EngineModule["runHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
 let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
@@ -309,6 +311,7 @@ async function loadEngineModule() {
     listHomeDemos: inspectListHomeDemos,
     listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
+    runHomeDemo: inspectRunHomeDemo,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -2361,8 +2364,8 @@ function render() {
         <section class="detail-pane">
           <header class="detail-head">
             <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
@@ -4593,7 +4596,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ back/forward · "
+    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
     + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
@@ -4663,10 +4666,12 @@ function handleTypeKeys(event: KeyboardEvent) {
     } else if (event.key === "ArrowUp" || event.key === "k") {
       event.preventDefault();
       stepMemberNav(-1, true);
-    } else if (event.key === "ArrowLeft") {
+    } else if (event.key === "ArrowLeft" && !event.altKey && !event.shiftKey) {
+      // Alt/Shift+ArrowLeft is the global back gesture (see the document keydown
+      // handler); leave it unclaimed here so it isn't swallowed as in-page stepping.
       event.preventDefault();
       stepHorizontal(-1);
-    } else if (event.key === "ArrowRight") {
+    } else if (event.key === "ArrowRight" && !event.altKey && !event.shiftKey) {
       event.preventDefault();
       stepHorizontal(1);
     }
@@ -6179,8 +6184,8 @@ function bindHomeEvents() {
 // Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
 // (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
 // deep links built from the resolved projection; member-bound Call Graph demos
-// stay an imperative multi-package member load until WorkspaceContextLoader
-// group run is the browser substrate.
+// execute through one generated engine operation over the product-resolved
+// workspace and view.
 function runHomeDemo(kind: ProductHomeDemoId) {
   state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
@@ -6194,7 +6199,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
   }
   const link = productHomeDemoLocationHref(resolved);
   if (!link) {
-    observeAsync(runCallGraphDemo(resolved), "Loading the call graph demo");
+    observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
   workspaceLocation.push(link);
@@ -8200,61 +8205,118 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo(demo: ProductHomeDemoResolved) {
-  const retry = () => observeAsync(runCallGraphDemo(demo), "Loading the call graph demo");
+async function runCallGraphDemo(demoId: ProductHomeDemoId) {
+  const retry = () =>
+    observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
+  const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
+  state.errorDetail = "";
+  state.retryAction = null;
   state.loadingMessage = "Loading cross-package call graph demo…";
-  state.loadingSubtitle = "";
+  state.loadingSubtitle =
+    "Resolving the product workspace and anchored member…";
   render();
 
-  const spec = callGraphDemoRunnerSpec(demo);
-  const packages: AppPackage[] = [];
-  for (const packageSpec of spec.packages) {
-    const loaded = await loadPackage(
-      packageSpec.id,
-      packageSpec.version,
-      packageSpec.framework,
-      { retryAction: retry });
-    if (!loaded) {
-      state.retryAction = retry;
-      render();
-      return;
-    }
-    packages.push(loaded);
-  }
-
-  const targetPackage = packages.find(item => item.id === spec.focusPackageId)
-    ?? packages[0];
-  activatePackage(targetPackage);
-  const type = targetPackage.types.find(item => item.id === spec.typeId);
-  const member = type && memberGroups(type).find(item =>
-    item.name === spec.memberName
-    && item.kind === spec.memberKind);
-  const overloadIndex = member?.overloads.findIndex(item =>
-    item.anchorDigest === spec.memberAnchorDigest) ?? -1;
-  if (!type || !member || overloadIndex < 0) {
+  const fail = (error: unknown) => {
     state.loading = false;
-    state.error = "The call graph demo member was not found in the selected package.";
+    state.error = errorMessage(error);
     state.errorTitle = "Call graph demo failed";
+    state.errorDetail = error instanceof Error
+      ? error.stack || error.message
+      : String(error);
     state.retryAction = retry;
+    render();
+  };
+  let result: BrowserHomeDemoRunResult;
+  try {
+    result = await inspectRunHomeDemo(demoId);
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!result.found) {
+    state.loading = false;
+    state.error = `Unknown product home demo '${demoId}'.`;
+    state.errorTitle = "Call graph demo failed";
+    state.retryAction = null;
     render();
     return;
   }
+  if (!result.activation || !result.callGraph) {
+    fail("The engine returned an incomplete product home demo result.");
+    return;
+  }
+  if (result.activation.memberSection !== "call-graph") {
+    fail(
+      `The engine returned unsupported demo section '${result.activation.memberSection}'.`,
+    );
+    return;
+  }
 
-  state.selectedTypeId = type.id;
-  state.atPackageRoot = false;
-  state.lens = "api";
-  state.packageLens = "overview";
-  resetMemberFilters();
-  resetMemberSectionState();
-  state.memberBrowseTypeId = type.id;
-  state.selectedMemberKey = member.key;
-  state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = spec.memberSection;
-  state.loading = false;
-  render();
-  await loadSelectedMemberCallGraph();
+  try {
+    const packages = result.packages.map(createNuGetPackageModel);
+    const activation = result.activation;
+    const targetPackage = packages.find(item =>
+      item.id === activation.focusPackage
+      && item.version === activation.focusVersion
+      && item.activeFramework === activation.focusFramework);
+    const type = targetPackage?.types.find(item =>
+      item.id === activation.typeId);
+    const member = type && memberGroups(type).find(item =>
+      item.name === activation.memberName
+      && item.kind === activation.memberKind);
+    const overloadIndex = member?.overloads.findIndex(item =>
+      item.anchorDigest === activation.memberAnchorDigest) ?? -1;
+    if (!targetPackage || !type || !member || overloadIndex < 0) {
+      throw new Error(
+        "The engine-run demo selection was not present in its returned package surfaces.");
+    }
+
+    for (const packageModel of packages) {
+      retainPackageModel(packageModel);
+      recordRecentPackage(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework);
+    }
+    refreshPackageStats();
+
+    activatePackage(targetPackage, { resetAccessibility: true });
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.libraryScope = null;
+    state.selectedTypeId = type.id;
+    state.atPackageRoot = false;
+    state.lens = "api";
+    state.packageLens = "overview";
+    resetMemberFilters();
+    resetMemberSectionState();
+    state.platformStack = [];
+    state.memberBrowseTypeId = type.id;
+    state.selectedMemberKey = member.key;
+    state.selectedOverloadIndex = overloadIndex;
+    state.memberSection = "call-graph";
+    // This graph is scoped to the product-defined demo workspace, not any
+    // unrelated tabs the user may already have open.
+    state.memberCallGraph = result.callGraph;
+    state.memberCallGraphError = "";
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
+    state.memberCallGraphKey = memberRequestSignature(
+      type,
+      member.overloads[overloadIndex],
+      true);
+    state.loading = false;
+    render();
+    await renderMermaidCallGraph();
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    fail(error);
+  }
 }
 
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
@@ -8533,34 +8595,127 @@ function refreshPackageStats() {
 }
 
 
-document.addEventListener("keydown", event => {
-  // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
-  // out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
-  // the ref->def history (Shift+Backspace forward).
-  if (state.explorer?.open) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!state.explorer.overview) explorerShowOverview();
-      else closeExplorer();
-    } else if (event.key === "Backspace") {
-      event.preventDefault();
-      if (event.shiftKey) explorerHistoryForward();
-      else explorerHistoryBack();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+// A same-origin, unmodified `<a href>` click anywhere in the app takes over here instead
+// of loading a new document — this is the single owner of in-app link navigation.
+// `target="_blank"`, cross-origin hrefs, `download`, and modified clicks (new tab/window)
+// keep their native browser behavior; the guard lives in `shouldInterceptLinkClick`.
+function navigateInAppUrl(url: URL) {
+  if (isCreditsPath(url.pathname)) {
+    openCredits();
     return;
   }
-  // Settings is a modal-style page reachable from home too, so handle its Escape before the
-  // home bail below (which otherwise swallows the keystroke on the home page).
-  if (state.settings) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSettings();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
+  if (url.pathname === "/" && !url.search && !url.hash) {
+    goHome();
     return;
+  }
+  workspaceLocation.push(url.toString());
+  const loc = parseLocation();
+  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Navigating");
+}
+
+bindWorkspaceLinkNavigation(document, {
+  currentOrigin: () => location.origin,
+  resolve: href => new URL(href, location.href),
+  navigate: navigateInAppUrl,
+});
+
+// A modal-style view that owns the keydown event outright while it is open (Escape
+// dismisses it, plus whatever other keys are its own). Declaring these as one ordered
+// list — instead of a chain of `if (state.x) { ...; return; }` blocks — makes this the
+// single, explicit place that decides which layer Escape (and everything else) belongs
+// to; adding a new dismissable layer means adding one entry here, not re-deriving the
+// right spot in a growing if/else chain.
+interface KeydownLayer {
+  active(): boolean;
+  handle(event: KeyboardEvent): void;
+}
+
+// The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
+// out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
+// the ref->def history (Shift+Backspace forward). Settings is a modal-style page reachable
+// from home too, so it takes priority over the home bail below (which otherwise swallows the
+// keystroke on the home page).
+const homeIndependentKeydownLayers: readonly KeydownLayer[] = [
+  {
+    active: () => Boolean(state.explorer?.open),
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!state.explorer!.overview) explorerShowOverview();
+        else closeExplorer();
+      } else if (event.key === "Backspace") {
+        event.preventDefault();
+        if (event.shiftKey) explorerHistoryForward();
+        else explorerHistoryBack();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.settings,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSettings();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+];
+
+// These modal-style layers only apply once a package workspace is loaded (the home and
+// loading/error bails below run first), but are otherwise the same kind of Escape-owning
+// layer as above.
+const workspaceKeydownLayers: readonly KeydownLayer[] = [
+  {
+    active: () => state.graphSourceOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeGraphSource();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.docViewerOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDocViewer();
+      } else if (isContainedBrowserShortcut(event)) {
+        event.preventDefault();
+      }
+    },
+  },
+  {
+    active: () => state.spotlightOpen,
+    handle(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSpotlight();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openSpotlight("", "commands");
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        openSpotlight();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+      }
+    },
+  },
+];
+
+document.addEventListener("keydown", event => {
+  for (const layer of homeIndependentKeydownLayers) {
+    if (layer.active()) {
+      layer.handle(event);
+      return;
+    }
   }
   const typing = isTextEntry();
   // The home page has its own scoped input handling (search box); global workbench
@@ -8572,38 +8727,11 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  if (state.graphSourceOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeGraphSource();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
+  for (const layer of workspaceKeydownLayers) {
+    if (layer.active()) {
+      layer.handle(event);
+      return;
     }
-    return;
-  }
-  if (state.docViewerOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDocViewer();
-    } else if (isContainedBrowserShortcut(event)) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (state.spotlightOpen) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      openSpotlight("", "commands");
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
-      event.preventDefault();
-      openSpotlight();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-    }
-    return;
   }
   if (event.key === "Escape" && !event.defaultPrevented && state.tasteOpen) {
     event.preventDefault();
@@ -8623,10 +8751,17 @@ document.addEventListener("keydown", event => {
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     focusFilter();
-  } else if (event.altKey && event.key === "ArrowLeft") {
+  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowLeft"
+      && (event.altKey || (event.shiftKey && !typing))) {
+    // Alt+←/→ always drives back/forward. Shift+←/→ is the same gesture, gated on
+    // `!typing` so it doesn't steal native text-selection (Shift+Arrow) inside inputs.
+    // `!event.defaultPrevented` defers to any element-scoped handler (e.g. the type
+    // list's in-page stepHorizontal, the graph viewport's pan) that already claimed
+    // this key. Shift+↑/↓ stays unclaimed for now.
     event.preventDefault();
     navBack();
-  } else if (event.altKey && event.key === "ArrowRight") {
+  } else if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.key === "ArrowRight"
+      && (event.altKey || (event.shiftKey && !typing))) {
     event.preventDefault();
     navForward();
   } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {

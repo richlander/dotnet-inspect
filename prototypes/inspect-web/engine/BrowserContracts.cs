@@ -263,6 +263,32 @@ public sealed record BrowserHomeDemoResolveResult(
     BrowserHomeDemoResolved? Demo);
 
 /// <summary>
+/// Exact browser selection produced while running one product home demo.
+/// The frontend applies this identity to the package surfaces returned by the
+/// same operation; it does not parse product view or navigation definitions.
+/// </summary>
+public sealed record BrowserHomeDemoRunActivation(
+    string FocusPackage,
+    string FocusVersion,
+    string FocusFramework,
+    string TypeId,
+    string MemberName,
+    string MemberKind,
+    string MemberAnchorDigest,
+    string MemberSection);
+
+/// <summary>
+/// Browser result of running one product home demo through the normal package
+/// workspace and query path. Unknown ids return <see cref="Found"/> false;
+/// known-demo failures remain visible exceptions.
+/// </summary>
+public sealed record BrowserHomeDemoRunResult(
+    bool Found,
+    BrowserPackageSurface[] Packages,
+    BrowserHomeDemoRunActivation? Activation,
+    BrowserCallGraph? CallGraph);
+
+/// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
 /// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
 /// composition.
@@ -548,4 +574,5 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolved))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
+[JsonSerializable(typeof(BrowserHomeDemoRunResult))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;

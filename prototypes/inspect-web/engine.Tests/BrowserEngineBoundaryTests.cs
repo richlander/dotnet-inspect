@@ -2584,6 +2584,91 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Home.Demo.Run.{suffix}";
+        string peerPackageId = $"Home.Demo.Peer.{suffix}";
+        string assemblyPath =
+            typeof(BrowserEngineBoundaryTests).Assembly.Location;
+        string peerAssemblyPath = typeof(BrowserPackage).Assembly.Location;
+        BrowserPackageCoordinate coordinate = Coordinate(
+            packageId,
+            Package(
+                File.ReadAllBytes(assemblyPath),
+                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"));
+        BrowserPackageCoordinate peerCoordinate = Coordinate(
+            peerPackageId,
+            Package(
+                File.ReadAllBytes(peerAssemblyPath),
+                $"lib/net11.0/{Path.GetFileName(peerAssemblyPath)}"));
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope(
+                [peerCoordinate, coordinate]);
+        try
+        {
+            BrowserPackageSurface surface =
+                InspectionEngine.ProjectPackageSurface(scope, coordinate);
+            BrowserTypeSurface type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Id
+                    == typeof(BrowserEngineBoundaryTests).FullName);
+            BrowserMemberSurface[] members =
+            [
+                .. type.Api.Where(candidate => candidate.Name
+                    == nameof(HomeDemoRunFixture)),
+            ];
+            Assert.Equal(2, members.Length);
+            BrowserMemberSurface member = members[1];
+            var plan = new BrowserHomeDemoRunPlan(
+                [
+                    new BrowserPackageRequest(
+                        peerPackageId,
+                        "1.0.0",
+                        "net11.0"),
+                    new BrowserPackageRequest(
+                        packageId,
+                        "1.0.0",
+                        "net11.0"),
+                ],
+                FocusRequestIndex: 1,
+                type.Id,
+                member.Name,
+                member.Kind,
+                member.AnchorDigest[..6],
+                MemberSection: "call-graph");
+            var resolution = new BrowserScopeResolution(
+                scope,
+                [peerCoordinate, coordinate]);
+
+            BrowserHomeDemoRunResult result =
+                InspectionEngine.RunHomeDemoCore(plan, resolution);
+
+            Assert.True(result.Found);
+            Assert.Equal(2, result.Packages.Length);
+            Assert.Equal(member.AnchorDigest, result.Activation?.MemberAnchorDigest);
+            Assert.Equal("call-graph", result.Activation?.MemberSection);
+            Assert.NotNull(result.CallGraph);
+            Assert.False(result.CallGraph.NoBody);
+            Assert.Equal(2, result.CallGraph.Scope.Packages);
+            Assert.Contains(
+                nameof(HomeDemoRunFixture),
+                result.CallGraph.Mermaid,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            BrowserPackageWorkspace.RemoveScope(scope);
+        }
+    }
+
+    public static int HomeDemoRunFixture(int value) =>
+        Math.Abs(value);
+
+    public static string HomeDemoRunFixture(string value) =>
+        value.Trim();
+
+    [Fact]
     public void CallGraphMermaid_ContainsArtifactLabels()
     {
         TypeRef declaringType = TypeRef.Definition(
