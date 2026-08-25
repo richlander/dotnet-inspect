@@ -13,7 +13,9 @@
 // by the caller so this module can be built and tested against fake sources
 // before the real #4551-backed source client exists and the shell wiring
 // lands. Swapping in the real source for whatever satisfies this interface at
-// wiring time is the intended integration step; nothing else here changes.
+// wiring time is *expected* to be the whole integration step, but that
+// expectation is unverified until it actually happens — see the design doc's
+// Landing sequence for the same caveat.
 
 /** A single named predicate a facet contributes to the request (1:1 with a
  * CLI-shipped profile flag; see the design doc's v1 non-goals). */

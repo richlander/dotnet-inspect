@@ -69,7 +69,13 @@ function renderFacetGroup(
   const items = facets.map(facet => {
     const active = activeKeys.has(facet.key) ? "active" : "";
     const tierBadge = facet.tier === "promoted" ? `<small class="query-tier-badge">deepen</small>` : "";
-    return `<button class="type-chip ${active}" data-query-facet="${escapeHtml(facet.key)}">${escapeHtml(facet.label)}${tierBadge}</button>`;
+    // The design doc's two-tier evaluation table says a promoted facet is
+    // disabled "until rows are selected and Deepen is invoked" — there is no
+    // model of a post-Deepen state yet (Deepen only forwards to the caller
+    // via onDeepen; see bindPackageQueryView), so today that condition can
+    // never be satisfied and a promoted facet must always render disabled.
+    const disabled = facet.tier === "promoted" ? "disabled" : "";
+    return `<button class="type-chip ${active}" data-query-facet="${escapeHtml(facet.key)}" ${disabled}>${escapeHtml(facet.label)}${tierBadge}</button>`;
   }).join("");
   return `<div class="query-facet-group"><h3>${escapeHtml(label)}</h3><div class="type-chip-list">${items}</div></div>`;
 }

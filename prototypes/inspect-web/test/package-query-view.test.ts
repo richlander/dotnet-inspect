@@ -88,6 +88,19 @@ test("a streaming result renders rows, tiers, facets, and the streaming footer",
   assert.match(html, /data-query-cancel="1"/);
 });
 
+test("promoted facets render disabled — there is no Deepen-invoked state yet to ever enable them", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: appendRows(emptyOutcome(), [row("A")]),
+    selected: new Set(["A"]),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.match(html, /data-query-facet="union-usage" disabled/);
+  assert.doesNotMatch(html, /data-query-facet="tfm-out-of-support" disabled/);
+});
+
 test("failures render alongside already-streamed rows, never as a bare empty state", () => {
   const state: PackageQueryState = {
     request: createQueryRequest("Microsoft.*", "Microsoft."),
