@@ -657,6 +657,61 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks()
+    {
+        CatalogGroupDefinition group = new("leaf");
+        for (int depth = 1;
+            depth < InspectionDefinitionJson.MaxGroupDepth;
+            depth++)
+        {
+            group = new CatalogGroupDefinition($"g{depth}", children: [group]);
+        }
+
+        var maximumDepth = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups: [group]);
+        string json = InspectionDefinitionJson.Serialize(maximumDepth);
+        var parsed = Assert.IsType<WorkspaceDefinition>(
+            InspectionDefinitionJson.Parse(json));
+        Assert.Single(parsed.Groups);
+
+        var excessiveDepth = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups:
+            [
+                new CatalogGroupDefinition(
+                    "too-deep",
+                    children: [group]),
+            ]);
+        var depthException = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(excessiveDepth));
+        Assert.Contains(
+            "depth",
+            depthException.Message,
+            StringComparison.OrdinalIgnoreCase);
+
+        CatalogGroupDefinition[] excessiveNodes = Enumerable
+            .Range(0, InspectionDefinitionJson.MaxGroupsPerRecord + 1)
+            .Select(index => new CatalogGroupDefinition($"g{index}"))
+            .ToArray();
+        var excessiveCount = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups: excessiveNodes);
+        var countException = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(excessiveCount));
+        Assert.Contains(
+            "group",
+            countException.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parse_RejectsBlankQueryIdAndViewSelectors()
     {
         var queryEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(

@@ -789,11 +789,14 @@ not supply duplicate-key hardening — current `CorpusManifest.FromJson`
 deserializes directly. The new workspace loader first uses `HardenedJson` to
 reject duplicate properties, then binds through a generated context configured
 to reject unmapped members recursively. A file is limited to 1 MiB of UTF-8
-JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates; a bundle applies
-the same per-record limits and its own aggregate byte/record budget. Stream
-reads and multi-record bundle loads honor cancellation before each record.
-Limit, cancellation, malformed input, duplicate-key, and unknown-property
-failures remain typed and distinct from an empty definition.
+JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates. Catalog-group
+trees have an additional portable limit of 30 levels and 1024 nodes, validated
+iteratively on authored records before recursive text, coordinate, or
+serialization work and after bounded JSON binding on parsed records. A bundle
+applies the same per-record limits and its own aggregate byte/record budget.
+Stream reads and multi-record bundle loads honor cancellation before each
+record. Limit, cancellation, malformed input, duplicate-key, and
+unknown-property failures remain typed and distinct from an empty definition.
 
 `CorpusManifest` remains the corpus-specific persisted recipe; workspace
 definitions subsume neither its corpus ordering nor its population API, and
@@ -898,8 +901,10 @@ Implementation must add, at minimum:
   `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind`,
   `Parse_RejectsDuplicateProperties`, `Parse_RejectsUnknownProperties`, and
   `Parse_RejectsUnknownKindAndSchemaVersion` cover the closed record kinds and
-  hardened bind path; well-known group redefinition, depth/value budgets, and
-  cancellation remain open;
+  hardened bind path;
+  `Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks` gates the
+  portable group-tree bounds; well-known group redefinition, broader JSON
+  depth/value budgets, and cancellation remain open;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
@@ -942,6 +947,10 @@ Implementation must add, at minimum:
   `ToPacket_ValidatesDocumentLocalGroupsBeforeRefusal`,
   `ToPacket_ValidatesRicherCoordinatesBeforeRefusal`,
   `ToPacket_ValidatesRicherCoordinateRelationshipsBeforeRefusal`,
+  `ToPacket_RejectsConflictingCoordinateTabTargetsBeforeRefusal`,
+  `ToPacket_ClassifiesNavigationSubsetAsNonProjectable`,
+  `ToPacket_RejectsExcessiveGroupDepthWithTypedFailure`,
+  `ToPacket_OverCapacityPreflightRemainsNearLinear`,
   `ToPacket_ClassifiesPacketCapacityAsNonProjectable`,
   `ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable`, and the
   neighboring `ToPacket_Rejects*` tests gate those properties;
@@ -1059,6 +1068,9 @@ Definition records and product demos (this slice):
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
   signatures, and the pinned scalar-escaping rules;
+- `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
+  limits and iteratively rejects catalog-group trees over 30 levels or 1024
+  nodes before recursively processing authored records;
 - `WorkspaceSharePacketTransposer` converts that semantic packet to one
   isolated packet-local workspace, navigation, view, and scenario record set.
   The reverse projection preserves navigation order, independent focus and
@@ -1067,10 +1079,14 @@ Definition records and product demos (this slice):
   normalizes equivalent framework and exact-version spellings, preserves
   explicit null targets beside qualified copies, distinguishes malformed
   definition sets from valid state outside v1, validates the whole portable
-  definition set before making that distinction, and returns a typed projection
-  outcome rather than flattening either. The transposer validates forward input
-  and reverse output through `WorkspaceSharePacketCodec`; it does not resolve
-  groups, acquire artifacts, bind a query, or execute the scenario; and
+  definition set before making that distinction, uses target-aware hash indexes
+  so over-capacity validation remains near-linear, and returns a typed
+  projection outcome rather than flattening either. A valid navigation subset
+  and duplicate valid context composition are non-projectable; unmatched,
+  ambiguous, duplicate, or target-conflicting tab sources are invalid. The
+  transposer validates forward input and reverse output through
+  `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
+  bind a query, or execute the scenario; and
 - `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
   already-acquired package descriptors as coordinated surface and
   implementation groups. It owns role-local binding, identity collision

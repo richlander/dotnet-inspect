@@ -20,6 +20,12 @@ public static class InspectionDefinitionJson
     /// <summary>Maximum coordinates accepted across one record's nested lists.</summary>
     public const int MaxCoordinatesPerRecord = 1_024;
 
+    /// <summary>Maximum nested catalog-group levels in one portable record.</summary>
+    public const int MaxGroupDepth = 30;
+
+    /// <summary>Maximum catalog-group nodes in one portable record.</summary>
+    public const int MaxGroupsPerRecord = 1_024;
+
     private static readonly Encoding s_utf8Strict = new UTF8Encoding(
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
@@ -81,7 +87,20 @@ public static class InspectionDefinitionJson
         EnsureWithinPortableLimits(record);
         EnsureWellFormedUtf16(record);
         var dto = ToDto(record);
-        var json = JsonSerializer.Serialize(dto, InspectionDefinitionJsonContext.Default.InspectionDefinitionDto);
+        string json;
+        try
+        {
+            json = JsonSerializer.Serialize(
+                dto,
+                InspectionDefinitionJsonContext.Default.InspectionDefinitionDto);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            throw new InspectionDefinitionException(
+                $"Definition cannot be serialized: {ex.Message}",
+                ex);
+        }
+
         var byteCount = s_utf8Strict.GetByteCount(json);
         if (byteCount > MaxUtf8ByteLength)
         {
@@ -98,11 +117,51 @@ public static class InspectionDefinitionJson
     /// </summary>
     private static void EnsureWithinPortableLimits(InspectionDefinitionRecord record)
     {
+        EnsureGroupLimits(record);
         var coordinateCount = CountCoordinates(record);
         if (coordinateCount > MaxCoordinatesPerRecord)
         {
             throw new InspectionDefinitionException(
                 $"Definition exceeds the {MaxCoordinatesPerRecord}-coordinate limit.");
+        }
+    }
+
+    private static void EnsureGroupLimits(InspectionDefinitionRecord record)
+    {
+        IReadOnlyList<CatalogGroupDefinition> roots = record switch
+        {
+            CatalogDefinition catalog => catalog.Groups,
+            WorkspaceDefinition workspace => workspace.Groups,
+            _ => Array.Empty<CatalogGroupDefinition>(),
+        };
+        if (roots.Count == 0)
+            return;
+
+        var pending = new Stack<(CatalogGroupDefinition Group, int Depth)>();
+        for (int index = roots.Count - 1; index >= 0; index--)
+            pending.Push((roots[index], 1));
+
+        int count = 0;
+        while (pending.TryPop(out var item))
+        {
+            count++;
+            if (count > MaxGroupsPerRecord)
+            {
+                throw new InspectionDefinitionException(
+                    $"Definition exceeds the {MaxGroupsPerRecord}-group limit.");
+            }
+            if (item.Depth > MaxGroupDepth)
+            {
+                throw new InspectionDefinitionException(
+                    $"Definition exceeds the {MaxGroupDepth}-level group depth limit.");
+            }
+
+            for (int index = item.Group.Children.Count - 1; index >= 0; index--)
+            {
+                pending.Push((
+                    item.Group.Children[index],
+                    item.Depth + 1));
+            }
         }
     }
 
@@ -291,7 +350,9 @@ public static class InspectionDefinitionJson
             throw new InspectionDefinitionException($"Definition JSON is invalid: {ex.Message}", ex);
         }
 
-        return FromDto(dto);
+        InspectionDefinitionRecord record = FromDto(dto);
+        EnsureWithinPortableLimits(record);
+        return record;
     }
 
     private static void ValidateRecordShape(JsonElement root)

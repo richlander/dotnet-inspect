@@ -481,9 +481,9 @@ public static class WorkspaceSharePacketTransposer
 
         if (matchedSources.Count != allSources.Count)
         {
-            return InvalidDefinition(
+            return NonProjectable(
                 "navigation.tabs",
-                "Every workspace context source must have one navigation tab.");
+                "Packet v1 cannot preserve workspace sources omitted from navigation.");
         }
 
         var packetContexts = new WorkspaceShareContext[contextSources.Count];
@@ -659,7 +659,7 @@ public static class WorkspaceSharePacketTransposer
         if (failure is not null)
             return failure;
 
-        var allSources = new List<AuthoredSourceIdentity>();
+        var allSources = new AuthoredSourceIndex();
         for (int contextIndex = 0;
             contextIndex < workspace.Contexts.Count;
             contextIndex++)
@@ -768,8 +768,7 @@ public static class WorkspaceSharePacketTransposer
                         $"{path}.members[{sourceIndex}]",
                         "A workspace context must not repeat one source.");
                 }
-                if (!allSources.Contains(source))
-                    allSources.Add(source);
+                _ = allSources.Add(source);
             }
         }
 
@@ -826,6 +825,20 @@ public static class WorkspaceSharePacketTransposer
                 coordinate,
                 out string? framework,
                 out string? runtimeIdentifier);
+            framework = MergeNavigationTarget(
+                framework,
+                tabFramework,
+                path + ".framework",
+                out failure);
+            if (failure is not null)
+                return failure;
+            runtimeIdentifier = MergeNavigationTarget(
+                runtimeIdentifier,
+                tabRuntimeIdentifier,
+                path + ".runtimeIdentifier",
+                out failure);
+            if (failure is not null)
+                return failure;
             selectors.Add((
                 CreateAuthoredSource(
                     coordinate,
@@ -845,34 +858,31 @@ public static class WorkspaceSharePacketTransposer
                 "Navigation focus must name exactly one tab.");
         }
 
-        var matchedSources = new List<AuthoredSourceIdentity>();
+        var matchedSources = new HashSet<AuthoredSourceIdentity>();
         foreach ((AuthoredSourceIdentity selector, string path) in selectors)
         {
-            AuthoredSourceIdentity[] matches =
-                FindAuthoredMatches(selector, allSources);
-            if (matches.Length != 1)
+            AuthoredSourceMatch match = allSources.Find(selector);
+            if (match.Count != 1)
             {
                 return InvalidDefinition(
                     path,
-                    matches.Length == 0
+                    match.Count == 0
                         ? "The navigation source does not match a workspace context source."
                         : "The navigation source is ambiguous across effective context targets.");
             }
-            if (matchedSources.Contains(matches[0]))
+            if (!matchedSources.Add(match.Identity!))
             {
                 return InvalidDefinition(
                     path,
                     "Navigation contains a duplicate packet source tuple.");
             }
-
-            matchedSources.Add(matches[0]);
         }
 
         return matchedSources.Count == allSources.Count
             ? null
-            : InvalidDefinition(
+            : NonProjectable(
                 "navigation.tabs",
-                "Every workspace context source must have one navigation tab.");
+                "Packet v1 cannot preserve workspace sources omitted from navigation.");
     }
 
     private static WorkspaceSharePacketProjectionResult? ValidateCatalogGroups(
@@ -1157,43 +1167,6 @@ public static class WorkspaceSharePacketTransposer
         }
     }
 
-    private static AuthoredSourceIdentity[] FindAuthoredMatches(
-        AuthoredSourceIdentity selector,
-        IReadOnlyList<AuthoredSourceIdentity> sources)
-    {
-        AuthoredSourceIdentity[] candidates = sources
-            .Where(candidate =>
-                SameAuthoredSourceCore(candidate, selector)
-                && MatchesOrInherits(
-                    selector.Framework,
-                    candidate.Framework)
-                && MatchesOrInherits(
-                    selector.RuntimeIdentifier,
-                    candidate.RuntimeIdentifier))
-            .ToArray();
-        AuthoredSourceIdentity[] exactTargets = candidates
-            .Where(candidate =>
-                string.Equals(
-                    candidate.Framework,
-                    selector.Framework,
-                    StringComparison.Ordinal)
-                && string.Equals(
-                    candidate.RuntimeIdentifier,
-                    selector.RuntimeIdentifier,
-                    StringComparison.Ordinal))
-            .ToArray();
-        return exactTargets.Length == 0 ? candidates : exactTargets;
-    }
-
-    private static bool SameAuthoredSourceCore(
-        AuthoredSourceIdentity left,
-        AuthoredSourceIdentity right) =>
-        string.Equals(left.Kind, right.Kind, StringComparison.Ordinal)
-        && string.Equals(left.Primary, right.Primary, StringComparison.Ordinal)
-        && string.Equals(left.Secondary, right.Secondary, StringComparison.Ordinal)
-        && string.Equals(left.Tertiary, right.Tertiary, StringComparison.Ordinal)
-        && string.Equals(left.Quaternary, right.Quaternary, StringComparison.Ordinal);
-
     private static WorkspaceSharePacketProjectionResult? ValidateRecordEnvelope(
         WorkspaceDefinition workspace,
         NavigationDefinition navigation,
@@ -1240,6 +1213,27 @@ public static class WorkspaceSharePacketTransposer
         failure = InvalidDefinition(
             path,
             "Context and package member target declarations disagree.");
+        return null;
+    }
+
+    private static string? MergeNavigationTarget(
+        string? coordinateValue,
+        string? tabValue,
+        string path,
+        out WorkspaceSharePacketProjectionResult? failure)
+    {
+        failure = null;
+        if (coordinateValue is null)
+            return tabValue;
+        if (tabValue is null
+            || string.Equals(coordinateValue, tabValue, StringComparison.Ordinal))
+        {
+            return coordinateValue;
+        }
+
+        failure = InvalidDefinition(
+            path,
+            "Coordinate and navigation tab target declarations disagree.");
         return null;
     }
 
@@ -1526,6 +1520,162 @@ public static class WorkspaceSharePacketTransposer
                 null,
                 framework,
                 runtimeIdentifier);
+    }
+
+    private readonly record struct AuthoredSourceCore(
+        string Kind,
+        string Primary,
+        string? Secondary,
+        string? Tertiary,
+        string? Quaternary)
+    {
+        public static AuthoredSourceCore From(AuthoredSourceIdentity source) =>
+            new(
+                source.Kind,
+                source.Primary,
+                source.Secondary,
+                source.Tertiary,
+                source.Quaternary);
+    }
+
+    private readonly record struct AuthoredTarget(
+        string? Framework,
+        string? RuntimeIdentifier);
+
+    private readonly record struct NullableTarget(string? Value);
+
+    private readonly record struct AuthoredSourceMatch(
+        int Count,
+        AuthoredSourceIdentity? Identity);
+
+    private sealed class AuthoredSourceIndex
+    {
+        private readonly HashSet<AuthoredSourceIdentity> _sources = [];
+        private readonly Dictionary<AuthoredSourceCore, TargetBucket> _byCore =
+            [];
+
+        public int Count => _sources.Count;
+
+        public bool Add(AuthoredSourceIdentity source)
+        {
+            if (!_sources.Add(source))
+                return false;
+
+            AuthoredSourceCore core = AuthoredSourceCore.From(source);
+            if (!_byCore.TryGetValue(core, out TargetBucket? bucket))
+            {
+                bucket = new TargetBucket();
+                _byCore.Add(core, bucket);
+            }
+
+            bucket.Add(source);
+            return true;
+        }
+
+        public AuthoredSourceMatch Find(AuthoredSourceIdentity selector)
+        {
+            if (!_byCore.TryGetValue(
+                AuthoredSourceCore.From(selector),
+                out TargetBucket? bucket))
+            {
+                return default;
+            }
+
+            return bucket.Find(
+                new AuthoredTarget(
+                    selector.Framework,
+                    selector.RuntimeIdentifier));
+        }
+    }
+
+    private sealed class TargetBucket
+    {
+        private readonly Dictionary<AuthoredTarget, AuthoredSourceIdentity>
+            _exact = [];
+        private readonly Dictionary<NullableTarget, MatchAccumulator>
+            _byFramework = [];
+        private readonly Dictionary<NullableTarget, MatchAccumulator>
+            _byRuntimeIdentifier = [];
+        private readonly MatchAccumulator _all = new();
+
+        public void Add(AuthoredSourceIdentity source)
+        {
+            var target = new AuthoredTarget(
+                source.Framework,
+                source.RuntimeIdentifier);
+            _exact.Add(target, source);
+            Add(_byFramework, new NullableTarget(source.Framework), source);
+            Add(
+                _byRuntimeIdentifier,
+                new NullableTarget(source.RuntimeIdentifier),
+                source);
+            _all.Add(source);
+        }
+
+        public AuthoredSourceMatch Find(AuthoredTarget selector)
+        {
+            if (_exact.TryGetValue(
+                selector,
+                out AuthoredSourceIdentity? exact))
+            {
+                return new AuthoredSourceMatch(1, exact);
+            }
+            if (selector.Framework is not null
+                && selector.RuntimeIdentifier is not null)
+            {
+                return default;
+            }
+            if (selector.Framework is not null)
+            {
+                return Find(
+                    _byFramework,
+                    new NullableTarget(selector.Framework));
+            }
+            if (selector.RuntimeIdentifier is not null)
+            {
+                return Find(
+                    _byRuntimeIdentifier,
+                    new NullableTarget(selector.RuntimeIdentifier));
+            }
+
+            return _all.Snapshot();
+        }
+
+        private static void Add(
+            Dictionary<NullableTarget, MatchAccumulator> index,
+            NullableTarget key,
+            AuthoredSourceIdentity source)
+        {
+            if (!index.TryGetValue(key, out MatchAccumulator? accumulator))
+            {
+                accumulator = new MatchAccumulator();
+                index.Add(key, accumulator);
+            }
+
+            accumulator.Add(source);
+        }
+
+        private static AuthoredSourceMatch Find(
+            Dictionary<NullableTarget, MatchAccumulator> index,
+            NullableTarget key) =>
+            index.TryGetValue(key, out MatchAccumulator? accumulator)
+                ? accumulator.Snapshot()
+                : default;
+    }
+
+    private sealed class MatchAccumulator
+    {
+        private int _count;
+        private AuthoredSourceIdentity? _identity;
+
+        public void Add(AuthoredSourceIdentity source)
+        {
+            _count++;
+            _identity ??= source;
+        }
+
+        public AuthoredSourceMatch Snapshot() =>
+            new(_count, _count == 1 ? _identity : null);
     }
 
     private sealed record SourceTuple(

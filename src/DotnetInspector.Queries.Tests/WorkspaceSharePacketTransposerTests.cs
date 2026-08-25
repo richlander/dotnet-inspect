@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Queries.Tests;
@@ -134,6 +135,18 @@ public sealed class WorkspaceSharePacketTransposerTests
                 [
                     Package("A", "1.0.0", runtimeIdentifier: "linux-x64"),
                     Package("A", "1.0.0"),
+                ],
+                [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]),
+            CreatePacket(
+                [
+                    Package("A", "1.0.0", runtimeIdentifier: "linux-x64"),
+                    Package("A", "1.0.0", "net10.0", "linux-x64"),
+                ],
+                [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]),
+            CreatePacket(
+                [
+                    Package("A", "1.0.0", "net10.0"),
+                    Package("A", "1.0.0", "net10.0", "linux-x64"),
                 ],
                 [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]),
             CreatePacket(
@@ -484,6 +497,38 @@ public sealed class WorkspaceSharePacketTransposerTests
             projection.Failure?.Kind);
         Assert.Equal("navigation.tabs[0]", projection.Failure?.Path);
         Assert.Contains("coordinate", projection.Failure?.Message);
+    }
+
+    [Fact]
+    public void ToPacket_RejectsConflictingCoordinateTabTargetsBeforeRefusal()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [Context("c", "net10.0", PackageCoordinate("P", "1.0.0"))]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate(
+                            "P",
+                            "1.0.0",
+                            "net10.0"),
+                        framework: "net9.0"),
+                ],
+                "p"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal(
+            "navigation.tabs[0].framework",
+            projection.Failure?.Path);
     }
 
     [Fact]
@@ -927,6 +972,112 @@ public sealed class WorkspaceSharePacketTransposerTests
             WorkspaceSharePacketProjectionFailureKind.NonProjectable,
             projection.Failure?.Kind);
         Assert.Equal("workspace.contexts[1]", projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ClassifiesNavigationSubsetAsNonProjectable()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [
+                    Context(
+                        "c",
+                        "net10.0",
+                        PackageCoordinate("P", "1.0.0"),
+                        PackageCoordinate("Q", "1.0.0")),
+                ]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate(
+                            "P",
+                            "1.0.0",
+                            "net10.0")),
+                ],
+                "p"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("navigation.tabs", projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_RejectsExcessiveGroupDepthWithTypedFailure()
+    {
+        CatalogGroupDefinition group = new("leaf");
+        for (int depth = 0;
+            depth < InspectionDefinitionJson.MaxGroupDepth;
+            depth++)
+        {
+            group = new CatalogGroupDefinition($"g{depth}", children: [group]);
+        }
+
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [Context("c", "net10.0", PackageCoordinate("P", "1.0.0"))],
+                groups: [group]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate(
+                            "P",
+                            "1.0.0",
+                            "net10.0")),
+                ],
+                "p"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal("workspace", projection.Failure?.Path);
+        Assert.Contains("depth", projection.Failure?.Message);
+    }
+
+    [Fact]
+    public void ToPacket_OverCapacityPreflightRemainsNearLinear()
+    {
+        const int Count = 8_000;
+        WorkspaceContextDefinition[] contexts = Enumerable.Range(0, Count)
+            .Select(index => new WorkspaceContextDefinition(
+                $"c{index}",
+                "net10.0",
+                subscribe: $":Platform@1.0.{index}"))
+            .ToArray();
+        NavigationTabDefinition[] tabs = Enumerable.Range(0, Count)
+            .Select(index => new NavigationTabDefinition(
+                $"t{index}",
+                subscribe: $":Platform@1.0.{index}",
+                framework: "net10.0"))
+            .ToArray();
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(1, "ws", contexts),
+            new NavigationDefinition(1, "nav", tabs, "t0"));
+
+        var stopwatch = Stopwatch.StartNew();
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+        stopwatch.Stop();
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Preflight took {stopwatch.Elapsed.TotalMilliseconds:F1} ms.");
     }
 
     [Fact]
