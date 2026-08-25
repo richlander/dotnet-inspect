@@ -67,7 +67,9 @@ The individual workflows validate their own evidence:
 `validate-inspect-web-promotion.sh` fixes the staging SHA, run attempt,
 artifact ID, and digest. Comparing the two resolved SHAs remains an explicit
 operator gate; no single workflow currently verifies the cross-workflow
-equality.
+equality. Perform that comparison before dispatch: the `nuget` environment has
+no approval gate, so package publication proceeds automatically after its
+builds.
 
 ## Packages
 
@@ -209,8 +211,11 @@ both before dispatching, and expect to update them:
    only after reviewing the commits between the certified and target SHAs.
 9. Dispatch both workflows as one operator action. Do not substitute a newer
    run for either side after the exact-SHA comparison.
-10. Confirm that both resolve jobs report the expected release SHA.
-11. Wait for every package build to succeed, then approve the NuGet environment.
+10. Confirm immediately that both resolve jobs report the expected release SHA.
+    If either is wrong, cancel the package workflow before its publish job
+    starts and leave the production-site environment unapproved.
+11. Monitor the package builds and automatic NuGet publication. There is no
+    NuGet environment approval after dispatch.
 12. Wait for the package workflow and GitHub release to succeed, then approve
     the production-site environment. Never promote the site first.
 
@@ -268,8 +273,13 @@ check the production site's status bar for the same version and linked commit.
 - **The package workflow fails before site approval:** leave the production-site
   environment unapproved and retry package publication with the same CI and
   certification run IDs.
+- **The release commit's staging run was cancelled by a newer push:** wait for
+  active staging work to finish, then rerun the original push-triggered run with
+  `gh run rerun <staging-run-id>`. Use that successful rerun for promotion; a
+  manually dispatched staging run is still not promotable.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
-- **Either side resolves a different SHA:** cancel before approving publication
-  and select matching evidence. Do not treat ancestry or an equal version string
-  as a match.
+- **Either side resolves a different SHA:** cancel the package workflow
+  immediately, leave the site unapproved, and select matching evidence. If
+  package publication already started, audit the partial immutable package set
+  before retrying. Do not treat ancestry or an equal version string as a match.

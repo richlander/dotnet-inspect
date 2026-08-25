@@ -55,6 +55,10 @@ printf 'release SHA: %s\n' "$ci_sha"
 `allow_later_commit` changes the package target; it never relaxes site
 identity. When using it, select a staging run for the later exact SHA.
 
+The SHA comparison is the last dependable veto before dispatch. The `nuget`
+environment has no approval gate; package publication proceeds automatically
+after its builds.
+
 Confirm that the release commit contains the intended `VersionPrefix`, release
 notes, package `README.md`, and embedded product skills. Record the documentation
 checkpoint even when no edits were required.
@@ -67,8 +71,10 @@ Open `release.yml` and `promote-inspect-web.yml` together:
    `allow_later_commit` value, and `confirm=publish`.
 2. Dispatch `promote-inspect-web.yml` with the matching staging run ID and
    `confirm=promote`.
-3. Confirm that both resolve jobs report the same full release SHA.
-4. Wait for every package build to succeed, then approve the NuGet environment.
+3. Confirm immediately that both resolve jobs report the same full release SHA.
+   If either is wrong, cancel package publication before its publish job starts
+   and leave site production unapproved.
+4. Monitor the package builds and automatic NuGet publication.
 5. Wait for the package workflow and GitHub release to succeed, then approve
    the production-site environment. Never promote the site first.
 
@@ -86,3 +92,13 @@ already-published artifacts with `--skip-duplicate`. If site promotion fails
 after package publication, retry with the same staging run ID; site retries
 revalidate and promote the same staged artifact. A different SHA, ancestry-only
 relationship, or matching version string is not a valid substitute.
+
+If a newer `main` push cancels the release commit's staging run, wait for active
+staging work to finish and rerun the original push-triggered run:
+
+```bash
+gh run rerun "$staging_run_id"
+```
+
+Promote that successful rerun. Do not substitute a manual staging dispatch;
+promotion rejects non-push runs.
