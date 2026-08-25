@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   captureMemberFocus as captureMemberFocusImpl,
   createMemberFocusRestorer as createMemberFocusRestorerImpl,
+  focusPlatformGraphError as focusPlatformGraphErrorImpl,
   resolveMemberFocusSnapshot,
   restoreMemberFocus as restoreMemberFocusImpl,
 } from "../src/member-focus.ts";
@@ -45,6 +46,12 @@ function restoreMemberFocus(
 ): void {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   restoreMemberFocusImpl(document as unknown as Document, snapshot, requestFrame, isCurrent);
+}
+
+function focusPlatformGraphError(document: MockDocument): boolean {
+  // The harness supplies the exact DOM subset the product reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return focusPlatformGraphErrorImpl(document as unknown as Document);
 }
 
 function createMemberFocusRestorer() {
@@ -99,6 +106,32 @@ function createDocument() {
   };
   return { document, element, elements };
 }
+
+test("a blocked graph refusal receives focus after replacement render", () => {
+  const { document, element } = createDocument();
+  const oldNode = element("#old-graph-node", {
+    id: "flowchart-n1-0",
+  });
+  document.activeElement = oldNode;
+
+  oldNode.isConnected = false;
+  document.activeElement = document.body;
+  const error = element("#platform-drill-error", {
+    id: "platform-drill-error",
+  });
+
+  assert.equal(focusPlatformGraphError(document), true);
+  assert.equal(document.activeElement, error);
+});
+
+test("a missing graph refusal does not disturb current focus", () => {
+  const { document, element } = createDocument();
+  const unrelated = element("#unrelated", { id: "unrelated" });
+  document.activeElement = unrelated;
+
+  assert.equal(focusPlatformGraphError(document), false);
+  assert.equal(document.activeElement, unrelated);
+});
 
 test("navigation focus and scroll survive completion before loading focus restores", () => {
   const { document, element, elements } = createDocument();
@@ -325,29 +358,29 @@ test("member and overload rows survive activation renders", () => {
       return 1;
     });
 
-    test("taste controls survive source completion renders", () => {
-      const { document: tasteDocument, element: tasteElement } = createDocument();
-      const tasteSelector = "[data-taste=\"prefer-var\"]";
-      const initialCheckbox = tasteElement(tasteSelector, {
-        dataset: { taste: "prefer-var" },
-      });
-      tasteDocument.activeElement = initialCheckbox;
-      const tasteSnapshot = captureMemberFocus(tasteDocument);
-
-      const replacementCheckbox = tasteElement(tasteSelector, {
-        dataset: { taste: "prefer-var" },
-      });
-      tasteDocument.activeElement = tasteDocument.body;
-      restoreMemberFocus(tasteDocument, tasteSnapshot, callback => {
-        callback(0);
-        return 1;
-      });
-
-      assert.equal(tasteDocument.activeElement, replacementCheckbox);
-    });
-
     assert.equal(document.activeElement, replacementButton);
   }
+});
+
+test("taste controls survive source completion renders", () => {
+  const { document, element } = createDocument();
+  const selector = "[data-taste=\"prefer-var\"]";
+  const initialCheckbox = element(selector, {
+    dataset: { taste: "prefer-var" },
+  });
+  document.activeElement = initialCheckbox;
+  const snapshot = captureMemberFocus(document);
+
+  const replacementCheckbox = element(selector, {
+    dataset: { taste: "prefer-var" },
+  });
+  document.activeElement = document.body;
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementCheckbox);
 });
 
 test("deferred restoration does not steal intentionally moved focus", () => {

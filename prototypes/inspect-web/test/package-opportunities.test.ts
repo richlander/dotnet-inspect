@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   bindPackageOpportunities,
   renderPackageOpportunities,
+  type OpportunityItem,
   type PackageOpportunitiesBindingActions,
+  type PackageOpportunityTarget,
 } from "../src/package-opportunities.ts";
 import { fakeDom } from "./fake-dom.ts";
 
@@ -45,7 +47,7 @@ function recordingActions(calls: string[]): PackageOpportunitiesBindingActions {
   return {
     onLookForSelect: query => calls.push(`look:${query}`),
     onPackageSelect: packageId => calls.push(`package:${packageId}`),
-    onTypeSelect: typeId => calls.push(`type:${typeId}`),
+    onTypeSelect: target => calls.push(`type:${target.typeId}`),
   };
 }
 
@@ -117,6 +119,58 @@ test("opportunity bindings preserve empty values for malformed controls", () => 
   assert.deepEqual(calls, ["type:", "package:", "look:"]);
 });
 
+test("opportunity bindings preserve exact source identity for type navigation", () => {
+  const root = new FakeRoot();
+  const type = new FakeElement({
+    oppType: "Contoso.Widget",
+    oppSourceIdentity: "exact",
+    oppSourceDefinition: "Contoso.Widget",
+    oppSourceAssembly: "Contoso.Core",
+    oppSourceVersion: "2.0.0.0",
+    oppSourceCulture: "neutral",
+    oppSourceToken: "0011223344556677",
+  });
+  root.add("[data-opp-type]", type);
+  let selected: PackageOpportunityTarget | null = null;
+  bindPackageOpportunities(fakeDom.parentNode(root), {
+    ...recordingActions([]),
+    onTypeSelect: target => { selected = target; },
+  });
+
+  type.dispatch("click");
+
+  assert.deepEqual(selected, {
+    typeId: "Contoso.Widget",
+    sourceIdentity: "exact",
+    sourceDefinitionId: "Contoso.Widget",
+    sourceAssembly: "Contoso.Core",
+    sourceAssemblyVersion: "2.0.0.0",
+    sourceAssemblyCulture: "neutral",
+    sourceAssemblyPublicKeyToken: "0011223344556677",
+  });
+});
+
+test("opportunity bindings distinguish legacy and explicitly unknown sources", () => {
+  const root = new FakeRoot();
+  const legacy = new FakeElement({ oppType: "Contoso.Legacy" });
+  const unknown = new FakeElement({
+    oppType: "Contoso.Unknown",
+    oppSourceIdentity: "unknown",
+  });
+  root.add("[data-opp-type]", legacy, unknown);
+  const selected: PackageOpportunityTarget[] = [];
+  bindPackageOpportunities(fakeDom.parentNode(root), {
+    ...recordingActions([]),
+    onTypeSelect: target => selected.push(target),
+  });
+
+  legacy.dispatch("click");
+  unknown.dispatch("click");
+
+  assert.equal(selected[0]?.sourceIdentity, "legacy");
+  assert.equal(selected[1]?.sourceIdentity, "unknown");
+});
+
 function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -136,6 +190,20 @@ const baseOptions = {
   data: null,
   escapeHtml,
 };
+
+function opportunity(
+  item: Pick<OpportunityItem, "api" | "integrationType" | "lookFor">
+    & Partial<OpportunityItem>,
+): OpportunityItem {
+  return {
+    sourceDefinitionId: item.api,
+    sourceAssembly: "Test.Assembly",
+    sourceAssemblyVersion: "1.0.0.0",
+    sourceAssemblyCulture: null,
+    sourceAssemblyPublicKeyToken: null,
+    ...item,
+  };
+}
 
 test("a platform package with no scoped library prompts to pick one, before any scan runs", () => {
   const html = renderPackageOpportunities({
@@ -216,7 +284,7 @@ test("categories render a summary with area/suggestion counts and a chip per cat
     ...baseOptions,
     data: {
       categories: [
-        { integration: "Auth", items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }] },
+        { integration: "Auth", items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })] },
         { integration: "Database", items: [] },
       ],
       totalOpportunities: 1,
@@ -235,7 +303,16 @@ test("an opportunity row splits the API into short name and qualifier", () => {
     data: {
       categories: [{
         integration: "AI",
-        items: [{ api: "System.ClientModel.Primitives.PipelineMessage", integrationType: "IServiceCollection registration", lookFor: "" }],
+        items: [{
+          api: "System.ClientModel.Primitives.PipelineMessage",
+          integrationType: "IServiceCollection registration",
+          lookFor: "",
+          sourceDefinitionId: 'System.ClientModel.Primitives.Pipeline"Message',
+          sourceAssembly: "System.ClientModel",
+          sourceAssemblyVersion: "1.2.3.4",
+          sourceAssemblyCulture: null,
+          sourceAssemblyPublicKeyToken: "0011223344556677",
+        }],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -244,6 +321,56 @@ test("an opportunity row splits the API into short name and qualifier", () => {
 
   assert.match(html, /<span class="opp-type-name">PipelineMessage<\/span><span class="opp-type-ns">System\.ClientModel\.Primitives<\/span>/);
   assert.match(html, /data-opp-type="System\.ClientModel\.Primitives\.PipelineMessage"/);
+  assert.match(html, /data-opp-source-identity="exact"/);
+  assert.match(html, /data-opp-source-definition="System\.ClientModel\.Primitives\.Pipeline&quot;Message"/);
+  assert.match(html, /data-opp-source-assembly="System\.ClientModel"/);
+  assert.match(html, /data-opp-source-version="1\.2\.3\.4"/);
+  assert.match(html, /data-opp-source-culture=""/);
+  assert.match(html, /data-opp-source-token="0011223344556677"/);
+});
+
+test("an explicitly unknown source identity remains distinct from a legacy row", () => {
+  const currentHtml = renderPackageOpportunities({
+    ...baseOptions,
+    data: {
+      categories: [{
+        integration: "AI",
+        items: [{
+          api: "Example.Current",
+          integrationType: "IServiceCollection registration",
+          lookFor: "",
+          sourceDefinitionId: null,
+          sourceAssembly: "Example",
+          sourceAssemblyVersion: "",
+          sourceAssemblyCulture: null,
+          sourceAssemblyPublicKeyToken: null,
+        }],
+      }],
+      totalOpportunities: 1,
+      inspectionError: null,
+    },
+  });
+  const legacyItem = opportunity({
+    api: "Example.Legacy",
+    integrationType: "IServiceCollection registration",
+    lookFor: "",
+  });
+  Reflect.deleteProperty(legacyItem, "sourceDefinitionId");
+  const legacyHtml = renderPackageOpportunities({
+    ...baseOptions,
+    data: {
+      categories: [{
+        integration: "AI",
+        items: [legacyItem],
+      }],
+      totalOpportunities: 1,
+      inspectionError: null,
+    },
+  });
+
+  assert.match(currentHtml, /data-opp-source-identity="unknown"/);
+  assert.doesNotMatch(currentHtml, /data-opp-source-definition=/);
+  assert.doesNotMatch(legacyHtml, /data-opp-source-identity=/);
 });
 
 test("an integration kind with a leading dotted namespace renders a load-on-demand package chip", () => {
@@ -252,7 +379,7 @@ test("an integration kind with a leading dotted namespace renders a load-on-dema
     data: {
       categories: [{
         integration: "AI",
-        items: [{ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" }],
+        items: [opportunity({ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -269,7 +396,7 @@ test("an integration kind with no dotted namespace renders as plain muted text",
     data: {
       categories: [{
         integration: "Config",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -286,7 +413,7 @@ test("look-for tokens render as spotlight-seeded chips, one per comma-separated 
     data: {
       categories: [{
         integration: "AI",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -303,7 +430,7 @@ test("a wildcard look-for pattern renders as a muted, non-interactive hint", () 
     data: {
       categories: [{
         integration: "Config",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -320,7 +447,7 @@ test("an empty look-for hint renders a generic any-registration-surface hint", (
     data: {
       categories: [{
         integration: "Config",
-        items: [{ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" }],
+        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,
@@ -336,7 +463,7 @@ test("API and integration-type text is escaped", () => {
     data: {
       categories: [{
         integration: "<Cat>",
-        items: [{ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" }],
+        items: [opportunity({ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" })],
       }],
       totalOpportunities: 1,
       inspectionError: null,

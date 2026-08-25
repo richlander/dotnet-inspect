@@ -891,7 +891,7 @@ public sealed partial class CSharpPrinter
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Divide
             && TryPointerArithmeticText(binary, out string pointerText, out bool rendersConversion))
         {
-            _printedRanges?.SetNodeKind(
+            _printedRangeMetadata?.SetNodeKind(
                 binary,
                 rendersConversion ? "ConversionExpression" : "BinaryExpression");
             // A pointer `add.ovf`/`sub.ovf` carries an overflow check the default
