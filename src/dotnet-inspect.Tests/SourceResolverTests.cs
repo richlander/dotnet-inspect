@@ -1,3 +1,5 @@
+using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -185,6 +187,45 @@ public class SourceResolverTests
         Assert.Equal("System.CommandLine", source.PackagePath);
         Assert.Null(source.TypeName);
         Assert.Null(source.PlatformAssembly);
+    }
+
+    [Fact]
+    public async Task ApiSourceResolver_ReusesSamePlatformAcquisition()
+    {
+        var (result, error) =
+            await ApiSourceResolver.ResolveAsync(
+                new ApiOptions
+                {
+                    PlatformAssembly = "System.Runtime",
+                });
+        if (error is not null)
+        {
+            Assert.Skip(
+                "System.Runtime platform assembly is unavailable.");
+            return;
+        }
+
+        Assert.NotNull(result.AssemblyReference);
+        Assert.NotNull(result.RuntimeAssemblyReference);
+        if (!string.Equals(
+                Path.GetFullPath(result.SearchPath),
+                Path.GetFullPath(
+                    result.RuntimeAssemblyPath!),
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal))
+        {
+            Assert.Skip(
+                "The selected platform has distinct reference and runtime images.");
+            return;
+        }
+
+        Assert.Same(
+            result.AssemblyReference,
+            result.RuntimeAssemblyReference);
+        Assert.Same(
+            result.AssemblyReference.Registration,
+            result.RuntimeAssemblyReference.Registration);
     }
 
     private static void SkipIfCoreLibUnavailable()

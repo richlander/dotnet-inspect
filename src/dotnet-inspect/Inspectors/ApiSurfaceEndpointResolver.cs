@@ -17,6 +17,13 @@ internal sealed record ApiSurfaceEndpoint(
         init;
     } = [];
 
+    public IReadOnlyList<AssemblySetAcquisitionFailure>
+        AcquisitionFailures
+    {
+        get;
+        init;
+    } = [];
+
     public void Dispose() => AssemblySet.Dispose();
 }
 
@@ -80,6 +87,8 @@ internal static class ApiSurfaceEndpointResolver
                 {
                     AssemblyReferences =
                         resolution.AssemblyReferences,
+                    AcquisitionFailures =
+                        resolution.AcquisitionFailures,
                 },
                 null,
                 true);

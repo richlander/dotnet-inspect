@@ -62,6 +62,8 @@ public sealed class LibraryBodyIndex
     {
         Path = path;
         DeclaredMethods = analysis.Methods.DeclaredMethods;
+        DeclarationIndexComplete =
+            analysis.Methods.DeclarationIndexComplete;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
         _physicalDirectCalls =
@@ -113,6 +115,12 @@ public sealed class LibraryBodyIndex
     /// when <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
     /// </summary>
     public ImmutableArray<MethodIdentity> DeclaredMethods { get; }
+    /// <summary>
+    /// True when every MethodDef requested for method evidence produced a
+    /// declared identity. Body-analysis diagnostics that occur after identity
+    /// creation do not make this false.
+    /// </summary>
+    public bool DeclarationIndexComplete { get; }
     /// <summary>
     /// Method identities whose definitions carry IL bodies, when
     /// <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
@@ -1019,6 +1027,7 @@ public sealed class LibraryBodyIndex
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
+                    DeclarationIndexComplete: true,
                     Methods: methods,
                     DirectCalls: [],
                     BodySignals: new Dictionary<int, BodySignals>(),

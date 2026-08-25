@@ -1,4 +1,8 @@
 using System.CommandLine;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
@@ -13,6 +17,7 @@ using ILInspector.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using InertText;
 using Markout;
@@ -1968,6 +1973,7 @@ public class DiffCommandTests
         Dictionary<string, FindingInspection<string>> inspections =
             await DiffCommand.AcquirePdbSourceInspectionsAsync(
                 [retained],
+                [],
                 new Dictionary<string, ResearchSubjectKey>(
                     StringComparer.Ordinal)
                 {
@@ -1997,6 +2003,7 @@ public class DiffCommandTests
         Dictionary<string, FindingInspection<string>> inspections =
             await DiffCommand.AcquirePdbSourceInspectionsAsync(
                 [assembly, assembly],
+                [],
                 new Dictionary<string, ResearchSubjectKey>(
                     StringComparer.Ordinal)
                 {
@@ -2014,6 +2021,106 @@ public class DiffCommandTests
             "more than one endpoint assembly",
             failure.Error.Reason,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PdbSourceAcquisition_AcquisitionFailureFailsEverySubject()
+    {
+        string path = FixtureCatalog.DiffPair.OldAssemblyPath();
+        ResolvedAssemblyReference assembly =
+            TestAssemblyReferences.Designated(path);
+        MethodIdentity[] methods =
+            MethodBodyInspectionSession.Open(assembly)
+                .BodyIndex.DeclaredMethods.Take(2).ToArray();
+        Assert.Equal(2, methods.Length);
+        ResearchSubjectKey[] subjects =
+            methods.Select(
+                ResearchMemberIdentity.SubjectFromMethod)
+                .ToArray();
+
+        Dictionary<string, FindingInspection<string>> inspections =
+            await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                [assembly],
+                [
+                    new AssemblySetAcquisitionFailure(
+                        "/rejected-participant.dll",
+                        "simulated acquisition rejection"),
+                ],
+                subjects.ToDictionary(
+                    static subject => subject.Id,
+                    StringComparer.Ordinal),
+                new DiffOptions(),
+                oldSide: true,
+                new HttpClient(),
+                new VerboseLogger(false));
+
+        foreach (ResearchSubjectKey subject in subjects)
+        {
+            FindingInspection<string>.Failed failure =
+                Assert.IsType<FindingInspection<string>.Failed>(
+                    inspections[subject.Id].Value);
+            Assert.Contains(
+                "endpoint acquisition failed",
+                failure.Error.Reason,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "simulated acquisition rejection",
+                failure.Error.Reason,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task PdbSourceAcquisition_IncompleteDeclarationIndexFailsEverySubject()
+    {
+        string path = FixtureCatalog.DiffPair.OldAssemblyPath();
+        ResolvedAssemblyReference assembly =
+            TestAssemblyReferences.Designated(path);
+        ResearchSubjectKey[] subjects =
+            MethodBodyInspectionSession.Open(assembly)
+                .BodyIndex.DeclaredMethods
+                .Take(2)
+                .Select(ResearchMemberIdentity.SubjectFromMethod)
+                .ToArray();
+        Assert.Equal(2, subjects.Length);
+        string malformedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"incomplete-declarations-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            malformedPath,
+            BuildMalformedDeclarationAssembly());
+        try
+        {
+            ResolvedAssemblyReference malformed =
+                TestAssemblyReferences.Designated(malformedPath);
+
+            Dictionary<string, FindingInspection<string>> inspections =
+                await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                    [assembly, malformed],
+                    [],
+                    subjects.ToDictionary(
+                        static subject => subject.Id,
+                        StringComparer.Ordinal),
+                    new DiffOptions(),
+                    oldSide: true,
+                    new HttpClient(),
+                    new VerboseLogger(false));
+
+            foreach (ResearchSubjectKey subject in subjects)
+            {
+                FindingInspection<string>.Failed failure =
+                    Assert.IsType<FindingInspection<string>.Failed>(
+                        inspections[subject.Id].Value);
+                Assert.Contains(
+                    "declaration indexing was incomplete",
+                    failure.Error.Reason,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            File.Delete(malformedPath);
+        }
     }
 
     [Fact]
@@ -2045,6 +2152,7 @@ public class DiffCommandTests
         Dictionary<string, FindingInspection<string>> inspections =
             await DiffCommand.AcquirePdbSourceInspectionsAsync(
                 [unstable],
+                [],
                 new Dictionary<string, ResearchSubjectKey>(
                     StringComparer.Ordinal)
                 {
@@ -2909,6 +3017,59 @@ public class DiffCommandTests
         var pingB = DiffMethod(declaring, "Ping", ILInspector.Analysis.TypeRef.Definition("LibB", "Shared", "Token"));
 
         Assert.NotEqual(DiffCommand.MethodKey(pingA), DiffCommand.MethodKey(pingB));
+    }
+
+    static byte[] BuildMalformedDeclarationAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "IncompleteDeclarations.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "IncompleteDeclarations"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Broken"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var invalidSignature = new BlobBuilder();
+        invalidSignature.WriteByte(0xff);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            metadata.GetOrAddBlob(invalidSignature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static ILInspector.Analysis.MethodIdentity DiffMethod(ILInspector.Analysis.TypeRef declaring, string name, params ILInspector.Analysis.TypeRef[] parameterTypes)

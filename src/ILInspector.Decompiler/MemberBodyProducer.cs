@@ -244,7 +244,12 @@ public static class MemberBodyProducer
         TypeCompositionResult composed = ComposeCore(
             type,
             () => CompositionDefinition.From(
-                ResolveDefinition(start, type, resolver, context)),
+                ResolveDefinition(
+                    start,
+                    type,
+                    resolver,
+                    context,
+                    failOnResolutionFailure: true)),
             (definition, ctx) => Pipeline.MetadataSource.Open(
                 definition.Assembly,
                 pdbPath,
@@ -253,8 +258,9 @@ public static class MemberBodyProducer
             context,
             printerOptions);
         return composed.Error is { } error
-            ? DecompilerResult.Success(
-                $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
+            ? DecompilerResult.Failure(
+                DiagnosticIds.InternalError,
+                $"Type source unavailable: {error.GetType().Name}: {error.Message}")
             : composed.Text is null
             ? DecompilerResult.Failure(
                 DiagnosticIds.TypeSourceAbsent,
@@ -286,7 +292,8 @@ public static class MemberBodyProducer
                         assembly,
                         type,
                         bindingPolicy,
-                        context))
+                        context,
+                        failOnResolutionFailure: true))
                 : ResolveModuleDefinition(assembly, type),
             (definition, ctx) => Pipeline.MetadataSource.Open(
                 definition.Assembly,
@@ -296,8 +303,9 @@ public static class MemberBodyProducer
             context,
             printerOptions);
         return composed.Error is { } error
-            ? DecompilerResult.Success(
-                $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
+            ? DecompilerResult.Failure(
+                DiagnosticIds.InternalError,
+                $"Type source unavailable: {error.GetType().Name}: {error.Message}")
             : composed.Text is null
             ? DecompilerResult.Failure(
                 DiagnosticIds.TypeSourceAbsent,
@@ -496,7 +504,8 @@ public static class MemberBodyProducer
         ResolvedAssemblyReference start,
         ApiType type,
         IAssemblyReferenceResolver resolver,
-        Pipeline.MetadataContext? context)
+        Pipeline.MetadataContext? context,
+        bool failOnResolutionFailure = false)
     {
         MetadataTypeDefinitionName? name = GetDefinitionName(type);
         if (name is null)
@@ -523,16 +532,18 @@ public static class MemberBodyProducer
             outcome = resolutionContext.Resolve(request);
         }
 
-        return outcome is TypeResolutionOutcome.Resolved resolved
-            ? resolved.Definition
-            : null;
+        return ResolvedDefinitionOrNull(
+            outcome,
+            type,
+            failOnResolutionFailure);
     }
 
     static ResolvedTypeDefinition? ResolveDefinition(
         ResolvedAssemblyReference start,
         ApiType type,
         IAssemblyBindingPolicy bindingPolicy,
-        Pipeline.MetadataContext? context)
+        Pipeline.MetadataContext? context,
+        bool failOnResolutionFailure = false)
     {
         MetadataTypeDefinitionName? name = GetDefinitionName(type);
         if (name is null)
@@ -558,9 +569,28 @@ public static class MemberBodyProducer
             outcome = resolutionContext.Resolve(request);
         }
 
-        return outcome is TypeResolutionOutcome.Resolved resolved
-            ? resolved.Definition
-            : null;
+        return ResolvedDefinitionOrNull(
+            outcome,
+            type,
+            failOnResolutionFailure);
+    }
+
+    static ResolvedTypeDefinition? ResolvedDefinitionOrNull(
+        TypeResolutionOutcome outcome,
+        ApiType type,
+        bool failOnResolutionFailure)
+    {
+        if (outcome is TypeResolutionOutcome.Resolved resolved)
+            return resolved.Definition;
+        if (!failOnResolutionFailure
+            || outcome is TypeResolutionOutcome.NotFound)
+        {
+            return null;
+        }
+
+        throw new InvalidOperationException(
+            $"Could not resolve type '{type.FullName}' from its acquired assembly "
+            + $"({outcome.GetType().Name}).");
     }
 
     static MetadataTypeDefinitionName? GetDefinitionName(ApiType type)
@@ -661,7 +691,11 @@ public static class MemberBodyProducer
             if (!definition.Address.TryResolve(
                     reader,
                     out TypeDefinitionHandle typeHandle))
-                return new TypeCompositionResult(Text: null);
+            {
+                throw new InvalidOperationException(
+                    $"The acquired assembly no longer matches the resolved address for "
+                    + $"type '{type.FullName}'.");
+            }
 
             // The same resolver resolves cross-assembly type facts
             // (value-type-ness of a bare token) during import. A shared context

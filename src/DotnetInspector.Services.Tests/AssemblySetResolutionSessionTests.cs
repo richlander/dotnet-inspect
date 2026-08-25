@@ -197,6 +197,34 @@ public class AssemblySetResolutionSessionTests
     }
 
     [Fact]
+    public void BuildApiSurface_RejectedNetmoduleDoesNotRetryByPath()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"rejected-module-{Guid.NewGuid():N}.netmodule");
+        File.WriteAllBytes(path, BuildNetmodule(moduleName: ""));
+        try
+        {
+            using var session =
+                new AssemblySetResolutionSession([path]);
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    session.BuildApiSurface());
+
+            Assert.Empty(surface.Types);
+            Assert.Empty(session.AssemblyReferences);
+            AssemblySetAcquisitionFailure failure =
+                Assert.Single(session.AcquisitionFailures);
+            Assert.Equal(path, failure.Path);
+            Assert.NotEmpty(failure.Detail);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task ExactAssemblyIsDesignated_ButDirectoryChildIsLocal()
     {
         string directory =

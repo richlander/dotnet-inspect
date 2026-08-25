@@ -92,7 +92,8 @@ internal static class ApiServices
                 options.IncludeAll,
                 isPlatformAssembly:
                     runtimeAssemblyPath is not null,
-                resolution: resolution);
+                resolution: resolution,
+                rootAssembly: assemblyReference);
         }
 
         if (!string.IsNullOrEmpty(packagePath))
@@ -164,7 +165,8 @@ internal static class ApiServices
             includeAll: false,
             isPlatformAssembly: true,
             targetFramework: selectedTfm,
-            summaryOnly: true);
+            summaryOnly: true,
+            rootAssembly: assemblyReference);
 
         api.Name = Path.GetFileNameWithoutExtension(searchPath);
         api.Tfm = selectedTfm;
@@ -317,7 +319,8 @@ internal static class ApiServices
         bool isPlatformAssembly = false,
         ApiOptions? options = null,
         string? targetFramework = null,
-        bool summaryOnly = false)
+        bool summaryOnly = false,
+        ResolvedAssemblyReference? rootAssembly = null)
     {
         if (api.TypeForwarders.Count == 0)
             return;
@@ -330,23 +333,31 @@ internal static class ApiServices
                 logger,
                 isPlatformAssembly,
                 options,
-                targetFramework);
+                targetFramework,
+                rootAssembly);
             return;
         }
 
-        using var resolution = new TypeDefinitionResolutionSession(
-            dllPath,
-            isPlatformAssembly,
-            options?.ProjectAssetsPath,
-            options?.Tfm ?? targetFramework,
-            options?.PlatformFramework);
+        using var resolution = rootAssembly is null
+            ? new TypeDefinitionResolutionSession(
+                dllPath,
+                isPlatformAssembly,
+                options?.ProjectAssetsPath,
+                options?.Tfm ?? targetFramework,
+                options?.PlatformFramework)
+            : new TypeDefinitionResolutionSession(
+                rootAssembly,
+                options?.ProjectAssetsPath,
+                options?.Tfm ?? targetFramework,
+                options?.PlatformFramework);
         ResolveForwardedTypes(
             api,
             dllPath,
             logger,
             includeAll,
             isPlatformAssembly,
-            resolution);
+            resolution,
+            rootAssembly);
     }
 
     static void ResolveForwardedTypes(
@@ -355,7 +366,8 @@ internal static class ApiServices
         VerboseLogger logger,
         bool includeAll,
         bool isPlatformAssembly,
-        TypeDefinitionResolutionSession resolution)
+        TypeDefinitionResolutionSession resolution,
+        ResolvedAssemblyReference? rootAssembly)
     {
         Dictionary<
             AssemblyAcquisitionRegistration,
@@ -456,14 +468,19 @@ internal static class ApiServices
 
         if (resolvedCount > 0)
         {
-            AssemblyResolutionProvenance provenance = isPlatformAssembly
-                ? AssemblyResolutionProvenance.Platform(
-                    "InstalledPlatform",
-                    frameworkVersion: null,
-                    "ApiServices")
-                : AssemblyResolutionProvenance.Local("ApiServices");
             api.SurfaceClassification =
-                AssemblySurfaceClassifier.Classify(dllPath, provenance);
+                rootAssembly is null
+                    ? AssemblySurfaceClassifier.Classify(
+                        dllPath,
+                        isPlatformAssembly
+                            ? AssemblyResolutionProvenance.Platform(
+                                "InstalledPlatform",
+                                frameworkVersion: null,
+                                "ApiServices")
+                            : AssemblyResolutionProvenance.Local(
+                                "ApiServices"))
+                    : AssemblySurfaceClassifier.Classify(
+                        rootAssembly);
             api.SurfaceClassificationInspection =
                 MetadataFindings.InspectAssemblySurface(
                     api.SurfaceClassification,
@@ -651,7 +668,8 @@ internal static class ApiServices
         VerboseLogger logger,
         bool isPlatformAssembly,
         ApiOptions? options,
-        string? targetFramework)
+        string? targetFramework,
+        ResolvedAssemblyReference? rootAssembly)
     {
         TypeDefinitionResolutionSession? resolution = null;
         var adjacentSummaries =
@@ -698,12 +716,18 @@ internal static class ApiServices
                     continue;
                 }
 
-                resolution ??= new TypeDefinitionResolutionSession(
-                    dllPath,
-                    isPlatformAssembly,
-                    options?.ProjectAssetsPath,
-                    options?.Tfm ?? targetFramework,
-                    options?.PlatformFramework);
+                resolution ??= rootAssembly is null
+                    ? new TypeDefinitionResolutionSession(
+                        dllPath,
+                        isPlatformAssembly,
+                        options?.ProjectAssetsPath,
+                        options?.Tfm ?? targetFramework,
+                        options?.PlatformFramework)
+                    : new TypeDefinitionResolutionSession(
+                        rootAssembly,
+                        options?.ProjectAssetsPath,
+                        options?.Tfm ?? targetFramework,
+                        options?.PlatformFramework);
                 TypeResolutionOutcome outcome =
                     resolution.Resolve(forwarder.DefinitionName);
                 if (outcome is not TypeResolutionOutcome.Resolved resolved
@@ -770,14 +794,19 @@ internal static class ApiServices
 
         if (resolvedCount > 0)
         {
-            AssemblyResolutionProvenance provenance = isPlatformAssembly
-                ? AssemblyResolutionProvenance.Platform(
-                    "InstalledPlatform",
-                    frameworkVersion: null,
-                    "ApiServices")
-                : AssemblyResolutionProvenance.Local("ApiServices");
             api.SurfaceClassification =
-                AssemblySurfaceClassifier.Classify(dllPath, provenance);
+                rootAssembly is null
+                    ? AssemblySurfaceClassifier.Classify(
+                        dllPath,
+                        isPlatformAssembly
+                            ? AssemblyResolutionProvenance.Platform(
+                                "InstalledPlatform",
+                                frameworkVersion: null,
+                                "ApiServices")
+                            : AssemblyResolutionProvenance.Local(
+                                "ApiServices"))
+                    : AssemblySurfaceClassifier.Classify(
+                        rootAssembly);
             api.SurfaceClassificationInspection =
                 MetadataFindings.InspectAssemblySurface(
                     api.SurfaceClassification,

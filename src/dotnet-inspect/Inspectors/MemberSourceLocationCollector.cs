@@ -8,7 +8,7 @@ namespace DotnetInspector.Inspectors;
 
 internal static class MemberSourceLocationCollector
 {
-    public static async Task<string?> EnrichAsync(
+    public static async Task<MemberSourceLocationEnrichment> EnrichAsync(
         ApiType apiType,
         ResolvedAssemblyReference assembly,
         string? packageName,
@@ -17,12 +17,13 @@ internal static class MemberSourceLocationCollector
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        var failures = new List<MemberSourceLocationFailure>();
         try
         {
             using var service = SourceLinkService.Open(assembly, logger.Log);
             var context = service.Context;
             if (!context.HasMetadata)
-                return null;
+                return new(null, []);
 
             if (context.NeedsPdb)
             {
@@ -34,7 +35,7 @@ internal static class MemberSourceLocationCollector
 
             var pdbPath = context.PortablePdbPath;
             if (!service.HasPdb || !service.HasSourceLink)
-                return pdbPath;
+                return new(pdbPath, []);
 
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
             string subjectId =
@@ -52,7 +53,7 @@ internal static class MemberSourceLocationCollector
                     static group => group.Key,
                     static group => group.Select(static pair => pair.Candidate).ToArray());
             if (membersByToken.Count == 0)
-                return pdbPath;
+                return new(pdbPath, []);
 
             // A member can offer several accessor tokens; the best-ranked one that actually
             // resolves wins, so a later accessor is consulted only when a preferred one carries
@@ -73,11 +74,11 @@ internal static class MemberSourceLocationCollector
                     complete,
                     documentsByRowId,
                     appliedRank);
-                return pdbPath;
+                return new(pdbPath, []);
             }
 
             if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Absent)
-                return pdbPath;
+                return new(pdbPath, []);
 
             // A malformed method must not suppress source locations for healthy selected
             // members. Token queries are direct lookups, so this fallback remains O(selected).
@@ -89,9 +90,10 @@ internal static class MemberSourceLocationCollector
                     new MemberSourceQuery(new HashSet<int> { token }));
                 if (tokenInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
                 {
-                    logger.LogWarning(
-                        $"Failed to resolve source location for {members[0].Member.Name}: "
-                        + failed.Error.Reason);
+                    failures.Add(
+                        new MemberSourceLocationFailure(
+                            members[0].Member.Name,
+                            failed.Error.Reason));
                     continue;
                 }
 
@@ -105,14 +107,31 @@ internal static class MemberSourceLocationCollector
                     appliedRank);
             }
 
-            return pdbPath;
+            return new(pdbPath, failures);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            IsSourceLocationFailure(ex))
         {
-            logger.LogWarning($"Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
-            return null;
+            return new(
+                null,
+                [
+                    new MemberSourceLocationFailure(
+                        apiType.FullName,
+                        $"{ex.GetType().Name}: {ex.Message}"),
+                ]);
         }
     }
+
+    static bool IsSourceLocationFailure(Exception ex)
+        => ex is IOException
+            or HttpRequestException
+            or UnauthorizedAccessException
+            or BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or NotSupportedException
+            or OverflowException
+            or IndexOutOfRangeException;
 
     private static void ApplySourceLocations(
         IReadOnlyDictionary<int, (ApiMember Member, int Rank)[]> membersByToken,
@@ -207,3 +226,11 @@ internal static class MemberSourceLocationCollector
     }
 
 }
+
+internal sealed record MemberSourceLocationEnrichment(
+    string? PdbPath,
+    IReadOnlyList<MemberSourceLocationFailure> Failures);
+
+internal sealed record MemberSourceLocationFailure(
+    string Subject,
+    string Reason);

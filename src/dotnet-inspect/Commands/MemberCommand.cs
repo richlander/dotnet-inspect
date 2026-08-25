@@ -282,6 +282,7 @@ public static class MemberCommand
 
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions effectiveOptions = options;
+            bool sourceLocationsFailed = false;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
             if (effectiveOptions.HasCallerScope)
@@ -425,11 +426,26 @@ public static class MemberCommand
                         ApiServices.AssemblyReferenceRole.TokenOrigin)
                     ?? throw new InvalidOperationException(
                         "Could not retain the acquired assembly for member source location.");
-                var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
+                MemberSourceLocationEnrichment enrichment =
+                    await MemberSourceLocationCollector.EnrichAsync(
                     apiType, locationAssembly, packageName, packageVersion,
                     effectiveOptions, context.HttpClient, logger);
-                if (pdbPath != null)
-                    effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
+                if (enrichment.PdbPath != null)
+                {
+                    effectiveOptions = effectiveOptions with
+                    {
+                        PdbPath = enrichment.PdbPath,
+                    };
+                }
+                foreach (MemberSourceLocationFailure failure
+                    in enrichment.Failures)
+                {
+                    CommandError.Write(
+                        $"Could not resolve source location for "
+                        + $"'{failure.Subject}': {failure.Reason}");
+                }
+                sourceLocationsFailed =
+                    enrichment.Failures.Count > 0;
             }
 
             // Resolve PDB/source only when selected detail sections need them.
@@ -595,6 +611,8 @@ public static class MemberCommand
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
+            if (sourceLocationsFailed)
+                return 1;
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {

@@ -728,6 +728,10 @@ Several current types are migration inputs, not target precedent:
   assemblies and rooted forwarding assemblies. A pathless forwarding assembly
   fails visibly because resolving its exported types requires a rooted
   resolution context.
+  Descriptor creation is the sole admission boundary for assembly-set modules:
+  a rejected netmodule cannot re-enter through path-only extraction.
+  `AssemblySetResolutionSessionTests.BuildApiSurface_RejectedNetmoduleDoesNotRetryByPath`
+  gates that rule.
   `AssemblySetResolutionSessionTests.ExactAssemblyIsDesignated_ButDirectoryChildIsLocal`
   gates the distinction between an exact caller-named assembly and a
   directory-discovered child. Netmodules remain API-surface participants but
@@ -744,18 +748,47 @@ Several current types are migration inputs, not target precedent:
   cases. PDB source-location enrichment likewise supports pathless embedded
   PDBs, gated by
   `DescriptorCommandConsumerTests.MemberSourceLocations_ResolveFromPathlessEmbeddedPdb`.
+  Explicit source-location acquisition or decoding failures remain typed
+  failures rather than ordinary absence, while successful member mappings are
+  retained; `MemberSourceLocations_ReportPathlessAcquisitionFailure` gates the
+  acquisition boundary.
   Implementation-diff PDB enrichment reuses the endpoint descriptors and
   reports duplicate member identities as ambiguous rather than selecting the
-  first path. If any endpoint participant cannot be indexed, every requested
-  subject on that side fails because the unreadable participant could conceal
-  a duplicate; `DiffCommandTests.PdbSourceAcquisition_IndexFailureFailsEverySubject`
-  gates that fail-closed rule.
+  first path. Endpoint acquisition failures travel beside retained
+  participants, and an index records whether every requested MethodDef
+  contributed a declaration identity. If acquisition fails, declaration
+  indexing is incomplete, or any participant cannot be indexed, every
+  requested subject on that side fails because the missing participant or
+  declaration could conceal a duplicate.
+  `DiffCommandTests.PdbSourceAcquisition_AcquisitionFailureFailsEverySubject`,
+  `LibraryBodyIndexTests.DeclarationIndex_IsIncompleteWhenMethodIdentityCannotBeDecoded`,
+  `DiffCommandTests.PdbSourceAcquisition_IncompleteDeclarationIndexFailsEverySubject`,
+  and `DiffCommandTests.PdbSourceAcquisition_IndexFailureFailsEverySubject`
+  gate those fail-closed boundaries. Ordinary body-analysis diagnostics do
+  not invalidate a successfully established declaration identity, gated by
+  `LibraryBodyIndexTests.BuildCallTree_PreservesRecoverableBodyAnalysisFailure`.
+  When platform reference and runtime/PDB coordinates identify the same file,
+  the acquisition owner reuses the descriptor and registration rather than
+  asking a consumer to infer equality from paths;
+  `SourceResolverTests.ApiSourceResolver_ReusesSamePlatformAcquisition` gates
+  that continuity.
   Netmodule, platform-summary, SourceLink discovery, source-file collection,
   member Analysis, exception-region, and diff-endpoint routes all consume the
   retained acquisition. A resolved image with no managed metadata is
   unavailable evidence for signature accessibility, not an empty successful inventory;
   whole-type inspection uses one validated reader for both metadata facts and
-  bodies and addresses module TypeDefs directly by MVID and token.
+  bodies and addresses module TypeDefs directly by MVID and token. Acquisition
+  or identity failures during whole-type composition are typed decompiler
+  failures; legitimate no-composition remains distinct.
+  `DescriptorCommandConsumerTests.WholeTypeDecompiledSource_AcquisitionFailureIsTypedFailure`
+  and `WholeTypeDecompiledSource_AddressIdentityDriftIsTypedFailure` gate
+  acquisition and address identity failures;
+  `WholeTypeDecompiledSource_NoCompositionIsNotAnError` gates the
+  no-composition side of the split.
+  Forwarding-surface classification opens the retained root descriptor in
+  both full and summary routes rather than reopening its diagnostic path,
+  gated by
+  `SourceForwarderResolutionTests.ApiServices_ClassifiesRetainedForwardingDescriptor`.
   `LayeringTests.Cli_MetadataSourceFactories_RetainAcquisitionDescriptors`
   builds a signature-sensitive call graph across owned product assemblies,
   includes direct delegate edges, compiler-emitted field-carried delegate

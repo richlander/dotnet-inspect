@@ -13,6 +13,7 @@ internal sealed record LibraryBodyAnalysisResult(
 
 internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<MethodIdentity> DeclaredMethods,
+    bool DeclarationIndexComplete,
     ImmutableArray<MethodIdentity> Methods,
     ImmutableArray<DirectCall> DirectCalls,
     IReadOnlyDictionary<int, BodySignals> BodySignals,

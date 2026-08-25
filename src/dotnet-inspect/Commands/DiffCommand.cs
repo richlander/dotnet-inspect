@@ -281,6 +281,8 @@ public class DiffCommand
                             ImplementationComparisonQuery.Definition),
                         inputs.FromAssemblies,
                         inputs.ToAssemblies,
+                        inputs.FromAcquisitionFailures,
+                        inputs.ToAcquisitionFailures,
                         options,
                         context.HttpClient,
                         logger);
@@ -451,6 +453,12 @@ public class DiffCommand
             From.AssemblyReferences;
         public IReadOnlyList<ResolvedAssemblyReference> ToAssemblies =>
             To.AssemblyReferences;
+        public IReadOnlyList<AssemblySetAcquisitionFailure>
+            FromAcquisitionFailures =>
+                From.AcquisitionFailures;
+        public IReadOnlyList<AssemblySetAcquisitionFailure>
+            ToAcquisitionFailures =>
+                To.AcquisitionFailures;
 
         public void Dispose()
         {
@@ -903,6 +911,8 @@ public class DiffCommand
                 queryResults.Get(ImplementationComparisonQuery.Definition),
                 inputs.FromAssemblies,
                 inputs.ToAssemblies,
+                inputs.FromAcquisitionFailures,
+                inputs.ToAcquisitionFailures,
                 options,
                 httpClient,
                 logger);
@@ -1149,6 +1159,10 @@ public class DiffCommand
             ImplementationDiffResult result,
             IReadOnlyList<ResolvedAssemblyReference> fromAssemblies,
             IReadOnlyList<ResolvedAssemblyReference> toAssemblies,
+            IReadOnlyList<AssemblySetAcquisitionFailure>
+                fromAcquisitionFailures,
+            IReadOnlyList<AssemblySetAcquisitionFailure>
+                toAcquisitionFailures,
             DiffOptions options,
             HttpClient httpClient,
             VerboseLogger logger)
@@ -1162,6 +1176,7 @@ public class DiffCommand
             .ToDictionary(subject => subject.Id, StringComparer.Ordinal);
         var from = await AcquirePdbSourceInspectionsAsync(
             fromAssemblies,
+            fromAcquisitionFailures,
             subjects,
             options,
             oldSide: true,
@@ -1169,6 +1184,7 @@ public class DiffCommand
             logger);
         var to = await AcquirePdbSourceInspectionsAsync(
             toAssemblies,
+            toAcquisitionFailures,
             subjects,
             options,
             oldSide: false,
@@ -1193,6 +1209,8 @@ public class DiffCommand
 
     internal static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
         IReadOnlyList<ResolvedAssemblyReference> assemblies,
+        IReadOnlyList<AssemblySetAcquisitionFailure>
+            acquisitionFailures,
         IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
         DiffOptions options,
         bool oldSide,
@@ -1206,7 +1224,23 @@ public class DiffCommand
             string,
             List<(ResolvedAssemblyReference Assembly, MethodIdentity Method)>>(
                 StringComparer.Ordinal);
-        InspectionError? indexingFailure = null;
+        AssemblySetAcquisitionFailure? acquisitionFailure =
+            acquisitionFailures.FirstOrDefault();
+        InspectionError? indexingFailure =
+            acquisitionFailure is not null
+                ? new InspectionError(
+                    new FindingSubject(
+                        acquisitionFailure.Path,
+                        Path.GetFileName(
+                            acquisitionFailure.Path)),
+                    ILInspector.Text.TextFindings.LineDescriptor,
+                    "PDB-source endpoint acquisition failed: "
+                    + string.Join(
+                        "; ",
+                        acquisitionFailures.Select(
+                            static failure =>
+                                $"{failure.Path}: {failure.Detail}")))
+                : null;
 
         foreach (ResolvedAssemblyReference assembly in assemblies)
         {
@@ -1228,13 +1262,28 @@ public class DiffCommand
                     $"Could not index PDB-source targets in "
                     + $"'{assembly.Path ?? assembly.Identity.Name}': "
                     + ex.Message);
-                indexingFailure = new InspectionError(
+                indexingFailure ??= new InspectionError(
                     new FindingSubject(
                         assembly.Identity.Name,
                         assembly.Identity.Name),
                     ILInspector.Text.TextFindings.LineDescriptor,
                     "PDB-source endpoint indexing failed "
                     + $"({ex.GetType().Name}): {ex.Message}");
+                continue;
+            }
+
+            if (!index.DeclarationIndexComplete)
+            {
+                logger.Log(
+                    $"Could not completely index PDB-source targets in "
+                    + $"'{assembly.Path ?? assembly.Identity.Name}'.");
+                indexingFailure ??= new InspectionError(
+                    new FindingSubject(
+                        assembly.Identity.Name,
+                        assembly.Identity.Name),
+                    ILInspector.Text.TextFindings.LineDescriptor,
+                    "PDB-source endpoint declaration indexing "
+                    + "was incomplete.");
                 continue;
             }
 

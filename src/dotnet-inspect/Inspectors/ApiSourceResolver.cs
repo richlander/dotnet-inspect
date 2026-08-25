@@ -398,15 +398,23 @@ internal static class ApiSourceResolver
             if (runtimeAssemblyPath is not null)
             {
                 runtimeAssemblyReference =
-                    ResolvedAssemblyReference.CreateFromPath(
-                        runtimeAssemblyPath,
-                        apiSource == SourceKind.Platform
-                            ? AssemblyResolutionProvenance.Platform(
-                                platformFramework
-                                    ?? "InstalledPlatform",
-                                apiVersion,
-                                "ApiSourceResolver runtime")
-                            : provenance);
+                    assemblyReference is not null
+                    && LibraryMetadataService
+                        .ReferenceTreePathComparer(
+                            OperatingSystem.IsWindows())
+                        .Equals(
+                            Path.GetFullPath(searchPath),
+                            Path.GetFullPath(runtimeAssemblyPath))
+                        ? assemblyReference
+                        : ResolvedAssemblyReference.CreateFromPath(
+                            runtimeAssemblyPath,
+                            apiSource == SourceKind.Platform
+                                ? AssemblyResolutionProvenance.Platform(
+                                    platformFramework
+                                        ?? "InstalledPlatform",
+                                    apiVersion,
+                                    "ApiSourceResolver runtime")
+                                : provenance);
             }
         }
         catch (Exception ex) when (

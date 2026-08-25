@@ -5866,6 +5866,53 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DeclarationIndex_IsIncompleteWhenMethodIdentityCannotBeDecoded()
+    {
+        byte[] image = EmitAssembly(
+            "MalformedDeclaration",
+            metadata =>
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Broken"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                var invalidSignature = new BlobBuilder();
+                invalidSignature.WriteByte(0xff);
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("Run"),
+                    metadata.GetOrAddBlob(invalidSignature),
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1));
+            });
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MalformedDeclaration-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            Assert.False(index.DeclarationIndexComplete);
+            Assert.Empty(index.DeclaredMethods);
+            Assert.Single(index.Diagnostics);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void BuildCallTree_PreservesRecoverableBodyAnalysisFailure()
     {
         var metadata = new MetadataBuilder();
@@ -5988,6 +6035,9 @@ public class LibraryBodyIndexTests
             AnalysisDiagnostic optimizationDiagnostic =
                 Assert.Single(optimizationIndex.Diagnostics);
 
+            Assert.True(index.DeclarationIndexComplete);
+            Assert.True(
+                optimizationIndex.DeclarationIndexComplete);
             Assert.Equal(methodToken, diagnostic.MethodToken);
             Assert.Equal(
                 methodToken,

@@ -59,6 +59,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var ownershipFlow =
             ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
+        bool declarationIndexComplete = true;
         int none = 0, impl = 0, expl = 0;
 
         foreach (var result in results)
@@ -95,7 +96,10 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (!r.HasCaller)
             {
                 if (r.Diagnostic is not null)
+                {
                     diagnostics.Add(r.Diagnostic);
+                    declarationIndexComplete = false;
+                }
                 continue;
             }
             switch (r.Mode)
@@ -161,6 +165,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         return new(
             Methods: new(
                 DeclaredMethods: declaredMethods.ToImmutable(),
+                DeclarationIndexComplete:
+                    declarationIndexComplete,
                 Methods: methodArray,
                 DirectCalls: directCalls,
                 BodySignals: bodySignals,

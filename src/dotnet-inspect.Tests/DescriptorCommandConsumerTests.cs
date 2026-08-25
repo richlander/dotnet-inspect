@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
@@ -6,6 +7,8 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -242,6 +245,109 @@ public sealed class DescriptorCommandConsumerTests
     }
 
     [Fact]
+    public void WholeTypeDecompiledSource_AcquisitionFailureIsTypedFailure()
+    {
+        string path =
+            typeof(DescriptorCommandConsumerTests).Assembly.Location;
+        ResolvedAssemblyReference original =
+            TestAssemblyReferences.Designated(path);
+        ResolvedAssemblyReference rejected =
+            ResolvedAssemblyReference.Create(
+                original.Identity,
+                path: null,
+                () => throw new IOException(
+                    "descriptor acquisition rejected"),
+                original.Provenance);
+        ApiSurface api = Assert.IsType<ApiSurface>(
+            AssemblyReader.ExtractApiSurface(original));
+        ApiType type = Assert.Single(
+            api.Types,
+            candidate => candidate.FullName
+                == typeof(DescriptorCommandConsumerTests).FullName);
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+
+        DecompilerResult result =
+            MemberBodyProducer.Project(
+                type,
+                rejected,
+                policy);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            DecompilationFidelity.Failed,
+            result.Fidelity);
+        DecompilerDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            DiagnosticIds.InternalError,
+            diagnostic.Id);
+    }
+
+    [Fact]
+    public void WholeTypeDecompiledSource_AddressIdentityDriftIsTypedFailure()
+    {
+        byte[] firstImage =
+            BuildTypeAssembly(Guid.NewGuid());
+        byte[] secondImage =
+            BuildTypeAssembly(Guid.NewGuid());
+        AssemblyReferenceIdentity identity =
+            ReadIdentity(firstImage);
+        ResolvedAssemblyReference stable =
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(
+                    firstImage,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "whole-type identity test"));
+        ApiType type = Assert.Single(
+            Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(stable))
+                .Types,
+            static candidate =>
+                candidate.FullName == "Sample.Widget");
+        int opens = 0;
+        ResolvedAssemblyReference unstable =
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(
+                    opens++ == 0
+                        ? firstImage
+                        : secondImage,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "whole-type identity test"));
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"whole-type-identity-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, firstImage);
+        try
+        {
+            var policy = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    path));
+
+            DecompilerResult result =
+                MemberBodyProducer.Project(
+                    type,
+                    unstable,
+                    policy);
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(
+                DiagnosticIds.InternalError,
+                Assert.Single(result.Diagnostics).Id);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task SourceFileCollection_UsesAlreadyOpenApiSurface()
     {
         string path =
@@ -343,6 +449,49 @@ public sealed class DescriptorCommandConsumerTests
         }
     }
 
+    [Fact]
+    public async Task MemberSourceLocations_ReportPathlessAcquisitionFailure()
+    {
+        string path =
+            typeof(DescriptorCommandConsumerTests).Assembly.Location;
+        ResolvedAssemblyReference original =
+            TestAssemblyReferences.Designated(path);
+        ResolvedAssemblyReference failing =
+            ResolvedAssemblyReference.Create(
+                original.Identity,
+                path: null,
+                () => throw new IOException(
+                    "descriptor acquisition rejected"),
+                original.Provenance);
+        ApiSurface api = Assert.IsType<ApiSurface>(
+            AssemblyReader.ExtractApiSurface(
+                original,
+                includeAll: true));
+        ApiType type = Assert.Single(
+            api.Types,
+            candidate => candidate.FullName
+                == typeof(DescriptorCommandConsumerTests).FullName);
+        using var httpClient = new HttpClient();
+
+        MemberSourceLocationEnrichment result =
+            await MemberSourceLocationCollector.EnrichAsync(
+                type,
+                failing,
+                packageName: null,
+                packageVersion: null,
+                new MemberOptions(),
+                httpClient,
+                new VerboseLogger(false));
+
+        MemberSourceLocationFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(type.FullName, failure.Subject);
+        Assert.Contains(
+            "descriptor acquisition rejected",
+            failure.Reason,
+            StringComparison.Ordinal);
+    }
+
     static int ExceptionRegionFixture()
     {
         try
@@ -408,6 +557,65 @@ public sealed class DescriptorCommandConsumerTests
         var image = new System.Reflection.Metadata.BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildTypeAssembly(Guid mvid)
+    {
+        var metadata =
+            new System.Reflection.Metadata.Ecma335.MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("TypeAssembly.dll"),
+            metadata.GetOrAddGuid(mvid),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("TypeAssembly"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            System.Reflection.Metadata.Ecma335.MetadataTokens
+                .FieldDefinitionHandle(1),
+            System.Reflection.Metadata.Ecma335.MetadataTokens
+                .MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Widget"),
+            default,
+            System.Reflection.Metadata.Ecma335.MetadataTokens
+                .FieldDefinitionHandle(1),
+            System.Reflection.Metadata.Ecma335.MetadataTokens
+                .MethodDefinitionHandle(1));
+        var pe =
+            new System.Reflection.PortableExecutable.ManagedPEBuilder(
+                System.Reflection.PortableExecutable.PEHeaderBuilder
+                    .CreateLibraryHeader(),
+                new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(
+                    metadata),
+                new System.Reflection.Metadata.BlobBuilder(),
+                flags:
+                    System.Reflection.PortableExecutable.CorFlags.ILOnly);
+        var image = new System.Reflection.Metadata.BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static AssemblyReferenceIdentity ReadIdentity(byte[] image)
+    {
+        using var stream =
+            new MemoryStream(image, writable: false);
+        using var pe =
+            new System.Reflection.PortableExecutable.PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            pe.GetMetadataReader());
     }
 }
 

@@ -220,6 +220,76 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ApiServices_ClassifiesRetainedForwardingDescriptor(
+        bool summaryOnly)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            byte[] facadeImage =
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null));
+            File.WriteAllBytes(facadePath, facadeImage);
+            File.WriteAllBytes(
+                targetPath,
+                BuildAssembly("Target"));
+            ResolvedAssemblyReference pathReference =
+                ResolvedAssemblyReference.CreateFromPath(
+                    facadePath,
+                    AssemblyResolutionProvenance.Local(
+                        "forwarding descriptor test"));
+            ResolvedAssemblyReference retained =
+                ResolvedAssemblyReference.Create(
+                    pathReference.Identity,
+                    facadePath,
+                    () => new MemoryStream(
+                        facadeImage,
+                        writable: false),
+                    pathReference.Provenance);
+            ApiSurface api = Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(retained));
+
+            // The path is only a diagnostic coordinate after acquisition.
+            File.Copy(
+                targetPath,
+                facadePath,
+                overwrite: true);
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false,
+                summaryOnly: summaryOnly,
+                rootAssembly: retained);
+
+            Assert.Single(api.Types);
+            Assert.True(api.IsTypeForwardingAssembly);
+            var classified =
+                Assert.IsType<
+                    AssemblySurfaceClassificationOutcome.Classified>(
+                    api.SurfaceClassification);
+            Assert.Equal(
+                AssemblySurfaceKind.Facade,
+                classified.Classification.Kind);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void ApiServices_PropagatesForwardedTargetInspectionFailures()
     {

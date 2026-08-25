@@ -10,7 +10,8 @@ public sealed class AssemblySetResolutionSession : IDisposable
 {
     readonly TypeResolutionCatalog _catalog = new();
     readonly IReadOnlyList<Participant> _participants;
-    readonly IReadOnlyList<AcquisitionFailure> _acquisitionFailures;
+    readonly IReadOnlyList<AssemblySetAcquisitionFailure>
+        _acquisitionFailures;
     readonly SourceRelativeAssemblyGroupBindingPolicy? _policy;
     readonly Action<string>? _log;
 
@@ -51,7 +52,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
     {
         _log = log;
         var participants = new List<Participant>();
-        var failures = new List<AcquisitionFailure>();
+        var failures = new List<AssemblySetAcquisitionFailure>();
         foreach (ParticipantInput input in inputs)
         {
             ResolvedAssemblyReference? assembly =
@@ -62,7 +63,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
             if (assembly is null)
             {
                 failures.Add(
-                    new AcquisitionFailure(
+                    new AssemblySetAcquisitionFailure(
                         input.Path,
                         failure!));
                 continue;
@@ -100,6 +101,13 @@ public sealed class AssemblySetResolutionSession : IDisposable
             .Select(static participant => participant.Assembly)
             .ToArray();
 
+    /// <summary>
+    /// Required inputs that could not mint an acquisition descriptor.
+    /// These remain visible even when other participants were retained.
+    /// </summary>
+    public IReadOnlyList<AssemblySetAcquisitionFailure>
+        AcquisitionFailures => _acquisitionFailures;
+
     public ApiSurface? BuildApiSurface(
         bool includeAll = false,
         string? name = null,
@@ -113,24 +121,9 @@ public sealed class AssemblySetResolutionSession : IDisposable
             Tfm = tfm,
         };
         bool readSurface = false;
-        foreach (AcquisitionFailure failure
+        foreach (AssemblySetAcquisitionFailure failure
             in _acquisitionFailures)
         {
-            ApiSurface? moduleSurface =
-                AssemblyReader.ExtractModuleApiSurface(
-                    failure.Path,
-                    includeAll);
-            if (moduleSurface is not null)
-            {
-                MergeSurface(
-                    merged,
-                    moduleSurface,
-                    failure.Path,
-                    sink);
-                readSurface = true;
-                continue;
-            }
-
             merged.InspectionFailures.Add(
                 new ApiSurfaceInspectionFailure(
                     "acquire API surface",
@@ -306,12 +299,17 @@ public sealed class AssemblySetResolutionSession : IDisposable
         string Path,
         AssemblyResolutionProvenance Provenance);
 
-    sealed record AcquisitionFailure(
-        string Path,
-        string Detail);
-
     sealed record Participant(
         string Path,
         ResolvedAssemblyReference Assembly,
         AssemblyDependencyResolver Policy);
 }
+
+/// <summary>
+/// Describes one required assembly-set input that could not be acquired.
+/// </summary>
+/// <param name="Path">The diagnostic coordinate supplied for the input.</param>
+/// <param name="Detail">The classified acquisition failure.</param>
+public sealed record AssemblySetAcquisitionFailure(
+    string Path,
+    string Detail);
