@@ -23,7 +23,8 @@ import { fakeDom } from "./fake-dom.ts";
 const escapeHtml = (value: unknown) => String(value)
   .replace(/&/g, "&amp;")
   .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;");
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;");
 
 const FACETS: readonly QueryFacetTerm[] = [
   { key: "tfm-out-of-support", label: "out-of-support only", tier: "nuspec" },
@@ -70,6 +71,22 @@ test("row tier is escaped like every other row field (defense in depth for untru
 
   assert.ok(!html.includes("<img src=x"), "raw tier markup must not appear unescaped");
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
+test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
+  const maliciousRow: QueryResultRow = {
+    ...row('Microsoft.Bcl.AsyncInterfaces" onmouseover="alert(1)'),
+  };
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: appendRows(emptyOutcome(), [maliciousRow]),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.ok(!html.includes('" onmouseover="alert(1)'), "raw quote must not break out of the attribute");
+  assert.match(html, /&quot; onmouseover=&quot;alert\(1\)/);
 });
 
 test("a streaming result renders rows, tiers, facets, and the streaming footer", () => {

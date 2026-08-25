@@ -76,7 +76,10 @@ alone) or `promoted` (the row was opened at the assembly/IL level after the
 user asked to go deeper on the surviving set). The UI must never blur these,
 because the honesty obligation from the funnel-feasibility analysis is a
 first-class UX fact, not an implementation detail: a `nuspec`-tier "only
-out-of-support TFMs" claim is a lower bound, and the view says so.
+out-of-support TFMs" claim is a lower bound. The scaffold tags every row with
+its tier so the two are never visually blurred; it does not yet spell out the
+lower-bound caveat in prose anywhere — that explanatory text is unimplemented,
+tracked as landing-sequence follow-up.
 
 ## Layout
 

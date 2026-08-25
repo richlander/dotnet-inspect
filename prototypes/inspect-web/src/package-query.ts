@@ -25,13 +25,18 @@ export interface QueryFacetTerm {
   tier: "nuspec" | "promoted";
 }
 
-/** The shareable, re-runnable unit. Never encodes a resolved outcome. */
+/** The re-runnable unit intended to become shareable via the persisted form
+ * (see design doc's Sharing section; the conversion itself is not yet
+ * implemented). Never encodes a resolved outcome. */
 export interface QueryRequest {
   scopeLabel: string;
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
-  /** Declared cap communicated to the source; also the honesty label surfaced
-   * in the bounded-complete footer (see design doc "States"). */
+  /** Declared cap communicated to the source. The bounded-complete footer
+   * renders the source's own free-text `completion.reason` (see design doc
+   * "States"), not this field directly — a real source is expected to keep
+   * that text consistent with the cap it was given, but nothing here
+   * enforces that. */
   requestedLimit: number;
 }
 
