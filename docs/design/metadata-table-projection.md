@@ -82,6 +82,14 @@ typed extractors**. The projection and the extractors are **siblings**, each
 reading the same SRM substrate directly — not a stack in which extractors sit on
 top of the projection.
 
+A narrowly registered `ILInspector.MetadataPrimitives` row reader may sit below
+both siblings when SRM has no public lossless accessor for one table. That
+primitive exposes neutral rows and typed mechanical rejection, not this
+projection's presentation-shaped model. The first registered case is the
+three-column `MethodSemantics` reader required by typed declaration admission;
+using it does not make this raw table projection a dependency of typed
+extractors.
+
 The inversion this rules out:
 
 ```text
@@ -136,6 +144,30 @@ Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
 `CustomAttribute`, `StandAloneSig`, `MethodImpl`, `TypeSpec`, `Assembly`,
 `AssemblyRef`, `ExportedType`, `GenericParam`, `MethodSpec`, …) and produce, per
 table, its rows with:
+
+This projection supports ordinary ECMA-335 assembly metadata only. Before any
+table, row, reverse-reference, image-overview, or heap operation constructs its
+`MetadataReaderOptions.None` reader, it calls the MetadataPrimitives-owned
+`MetadataImageFormatClassifier`. That classifier reads only the fixed
+ECMA-335 metadata-root prefix and bounded version field and applies the ordinal
+`WindowsRuntime` byte-marker rule SRM uses before optional WinRT projection. It
+does not construct a `MetadataReader` or use the options-dependent
+`MetadataReader.MetadataKind`. Windows Metadata is outside dotnet-inspect's
+current project scope. A PE without metadata returns the classifier's typed
+`NoMetadata` arm before requesting a metadata block and preserves the
+projector's no-metadata boundary. The direct projector APIs throw
+`UnsupportedMetadataFormatException` before projecting rows or heaps only for
+unsupported Windows Metadata and `BadImageFormatException` for a malformed
+root; `AssemblyInspectionSession` and query owners map those specific
+mechanisms to typed unsupported-input and malformed-input results. Neither may
+become `null`, an empty projection, or partial rows. `MDP017` gates every
+existing entry point as well as the CLI metadata lens.
+
+The diagnostic lens does not bypass format admission to inspect an arbitrarily
+long nonconforming root version. A padded version field above 256 bytes receives
+the typed malformed-root mapping before `MetadataImageInspector`; its existing
+bounded version read remains defense in depth for inputs inside the supported
+root envelope, not a promise to inspect roots outside it.
 
 1. **Each column value in raw form**, plus a friendly decode where cheap (flag
    enums, a name/namespace pulled from the string heap, well-known GUIDs). The
@@ -1101,7 +1133,19 @@ oversights:
   in one of them is invisible to the search. A nested type's declaring type is
   exactly such an edge. `UnscannedTables` names the populated tables the scan
   did not read in full, so the gap is disclosed rather than answered as an
-  absence. Empty tables are excluded: they cannot hide a reference.
+  absence. Empty tables are excluded: they cannot hide a reference. The
+  MetadataPrimitives `MethodSemantics` reader does not change this result: the
+  general projector still has no `MethodSemantics` descriptor, and reverse
+  search must report the table as unscanned until this projection itself covers
+  every row and column. If that descriptor is added, it consumes the shared
+  completed neutral rows through `MethodSemanticsAssociationSession` and maps
+  them into this projection's model; "this projection itself" means complete
+  descriptor and traversal coverage, not ownership of another decoder. The
+  projector's caller must therefore carry the genuine owned or borrowed
+  `AssemblyImage` lease and finite `MetadataOperationContext` required by that
+  session. `MetadataTableProjectionEngine` receives completed neutral rows; it
+  must not accept a bare `PEReader`, call `MethodSemanticsRowReader`, or
+  reconstruct the primitive from its current `MetadataReader`-only row methods.
 - **`UnscannedTables` is derived from the traversal, not declared.** The scan
   records a table only after examining every row the image says it has, and the
   blind spot is the populated tables missing from that record. Computing it from
@@ -1465,9 +1509,12 @@ section rather than two that happen to render alike. A hex alias registered in
 the catalog would print its own heading, sort independently in the section
 order, count separately under `--count`, and appear as a second entry under
 `-D`. Rewriting at the boundary means everything downstream — the orderer, the
-heading, `--count`, the document schema, the effective-section cache key — only
-ever sees the canonical name, so those failure modes are not merely untested but
-unreachable.
+heading, `--count`, the document schema, and the existing library effective
+catalog key — only ever sees the canonical name, so those failure modes are not
+merely untested but unreachable. That persistent library catalog is the
+compatibility path in
+[`section-model.md`](section-model.md#existing-library-effective-catalog), not
+the planned type/member operation-local outcome cache.
 
 `MetadataSectionNames.TryGetTable` therefore stays canonical-only. Teaching it
 hex as well would put alias resolution in two places, and would make

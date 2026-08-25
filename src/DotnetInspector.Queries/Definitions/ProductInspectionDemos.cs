@@ -22,8 +22,6 @@ public static class ProductInspectionDemos
 
     public const string ExtensionsCallGraphScenarioId = "extensions-callgraph";
 
-    public const string PlatformListScenarioId = "platform-list";
-
     private static readonly Entry[] s_entries =
     [
         new(
@@ -36,11 +34,6 @@ public static class ProductInspectionDemos
             "Cross-package call graph",
             "Trace calls across three packages",
             CreateExtensionsCallGraphRecords),
-        new(
-            PlatformListScenarioId,
-            ".NET Platform",
-            "Inspect platform BCL types",
-            CreatePlatformListRecords),
     ];
 
     /// <summary>
@@ -221,57 +214,6 @@ public static class ProductInspectionDemos
                 context: "extensions",
                 view: "try-add-enumerable-call-graph",
                 navigation: "extensions-callgraph-navigation"),
-        ];
-    }
-
-    private static InspectionDefinitionRecord[] CreatePlatformListRecords()
-    {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
-        // Unversioned host runtime: CoreLib is runtime-only (no ref-pack download),
-        // so a patch pin would fail on machines without that exact shared framework
-        // (CI installs the 11.0.x SDK lane). Package demos still pin NuGet versions.
-        var runtimePlatform = new DefinitionMemberCoordinate.PlatformCoordinate(
-            "runtime",
-            Assembly: null,
-            Version: null,
-            Framework: null);
-        return
-        [
-            new WorkspaceDefinition(
-                v,
-                "platform-list-tour",
-                [
-                    new WorkspaceContextDefinition(
-                        "platform",
-                        framework: "net10.0",
-                        members: [stjPackage, runtimePlatform]),
-                ],
-                title: ".NET Platform List tour",
-                description: "Platform BCL List`1 with System.Text.Json also in the workspace."),
-            new ViewDefinition(
-                v,
-                "platform-list-view",
-                library: "System.Private.CoreLib",
-                type: "System.Collections.Generic.List`1",
-                section: ProductDemoSections.Methods),
-            new NavigationDefinition(
-                v,
-                "platform-navigation",
-                [
-                    new NavigationTabDefinition("stj", coordinate: stjPackage),
-                    new NavigationTabDefinition("runtime", coordinate: runtimePlatform),
-                ],
-                focus: "runtime"),
-            new ScenarioDefinition(
-                v,
-                PlatformListScenarioId,
-                title: ".NET Platform",
-                description: "Inspect platform BCL types",
-                workspace: "platform-list-tour",
-                context: "platform",
-                view: "platform-list-view",
-                navigation: "platform-navigation"),
         ];
     }
 

@@ -9,6 +9,8 @@ import {
 } from "../src/spotlight.ts";
 import type { SpotlightResult, SpotlightState } from "../src/spotlight.ts";
 import type { CommandContext } from "../src/command-bar.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import { fakeDom } from "./fake-dom.ts";
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -74,7 +76,9 @@ function createHarness({
     spotlightFocus: "input",
     spotlightChipIndex: 0,
   };
+  const keybindings = new KeybindingRegistry();
   const spotlight = createSpotlight({
+    keybindings,
     state,
     lenses,
     escapeHtml,
@@ -93,7 +97,7 @@ function createHarness({
     render: () => {},
     focusAfterDismiss,
   });
-  return { spotlight, state };
+  return { keybindings, spotlight, state };
 }
 
 const packageContext: CommandContext["package"] = {
@@ -170,7 +174,7 @@ test("modal arrow navigation reuses rendered results", () => {
     ranges: [],
   }));
   let searchCount = 0;
-  const { spotlight, state } = createHarness({
+  const { keybindings, spotlight, state } = createHarness({
     query: "Example",
     searchResults: () => {
       searchCount++;
@@ -230,12 +234,19 @@ test("modal arrow navigation reuses rendered results", () => {
     // The root implements the exact ParentNode query surface Spotlight consumes.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal");
+    const target = fakeDom.eventTarget(input);
     for (let index = 0; index < 4; index++) {
-      listeners.get("keydown")!({
+      keybindings.dispatch(fakeDom.keyboardEvent({
+        altKey: false,
+        ctrlKey: false,
+        defaultPrevented: false,
         key: "ArrowDown",
-        currentTarget: input,
+        metaKey: false,
+        shiftKey: false,
+        target,
+        composedPath: () => [target],
         preventDefault: () => {},
-      });
+      }));
     }
   } finally {
     if (previousDocument === undefined) delete globals.document;
