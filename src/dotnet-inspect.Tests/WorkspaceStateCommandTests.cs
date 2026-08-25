@@ -183,6 +183,49 @@ public sealed class WorkspaceStateCommandTests
     }
 
     [Fact]
+    public async Task MaximumPacket_DecodePipeEncode_RoundTrips()
+    {
+        const string prefix =
+            "{\"f\":1,\"t\":[[\":Platform\",null,null,null]],"
+            + "\"g\":[[0]],\"a\":0,\"x\":0,\"l\":[\"";
+        const string suffix = "\"]}";
+        string json = prefix
+            + new string(
+                'A',
+                WorkspaceSharePacketCodec.MaxDecodedUtf8Length
+                    - prefix.Length
+                    - suffix.Length)
+            + suffix;
+        Assert.Equal(
+            WorkspaceSharePacketCodec.MaxDecodedUtf8Length,
+            Encoding.UTF8.GetByteCount(json));
+
+        var encoded = await RunCliAsync("workspace-state", "encode", json);
+        Assert.Equal(0, encoded.ExitCode);
+        Assert.Empty(encoded.Error);
+        string packet = encoded.Output.TrimEnd();
+        Assert.Equal(WorkspaceSharePacketCodec.MaxEncodedLength, packet.Length);
+
+        var decoded = await RunCliAsync(
+            "workspace-state",
+            "decode",
+            packet);
+        Assert.Equal(0, decoded.ExitCode);
+        Assert.Empty(decoded.Error);
+        Assert.Equal(json, decoded.Output.TrimEnd());
+
+        var replayed = await ConsoleCapture.RunAsync(
+            () => WorkspaceStateCommand.EncodeAsync(
+                "-",
+                file: null,
+                TestContext.Current.CancellationToken,
+                new StringReader(decoded.Output)));
+        Assert.Equal(0, replayed.ExitCode);
+        Assert.Empty(replayed.Error);
+        Assert.Equal(packet, replayed.Output.TrimEnd());
+    }
+
+    [Fact]
     public async Task Commands_RequireExactlyOneInputSource()
     {
         var missing = await RunCliAsync("workspace-state", "encode");

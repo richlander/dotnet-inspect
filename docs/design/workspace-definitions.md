@@ -1084,9 +1084,11 @@ Definition records and product demos (this slice):
   signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
   `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
   those commands accept inline, bounded stdin, or bounded UTF-8 file input and
-  perform no acquisition or execution.
+  perform no acquisition or execution. Stream and file input may carry one
+  terminal LF or CRLF outside the declared payload bound.
   `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
-  `Dash_ReadsBoundedStandardInputInBothDirections`, and
+  `Dash_ReadsBoundedStandardInputInBothDirections`,
+  `MaximumPacket_DecodePipeEncode_RoundTrips`, and
   `Encode_RejectsNonUtf8File` gate that CLI boundary.
   `Encode_RejectsEmptyFilePathWithoutStackTrace` and
   `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input

@@ -23,7 +23,7 @@ public static class WorkspaceStateCommand
                 packet,
                 file,
                 WorkspaceSharePacketCodec.MaxEncodedLength,
-                trimStreamLineEndings: true,
+                trimTerminalLineEndings: true,
                 standardInput,
                 cancellationToken);
             WorkspaceSharePacket decoded = WorkspaceSharePacketCodec.Decode(
@@ -51,7 +51,7 @@ public static class WorkspaceStateCommand
                 json,
                 file,
                 WorkspaceSharePacketCodec.MaxDecodedUtf8Length,
-                trimStreamLineEndings: false,
+                trimTerminalLineEndings: true,
                 standardInput,
                 cancellationToken);
             WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
@@ -71,14 +71,14 @@ public static class WorkspaceStateCommand
         string? inline,
         string? file,
         int maximumLength,
-        bool trimStreamLineEndings,
+        bool trimTerminalLineEndings,
         TextReader? standardInput,
         CancellationToken cancellationToken)
     {
         if (inline is not null && inline != "-")
             return inline;
 
-        int readLimit = maximumLength + (trimStreamLineEndings ? 2 : 0);
+        int readLimit = maximumLength + (trimTerminalLineEndings ? 2 : 0);
         string input;
         if (file is not null)
         {
@@ -111,7 +111,7 @@ public static class WorkspaceStateCommand
                 cancellationToken);
         }
 
-        string payload = trimStreamLineEndings
+        string payload = trimTerminalLineEndings
             ? input.TrimEnd('\r', '\n')
             : input;
         if (payload.Length > maximumLength)

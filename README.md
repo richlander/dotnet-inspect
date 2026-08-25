@@ -258,6 +258,9 @@ dotnet-inspect workspace-state encode --file workspace-state.json
 printf '%s' "$json" | dotnet-inspect workspace-state encode -
 ```
 
+Bounded stdin and file input may end with one LF or CRLF; that transport line
+ending does not count against the packet or JSON payload limit.
+
 Encoding accepts equivalent duplicate-free JSON whitespace, property order, and
 string escapes, then validates the complete v1 shape and emits its canonical
 packet. Decoding requires a canonical packet and emits the exact JSON text
