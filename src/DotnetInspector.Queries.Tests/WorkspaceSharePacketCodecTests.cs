@@ -50,6 +50,61 @@ public sealed class WorkspaceSharePacketCodecTests
     }
 
     [Fact]
+    public void JsonConversion_AcceptsEquivalentInputAndRestoresCanonicalPacket()
+    {
+        const string equivalentJson =
+            """
+            {
+              "x": 0,
+              "a": 1,
+              "g": [[0, 1]],
+              "t": [
+                [":Platform", "10.0.10", "net10.0", null],
+                ["System.Text.Json", "10.0.0", "net10.0", null]
+              ],
+              "f": 1,
+              "v": "\u0061pi",
+              "y": "System.Text.Json.JsonSerializer",
+              "l": ["System.Text.Json"]
+            }
+            """;
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            equivalentJson,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(CanonicalVector, WorkspaceSharePacketCodec.Encode(packet));
+        Assert.Equal(
+            DecodeJson(CanonicalVector),
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void JsonConversion_UsesTheSameTypedValidityAndCancellationGates()
+    {
+        WorkspaceSharePacketException duplicate = Assert.Throws<WorkspaceSharePacketException>(
+            () => WorkspaceSharePacketCodec.ParseJson(
+                """{"f":1,"f":1}""",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(WorkspaceSharePacketFailureKind.InvalidJson, duplicate.Kind);
+
+        WorkspaceSharePacketException oversized = Assert.Throws<WorkspaceSharePacketException>(
+            () => WorkspaceSharePacketCodec.ParseJson(
+                new string(' ', WorkspaceSharePacketCodec.MaxDecodedUtf8Length + 1),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+            oversized.Kind);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(
+            () => WorkspaceSharePacketCodec.ParseJson(
+                "{}",
+                cancellation.Token));
+    }
+
+    [Fact]
     public void Decode_UnicodeAndSignatureVector_RoundTripsExactly()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(

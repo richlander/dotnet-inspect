@@ -7,10 +7,83 @@ using DotnetInspector.Services;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the cache and skill commands.
+/// Defines utility commands.
 /// </summary>
 public static class UtilityCommandDefinitions
 {
+    public static Command CreateWorkspaceStateCommand()
+    {
+        var command = new Command(
+            "workspace-state",
+            "Convert workspace share packets and their JSON shape");
+        command.SetAction(_ =>
+        {
+            HelpWriter.WriteHelp(command);
+            return 0;
+        });
+
+        Command decode = CreateConversionCommand(
+            "decode",
+            "Decode canonical base64url workspace state to canonical JSON",
+            "packet",
+            "Canonical base64url packet, or '-' to read stdin",
+            WorkspaceStateCommand.DecodeAsync);
+        Command encode = CreateConversionCommand(
+            "encode",
+            "Encode workspace-state JSON as a canonical base64url packet",
+            "json",
+            "Workspace-state JSON, or '-' to read stdin",
+            WorkspaceStateCommand.EncodeAsync);
+        command.Subcommands.Add(decode);
+        command.Subcommands.Add(encode);
+        return command;
+    }
+
+    private static Command CreateConversionCommand(
+        string name,
+        string description,
+        string argumentName,
+        string argumentDescription,
+        Func<string?, string?, CancellationToken, TextReader?, Task<int>> action)
+    {
+        var command = new Command(name, description);
+        var inputArgument = new Argument<string?>(argumentName)
+        {
+            Description = argumentDescription,
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var fileOption = new Option<string?>("--file")
+        {
+            Description = "Read input from a UTF-8 file",
+        };
+        command.Arguments.Add(inputArgument);
+        command.Options.Add(fileOption);
+        command.SetAction((parseResult, cancellationToken) =>
+        {
+            string? input = parseResult.GetValue(inputArgument);
+            string? file = parseResult.GetValue(fileOption);
+            if (input is null && file is null)
+            {
+                CommandError.Write(
+                    $"Provide <{argumentName}>, '-' for stdin, or --file <path>.");
+                return Task.FromResult(1);
+            }
+            if (input is not null && file is not null)
+            {
+                CommandError.Write(
+                    $"<{argumentName}> and --file are alternate input sources; choose one.");
+                return Task.FromResult(1);
+            }
+
+            return action(
+                input,
+                file,
+                cancellationToken,
+                null);
+        });
+        return command;
+    }
+
     public static Command CreateCacheCommand(SharedOptions opts)
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
