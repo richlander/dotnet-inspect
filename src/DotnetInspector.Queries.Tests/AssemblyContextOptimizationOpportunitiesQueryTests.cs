@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -177,6 +178,66 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             opportunity =>
                 opportunity.Method.MetadataToken
                 == property.SetMethod.MetadataToken);
+    }
+
+    [Fact]
+    public void Execute_ReportsPhysicalAsyncEvidenceBodyToken()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    typeof(ClassicAsyncSiblingFixture)
+                        .Assembly.Location));
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+            [
+                Participant(
+                    image,
+                    ContentIdentity(image),
+                    policy),
+            ]);
+
+        AssemblyContextOptimizationOpportunitiesResult result =
+            Execute(group);
+
+        AssemblyContextOptimizationOpportunityMember member =
+            Assert.Single(
+                result.RankedMembers,
+                candidate =>
+                    candidate.Member.PublicMember?.Member
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .CallsSyncSiblingFromAsync));
+        OptimizationOpportunity opportunity =
+            Assert.Single(
+                member.Member.Ranking.Opportunities,
+                candidate =>
+                    candidate.Shape == "sync-call-in-async");
+        int evidenceToken =
+            Assert.IsType<int>(opportunity.EvidenceMethodToken);
+        int kickoffToken = typeof(ClassicAsyncSiblingFixture)
+            .GetMethod(
+                nameof(
+                    ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync))!
+            .MetadataToken;
+
+        Assert.NotEqual(kickoffToken, evidenceToken);
+        Assert.DoesNotContain(
+            kickoffToken,
+            member.Member.PublicMember!.BodyTokens);
+        Assert.Equal(
+            [
+                .. member.Member.Ranking.Opportunities
+                    .Select(candidate =>
+                        candidate.EvidenceMethodToken
+                        ?? candidate.Method.MetadataToken)
+                    .Distinct()
+                    .Order(),
+            ],
+            member.Member.PublicMember.BodyTokens);
     }
 
     [Fact]

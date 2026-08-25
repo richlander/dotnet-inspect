@@ -304,7 +304,8 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                                     .SelectMany(member =>
                                         member.Ranking.Opportunities)
                                     .Select(opportunity =>
-                                        opportunity.Method.MetadataToken)
+                                        opportunity.EvidenceMethodToken
+                                        ?? opportunity.Method.MetadataToken)
                                     .Distinct()
                                     .Order(),
                             ],
