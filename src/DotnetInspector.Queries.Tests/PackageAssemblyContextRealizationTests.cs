@@ -197,12 +197,38 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageAssemblyRoleParticipant participant =
             Assert.Single(realization.SurfaceParticipants);
         Assert.Equal(
-            "Malformed.Sample",
+            "RejectedPackageAsset0",
             participant.Participant.Assembly.Identity.Name);
         AssemblyContextApiSurfaceResult result =
             AssemblyContextApiSurfaceQuery.Execute(realization.SurfaceGroup);
         Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
             Assert.Single(result.Assemblies.Assemblies));
+    }
+
+    [Fact]
+    public void MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
+    {
+        PackageAssemblyContextSelection package = Selection(
+            "Whitespace.Sample",
+            ("lib/net11.0/ .dll", new byte[] { 1, 2, 3 }),
+            ("lib/net11.0/RejectedPackageAsset0.dll", new byte[] { 4, 5, 6 }));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["RejectedPackageAsset0", "RejectedPackageAsset1"],
+            realization.SurfaceParticipants.Select(
+                participant => participant.Participant.Assembly.Identity.Name));
+        AssemblyContextApiSurfaceResult result =
+            AssemblyContextApiSurfaceQuery.Execute(realization.SurfaceGroup);
+        Assert.Equal(2, result.Assemblies.Assemblies.Length);
+        Assert.All(
+            result.Assemblies.Assemblies,
+            entry => Assert.IsType<
+                AssemblyContextEntry<AssemblyApiSurface>.Rejected>(entry));
     }
 
     [Theory]
@@ -272,8 +298,8 @@ public sealed class PackageAssemblyContextRealizationTests
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
         PackageAssemblyContextSelection package = Selection(
             "Mismatch.Sample",
-            ("ref/net11.0/Mismatch.Sample.dll", surface),
-            ("lib/net11.0/Mismatch.Sample.dll", implementation));
+            ("ref/net11.0/Mismatch\u202e.Sample.dll", surface),
+            ("lib/net11.0/Mismatch\u202e.Sample.dll", implementation));
         using var workspace = new InspectionWorkspace();
 
         InvalidOperationException failure =
@@ -286,6 +312,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "different assembly identities",
             failure.Message,
             StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202e', failure.Message);
         Assert.Equal(0, GroupCount(workspace));
     }
 
@@ -343,11 +370,43 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void DeclaredEntryBudget_FailureDoesNotExposeArtifactPath()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
+        const string path = "lib/net11.0/Budget\u202e.Sample.dll";
+        PackageAssemblyContextSelection package = Selection(
+            "Budget.Sample",
+            (path, image));
+        using var workspace = new InspectionWorkspace();
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => workspace.RealizePackageAssemblyContextRoles(
+                    [package],
+                    new PackageAssemblyContextRealizationOptions
+                    {
+                        MaxAggregateRetainedImageBytes = image.Length,
+                        MaxAssemblyEntryBytes = image.Length - 1,
+                        RequireDeclaredEntryLengths = true,
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "assembly-entry byte limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(path, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202e', failure.Message);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public void EntryReads_StayBoundedWhenContentUnderreportsLength()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
-        const string path = "lib/net11.0/Underreported.Sample.dll";
+        const string path = "lib/net11.0/Underreported\u202e.Sample.dll";
         var content = new UnderreportingPackageContent(path, image);
         var package = new PackageAssemblyContextSelection(
             content,
@@ -376,6 +435,8 @@ public sealed class PackageAssemblyContextRealizationTests
             "assembly-entry byte limit",
             failure.Message,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(path, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202e', failure.Message);
     }
 
     [Fact]

@@ -15,7 +15,15 @@
 T:ILInspector.Metadata.AssemblyInspectionSession;Inspect through a public product query that owns the session, never by opening one.
 T:ILInspector.Metadata.AssemblyImage;Raw assembly images belong to product queries; the browser host must not open one from a descriptor or path.
 T:ILInspector.Metadata.AssemblyImageSnapshot;A group's immutable image belongs to the query layer; hand the group to a query instead.
+T:ILInspector.Metadata.PdbContext;PDB and metadata inspection belong to product queries, not transitive descriptor openers in the browser host.
+T:ILInspector.Metadata.AssemblyTypeDeclarationInventoryReader;Assembly inventory projection belongs to product queries, not transitive descriptor openers in the browser host.
+T:ILInspector.Metadata.AssemblySurfaceClassifier;Assembly surface classification belongs to product queries, not transitive path or descriptor openers in the browser host.
+T:ILInspector.Metadata.AssemblyInspector;Assembly metadata extraction belongs to product queries, not transitive path or descriptor openers in the browser host.
+T:ILInspector.Metadata.TypeResolutionCatalog;Resolution-aware inspection belongs to product queries, not transitive descriptor openers in the browser host.
+T:ILInspector.Metadata.TypeResolutionContext;Type-resolution inspection belongs to product queries, not the browser host.
+T:ILInspector.Metadata.SignatureSpellability;Signature inspection and its transitive assembly opens belong to product queries, not the browser host.
 T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
+T:ILInspector.Analysis.CallerScopeReachabilityPlan;Caller-scope metadata inspection belongs to product queries, not transitive descriptor openers in the browser host.
 T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
 T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.

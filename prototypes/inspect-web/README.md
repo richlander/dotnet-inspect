@@ -28,9 +28,9 @@ It also bans opening a retained descriptor, minting one, or invoking
 `AssemblyReader` in the host; descriptors may carry typed identity into a
 product query, but package selection, identity decoding, descriptor creation,
 and image content remain product-owned. A selected malformed entry receives an
-asset-name-derived identity only as a rejection carrier, so the workspace
-returns its typed failure instead of silently shortening the selected assembly
-set.
+artifact-neutral, role-unique identity only as a rejection carrier, so the
+workspace returns its typed failure instead of silently shortening the
+selected assembly set.
 
 ## How a workspace is opened
 

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -275,8 +276,9 @@ public sealed partial class InspectionWorkspace
         long entryLimit = Math.Min(
             groupBudget,
             options.MaxAssemblyEntryBytes);
-        foreach (RoleAsset asset in assets)
+        for (int index = 0; index < assets.Length; index++)
         {
+            RoleAsset asset = assets[index];
             cancellationToken.ThrowIfCancellationRequested();
             AssemblyResolutionProvenance provenance =
                 AssemblyResolutionProvenance.Package(
@@ -284,8 +286,10 @@ public sealed partial class InspectionWorkspace
                     asset.Package.PackageVersion,
                     asset.Asset.TargetFramework,
                     rid: null);
+            string fallbackName = "RejectedPackageAsset"
+                + index.ToString(CultureInfo.InvariantCulture);
             var fallbackIdentity = new AssemblyReferenceIdentity(
-                Path.GetFileNameWithoutExtension(asset.Asset.AssemblyName),
+                fallbackName,
                 Version: null,
                 Culture: null,
                 PublicKeyToken: null);
@@ -314,7 +318,7 @@ public sealed partial class InspectionWorkspace
                 out Stream? stream))
         {
             throw new InvalidOperationException(
-                $"'{asset.Asset.Path}' disappeared from "
+                "A selected assembly entry disappeared from "
                 + $"{asset.Package.PackageId} {asset.Package.PackageVersion}.");
         }
 
@@ -322,8 +326,7 @@ public sealed partial class InspectionWorkspace
         {
             return new BoundedPackageEntryStream(
                 stream,
-                maxExpandedBytes,
-                asset.Asset.Path);
+                maxExpandedBytes);
         }
         catch
         {
@@ -359,13 +362,14 @@ public sealed partial class InspectionWorkspace
             if (!manifest.TryGetEntryLength(asset.Asset.Path, out long length))
             {
                 throw new InvalidOperationException(
-                    $"'{asset.Asset.Path}' disappeared from "
+                    "A selected assembly entry disappeared from "
                     + $"{asset.Package.PackageId} {asset.Package.PackageVersion}.");
             }
             if (length < 0 || length > options.MaxAssemblyEntryBytes)
             {
                 throw new InvalidOperationException(
-                    $"'{asset.Asset.Path}' exceeds the configured assembly-entry byte limit.");
+                    "A selected assembly entry exceeds the configured "
+                    + "assembly-entry byte limit.");
             }
             try
             {
@@ -408,8 +412,8 @@ public sealed partial class InspectionWorkspace
                         implementationAsset.Path,
                         StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
-                    $"The selected implementation asset '{implementationAsset.Path}' "
-                    + "is not part of the implementation package role.");
+                    "A selected implementation asset is not part of the "
+                    + "implementation package role.");
             bool identitiesDecoded =
                 surface.IdentityDecoded
                 && implementation.IdentityDecoded;
@@ -418,8 +422,8 @@ public sealed partial class InspectionWorkspace
                     implementation.Assembly.Identity))
             {
                 throw new InvalidOperationException(
-                    "The selected reference and implementation assets for "
-                    + $"{surface.Asset.AssemblyName} have different assembly identities.");
+                    "The selected reference and implementation assets have "
+                    + "different assembly identities.");
             }
 
             pairs.Add(PackageAssemblyRoleCorrespondence.SelectedAssets(
@@ -490,26 +494,21 @@ public sealed partial class InspectionWorkspace
         readonly Stream _source;
         readonly long _maxBytes;
         readonly long _start;
-        readonly string _path;
         long _position;
 
         public BoundedPackageEntryStream(
             Stream source,
-            long maxBytes,
-            string path)
+            long maxBytes)
         {
             ArgumentNullException.ThrowIfNull(source);
             ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
-            ArgumentException.ThrowIfNullOrWhiteSpace(path);
             if (!source.CanRead)
             {
                 throw new IOException(
                     "The package entry opener did not return a readable stream.");
             }
-
             _source = source;
             _maxBytes = maxBytes;
-            _path = path;
             if (!source.CanSeek)
                 return;
 
@@ -678,6 +677,7 @@ public sealed partial class InspectionWorkspace
 
         void ThrowLimit() =>
             throw new InvalidDataException(
-                $"'{_path}' exceeds the configured assembly-entry byte limit.");
+                "A selected assembly entry exceeds the configured "
+                + "assembly-entry byte limit.");
     }
 }

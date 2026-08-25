@@ -31,6 +31,23 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Metadata.AssemblyInspectionSession", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyImage", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyImageSnapshot", banned);
+        Assert.Contains("T:ILInspector.Metadata.PdbContext", banned);
+        Assert.Contains(
+            "T:ILInspector.Metadata.AssemblyTypeDeclarationInventoryReader",
+            banned);
+        Assert.Contains(
+            "T:ILInspector.Metadata.AssemblySurfaceClassifier",
+            banned);
+        Assert.Contains("T:ILInspector.Metadata.AssemblyInspector", banned);
+        Assert.Contains(
+            "T:ILInspector.Metadata.TypeResolutionCatalog",
+            banned);
+        Assert.Contains(
+            "T:ILInspector.Metadata.TypeResolutionContext",
+            banned);
+        Assert.Contains(
+            "T:ILInspector.Metadata.SignatureSpellability",
+            banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
@@ -39,6 +56,9 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
+        Assert.Contains(
+            "T:ILInspector.Analysis.CallerScopeReachabilityPlan",
+            banned);
         Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
         Assert.Contains(
             banned,
