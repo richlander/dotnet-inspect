@@ -1147,9 +1147,10 @@ public sealed class LibraryBodyIndex
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(context);
 
-        return HasUnsafeEvidence(
-            path,
-            context.BorrowedPEReader);
+        return context.InspectImage(
+            peReader => HasUnsafeEvidence(
+                path,
+                peReader));
     }
 
     /// <summary>

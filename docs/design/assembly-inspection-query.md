@@ -90,8 +90,9 @@ single `library` inspection opened the *same* PE image multiple times:
   (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`). Full library Analysis prefetches
   that owner. AppContext scanning and member-drill projection use its public capabilities;
   `LibraryBodyIndex` consumes immutable content from the prefetched image, so none of those
-  consumers reopens the target. Bounded unsafe-presence discovery instead borrows the same
-  non-prefetched reader and scans sequentially, avoiding complete-image materialization.
+  consumers reopens the target. Bounded unsafe-presence discovery instead uses a synchronous
+  capability callback over the same non-prefetched reader and scans sequentially, avoiding
+  complete-image materialization without granting a production assembly friendship.
 - `MemberCodeProvider` opens a `PEReader` to build a type index, then calls
   `MetadataSource.Open`, which opens the PE image **again** internally.
 
@@ -535,8 +536,11 @@ new parallel one.
 
 The library Analysis path now uses `PdbContext` as its target-file owner. Full body-index analysis
 prefetches the complete image and consumes immutable content so its parallel readers never seek a
-shared stream. Bounded unsafe-presence discovery instead borrows the context-owned reader through
-an internal lifetime-safe seam and scans sequentially. `MethodBodySource` remains the public
+shared stream. Bounded unsafe-presence discovery instead uses the context-owned reader through a
+synchronous capability callback and scans sequentially. The callback does not transfer reader
+ownership, its contract forbids retention after the call, and it avoids a production
+`InternalsVisibleTo`; `Metadata_FriendsOnlyTestAssemblies` gates that boundary. `MethodBodySource`
+remains the public
 body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
 remove target reopens without exposing the raw reader to the CLI.
 The broader model still has a prerequisite. `MetadataSource` owns a separate reader, and

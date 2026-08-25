@@ -56,7 +56,9 @@ assembly-wide budgets and fails visibly when either budget is exhausted or a
 candidate declaration, local, or call signature cannot be decoded safely. A
 namespace and type-name match for `System.Runtime.CompilerServices.Unsafe` is
 only a candidate; terminal evidence requires the same trusted framework
-identity as the full census. It does not materialize that census. The
+identity as the full census. The reader is supplied through a synchronous
+capability callback whose contract forbids retention or disposal; it does not
+materialize that census. The
 explicit-only `Body Shapes` section is likewise uncategorized; its required
 `Kind=...` predicate supplies its scope.
 

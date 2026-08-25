@@ -517,15 +517,28 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// This context's open reader, lent to same-image product consumers so they
-    /// read the bytes this context opened instead of reopening the source.
-    /// Metadata facets borrow through <see cref="AssemblyInspectionSession"/>;
-    /// sequential Analysis presence probing borrows directly.
+    /// Runs one synchronous product-layer inspection against this context's
+    /// open reader without transferring ownership.
     /// </summary>
     /// <remarks>
+    /// The callback must not retain or dispose the reader. The reader remains
+    /// owned by this context. Gates:
     /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>
-    /// gates the Analysis borrower.
+    /// and <c>Metadata_FriendsOnlyTestAssemblies</c>.
     /// </remarks>
+    public TResult InspectImage<TResult>(
+        Func<PEReader, TResult> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        EnsureAlive();
+        return inspect(_peReader);
+    }
+
+    /// <summary>
+    /// This context's open reader, lent to
+    /// <see cref="AssemblyInspectionSession.Borrow"/> so Metadata facets read
+    /// the same bytes without reopening the source.
+    /// </summary>
     internal PEReader BorrowedPEReader
     {
         get

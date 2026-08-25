@@ -94,8 +94,9 @@ and retains raw unsafe evidence through the Finding and presentation boundary.
 Bare library discovery instead uses the network-free
 `UnsafeEvidencePresenceQuery`, which reuses the same Analysis safety producer
 but stops at the first finding and does not materialize the body index or
-decoded instruction arrays. It borrows the command-owned non-prefetched reader
-and visits methods sequentially in metadata order. Signature-marker prescans
+decoded instruction arrays. It uses a synchronous capability callback over
+the command-owned non-prefetched reader and visits methods sequentially in
+metadata order. Signature-marker prescans
 are no-copy, cached by blob, and charged to a 4 MiB assembly-wide budget;
 streaming instruction visits have a separate 4 MiB aggregate budget. A
 marker-bearing declaration, local, member-reference, method-definition, or
