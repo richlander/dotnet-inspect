@@ -684,8 +684,14 @@ stack; it composes producer-owned evidence without replacing the producer's
 native coordinates. Interleave and body-subset overlays use the same-body
 **IL-offset** axis (`IrNode.SourceOffset` on C# statements, `.Offset` on IL
 instructions, `EvidenceOffsets` on Analysis facts). Implementation Diff does
-not: Metadata independently resolves each side-local method and projects one
-strict/correspondence key and body-presence result per resolved method.
+not: Queries first consumes the workspace-owned participant-role binding, so
+selection uses its exact selection participant and body resolution uses only
+its `SameSelection` or exact `Implementation` participant. `ReferenceOnly`
+becomes a retained unavailable target attempt without a Metadata call.
+Metadata then independently resolves each side-local method in that supplied
+body participant and projects one strict/correspondence key and body-presence
+result per resolved method. Queries, adapters, Metadata, and Research do not
+reconstruct the role mapping from package asset paths or provenance.
 Implementation Diff alone groups those projections inside a declared selection
 scope, decides correspondence/ambiguity, and creates work items. Research then
 joins complete mechanism ledgers by `BodyEvidenceSelectionScope.Id` and

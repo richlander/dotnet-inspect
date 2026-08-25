@@ -425,15 +425,36 @@ ComparisonEndpointOutcomeSet
   Requests               sealed declared ComparisonEndpointKey set
   Outcomes               sealed map, exactly one outcome per request key
 
+AssemblyParticipantRoleBinding
+  Authority              exact AssemblyParticipantRoleManifest.Id
+  Selection              exact participant used for API/member selection
+  Body                   SameSelection |
+                         Implementation(exact participant) |
+                         ReferenceOnly(proof of no selected implementation)
+
+AssemblyParticipantRoleManifest
+  Id                     opaque role-authority generation identity
+  Lifetime               exact retained workspace/group or direct-source
+                         generation
+  SelectionParticipants  complete exact selection-role participant set
+  ImplementationParticipants
+                         complete exact implementation-role participant set
+  Bindings               sealed map, exactly one binding per selection
+
+ArtifactParticipantManifestEntry
+  Input                  opaque manifest-local participant-input identity
+  LogicalSlot            endpoint-owner-issued cross-version slot
+  Roles                  exact AssemblyParticipantRoleBinding
+
 ArtifactParticipantManifest
-  Revision               sealed adapter-issued inventory identity
-  Entries                complete selected logical participant slots/bindings
+  Revision               sealed endpoint/workspace inventory identity
+  Entries                complete ArtifactParticipantManifestEntry set
 
 ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity
   Authority              LogicalSlot | DirectMemberDesignation
   Kind                   Paired | BeforeOnly | AfterOnly
-  Before/After           validated binding with originating input id |
+  Before/After           manifest entry's exact role binding and input id |
                          proven Absent
 
 ArtifactParticipantPairingOutcome
@@ -475,10 +496,51 @@ rejected, or failed endpoint remains a terminal comparison input failure keyed
 by its request. It never becomes an empty manifest or disappears because
 another endpoint succeeded.
 
-The adapter seals its manifest from the complete selected artifact inventory
-that its acquisition policy admitted and the workspace projected into assembly
-participants. A package endpoint may therefore realize multiple assemblies and
-TFM/RID groups; a project endpoint may realize direct outputs and package-owned
+The endpoint owner seals its manifest from the complete selected artifact
+inventory that acquisition admitted and the workspace projected into assembly
+participants. Before that seal, the workspace role owner issues one sealed
+`AssemblyParticipantRoleManifest`. Its binding keys equal its complete
+selection-role set. Every `Implementation` binding names a member of the
+complete implementation-role set with equivalent assembly identity;
+`SameSelection` names the exact same participant in an explicitly shared role;
+and `ReferenceOnly` proves that the complete role generation contains no
+selected implementation correspondence for that selection participant.
+Sharing a group does not itself create correspondence: only an explicit
+workspace-owned correspondence may produce `SameSelection`, so an unpaired
+surface in a shared group remains `ReferenceOnly`.
+Equivalent identities within either role, foreign participants, duplicate
+surface correspondences, two selections naming one implementation, and
+mismatched identities reject the role manifest.
+Implementation-role participants used only as binding dependencies remain in
+that role set but do not become comparison-selection entries.
+
+For package workspaces, the current product owner is
+`PackageAssemblyContextRoles`: its surface role supplies selection participants
+and its exact correspondence supplies implementation participants.
+`SeparateRoles_PreserveExactSurfaceImplementationCorrespondence`,
+`SharedRole_ReusesGroupAndLeavesReferenceOnlySurfaceUnpaired`,
+`InvalidRoles_CreateNoPartialGroup`, and
+`Dispose_ContinuesAfterBothRoleGroupsFail` gate that current product contract.
+The target extends this same owner to issue
+`AssemblyParticipantRoleManifest` directly from its retained role sets and
+correspondence input. Its nullable `ImplementationParticipant(surface)` API may
+remain as compatibility surface, but no comparison adapter or coordinator may
+translate `null` into `ReferenceOnly`; only the role owner may mint that typed
+proof while sealing the complete manifest.
+
+The role manifest and every participant it names are valid only within their
+retained workspace/group generation. Its opaque id is side-local authority and
+never participates in `LogicalSlot` or cross-version pairing identity.
+
+The adapter supplies acquired descriptors and typed provenance but cannot
+reconstruct role correspondence from `ref`, `lib`, `runtimes`, path, or package
+layout. The endpoint owner adds only the cross-version `LogicalSlot` after
+consuming the workspace-issued role binding. Implementation Diff, Metadata, and
+Research receive that sealed result and cannot mint a different same-side
+surface/implementation mapping.
+
+A package endpoint may therefore realize multiple assemblies and TFM/RID
+groups; a project endpoint may realize direct outputs and package-owned
 dependencies; a directory endpoint may realize multiple files. Empty or wholly
 non-projectable acquisition remains the typed member failure defined above,
 not a successful manifest.
@@ -538,14 +600,16 @@ shortening one.
 ### Comparison participant correspondence
 
 The owner that understands an endpoint coordinate also owns the logical
-participant slots it realizes. `ImplementationComparisonQuery` receives the
-complete sealed slot-outcome set and lowers it without reconstructing
-provenance. Healthy producer and Research paths receive only admitted opaque
-`ArtifactParticipantPairing.Id` values plus validated side-local bindings.
+participant slots it realizes **across versions**. The workspace role owner
+separately and exclusively owns same-side selection-to-body correspondence.
+`ImplementationComparisonQuery` receives the complete sealed slot-outcome set
+and lowers it without reconstructing either provenance or roles. Healthy
+producer and Research paths receive only admitted opaque
+`ArtifactParticipantPairing.Id` values plus validated side-local role bindings.
 Terminal outcome payloads remain query/session failure evidence and reach
 presentation only through typed failure ledgers and diagnostics; producers
 never receive them. No downstream layer inspects package, project, platform,
-path, or workspace provenance to reconstruct correspondence.
+path, asset folders, or workspace provenance to reconstruct correspondence.
 
 Each `LogicalSlot` pairing first validates equal version-neutral assembly
 identity: name, normalized culture, and canonical public-key token. Adapters
@@ -562,14 +626,14 @@ or requires that cold digest pass.
 
 | Acquisition owner | Logical participant slot | Available side-local evidence |
 | --- | --- | --- |
-| Direct package | Paired endpoint request, selection slot, asset role, and logical assembly entry | Artifact registration, package id/version, selected TFM/RID, archive/path locator, optional owner-issued digest |
-| Project dependency | Paired project request, target-selection slot, dependency package id, asset role, and logical assembly entry | Artifact registration, package version, restore root, resolved asset path, optional owner-issued digest |
-| Direct project output | Paired project request, target-selection slot, configuration, output role, and logical assembly entry | Artifact registration, build root, resolved TFM/RID, output path, optional owner-issued digest |
-| Platform | Paired endpoint request, version-neutral framework slot, asset role, and logical assembly entry | Artifact registration, framework family/version, installed/remote locator, optional owner-issued digest |
-| Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Artifact registration, workspace context id, canonical bundle-relative `ContentRef`, provider handle, source-declared bundle digest |
-| Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Artifact registration, absolute path, retained-snapshot id, optional owner-issued digest |
-| Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Both artifact registrations, adapters' source-specific provenance and locators, optional source-declared or owner-issued digests |
-| Direct live-member call | One invocation-scoped paired-input designation | Exact live participant bindings and MVIDs |
+| Direct package | Paired endpoint request, selection slot, workspace-issued role, and logical assembly entry | Exact selection/body role binding, artifact registration, package id/version, selected TFM/RID, archive/path locator, optional owner-issued digest |
+| Project dependency | Paired project request, target-selection slot, dependency package id, workspace-issued role, and logical assembly entry | Exact selection/body role binding, artifact registration, package version, restore root, resolved asset path, optional owner-issued digest |
+| Direct project output | Paired project request, target-selection slot, configuration, workspace-issued output role, and logical assembly entry | Exact selection/body role binding, artifact registration, build root, resolved TFM/RID, output path, optional owner-issued digest |
+| Platform | Paired endpoint request, version-neutral framework slot, asset role, and logical assembly entry | Exact selection/body role binding, artifact registration, framework family/version, installed/remote locator, optional owner-issued digest |
+| Embedded workspace | Host-issued paired workspace input/member id plus logical assembly entry | Exact selection/body role binding, artifact registration, workspace context id, canonical bundle-relative `ContentRef`, provider handle, source-declared bundle digest |
+| Designated/local | Explicit paired input id, or host-issued stable directory/member id, plus logical assembly entry | Exact selection/body role binding, artifact registration, absolute path, retained-snapshot id, optional owner-issued digest |
+| Explicit cross-source | Host-issued paired endpoint/member id plus logical assembly entry | Exact selection/body role binding, both artifact registrations, adapters' source-specific provenance and locators, optional source-declared or owner-issued digests |
+| Direct live-member call | One invocation-scoped paired-input designation | Exact single-participant role manifests, live bindings, and MVIDs |
 
 A package selection slot describes the request, not whichever framework folder
 won independently on one side. Default highest-compatible selection uses one
@@ -608,9 +672,11 @@ admitted `ArtifactParticipantPairing` and retains that pairing's opaque id,
 exact live participant bindings, both MVIDs, and a lifetime bounded by the
 supplied sources. The direct factory also mints the corresponding internal
 one-slot/one-admitted-outcome receipt over the two designated participant-input
-identities used by query lowering; the caller cannot substitute a terminal arm.
-The designation does not create a parallel pairing identity and contains no
-path, handle, token, or display identity.
+identities used by query lowering. For each side it mints a single-participant
+role manifest whose selection and implementation roles share that participant,
+so each direct binding has `Body = SameSelection`; the caller cannot substitute
+a terminal or `ReferenceOnly` arm. The designation does not create a parallel
+pairing identity and contains no path, handle, token, or display identity.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path
@@ -1078,7 +1144,11 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonEndpointPairing_RequiresExplicitAbsenceForOneSidedEvidence`
 - `ComparisonEndpointPairing_FailedSideTaintsOppositeManifest`
 - `ComparisonEndpoint_RealizedManifestIsNonEmptyAndSealed`
+- `AssemblyParticipantRoleManifest_IsTotalAndRoleLocal`
+- `AssemblyParticipantRoleManifest_SharedGroupDoesNotInventCorrespondence`
 - `ComparisonParticipantManifest_EqualsSelectedArtifactInventory`
+- `ComparisonParticipantManifest_ConsumesWorkspaceRoleBindings`
+- `ComparisonParticipantManifest_ReferenceOnlyDoesNotFabricateImplementation`
 - `ComparisonParticipantPairing_IsTotalOverManifestUnion`
 - `ComparisonEndpointPairingSlotOutcomeSet_EqualsPairingPlan`
 - `ComparisonParticipantPairingOutcomeSet_PartitionsInputSet`
@@ -1090,6 +1160,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ComparisonParticipantPairing_DuplicateLogicalSlotIsAmbiguous`
 - `ComparisonParticipantPairing_IsStableAcrossInputReordering`
 - `ComparisonParticipantPairing_DoesNotRequestContentDigest`
+- `ComparisonParticipantPairing_DoesNotReconstructSameSideRoles`
 - `ComparisonParticipantPairing_AdaptersCannotMintDirectAuthority`
 - `EmbeddedWorkspacePairing_RequiresHostIssuedPairedDesignation`
 - `DirectMemberPairing_RequiresInvocationScopedDesignation`

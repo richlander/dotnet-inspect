@@ -128,11 +128,13 @@ gates the stream-backed target-content path.
 
 The target
 [structured Implementation Diff lifecycle](implementation-diff.md#structured-comparison-lifecycle)
-replaces that transitional split. Endpoint adapters seal participant manifests;
-the host supplies typed target requests; one ResearchQueries operation owns
-participant pairing consumption, total mechanism projection, bounded authored
-Source acquisition, completion, and cleanup. The CLI receives only the
-completed result.
+replaces that transitional split. Workspace role owners seal exact same-side
+selection/body role manifests; endpoint owners consume those bindings when
+sealing cross-version participant manifests, without adapter, Metadata, or
+Research reconstruction. The host supplies typed target requests; one
+ResearchQueries operation owns participant pairing consumption, total
+mechanism projection, bounded authored Source acquisition, completion, and
+cleanup. The CLI receives only the completed result.
 
 `AssemblyContextSourceQuery` accepts one participant, an exact typed target,
 and explicit host capabilities for symbol and source acquisition. It opens the

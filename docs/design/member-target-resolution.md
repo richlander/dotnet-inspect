@@ -108,14 +108,28 @@ MemberBodyResolution
 relationship role. Resolution validates that the addressed MethodDef occupies
 that method/getter/setter/adder/remover role in the same metadata source.
 `Carried` revalidates an optional preferred address, then resolves by
-`MemberBodyKey` and relationship role inside its side-local selected
-participant; the role on the carried target and strict key must agree. It is
-same-artifact reacquisition or same-side reference-to-implementation currency,
-not a target for the opposite comparison version.
+`MemberBodyKey` and relationship role inside the exact side-local body
+participant supplied by the query's workspace-issued role binding; the role on
+the carried target and strict key must agree. Metadata does not search a
+surface group, inspect package asset paths, or choose an implementation
+participant. `Carried` is same-artifact reacquisition or same-side
+reference-to-implementation currency after that role choice, not a target for
+the opposite comparison version.
 Comparison selection mints an independent exact/carried target binding from
 each side's own API/metadata surface before body resolution. A stale or
 cross-reader address is a hint failure, not permission to fall back to name,
 display ordinal, `MemberAnchor`, or token equality.
+An `Exact` target is valid only when the workspace role binding says
+`SameSelection`; a distinct implementation role requires `Carried`, so a
+surface module address is never applied to the implementation module.
+
+A workspace `ReferenceOnly` role outcome means no implementation participant
+was selected for that surface. The query retains that proof and completes the
+pre-minted body attempt as
+`Unavailable(ImplementationRoleUnavailable)` without invoking Metadata.
+Reference-only is not proof that the selected MethodDef is bodyless and cannot
+become `MemberBodyResolution.Bodyless`, selection `Absent`, or semantic body
+removal.
 
 `MemberBodyKey` is a versioned `MethodStructuralSignature` projection. It
 retains declaring type, method kind/name, calling convention, generic arity and
@@ -196,6 +210,7 @@ The target architecture remains unverified until these gates exist:
 | --- | --- |
 | `MemberBodyTargetRoundTripsStructuralKey` | API extraction and live resolution produce different strict keys; JSON loses key version or accessor role; an exact target omits or misstates its role; or a same-source exact/preferred address bypasses key/role validation |
 | `BodyTargetResolutionNeverUsesPresentation` | A carried target falls back to name, ordinal, anchor, display signature, path, or raw token; legacy/unknown keys guess; or duplicate candidates select one |
+| `BodyTargetResolution_UsesWorkspaceRoleBinding` | Metadata chooses or searches for an implementation participant; a distinct implementation role resolves in the selection surface or accepts an exact surface address; a reference-only surface invokes Metadata or becomes bodyless/absent/add-remove; or a stale role generation is accepted |
 | `BodyCorrespondenceNormalizationIsExact` | Strict keys erase AssemblyRef version/raw representation; correspondence retains version or `PublicKey`; clears another flag; drops name/culture/token or non-scope structure; or the two policies use different builders/budgets |
 | `BodyCorrespondenceCollisionIsAmbiguous` | Metadata consumes scope/population or emits a collision bucket instead of one key per resolved method; Implementation Diff pairs two normalized candidates in one selection-scope side by occurrence/order; its collision bucket loses a candidate or lacks a retained ambiguity work item; a dependent opposite candidate becomes semantic evidence; equal keys in independent scopes alias, reject the plan, or taint one another; or equal keys in different paired participants collide |
 | `BodyCorrespondence_UsesIndependentSideLocalTargets` | One side's strict target is fanned into the other side; AssemblyRef-version-only drift fails before correspondence; or remove/add shares a target request |
