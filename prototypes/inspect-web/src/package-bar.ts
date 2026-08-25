@@ -1,3 +1,6 @@
+import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+
 export interface PackageBarPackage {
   id: string;
   version: string;
@@ -17,6 +20,7 @@ export interface ParsedPackageQuery {
 }
 
 interface PackageBarOptions {
+  keybindings: KeybindingRegistry;
   state: PackageBarState;
   escapeHtml: (value: unknown) => string;
   packageIdentityKey: (pkg: PackageBarPackage) => string;
@@ -168,6 +172,7 @@ export function findPackageTabForQuery(
 
 export function createPackageBar(options: PackageBarOptions) {
   const {
+    keybindings,
     state,
     escapeHtml,
     packageIdentityKey,
@@ -199,11 +204,16 @@ export function createPackageBar(options: PackageBarOptions) {
         if (event.target instanceof Element && event.target.closest("[data-package-close]")) return;
         activate();
       });
-      tab.addEventListener("keydown", event => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        activate();
-      });
+      keybindings.register({
+        id: "package-tab.activate",
+        key: ["Enter", " "],
+        allowExtraModifiers: true,
+        priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+        run: () => {
+          activate();
+          return true;
+        },
+      }, tab);
     });
 
     root.querySelectorAll<HTMLButtonElement>("[data-package-close]").forEach(button =>
