@@ -650,12 +650,12 @@ tsgolint package metadata, requires both Linux libc variants, and pins the npm
 preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
 gates the supported paths.
 
-`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
-probe reports 77 findings across 15 files: 65 in nine product files and 12 in
-six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
-records the probe commands, file distribution, and migration discipline; the
-set should be migrated with close negative tests for indexing behavior rather
-than hidden behind assertions.
+`noUncheckedIndexedAccess` is enabled in the shared configuration and therefore
+applies to both product and test projects. Indexed and lookup values are checked
+at their use sites, with malformed decoded coordinates ignored and missing
+decoded assembly descriptors reported through the existing visible failure
+paths. Close-negative tests cover those boundaries rather than relying on
+non-null assertions.
 
 ## Test
 

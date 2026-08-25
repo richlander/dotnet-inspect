@@ -161,6 +161,12 @@ function parseDemoHref(href: string) {
   };
 }
 
+function requiredItem<T>(values: readonly T[], index: number, label: string): T {
+  const value = values[index];
+  assert.ok(value, `missing ${label} at index ${index}`);
+  return value;
+}
+
 test("isProductHomeDemoId uses the installed engine catalog", () => {
   setProductHomeDemoCatalog([
     { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
@@ -218,7 +224,7 @@ test("platform residual rejects pinned runtime coordinates", () => {
   const pinned = {
     ...unversionedRuntimeResolved,
     tabs: [
-      unversionedRuntimeResolved.tabs[0],
+      requiredItem(unversionedRuntimeResolved.tabs, 0, "package tab"),
       {
         id: "runtime",
         member: {
