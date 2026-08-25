@@ -3374,6 +3374,7 @@ public class ApiCommand
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
         TypeAcquisitionContext? acquisition = null)
     {
+        var displayAnnotations = memberPipeline.GetCostAnnotations();
         if (options is MemberOptions { AutoSelectedSingleOverload: true })
             memberPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
 
@@ -3399,12 +3400,11 @@ public class ApiCommand
         var discoveryRenderSections = bareDiscover
             ? options is MemberOptions { OverloadIndex: not null }
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
-                : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
+                : [.. effective.Where(displayAnnotations.ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
         var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
-        var displayAnnotations = memberPipeline.GetCostAnnotations();
         var queryEffective = effective;
         var specificSectionDiscover = options.Discover is { Length: > 0 }
             && options.Discover.Any(name => !name.StartsWith("@", StringComparison.Ordinal));

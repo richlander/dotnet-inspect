@@ -8887,6 +8887,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AutoSelectedDetail_EffectiveDiscoveryUsesDetailAnnotations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.StringBuilder", "-m", "Clear",
+            "--platform", "System.Runtime",
+            "-S", SectionNames.DecompiledSource,
+            "-D", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"kind\":\"section\"", output);
+        Assert.DoesNotContain("section (verbose)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Member_DuplicateAllSelectors_AreIdempotent()
     {
         var single = await RunAppAsync(
@@ -8936,6 +8951,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
+        Assert.Contains(
+            $"section '{SectionNames.IL}' has no data",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Member_InapplicableBodySection_RowFormatReportsNoDataAfterAutoSelection(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Empty", "--platform", "System.Runtime",
+            "-S", SectionNames.IL, format, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
         Assert.Contains(
             $"section '{SectionNames.IL}' has no data",
             error,
@@ -13303,6 +13336,66 @@ public partial class CommandExecutionTests
         Assert.Equal(unscoped.Output, scoped.Output);
         Assert.True(int.TryParse(unscoped.Output.Trim(), out int count));
         Assert.True(count > 0);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_AuthoredMarkdownSectionDoesNotInjectCallers()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var unscoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "-S", SectionNames.MethodGroups, "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "-S", SectionNames.MethodGroups, "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Contains($"## {SectionNames.MethodGroups}", scoped.Output);
+        Assert.DoesNotContain($"## {SectionNames.Callers}", scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_AuthoredBareSectionDoesNotInjectCallers()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        string memberName = nameof(MemberCallGraphFixture.Inner);
+        var unscoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "-S", SectionNames.DecompiledSource, "--bare", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory,
+            "-S", SectionNames.DecompiledSource, "--bare", "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.NotEmpty(scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_UnusedByAuthoredSectionDoesNotResolveScope()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", missingDirectory,
+            "--count", "-S", SectionNames.MethodGroups, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.True(int.TryParse(result.Output.Trim(), out int count));
+        Assert.True(count > 0);
+        Assert.Empty(result.Error);
     }
 
     [Fact]

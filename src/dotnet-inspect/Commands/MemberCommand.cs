@@ -296,12 +296,9 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            var callersImplicitlySelected = effectiveOptions.IncludeSections is { Count: > 0 }
-                && ShouldImplicitlySelectCallers(effectiveOptions);
+            var callersImplicitlySelected = effectiveOptions.HasCallerScope
+                && effectiveOptions.IncludeSections is null;
             if (callersImplicitlySelected)
-                effectiveOptions = IncludeCallersSection(effectiveOptions);
-            else if (effectiveOptions.HasCallerScope
-                && effectiveOptions.IncludeSections is null)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
             var authoredSelection = callersImplicitlySelected
                 ? ExcludeCallersSection(effectiveOptions)
@@ -549,7 +546,7 @@ public static class MemberCommand
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
             // open the member's own assembly index for aggregated callers across all overloads.
-            if (effectiveOptions.HasCallerScope
+            if (RequiresCallerScopeResolution(effectiveOptions)
                 && effectiveOptions.DllPath == null
                 && apiDllPath != null)
             {
@@ -559,7 +556,7 @@ public static class MemberCommand
             // Expand --bin/--directory, --project, and --caller-package into assemblies
             // for cross-assembly callers and Call Graph traversal, in addition to the
             // selected member's own assembly.
-            if (effectiveOptions.HasCallerScope)
+            if (RequiresCallerScopeResolution(effectiveOptions))
             {
                 var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
                 callerScopeAssemblySet = await CallerScopeResolver.ResolveAsync(
@@ -609,9 +606,7 @@ public static class MemberCommand
             if (writeExitCode != 0)
                 return writeExitCode;
 
-            if ((effectiveOptions.Count
-                 || !effectiveOptions.Tabular
-                 && !effectiveOptions.JsonOutput)
+            if ((effectiveOptions.Count || !effectiveOptions.JsonOutput)
                 && apiType.Members is [{ Kind: "field" }])
             {
                 ApiCommand.WarnEmptySelectedSections(
@@ -893,29 +888,11 @@ public static class MemberCommand
         return options with { IncludeSections = includeSections };
     }
 
-    private static bool ShouldImplicitlySelectCallers(MemberOptions options)
+    private static bool RequiresCallerScopeResolution(MemberOptions options)
         => options.HasCallerScope
-           && options.IncludeSections?.Contains(SectionNames.Callers) != true
-           && (!options.JsonOutput || options.IncludeSections is { Count: > 0 })
-           && !options.Tree
-           && !IsStandaloneMermaid(options)
-           && (options.IncludeSections is null || !UsesSingleSectionOutput(options));
-
-    private static bool UsesSingleSectionOutput(MemberOptions options)
-        => options.Discover is null
-           && (options.Count
-               || options.Print
-               || options.TabularExplicitlySet
-               || ShapeProjectionOutput.ActiveShapeCount(
-                   options.Value,
-                   options.Urls,
-                   options.Paths) > 0);
-
-    private static bool IsStandaloneMermaid(MemberOptions options)
-        => options.MermaidOutput
-           && (options.FormatFlagExplicitlySet
-               || options.IncludeSections is { Count: 1 } sections
-               && sections.Contains(SectionNames.CallGraph));
+           && options.IncludeSections is { } sections
+           && (sections.Contains(SectionNames.Callers)
+               || sections.Contains(SectionNames.CallGraph));
 
     private static readonly string[] SingleOverloadSectionNames =
     [
