@@ -1088,8 +1088,9 @@ Definition records and product demos (this slice):
   `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
   `Dash_ReadsBoundedStandardInputInBothDirections`, and
   `Encode_RejectsNonUtf8File` gate that CLI boundary.
-  `Encode_RejectsEmptyFilePathWithoutStackTrace` gates the contained
-  file-input diagnostic;
+  `Encode_RejectsEmptyFilePathWithoutStackTrace` and
+  `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
+  diagnostics across platform path rules;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;

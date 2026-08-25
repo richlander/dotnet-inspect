@@ -133,6 +133,24 @@ public sealed class WorkspaceStateCommandTests
         Assert.DoesNotContain("System.ArgumentException", result.Error);
     }
 
+    [Theory]
+    [InlineData("\0")]
+    [InlineData(" ")]
+    public async Task Encode_InvalidFilePathDoesNotPrintStackTrace(string path)
+    {
+        var result = await RunCliAsync(
+            "workspace-state",
+            "encode",
+            "--file",
+            path);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.StartsWith("Error:", result.Error);
+        Assert.DoesNotContain("System.ArgumentException", result.Error);
+        Assert.DoesNotContain(" at System.IO.", result.Error);
+    }
+
     [Fact]
     public async Task Dash_ReadsBoundedStandardInputInBothDirections()
     {

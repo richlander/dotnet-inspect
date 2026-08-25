@@ -82,11 +82,9 @@ public static class WorkspaceStateCommand
         string input;
         if (file is not null)
         {
-            if (file.Length == 0)
-                throw new InvalidDataException("Workspace-state file path cannot be empty.");
-
+            string path = NormalizeFilePath(file);
             await using var stream = new FileStream(
-                file,
+                path,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
@@ -124,6 +122,28 @@ public static class WorkspaceStateCommand
 
         return payload;
     }
+
+    private static string NormalizeFilePath(string path)
+    {
+        if (path.Length == 0)
+            throw new InvalidDataException("Workspace-state file path cannot be empty.");
+
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidFilePath(ex);
+        }
+        catch (NotSupportedException ex)
+        {
+            throw InvalidFilePath(ex);
+        }
+    }
+
+    private static InvalidDataException InvalidFilePath(Exception innerException) =>
+        new($"Workspace-state file path is invalid: {innerException.Message}", innerException);
 
     private static async Task<string> ReadBoundedAsync(
         TextReader reader,
