@@ -447,8 +447,9 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        // -S/--select with values: resolve as section filter for backpressure
-        if (options.IncludeSections is null)
+        // Resolve raw selectors unless member lookup already supplied the authoritative set.
+        // Both paths still enforce Body Shapes requirements before acquisition.
+        if (options is not MemberOptions { MemberSectionsPreResolved: true })
         {
             var selectResult = SelectResolver.ResolveSelectAsSections(
                 options.Select,
@@ -484,6 +485,27 @@ public class ApiCommand
                     };
                 }
             }
+        }
+        else if (options is MemberOptions { IncludeSections: { } preResolvedSections })
+        {
+            var selectResult = new SelectResult(
+                new HashSet<string>(
+                    preResolvedSections,
+                    StringComparer.OrdinalIgnoreCase),
+                [])
+            {
+                ExactSections = new HashSet<string>(
+                    options.ExactIncludeSections ?? [],
+                    StringComparer.OrdinalIgnoreCase)
+            };
+            if (ApplyBodyShapeSelectionRequirements(
+                    options,
+                    selectResult) is { } bodyShapeError)
+            {
+                CommandError.Write(bodyShapeError);
+                return (null!, 1);
+            }
+            options = options with { IncludeSections = selectResult.Sections };
         }
         if (options is
             {
@@ -626,7 +648,7 @@ public class ApiCommand
 
         const string required =
             "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
-        if (TargetsBodyShapes(options, options.Select)
+        if (selectResult.ExactSections.Contains(SectionNames.BodyShapes)
             || sections.Count == 1)
         {
             return required;
@@ -3450,13 +3472,16 @@ public class ApiCommand
             StringComparison.OrdinalIgnoreCase);
 
     private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
-        => options.Select?.Any(static selector =>
-               selector.Equals(
-                   SectionNames.PerformanceTriage,
-                   StringComparison.OrdinalIgnoreCase)
-               || selector.Equals(
-                   "Optimization Opportunities",
-                   StringComparison.OrdinalIgnoreCase)) == true;
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.PerformanceTriage) == true
+            : options.Select?.Any(static selector =>
+                   selector.Equals(
+                       SectionNames.PerformanceTriage,
+                       StringComparison.OrdinalIgnoreCase)
+                   || selector.Equals(
+                       "Optimization Opportunities",
+                       StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

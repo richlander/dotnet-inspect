@@ -29,6 +29,155 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task TypeSuppliedSections_DoNotSuppressRawSelectorValidation()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            Select = ["No Such Section"],
+            IncludeSections = [SectionNames.Methods],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("Select value 'No Such Section' not found.", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedBodyShapes_ValidatesBeforeAcquisition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-body-shapes.dll"),
+            Select = [SectionNames.BodyShapes],
+            IncludeSections = [SectionNames.BodyShapes],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.BodyShapes}' requires --where",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedBodyShapes_UsesAuthoritativeExactSectionProvenance()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-exact-body-shapes.dll"),
+            Select = [SectionNames.Signature],
+            IncludeSections = [SectionNames.BodyShapes, SectionNames.Signature],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.BodyShapes}' requires --where",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedBodyShapes_CategoryExpansionRemainsNonExact()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-category-body-shapes.dll"),
+            Select = [SelectResolver.AllSelector],
+            IncludeSections = [SectionNames.BodyShapes, SectionNames.Signature],
+            ExactIncludeSectionsOverride = [],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("File not found", result.Error);
+        Assert.DoesNotContain("requires --where", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedBodyKindQuery_RejectsAuthoritativeNonBodyShapeSelection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-body-kind.dll"),
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = [SectionNames.Signature],
+            IncludeSections = [SectionNames.Signature],
+            BodyKindQuery = new BodyKindQueryOptions { Kind = "expression-bodied" },
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"--where Kind=... targets section '{SectionNames.BodyShapes}'.",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedBroadSection_IgnoresStaleRawSelectorAfterAcquisition()
+    {
+        var stale = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                Select = [SectionNames.Methods, SectionNames.Properties],
+                IncludeSections = [SectionNames.Methods],
+                Count = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+        var control = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                IncludeSections = [SectionNames.Methods],
+                Count = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(0, stale.ExitCode);
+        Assert.Equal(control.Output, stale.Output);
+        Assert.Empty(stale.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedPerformanceTriageJson_IgnoresStaleRawSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections = [SectionNames.PerformanceTriage],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Performance Triage analysis.",
+            result.Error);
+    }
+
+    [Fact]
     public async Task EmptyPreResolvedSection_DoesNotResolveStaleRawSelector()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

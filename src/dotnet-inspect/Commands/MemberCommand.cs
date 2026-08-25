@@ -206,7 +206,9 @@ public static class MemberCommand
                     ProjectAssetsPath = projectAssetsPath,
                 };
             }
-            else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
+            else if (!options.MemberSectionsPreResolved
+                && options.MemberFilter.Count == 0
+                && options.Select is { Length: > 0 })
             {
                 var actualPipeline = ApiMemberSectionPipelines.Create(options);
                 var actualSelect = SelectResolver.ResolveSelectAsSections(
