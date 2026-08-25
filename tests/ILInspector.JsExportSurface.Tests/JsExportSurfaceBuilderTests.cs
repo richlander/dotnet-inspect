@@ -651,6 +651,133 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsRuntimeWrapperWithoutModuleIdentity()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate candidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+        ImmutableArray<DirectCall> emptyMvidCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call with
+                {
+                    EvidenceMethod = call.EvidenceMethod with
+                    {
+                        ModuleVersionId = Guid.Empty,
+                    },
+                }),
+        ];
+        LibraryBodyIndex emptyMvidIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: emptyMvidCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        export.RuntimeJsExportWrapperCandidates =
+        [
+            candidate with
+            {
+                ModuleVersionId = Guid.Empty,
+            },
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    emptyMvidIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsRuntimeWrapperWithWrongAssemblyMarshalerArgument()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate candidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+        TypeRef wrongAssemblyArgument = TypeRef.Pointer(
+            TypeRef.Definition(
+                "System.Runtime",
+                "System.Runtime.InteropServices.JavaScript",
+                "JSMarshalerArgument",
+                trustedFrameworkAssembly: true));
+        ImmutableArray<DirectCall> wrongAssemblyCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                        == candidate.WrapperMethodToken
+                    ? call with
+                    {
+                        EvidenceMethod = call.EvidenceMethod with
+                        {
+                            ParameterTypes = [wrongAssemblyArgument],
+                        },
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex wrongAssemblyIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: wrongAssemblyCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    wrongAssemblyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_RejectsDuplicatedRuntimeBindingTarget()
     {
         string path =

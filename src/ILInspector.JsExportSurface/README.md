@@ -22,10 +22,11 @@
   exact registration token as a body containing the retained number of trusted
   `BindManagedFunction` calls, exactly one trusted call whose proven first
   string-literal argument equals the export's structured runtime binding name,
-  equal metadata/body module MVIDs, plus a complete
-  wrapper-to-stub-to-export MethodDef call chain. A diagnosed registration,
-  wrapper, or stub body, prefix sibling, or handwritten candidate cannot
-  publish another export.
+  non-empty equal metadata/body module MVIDs, an exact
+  `System.Runtime.InteropServices.JavaScript` `JSMarshalerArgument`, plus a
+  complete wrapper-to-stub-to-export MethodDef call chain. A diagnosed
+  registration, wrapper, or stub body, prefix sibling, or handwritten candidate
+  cannot publish another export.
   An attributed body in a non-partial type is rejected because it has no
   runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
@@ -72,6 +73,8 @@ calls the other.
 `Build_RejectsRegistrationBodyCountMismatch`,
 `Build_RejectsDuplicatedRuntimeBindingTarget`,
 `Build_RejectsRuntimeWrapperFromDifferentModule`,
+`Build_RejectsRuntimeWrapperWithoutModuleIdentity`,
+`Build_RejectsRuntimeWrapperWithWrongAssemblyMarshalerArgument`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,

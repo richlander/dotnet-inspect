@@ -849,8 +849,10 @@ public static class JsExportSurfaceBuilder
                     candidate.WrapperMethodToken
                         == wrapper.MetadataToken);
             if (candidate is null
-                || candidate.ModuleVersionId
-                    != wrapper.ModuleVersionId
+                || candidate.ModuleVersionId is not
+                    { } moduleVersionId
+                || moduleVersionId == Guid.Empty
+                || moduleVersionId != wrapper.ModuleVersionId
                 || !IsAuthenticatedRuntimeRegistration(
                     callsByEvidenceMethod,
                     candidate,
@@ -1028,13 +1030,10 @@ public static class JsExportSurfaceBuilder
         && IsCoreVoid(method.ReturnType)
         && method.ParameterTypes is [var parameter]
         && parameter.Kind == TypeRefKind.Pointer
-        && parameter.ElementType is
-        {
-            Kind: TypeRefKind.Definition,
-            Namespace: "System.Runtime.InteropServices.JavaScript",
-            Name: "JSMarshalerArgument",
-            TrustedFrameworkAssembly: true,
-        };
+        && parameter.ElementType is { } marshalerArgument
+        && IsTrustedRuntimeJavaScriptType(
+            marshalerArgument,
+            "JSMarshalerArgument");
 
     static bool IsGeneratedRuntimeWrapperStub(
         MethodIdentity wrapper,
