@@ -48,12 +48,24 @@ public sealed class JsExportFunction
     /// when more than one distinct DTO was found for the return position (an ambiguity this is
     /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
     /// </summary>
-    public string? ReturnWireType { get; init; }
+    public JsWireType? ReturnWireType { get; init; }
 
     /// <summary>
     /// DTO type(s) this method's own body deserializes from a JSON-string argument, resolved from
     /// <c>JsonSerializer.Deserialize</c> call sites. Not yet attributed to a specific parameter
     /// position — see <see cref="JsonWireContractResolver"/> remarks for that residual gap.
     /// </summary>
-    public IReadOnlyList<string> ParameterWireTypes { get; init; } = [];
+    public IReadOnlyList<JsWireType> ParameterWireTypes { get; init; } = [];
 }
+
+/// <summary>
+/// One DTO type recovered from a JSON serializer call site.
+/// </summary>
+/// <param name="DisplayName">
+/// Human-readable C# spelling, retained for diagnostics and inspection.
+/// </param>
+/// <param name="QualifiedName">
+/// Namespace-qualified C# spelling used when a target generator needs semantic type identity
+/// rather than an ambiguous display name.
+/// </param>
+public sealed record JsWireType(string DisplayName, string QualifiedName);

@@ -163,6 +163,26 @@ that assumes the payload is dangerous and the wrapper is what holds it back. Her
 the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
+The generated TypeScript boundary preserves that provenance as an opaque
+`InertString` string brand when a JSON DTO property is typed as
+`InertText.InertString`. The wire value remains a JSON string and the browser
+runtime receives a JavaScript string; the brand exists only for compile-time
+flow checking. It does not mean HTML-safe, URL-safe, or attribute-safe text, so
+every browser sink still applies its own structural escaping.
+
+The brand carries the same deliberately narrow claim as the C# type: some
+policy was applied. It does not distinguish `Field` from `Prose`, because the
+C# value itself does not retain its producing policy and composition may
+tighten one policy into another. The string-valued wire contract also
+intentionally erases `Forms`, `Concerns`, and `IsTruncated`; callers that need
+those facts must define an explicit envelope rather than inferring them from
+the brand. Deserialization is rejected because the scalar wire value carries no
+policy with which to validate and restore an `InertString`.
+`InertStringJsonTests.Converter_IsAttachedToTheCurrencyType`,
+`DtsEmitterTests.Emit_MapsInertStringPropertyToOpaqueStringBrand`, and
+`DtsEmitterTests.Emit_DirectInertWireReturnAlsoDeclaresTheBrand` gate this
+contract.
+
 `TextConcern` retains why visual containment occurred: control, format/bidi,
 unpaired surrogate, line separator, or paragraph separator. The flags are
 captured while the untreated scalar is available and travel with the

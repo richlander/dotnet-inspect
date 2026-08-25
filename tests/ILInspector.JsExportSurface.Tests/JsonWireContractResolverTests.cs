@@ -33,7 +33,10 @@ public sealed class JsonWireContractResolverTests
         JsExportFunction getWidget = Assert.Single(
             surface.Functions,
             f => f.Name == "GetWidget");
-        Assert.Equal("WidgetDto", getWidget.ReturnWireType);
+        Assert.Equal("WidgetDto", getWidget.ReturnWireType?.DisplayName);
+        Assert.Equal(
+            "ILInspector.JsExportSurface.Fixtures.WidgetDto",
+            getWidget.ReturnWireType?.QualifiedName);
         Assert.Empty(getWidget.ParameterWireTypes);
     }
 
@@ -49,7 +52,7 @@ public sealed class JsonWireContractResolverTests
         JsExportFunction getWidgetAsync = Assert.Single(
             surface.Functions,
             f => f.Name == "GetWidgetAsync");
-        Assert.Equal("WidgetDto", getWidgetAsync.ReturnWireType);
+        Assert.Equal("WidgetDto", getWidgetAsync.ReturnWireType?.DisplayName);
         Assert.Empty(getWidgetAsync.ParameterWireTypes);
     }
 
@@ -61,8 +64,10 @@ public sealed class JsonWireContractResolverTests
         JsExportFunction renameWidget = Assert.Single(
             surface.Functions,
             f => f.Name == "RenameWidget");
-        Assert.Equal("WidgetDto", renameWidget.ReturnWireType);
-        Assert.Equal(["WidgetDto"], renameWidget.ParameterWireTypes);
+        Assert.Equal("WidgetDto", renameWidget.ReturnWireType?.DisplayName);
+        Assert.Equal(
+            ["WidgetDto"],
+            renameWidget.ParameterWireTypes.Select(type => type.DisplayName));
     }
 
     [Fact]
@@ -83,13 +88,28 @@ public sealed class JsonWireContractResolverTests
     public void Build_ResolvesContainerShapedReturnWireType()
     {
         // The Serialize<T> type argument is WidgetDto[], not WidgetDto. TypeRef.Name is empty for
-        // non-Definition kinds, so this only resolves correctly via ToDisplayString().
+        // non-Definition kinds, so this only resolves correctly via TypeRef's display methods.
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();
 
         JsExportFunction fn = Assert.Single(
             surface.Functions,
             f => f.Name == "GetWidgetArray");
-        Assert.Equal("WidgetDto[]", fn.ReturnWireType);
+        Assert.Equal("WidgetDto[]", fn.ReturnWireType?.DisplayName);
+        Assert.Equal(
+            "ILInspector.JsExportSurface.Fixtures.WidgetDto[]",
+            fn.ReturnWireType?.QualifiedName);
+    }
+
+    [Fact]
+    public void Build_PreservesQualifiedIdentityForDirectInertStringReturn()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction fn = Assert.Single(
+            surface.Functions,
+            f => f.Name == "GetInertString");
+        Assert.Equal("InertString", fn.ReturnWireType?.DisplayName);
+        Assert.Equal("InertText.InertString", fn.ReturnWireType?.QualifiedName);
     }
 
     [Fact]
