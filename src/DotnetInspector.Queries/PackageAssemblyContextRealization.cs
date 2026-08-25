@@ -466,11 +466,14 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<RoleAsset> left,
         ImmutableArray<RoleAsset> right)
         => left.Length == right.Length
-            && left.Zip(right).All(pair =>
-                ReferenceEquals(pair.First.Package, pair.Second.Package)
-                && pair.First.Asset.Path.Equals(
-                    pair.Second.Asset.Path,
-                    StringComparison.Ordinal));
+            && left.All(leftAsset =>
+                right.Any(rightAsset =>
+                    ReferenceEquals(
+                        leftAsset.Package,
+                        rightAsset.Package)
+                    && leftAsset.Asset.Path.Equals(
+                        rightAsset.Asset.Path,
+                        StringComparison.Ordinal)));
 
     sealed record RoleAsset(
         PackageAssemblyContextSelection Package,

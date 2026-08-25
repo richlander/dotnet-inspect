@@ -81,6 +81,46 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void LibraryOnlyAssets_WithDifferentSelectorOrdering_ReuseOneRole()
+    {
+        byte[] firstImage =
+            File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
+        byte[] secondImage =
+            File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
+        PackageAssemblyContextSelection package = Selection(
+            "Shared.Ordering",
+            ("lib/net11.0/Zebra.dll", firstImage),
+            ("lib/net11.0/apple.dll", secondImage));
+        Assert.Equal(
+            ["lib/net11.0/apple.dll", "lib/net11.0/Zebra.dll"],
+            package.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            ["lib/net11.0/Zebra.dll", "lib/net11.0/apple.dll"],
+            package.AssetSelection.ImplementationAssets.Select(
+                asset => asset.Path));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                new PackageAssemblyContextRealizationOptions
+                {
+                    MaxAggregateRetainedImageBytes =
+                        firstImage.Length + secondImage.Length + 1,
+                    MaxAssemblyEntryBytes =
+                        Math.Max(firstImage.Length, secondImage.Length),
+                    RequireDeclaredEntryLengths = true,
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.True(realization.SharesGroup);
+        Assert.Same(
+            realization.SurfaceGroup,
+            realization.ImplementationGroup);
+        Assert.Equal(2, realization.SurfaceParticipants.Length);
+        Assert.Equal(2, realization.ImplementationParticipants.Length);
+    }
+
+    [Fact]
     public void ReferenceOnlyAsset_HasNoImplementationRole()
     {
         byte[] image =
