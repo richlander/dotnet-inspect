@@ -516,9 +516,11 @@ and exact coordinate when applicable, retain the final HTTP status when one
 exists, and are classified without retaining source URLs or response text. A
 payload stream remains deadline-bound after it
 is returned, but a later consumption failure remains an exception because the
-operation result has already completed. These transport results do not yet
-perform multi-source aggregation and are not environment availability
-observations.
+operation result has already completed. The package acquisition layer projects
+expected body-read transport exceptions into a new content-free failure so
+multi-producer aggregation can continue; archive validation and store failures
+remain payload-policy outcomes. These transport results do not yet perform
+multi-source aggregation and are not environment availability observations.
 The v3 source client owns service-index `PackageBaseAddress` discovery plus
 version-index and exact-package URL construction. The legacy `NuGetClient`
 delegates to that source-owned primitive and retains only its compatibility
@@ -568,6 +570,9 @@ admission and commit.
 `PackagePayloadAcquisitionTests.GlobalPackageOversizeIdentity_IsIgnored`,
 `PackagePayloadAcquisitionTests.PackageCache_MaximumMultibyteIdCommitsAndReopensBoundedArchive`,
 `PackagePayloadAcquisitionTests.PackageCache_UnicodeCoordinatesCommitToDistinctSlots`,
+`PackagePayloadAcquisitionTests.PackageStreamTransportFailureIsTypedAndRedacted`,
+`PackagePayloadAcquisitionTests.PackageStreamTransportFailureLetsNextProducerServe`,
+`PackagePayloadAcquisitionTests.PackageStoreIOExceptionRemainsPolicyRejected`,
 `SourcePrecedenceTests`, `VersionCacheTests`,
 `PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`, and
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`

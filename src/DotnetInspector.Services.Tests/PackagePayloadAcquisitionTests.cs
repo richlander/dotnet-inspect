@@ -2194,6 +2194,40 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.IsType<PackagePayloadResult.Unavailable>(result);
     }
 
+    [Fact]
+    public async Task AdvertisedOversizePayload_IsRejectedBeforeTransferReservation()
+    {
+        byte[] nupkg = TestPackageArchive.Create(
+            "lib/net10.0/Sample.dll");
+        var policy = new RecordingTransferPolicy(
+            onReserve: _ => throw new InvalidOperationException(
+                "Oversized payloads must not reserve transfer capacity."));
+        using var source = new PayloadSourceClient(
+            PackageSourceIdentity.NuGetOrg,
+            () => new MemoryStream(nupkg, writable: false),
+            advertisedLength: nupkg.LongLength);
+
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireFromSourceAsync(
+                source,
+                PackageSourceCoordinate.Create(PackageId, Version),
+                new InMemoryPackageStore(),
+                log: null,
+                new PackagePayloadLimits
+                {
+                    MaxArchiveBytes = nupkg.LongLength - 1,
+                },
+                policy,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PackageSourcePayloadResult.Unavailable>(
+                result);
+        Assert.Equal(
+            PackageSourcePayloadUnavailableKind.PolicyRejected,
+            unavailable.Kind);
+    }
+
     /// <summary>
     /// The finding, end to end: an archive whose entry escapes its root is
     /// refused by the in-memory store's path just as the filesystem store would
@@ -2510,6 +2544,148 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.Equal(
             PackageSourceFailureKind.Timeout,
             failed.Failure.Kind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageStreamTransportFailureIsTypedAndRedacted(
+        bool useHttpRequestException)
+    {
+        const string Secret = "https://secret.invalid/private-payload";
+        using var source = new PayloadSourceClient(
+            PackageSourceIdentity.NuGetOrg,
+            () => new ThrowingReadStream(
+                () => useHttpRequestException
+                    ? new HttpRequestException(Secret)
+                    : new IOException(Secret)));
+
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireFromSourceAsync(
+                source,
+                PackageSourceCoordinate.Create(PackageId, Version),
+                new InMemoryPackageStore(),
+                log: null,
+                PackagePayloadLimits.Default,
+                transferPolicy: null,
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<PackageSourcePayloadResult.Failed>(result);
+        Assert.Equal(
+            PackageSourceFailureKind.Transport,
+            failed.Failure.Kind);
+        Assert.DoesNotContain(
+            Secret,
+            failed.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageStreamTransportFailureLetsNextProducerServe(
+        bool useHttpRequestException)
+    {
+        const string Secret = "https://secret.invalid/private-payload";
+        byte[] nupkg =
+            TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        using var primary = new PayloadSourceClient(
+            PackageSourceIdentity.ForHttpEndpoint(new Uri(Primary.Url)),
+            () => new ThrowingReadStream(
+                () => useHttpRequestException
+                    ? new HttpRequestException(Secret)
+                    : new IOException(Secret)));
+        using var fallback = new PayloadSourceClient(
+            PackageSourceIdentity.NuGetOrg,
+            () => new MemoryStream(nupkg, writable: false),
+            nupkg.Length);
+        var logs = new List<string>();
+        using var client = new HttpClient();
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(Primary, NuGetOrg),
+                new InMemoryPackageStore(),
+                logs.Add,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                borrowedSourceClientFactory: source =>
+                    source.Url.Equals(
+                        Primary.Url,
+                        StringComparison.Ordinal)
+                        ? primary
+                        : fallback);
+
+        AcquiredPackagePayload acquired = Acquired(result);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            acquired.ProducerKey);
+        Assert.Equal(1, primary.PackageRequests);
+        Assert.Equal(1, fallback.PackageRequests);
+        Assert.DoesNotContain(
+            logs,
+            message => message.Contains(
+                Secret,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PackageStreamTransportFailurePreservesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var source = new PayloadSourceClient(
+            PackageSourceIdentity.NuGetOrg,
+            () => new ThrowingReadStream(
+                () =>
+                {
+                    cancellation.Cancel();
+                    return new IOException("transport interrupted");
+                }));
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => PackagePayloadAcquisition.AcquireFromSourceAsync(
+                    source,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    new InMemoryPackageStore(),
+                    log: null,
+                    PackagePayloadLimits.Default,
+                    transferPolicy: null,
+                    cancellation.Token));
+
+        Assert.Equal(
+            cancellation.Token,
+            exception.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PackageStoreIOExceptionRemainsPolicyRejected()
+    {
+        byte[] nupkg =
+            TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        using var source = new PayloadSourceClient(
+            PackageSourceIdentity.NuGetOrg,
+            () => new MemoryStream(nupkg, writable: false),
+            nupkg.Length);
+
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireFromSourceAsync(
+                source,
+                PackageSourceCoordinate.Create(PackageId, Version),
+                new ThrowingCommitStore(),
+                log: null,
+                PackagePayloadLimits.Default,
+                transferPolicy: null,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PackageSourcePayloadResult.Unavailable>(
+                result);
+        Assert.Equal(
+            PackageSourcePayloadUnavailableKind.PolicyRejected,
+            unavailable.Kind);
     }
 
     [Theory]
@@ -3725,6 +3901,24 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    sealed class ThrowingCommitStore : IPackageStore
+    {
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+            => throw new IOException("local store failure");
+    }
+
     sealed class CommitWinnerStore(IPackageContent winner) : IPackageStore
     {
         public IPackageContent? TryGetCached(
@@ -3903,6 +4097,107 @@ public sealed class PackagePayloadAcquisitionTests
                 nupkg,
                 cancellationToken);
         }
+    }
+
+    sealed class PayloadSourceClient(
+        PackageSourceIdentity identity,
+        Func<Stream> streamFactory,
+        long? advertisedLength = null) : IPackageSourceClient
+    {
+        internal int PackageRequests { get; private set; }
+
+        public PackageSourceIdentity Identity => identity;
+        public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.PackagePayload;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            PackageRequests++;
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageSourcePayload>>(
+                new PackageSourceOperationResult<
+                    PackageSourcePayload>.Succeeded(
+                        new PackageSourcePayload(
+                            coordinate,
+                            Identity,
+                            Kind,
+                            PackageSourcePayloadKind.Package,
+                            streamFactory(),
+                            advertisedLength)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    sealed class ThrowingReadStream(Func<Exception> exceptionFactory)
+        : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+            throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw exceptionFactory();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(exceptionFactory());
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>
