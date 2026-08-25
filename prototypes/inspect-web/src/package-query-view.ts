@@ -136,7 +136,14 @@ export function renderPackageQueryView(options: RenderPackageQueryOptions): stri
         ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Query failed</h2><p>${escapeHtml(state.outcome.completion.reason)} — not a confirmed empty result. Try again.</p></section>`
         : state.outcome.failures.length
         ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
-        : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`
+        // A bounded completion with zero rows only searched the declared cap,
+        // not the whole scope — plain "No matches" would overclaim
+        // exhaustiveness exactly the way the bounded/exhausted footer
+        // distinction elsewhere in this file exists to prevent, so the bound
+        // itself must appear here too.
+        : state.outcome.completion.kind === "bounded"
+          ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches within the bound</h2><p>Searched ${escapeHtml(state.outcome.completion.reason)} — not the whole scope. Broaden the facets or raise the limit to look further.</p></section>`
+          : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`
     : "";
 
   const activeKeys = new Set(state.request.facets.map(f => f.key));

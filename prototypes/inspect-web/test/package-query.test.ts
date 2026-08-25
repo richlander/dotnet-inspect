@@ -242,6 +242,39 @@ test("a superseded run's late rejection never overwrites the newer outcome", asy
   assert.deepEqual(state.outcome.failures, []);
 });
 
+test("a superseded run's late onFailure call never lands in the newer outcome", async () => {
+  const state = initialQueryState();
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+
+  const slowFailThenFast: PackageQueryDataSource = {
+    async run(request, onPage, onFailure) {
+      if (request.scopeQuery === "slow") {
+        await firstGate;
+        onFailure("stale source failure");
+        return { kind: "exhausted" };
+      }
+      onPage([row("fresh")]);
+      return { kind: "exhausted" };
+    },
+  };
+
+  const controller = createPackageQueryController(state, slowFailThenFast, () => {});
+
+  const firstRun = controller.run(createQueryRequest("slow", "slow"));
+  await controller.run(createQueryRequest("fast", "fast"));
+  releaseFirst();
+  await firstRun;
+
+  // The first run's late onFailure() call resolves after the second run has
+  // already completed cleanly; it must not attach a stale failure to the
+  // newer outcome (the design doc's race-safety claim covers this callback
+  // too, not just late pages/rejections).
+  assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["fresh"]);
+  assert.equal(state.outcome.completion.kind, "exhausted");
+  assert.deepEqual(state.outcome.failures, []);
+});
+
 test("toggleSelection and clearSelection manage the selected set", () => {
   const state = initialQueryState();
   let updates = 0;

@@ -64,12 +64,15 @@ export function withoutFacet(
 
 /** One package's projection plus which predicate terms matched and why. Never
  * a bare pass/fail — the evidence is the point (see package-opportunities.ts
- * for the existing "evidence over checkmark" convention this follows). */
+ * for the existing "evidence over checkmark" convention this follows). The
+ * non-empty tuple type on `evidence` is what actually enforces that: an
+ * empty-array row would silently render a blank evidence section (see
+ * package-query-view.ts's renderRow). */
 export interface QueryResultRow {
   packageId: string;
   version: string;
   tier: "nuspec" | "promoted";
-  evidence: readonly string[];
+  evidence: readonly [string, ...string[]];
   totalDownloads: number;
 }
 

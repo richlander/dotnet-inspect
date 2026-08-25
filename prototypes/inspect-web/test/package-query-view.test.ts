@@ -196,6 +196,22 @@ test("no matches after completion renders the empty-match state, not the composi
   assert.match(html, /uses C# union/);
 });
 
+test("a bounded-complete zero-row outcome never claims plain 'no matches' — it names the bound", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(emptyOutcome(), { kind: "bounded", reason: "first 1,500 relevance-ranked ids" }),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  // Plain "No matches" would overclaim exhaustiveness: a bounded search only
+  // covered the declared cap, not the whole scope, so zero rows there is not
+  // the same claim as zero rows over the full ecosystem.
+  assert.doesNotMatch(html, /<h2>No matches<\/h2>/);
+  assert.match(html, /first 1,500 relevance-ranked ids/);
+});
+
 test("zero rows plus a failure never renders as a confirmed empty result", () => {
   const state: PackageQueryState = {
     request: createQueryRequest("Microsoft.*", "Microsoft."),
