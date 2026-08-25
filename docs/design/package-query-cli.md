@@ -8,10 +8,12 @@ document's vocabulary as canonical rather than inventing its own.
 
 ## Status
 
-Design proposal. `find --package-prefix`'s corpus-streaming mechanism (#4551)
-exists; the facet/predicate layer, the row-declaration step, and the tier
-capability gate described here do not. Nothing in this document is a claim
-about behavior that exists today unless stated otherwise. The corpus-limit
+Design proposal. `find --package-prefix`'s corpus-streaming mechanism is
+proposed in the still-open #4551; the facet/predicate layer, the
+row-declaration step, and the tier capability gate described here do not exist
+even there. Nothing in this document is a claim about behavior that is merged
+today unless stated otherwise; #4551's own identifiers and mechanism are cited
+from its current diff, not from `main`. The corpus-limit
 flag used in examples below (`-n`) is pending
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677), a
 repository-wide flag-numbering issue this document's own analysis
@@ -61,8 +63,8 @@ split existed.
 Core. Concretely:
 
 - **L1 — `DotnetInspector.Queries`.** The facet-matching engine belongs here,
-  next to `PackageProfileQuery` and `PackageDependencyGroupsQuery`, which
-  #4551 already placed in this layer rather than in the CLI project. A typed
+  next to `PackageProfileQuery` and `PackageDependencyGroupsQuery`, which the
+  still-open #4551 places in this layer rather than in the CLI project. A typed
   query that evaluates nuspec-tier facets over a streamed manifest, and a
   second typed query that evaluates promoted-tier (IL) facets over an
   explicitly bounded package/version set, both return typed results and
@@ -87,9 +89,10 @@ Core. Concretely:
 
 ## Is there a reason to start by changing `find`'s layering?
 
-Not for the corpus-fetch mechanism — that part is already correct. #4551 put
-`PackageProfileQuery` and `PackageDependencyGroupsQuery` in L1, and it already
-made the row-declaration call correctly: as its README addition states,
+Not for the corpus-fetch mechanism — that part is already correctly designed
+in #4551's diff, even though the PR has not merged. #4551 puts
+`PackageProfileQuery` and `PackageDependencyGroupsQuery` in L1, and its diff
+makes the row-declaration call correctly: as its README addition states,
 "`-t` limits packages rather than flattened dependency rows." That is the
 same "declared row unit, not rendered row count" discipline
 [output-shapes.md](output-shapes.md) requires of call-graph edges, applied
@@ -97,14 +100,14 @@ correctly to package rows a version early.
 
 There is a real, narrower gap worth closing first, though:
 `find --package-prefix`'s *rendering* path — `PackageProfileFindOutputFormatter`
-and friends — is bespoke CLI-side code, not routed through the shared Sections
-registry the way `library`, `member`, and `package` already are (see
-[section-model.md](section-model.md), "first made coherent for the library
-command and then adopted by the package command"). Concretely, this means
-`find --package-prefix` does not yet get `-S`, `--where`, `--count`, and
-`--rows` "for free" and consistently with those other commands — each would
-need its own bespoke implementation in the `find`-specific formatter if this
-gap isn't closed first.
+and friends, as proposed in #4551's diff — is bespoke CLI-side code, not
+routed through the shared Sections registry the way `library`, `member`, and
+`package` already are (see [section-model.md](section-model.md), "first made
+coherent for the library command and then adopted by the package command").
+Concretely, this means `find --package-prefix` would not get `-S`, `--where`,
+`--count`, and `--rows` "for free" and consistently with those other
+commands — each would need its own bespoke implementation in the
+`find`-specific formatter if this gap isn't closed first.
 
 **Recommendation:** migrate `find --package-prefix` row rendering onto the
 shared Sections/shape-ladder registry as a preparatory slice, before adding
@@ -114,18 +117,19 @@ would mean either duplicating `--where`'s row-predicate semantics a second
 time inside the bespoke formatter, or building the facet feature on a
 foundation that has to be migrated out from under it immediately after.
 This migration is orthogonal to and does not require changing anything about
-where `PackageProfileQuery` itself lives (L1 is already right); it only moves
-*rendering* onto the shared L2 path.
+where `PackageProfileQuery` itself lives (L1 is already right in #4551's
+diff); it only moves *rendering* onto the shared L2 path.
 
 ### `-t` is the wrong flag to build on; the corpus-limit spelling is an open issue
 
-The `-t 100` #4551 uses for `find --package-prefix` reuses `find`'s own
-pre-existing `-t`, whose description was widened from "Limit type count
-(`-t 5`) or filter by glob (`-t *Json*`)" to "Limit result count... or
-filter API types by glob." That reuse is real and already merged, but it is
-not a precedent this document should build a new predicate/limit flag on:
-`-t` already means a type name or glob filter everywhere else in the CLI
-(`library`, `type`, `member`, `package -S "SourceLink: Files"`) — a
+The `-t 100` #4551's diff uses for `find --package-prefix` reuses `find`'s
+own pre-existing `-t`, whose description that diff widens from "Limit type
+count (`-t 5`) or filter by glob (`-t *Json*`)" to "Limit result count... or
+filter API types by glob." That reuse is real in #4551's open diff, though
+not yet merged, and it is not a precedent this document should build a new
+predicate/limit flag on: `-t` already means a type name or glob filter
+everywhere else in the CLI (`library`, `type`, `member`,
+`package -S "SourceLink: Files"`) — a
 different noun than "how many rows" — and `find` only overloads it as
 count-or-glob because `find`'s own type search predates a dedicated
 row-count flag.
@@ -165,8 +169,9 @@ The web design's nuspec/promoted split maps directly onto capability, not
 vocabulary:
 
 - **`nuspec` tier.** Free, always evaluated, over every streamed package —
-  backed entirely by fields `PackageProfileQuery` already surfaces (target
-  frameworks, declared dependencies, owners, metadata fields). No new grammar:
+  backed entirely by fields `PackageProfileQuery` already surfaces in #4551's
+  open diff (target frameworks, declared dependencies, owners, metadata
+  fields). No new grammar:
   `RowPredicateSyntaxParser`'s existing `Field=value` / `!=` / `>=` / `<=`
   grammar, ANDed via repeated `--where` flags exactly as it works today for
   Performance Triage, is the vocabulary. A package row's section schema
@@ -176,7 +181,7 @@ vocabulary:
 - **`promoted` tier.** Requires opening IL for a bounded set of candidates —
   never for the whole corpus. This must be capability-gated the same way the
   repository already gates other exhaustive/expensive work (`--all`,
-  README.md:472, 533): a promoted-tier `--where` field used without the gate
+  README.md:474, 535): a promoted-tier `--where` field used without the gate
   present is a parse-time error naming the missing flag, the same shape as
   `output-shapes.md`'s existing coordinate-carrier errors (for example, "IL
   coordinate sections require `--il-offset`"). The equivalent here reads
@@ -206,8 +211,8 @@ A facet-matched package is not naturally one flat row: it may match zero or
 more facets, each with its own evidence, and evaluating a promoted-tier facet
 may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
-decision #4551 already made once for package/dependency pairs. This document
-proposes:
+decision #4551's diff already makes once for package/dependency pairs. This
+document proposes:
 
 - **Default grain: one row per package.** Multiple matched facets collapse
   into a single `Evidence` column, reusing the existing "evidence over
@@ -221,9 +226,9 @@ proposes:
   facet whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
   several) may choose to emit one row per package × sub-item, the same
-  explicit choice #4551 already made for package × dependency. Markout does
-  not decide this cardinality — the producer does, same as a call-graph
-  producer decides edges, not nodes, are the row.
+  explicit choice #4551's diff already makes for package × dependency.
+  Markout does not decide this cardinality — the producer does, same as a
+  call-graph producer decides edges, not nodes, are the row.
 - **Relational questions are out of scope for this row model.** "Which
   integrations does `Microsoft.Extensions.*` expose" is not a flat predicate
   match; it is a relationship between a package (or its types) and the
