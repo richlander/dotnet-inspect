@@ -67,19 +67,14 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ## Producer registries
 
-`ScannerRegistry` maps each scanner key to a scan function, declared
+`ScannerRegistry` maps each residual scanner key to a scan function, declared
 `SectionCost`, and immutable prerequisite list:
 
 ```csharp
 registry.Add(
-    ScannerResourceTriage,
+    ScannerBodyShapes,
     SectionCost.Unbounded,
-    ctx => ctx.Model.Apply(
-        LibraryMetadataService.ScanResourceTriage(
-            ctx.BodyIndex,
-            ctx.DrillMap,
-            ctx.AssemblyPath,
-            ctx.Logger)));
+    ScanBodyShapes);
 ```
 
 `AddBundle` registers prerequisite closure without adding work or declaring a
@@ -114,9 +109,12 @@ producer as a section failure and exits unsuccessfully rather than describing
 its sections as empty; `LibraryCommand_EffectivePerformanceDiscoveryNamesOptimizationFailure`
 and `LibraryCommand_EffectiveComposedBodyShapesDiscoveryNamesOptimizationFailure`
 gate the direct and composed projections.
+`Array Pool Escapes` binds `ResourceTriageQuery`, which retains the complete
+resource-lifecycle Finding inspection and every typed triage assessment. The
+CLI owns actionable filtering, ordering, member drill coordinates,
+compatibility JSON, prose, and final presentation containment.
 
-The residual `ScannerRegistry` now contains only Resource Triage and Body
-Shapes.
+The residual `ScannerRegistry` now contains only Body Shapes.
 
 The registry rejects:
 
