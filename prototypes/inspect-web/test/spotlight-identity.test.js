@@ -368,6 +368,12 @@ const annotatedSourceModule = readFileSync(
 const typePanelSource = readFileSync(
   new URL("../src/type-panel.ts", import.meta.url),
   "utf8");
+const keybindingRegistrySource = readFileSync(
+  new URL("../src/keybinding-registry.ts", import.meta.url),
+  "utf8");
+const workbenchKeybindingsSource = readFileSync(
+  new URL("../src/workbench-keybindings.ts", import.meta.url),
+  "utf8");
 const scopeBarSource = readFileSync(
   new URL("../src/scope-bar.ts", import.meta.url),
   "utf8");
@@ -997,7 +1003,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /function mermaidNodeId\([\s\S]*data-id[\s\S]*flowchart-/);
   assert.match(
     graphInteractionsSource,
-    /export function bindGraphPanZoom\([\s\S]*"wheel"[\s\S]*"pointerdown"[\s\S]*"pointermove"[\s\S]*"pointerup"[\s\S]*"pointercancel"[\s\S]*\.graph-controls button[\s\S]*"keydown"[\s\S]*resolveCallGraphNode/);
+    /export function bindGraphPanZoom\([\s\S]*"wheel"[\s\S]*"pointerdown"[\s\S]*"pointermove"[\s\S]*"pointerup"[\s\S]*"pointercancel"[\s\S]*\.graph-controls button[\s\S]*id: "graph\.zoom"[\s\S]*id: "graph\.pan-horizontal"[\s\S]*id: "graph\.pan-vertical"[\s\S]*resolveCallGraphNode/);
   assert.match(
     graphInteractionsSource,
     /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
@@ -1012,13 +1018,13 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphBack\(document, graphBackActions\)/);
   assert.match(
     typeGraph,
-    /bindGraphPanZoom\(container, viewport\);[\s\S]*bindTypeGraphNodes\(viewport, nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*onSelect: \(\) => navigateToType\(target\)[\s\S]*unavailableLabel/);
+    /bindGraphPanZoom\(container, viewport, \{ keybindings \}\);[\s\S]*bindTypeGraphNodes\(viewport, nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*onSelect: \(\) => navigateToType\(target\)[\s\S]*unavailableLabel/);
   assert.match(
     typeGraph,
     /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
   assert.match(
     dependencyGraph,
-    /bindGraphPanZoom\(container, viewport\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
+    /bindGraphPanZoom\(container, viewport, \{ keybindings \}\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
   assert.match(
     dependencyGraph,
     /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
@@ -1042,7 +1048,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /if \(loaded\) \{[\s\S]*navigateToGraphMember\(loaded, target\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\(target\)/);
   assert.match(
     graphInteractionsSource,
-    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*addEventListener\("keydown"/);
+    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
@@ -1057,7 +1063,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.doesNotMatch(
     appSource,
     /document\.querySelector\("\[data-graph-back\]"\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 4);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 3);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -1206,7 +1212,10 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
   assert.match(
     binding,
-    /onMemberFilterKeyDown: \(event, value\) => \{\s*if \(event\.key === "Escape"\) \{\s*if \(navMode\(\) !== "member" && value === ""\) return;\s*event\.preventDefault\(\);[\s\S]*navMode\(\) === "member"[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*event\.key !== "ArrowUp" && event\.key !== "ArrowDown"[\s\S]*event\.preventDefault\(\);\s*stepMemberNav\(event\.key === "ArrowDown" \? 1 : -1, true\)/);
+    /onMemberFilterKeyDown: \(event, value\) => \{\s*if \(event\.key === "Escape"\) \{\s*if \(navMode\(\) !== "member" && value === ""\) return false;[\s\S]*navMode\(\) === "member"[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*return true;[\s\S]*event\.key !== "ArrowUp" && event\.key !== "ArrowDown"\) return false;\s*stepMemberNav\(event\.key === "ArrowDown" \? 1 : -1, true\);\s*return true/);
+  assert.match(
+    binding,
+    /bindTypePanel\(document, \{[\s\S]*}, keybindings\);/);
   const selectorCount = selector =>
     appSource.split(selector).length - 1;
   assert.deepEqual(
@@ -1791,7 +1800,7 @@ test("leaving package search clears its pending loading state", () => {
     /state\.spotlightScope !== "all"[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
   assert.match(
     appSource,
-    /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
+    /id: "workspace\.drill-out-escape"[\s\S]*key: "Escape"[\s\S]*!isTextEntry\(\)/);
   assert.match(
     spotlightPackageSearchSource,
     /query === state\.spotlightPkgQuery[\s\S]*generation\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
@@ -1823,30 +1832,29 @@ test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     appSource,
     /bindWorkspaceLinkNavigation\(document, \{[\s\S]*currentOrigin: \(\) => location\.origin,[\s\S]*resolve: href => new URL\(href, location\.href\),[\s\S]*navigate: navigateInAppUrl,/);
-  // The workspace-scoped modal layers (graph source, doc viewer, spotlight) are declared,
-  // in priority order, as one explicit list the keydown listener loops over — the single
-  // place that owns which layer Escape (and everything else) belongs to.
+  // Modal ownership is explicit priority policy, while the reusable registry remains
+  // independent of inspect-web state and attaches the only raw keydown listener.
+  assert.match(
+    workbenchKeybindingsSource,
+    /workspace: 100,[\s\S]*element: 200,[\s\S]*spotlight: 300,[\s\S]*documentViewer: 310,[\s\S]*graphSource: 320,[\s\S]*unavailableWorkspace: 330,[\s\S]*settings: 340,[\s\S]*metadataExplorer: 350/);
+  assert.match(
+    keybindingRegistrySource,
+    /dispatch\(event: KeyboardEvent\): KeybindingDispatchResult[\s\S]*candidates\.sort\([\s\S]*candidate\.binding\.run\(event\)[\s\S]*event\.preventDefault\(\)[\s\S]*target\.addEventListener\("keydown", listener\)/);
   assert.match(
     appSource,
-    /const workspaceKeydownLayers: readonly KeydownLayer\[\] = \[[\s\S]*active: \(\) => state\.graphSourceOpen[\s\S]*active: \(\) => state\.docViewerOpen[\s\S]*active: \(\) => state\.spotlightOpen/);
+    /id: "graph-source\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.graphSource[\s\S]*when: graphSourceContextIsActive[\s\S]*closeGraphSource\(\)/);
   assert.match(
     appSource,
-    /if \(state\.home\) return;[\s\S]*for \(const layer of workspaceKeydownLayers\)/);
+    /id: "document-viewer\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.documentViewer[\s\S]*when: documentViewerContextIsActive[\s\S]*closeDocViewer\(\)/);
   assert.match(
     appSource,
-    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "k"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\("", "commands"\)/);
+    /id: "spotlight\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.spotlight[\s\S]*when: spotlightContextIsActive[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
-    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "p"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\(\)/);
+    /id: "spotlight\.open-commands"[\s\S]*commandOrControl: true[\s\S]*openSpotlight\("", "commands"\)[\s\S]*id: "spotlight\.open-all"[\s\S]*openSpotlight\(\)[\s\S]*id: "spotlight\.contain-browser-find"/);
   assert.match(
     appSource,
-    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "f"[\s\S]*event\.preventDefault\(\)/);
-  assert.match(
-    appSource,
-    /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
-  assert.match(
-    appSource,
-    /event\.key === "Escape" && !event\.defaultPrevented && state\.tasteOpen/);
+    /id: "taste\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.popover[\s\S]*state\.tasteOpen = false/);
   assert.match(
     appSource,
     /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
@@ -1855,16 +1863,32 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
   assert.match(
     appSource,
-    /active: \(\) => Boolean\(state\.explorer\?\.open\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+    /id: "metadata-explorer\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.metadataExplorer[\s\S]*Boolean\(state\.explorer\?\.open\)[\s\S]*metadata-explorer\.contain-browser-shortcut/);
   assert.match(
     appSource,
-    /active: \(\) => state\.settings[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+    /id: "settings\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.settings[\s\S]*when: \(\) => state\.settings[\s\S]*settings\.contain-browser-shortcut/);
   assert.match(
     spotlightSource,
     /aria-activedescendant="spotlight-result-\$\{state\.spotlightIndex\}"[\s\S]*syncActiveDescendant\(items\.length\)/);
   assert.match(
     appSource,
-    /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
+    /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
+  assert.match(
+    appSource,
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.spotlightOpen/);
+  assert.equal(
+    keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
+    1);
+  assert.equal(
+    [
+      appSource,
+      graphInteractionsSource,
+      packageBarSource,
+      spotlightSource,
+      typePanelSource,
+    ].join("\n").match(/addEventListener\(\s*"keydown"/g)?.length ?? 0,
+    0);
+  assert.match(appSource, /keybindings\.attach\(document\)/);
   assert.match(
     appSource,
     /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) \{\s*focus\(\);\s*return;\s*}\s*requestAnimationFrame\(focus\);/);
@@ -2044,13 +2068,13 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /onMemberFilterChange: value => \{[\s\S]*state\.memberTextFilter = value;[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     typePanelSource,
-    /memberFilter\?\.addEventListener\(\s*"keydown",\s*event => actions\.onMemberFilterKeyDown\(event, memberFilter\.value\)\)/);
+    /id: "member-filter\.navigate"[\s\S]*key: \["Escape", "ArrowUp", "ArrowDown"\][\s\S]*run: event => actions\.onMemberFilterKeyDown\(event, memberFilter\.value\)/);
   assert.match(
     binding,
-    /onMemberFilterKeyDown: \(event, value\) => \{[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) !== "member" && value === ""\) return;[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
+    /onMemberFilterKeyDown: \(event, value\) => \{[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) !== "member" && value === ""\) return false;[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*return true[\s\S]*stepMemberNav/);
   assert.match(
     appSource,
-    /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
+    /id: "workspace\.drill-out-escape"[\s\S]*key: "Escape"[\s\S]*!isTextEntry\(\)[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
     /onShowTypes: exitMemberScope/);
@@ -2395,7 +2419,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     appSource,
-    /function isInteractiveElement\(element: Element \| null\)[\s\S]*"button, a\[href\], input, select, textarea, summary, "[\s\S]*\[role=button\][\s\S]*!isInteractiveElement\([\s\S]*event\.target instanceof Element \? event\.target : null\)[\s\S]*event\.key === "Enter"/);
+    /function isInteractiveElement\(element: Element \| null\)[\s\S]*"button, a\[href\], input, select, textarea, summary, "[\s\S]*\[role=button\][\s\S]*id: "workspace\.drill-in"[\s\S]*key: "Enter"[\s\S]*!isInteractiveElement\([\s\S]*event\.target instanceof Element \? event\.target : null\)/);
 });
 
 test("member-less Metadata omits the empty composition call to action", () => {
@@ -3926,7 +3950,7 @@ test("ambiguous call graph targets expose a visible refusal", () => {
     /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?showPlatformTargetError\(target, reason\)/);
   assert.match(
     graphInteractionsSource,
-    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*node\.addEventListener\("keydown", event => \{[\s\S]*event\.key !== "Enter" && event\.key !== " "/);
+    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
 });
 
 test("navigable call graph targets share mouse and keyboard activation", () => {
