@@ -184,6 +184,7 @@ function performanceType(
     members: 1,
     signature: "public class Inner",
     api: [member],
+    platformPack: null,
   };
 }
 
