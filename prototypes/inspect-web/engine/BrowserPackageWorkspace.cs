@@ -5,7 +5,6 @@ using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
-using InspectWeb.Acquisition;
 using NuGetFetch;
 
 namespace InspectWeb.Engine;
@@ -16,10 +15,11 @@ namespace InspectWeb.Engine;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Acquisition mints typed <see cref="ResolvedAssemblyReference"/> participants; it never inspects
-/// one. Inspection happens only inside a <see cref="BrowserInspectionScope"/>, and only through a
-/// public product query that takes the scope's <see cref="AssemblyContextGroup"/>. Browser/Wasm is
-/// single-threaded, so both caches are deliberately lock-free.
+/// Product package realization mints typed <see cref="ResolvedAssemblyReference"/> participants
+/// from Browser-acquired content. Inspection happens only inside a
+/// <see cref="BrowserInspectionScope"/>, and only through a public product query that takes the
+/// scope's <see cref="AssemblyContextGroup"/>. Browser/Wasm is single-threaded, so both caches are
+/// deliberately lock-free.
 /// </para>
 /// <para>
 /// A workspace is keyed by its <em>complete</em> exact coordinate set, so the package surface, a
@@ -270,10 +270,12 @@ internal static class BrowserPackageWorkspace
             packageId,
             version,
             cancellationToken);
-        PackageCompileAssetSelection selection = PackageCompileAssetSelector.Select(
+        var assemblyContext = new PackageAssemblyContextSelection(
             package.Content,
             packageId,
+            package.Version,
             targetFramework);
+        PackageCompileAssetSelection selection = assemblyContext.AssetSelection;
         return selection.Status switch
         {
             PackageCompileAssetSelectionStatus.NoCompileAssets =>
@@ -297,7 +299,7 @@ internal static class BrowserPackageWorkspace
                     selection.Message
                     ?? "The package has an invalid implementation-asset layout."),
             PackageCompileAssetSelectionStatus.Selected when selection.IsSelected =>
-                new BrowserPackageCoordinate(package, selection),
+                new BrowserPackageCoordinate(package, assemblyContext),
             _ => throw new InvalidOperationException(
                 "Package compile-asset selection returned an unknown outcome."),
         };
@@ -1307,7 +1309,6 @@ internal sealed record BrowserScopeResolution(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPackage
 {
-    const long MaxAssemblyEntryBytes = BrowserInspectionScope.MaxRetainedImageBytes;
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
 
     public BrowserPackage(
@@ -1448,30 +1449,6 @@ internal sealed class BrowserPackage
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
 
-    /// <summary>
-    /// Mints one typed acquisition participant for a selected package entry. A healthy image uses
-    /// its real metadata identity. A malformed, native, or module image uses its selected asset
-    /// name only as a rejection carrier, so the workspace query reports that participant's typed
-    /// acquisition failure instead of silently shortening the selected assembly set.
-    /// </summary>
-    internal ResolvedAssemblyReference CreateReference(
-        string path,
-        AssemblyResolutionProvenance provenance)
-    {
-        AssemblyReferenceIdentity? identity =
-            BrowserAssemblyIdentityDecoder.Decode(Read(path, MaxAssemblyEntryBytes));
-
-        return ResolvedAssemblyReference.Create(
-            identity ?? new AssemblyReferenceIdentity(
-                Path.GetFileNameWithoutExtension(path),
-                Version: null,
-                Culture: null,
-                PublicKeyToken: null),
-            path: null,
-            () => OpenEntry(path, MaxAssemblyEntryBytes),
-            provenance);
-    }
-
     static bool IsUnderSkillsDirectory(string[] segments)
     {
         for (int index = 0; index < segments.Length - 1; index++)
@@ -1498,13 +1475,36 @@ internal sealed class BrowserPackage
 /// nothing.
 /// </summary>
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserPackageCoordinate(
-    BrowserPackage package,
-    PackageCompileAssetSelection selection)
+internal sealed class BrowserPackageCoordinate
 {
-    public BrowserPackage Package { get; } = package;
+    public BrowserPackageCoordinate(
+        BrowserPackage package,
+        PackageAssemblyContextSelection assemblyContext)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(assemblyContext);
+        if (!package.PackageId.Equals(
+                assemblyContext.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !package.Version.Equals(
+                assemblyContext.PackageVersion,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The product package selection must describe the acquired Browser package.",
+                nameof(assemblyContext));
+        }
 
-    public PackageCompileAssetSelection Selection { get; } = selection;
+        Package = package;
+        AssemblyContext = assemblyContext;
+    }
+
+    public BrowserPackage Package { get; }
+
+    public PackageAssemblyContextSelection AssemblyContext { get; }
+
+    public PackageCompileAssetSelection Selection =>
+        AssemblyContext.AssetSelection;
 
     public string PackageId => Package.PackageId;
 

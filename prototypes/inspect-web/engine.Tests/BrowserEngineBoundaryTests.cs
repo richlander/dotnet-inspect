@@ -3689,12 +3689,13 @@ public sealed class BrowserEngineBoundaryTests
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);
         BrowserPackageWorkspace.RegisterAcquiredPackage(package);
-        PackageCompileAssetSelection selection = PackageCompileAssetSelector.Select(
+        var assemblyContext = new PackageAssemblyContextSelection(
             package.Content,
             id,
+            package.Version,
             "net11.0");
-        Assert.True(selection.IsSelected);
-        return new BrowserPackageCoordinate(package, selection);
+        Assert.True(assemblyContext.AssetSelection.IsSelected);
+        return new BrowserPackageCoordinate(package, assemblyContext);
     }
 
     static byte[] Package(

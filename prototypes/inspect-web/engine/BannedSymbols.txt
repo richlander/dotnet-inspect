@@ -4,8 +4,8 @@
 ; scan of the source text — a scan has to model C# to know what a name binds to, and every
 ; spelling it does not model is a hole.
 ;
-; Minting a participant requires decoding the entry's real metadata identity, but that narrow raw
-; read lives in InspectWeb.Acquisition. The engine cannot reach PEReader, MetadataReader, an
+; Product-owned package realization selects assets, decodes identities, mints descriptors, and
+; constructs roles. The engine cannot reach descriptor factories, PEReader, MetadataReader, an
 ; inspection session, a metadata source, a body index, or a retained image directly.
 ;
 ; BrowserEngineLayeringTests in engine.Tests pins this file into the engine project and
@@ -22,10 +22,15 @@ T:ILInspector.Metadata.ApiSurfaceExtractor;API projection belongs to a product q
 P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead;A descriptor may carry identity into a query, but the browser host must not open its image.
 T:ILInspector.Metadata.IAssemblyReferenceResolver;Assembly-role binding belongs to product workspace composition, never to the browser host.
 T:ILInspector.Metadata.AssemblyReferenceBindingPolicy;Assembly-role binding belongs to product workspace composition, never to the browser host.
-T:System.Reflection.PortableExecutable.PEReader;Raw image decoding is isolated in InspectWeb.Acquisition; the browser host uses product queries.
-T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding is isolated in InspectWeb.Acquisition; the browser host uses product queries.
+T:System.Reflection.PortableExecutable.PEReader;Raw image decoding belongs to product package realization; the browser host uses product queries.
+T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding belongs to product package realization; the browser host uses product queries.
 
-M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup(System.Collections.Generic.IEnumerable{DotnetInspector.Queries.AssemblyContextParticipant},DotnetInspector.Queries.AssemblyContextGroupOptions);The browser supplies exact descriptors to CreatePackageAssemblyContextRoles; product code owns binding-consistent group composition.
+M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup(System.Collections.Generic.IEnumerable{DotnetInspector.Queries.AssemblyContextParticipant},DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns binding-consistent group composition.
+M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles(System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{DotnetInspector.Queries.PackageAssemblyRoleCorrespondence},System.Boolean,DotnetInspector.Queries.AssemblyContextGroupOptions,DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns package role construction and correspondence.
+M:DotnetInspector.Packages.PackageCompileAssetSelector.Select(DotnetInspector.Packages.IPackageContent,System.String,System.String);Product package selections enter the browser through PackageAssemblyContextSelection.
+M:ILInspector.Metadata.ResolvedAssemblyReference.Create(ILInspector.Metadata.AssemblyReferenceIdentity,System.String,System.Func{System.IO.Stream},ILInspector.Metadata.AssemblyResolutionProvenance,System.Nullable{System.DateTime});Package descriptor minting belongs to product-owned package realization.
+M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamIfManaged(System.Func{System.IO.Stream},ILInspector.Metadata.AssemblyResolutionProvenance,System.Nullable{System.DateTime});Package descriptor minting belongs to product-owned package realization.
+M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(System.Func{System.IO.Stream},ILInspector.Metadata.AssemblyReferenceIdentity,ILInspector.Metadata.AssemblyResolutionProvenance,System.Nullable{System.DateTime});Package descriptor minting belongs to product-owned package realization.
 M:DotnetInspector.Queries.AssemblyContextGroup.UseAssemblyImage``1(ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyImageCallback{``0});Inspecting an image span in the host is the thing the workspace rule exists to prevent.
 M:DotnetInspector.Queries.AssemblyContextGroup.GetAssemblyImageSpan(ILInspector.Metadata.ResolvedAssemblyReference);Inspecting an image span in the host is the thing the workspace rule exists to prevent.
 M:DotnetInspector.Queries.AssemblyContextGroup.RetainAssemblyReference(ILInspector.Metadata.ResolvedAssemblyReference);A retained descriptor is content the query layer owns; ask a query for the projection instead.

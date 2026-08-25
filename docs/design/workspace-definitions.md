@@ -12,8 +12,9 @@ contract, lifetime rules, and authorization model.
 This is a design proposal. Implementation has begun: the `package`,
 `platform`, and `embedded` member coordinates and one loader that realizes a
 selected context into exactly one `AssemblyContextGroup` now exist in product
-code. Product code also realizes exact already-acquired descriptors into
-coordinated surface and implementation roles for Browser package workspaces.
+code. Product code also selects and realizes exact already-acquired package
+content into coordinated surface and implementation roles for Browser package
+workspaces.
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -445,9 +446,9 @@ workspace, focus, member anchor, and section, opens one aggregate browser
 workspace, and returns its package surfaces, exact activation identity, and
 ordinary Call Graph projection. TypeScript applies that typed result to the UI
 without parsing definition member keys or reconstructing package/query inputs.
-Browser package scopes now adapt their exact selected descriptors into
-product-owned `PackageAssemblyContextRoles`; Browser still owns Wasm
-acquisition, cache/deadline budgets, and package/asset provenance.
+Browser package scopes now adapt product-selected, product-realized package
+participants into Browser coordinate/asset provenance; Browser still owns Wasm
+transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) minted facet ids replacing display-name allow list; (2) realize
 definitions via `WorkspaceContextLoader` instead of CLI package/
 `--caller-package` encoding and the browser runtime-pack share encoding for
@@ -1014,22 +1015,23 @@ Definition records and product demos (this slice):
   demo-parity, section binding, CLI lowering, and real section output for the
   two home demos; inspect-web's generated `RunHomeDemo` binding runs the
   member-bound Call Graph preset from its product scenario id;
-- `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
-  already-acquired package descriptors as coordinated surface and
-  implementation groups. It owns role-local binding, identity collision
-  rejection, reference-only surfaces, explicit shared-group reuse, and exact
-  participant correspondence. `PackageAssemblyContextRolesTests` gate the
-  product contract;
+- `PackageAssemblyContextSelection` and
+  `InspectionWorkspace.RealizePackageAssemblyContextRoles` select exact,
+  already-acquired package content and realize it as coordinated surface and
+  implementation groups. Product code owns reference-preferred selection,
+  bounded identity decoding, descriptor minting, rejection carriers,
+  role-local binding, identity collision rejection, reference-only surfaces,
+  shared-group reuse, and exact asset/participant correspondence.
+  `PackageAssemblyContextRealizationTests` and
+  `PackageAssemblyContextRolesTests` gate the product contract;
   `BrowserEngineBoundaryTests.WorkspaceBinding_RejectsPackageParticipantsForPlatformScope`,
   `WorkspaceBinding_RejectsEquivalentAssemblyIdentities`,
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
   `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
   Browser adapter and its unchanged Wasm limits; and
 - **not yet:** minted view-facet ids; `WorkspaceContextLoader` acquisition as
-  the run substrate (CLI still uses package + `--caller-package` encoding, the
-  Browser package path still supplies exact already-acquired descriptors to the
-  product role owner, and platform still uses the resident runtime-pack share
-  encoding).
+  the run substrate (CLI still uses package + `--caller-package` encoding, and
+  platform still uses the resident runtime-pack share encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

@@ -17,9 +17,8 @@ namespace InspectWeb.Engine.Tests;
 /// reopening the door.
 /// </para>
 /// <para>
-/// The second is that the engine retains the typed identity and descriptor currency needed to
-/// mint participants, while raw <c>PEReader</c>/<c>MetadataReader</c> decoding stays isolated in
-/// <c>InspectWeb.Acquisition</c>.
+/// The second is that package selection and participant realization stay in product code, so the
+/// engine cannot decode raw images or mint descriptors.
 /// </para>
 /// </remarks>
 public sealed class BrowserEngineLayeringTests
@@ -44,6 +43,31 @@ public sealed class BrowserEngineLayeringTests
             banned,
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Packages.PackageCompileAssetSelector.Select",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.Create(",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamIfManaged",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity",
                 StringComparison.Ordinal));
         Assert.Contains(
             banned,
@@ -110,12 +134,12 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void AcquisitionCurrencyRemainsAvailableWithoutRawReaders()
+    public void QueryCurrencyRemainsAvailableWithoutAcquisitionFactories()
     {
         IReadOnlyList<string> banned = BannedSymbols();
 
-        // Acquisition decodes an entry's real metadata identity in the isolated acquisition
-        // project before it mints a participant. The engine itself receives only that identity.
+        // Query results still expose typed identities and descriptors. The host may consume that
+        // currency, but product realization owns how package descriptors are minted.
         Assert.DoesNotContain("T:ILInspector.Metadata.AssemblyReferenceIdentity", banned);
         Assert.DoesNotContain("T:ILInspector.Metadata.ResolvedAssemblyReference", banned);
     }
