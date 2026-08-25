@@ -23,8 +23,14 @@ public static class Performance
         var metadataInclude = new HashSet<string>(metadataSelection, StringComparer.Ordinal);
         var sharedInclude = new HashSet<string>(sharedSelection, StringComparer.Ordinal);
         var arbitraryInclude = new HashSet<string>(arbitrarySelection, StringComparer.Ordinal);
-        var currentMetadataPlan = currentPipeline.GetRequiredScanners(Verbosity.Quiet, metadataInclude);
-        var currentSharedPlan = currentPipeline.GetRequiredScanners(Verbosity.Quiet, sharedInclude);
+        var currentMetadataPlan = CurrentBaselinePipelines.GetRequiredScanners(
+            currentPipeline,
+            Verbosity.Quiet,
+            metadataInclude);
+        var currentSharedPlan = CurrentBaselinePipelines.GetRequiredScanners(
+            currentPipeline,
+            Verbosity.Quiet,
+            sharedInclude);
         var typedMetadataPlan = typed.PlanFor(metadataSelection);
         var typedSharedPlan = typed.PlanFor(sharedSelection);
         var currentMetadataContext = new CurrentScannerContext { Model = new SpikeModel() };
@@ -51,17 +57,26 @@ public static class Performance
             Compare(
                 "Plan one section",
                 200_000,
-                () => s_sink = currentPipeline.GetRequiredScanners(Verbosity.Quiet, metadataInclude).Count,
+                () => s_sink = CurrentBaselinePipelines.GetRequiredScanners(
+                    currentPipeline,
+                    Verbosity.Quiet,
+                    metadataInclude).Count,
                 () => s_sink = typed.PlanFor(metadataSelection).Count),
             Compare(
                 "Plan shared sections",
                 100_000,
-                () => s_sink = currentPipeline.GetRequiredScanners(Verbosity.Quiet, sharedInclude).Count,
+                () => s_sink = CurrentBaselinePipelines.GetRequiredScanners(
+                    currentPipeline,
+                    Verbosity.Quiet,
+                    sharedInclude).Count,
                 () => s_sink = typed.PlanFor(sharedSelection).Count),
             Compare(
                 "Plan arbitrary sections (cold)",
                 50_000,
-                () => s_sink = currentPipeline.GetRequiredScanners(Verbosity.Quiet, arbitraryInclude).Count,
+                () => s_sink = CurrentBaselinePipelines.GetRequiredScanners(
+                    currentPipeline,
+                    Verbosity.Quiet,
+                    arbitraryInclude).Count,
                 () => s_sink = typed.PlanFor(arbitrarySelection).Count),
             Compare(
                 "Execute one section",

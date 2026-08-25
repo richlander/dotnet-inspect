@@ -7,6 +7,7 @@ using DotnetInspector.Commands;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -82,6 +83,219 @@ public class OutputFormatterTests
         {
             tempDirectory.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public void LibraryInspectionTypedRows_CarryConcernProvenance()
+    {
+        const string hostile = "value\u202E\nINJECTED";
+        const TextConcern concerns = TextConcern.Control | TextConcern.Format;
+
+        var reference = new ReferenceRow(hostile, hostile, hostile);
+        var classified = new ClassifiedMethodRow(hostile, hostile, hostile);
+        var resource = new ResourceRow(hostile, hostile, hostile);
+        var triage = new ResourceTriageRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var performance = new PerformanceRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var performanceGroup = new PerformanceGroupRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var failure = new InspectionFailureRow(hostile, hostile, hostile);
+        var union = new UnionTypeRow(hostile, hostile, hostile, hostile);
+        var sourceLink = new SourceLinkAuditSection
+        {
+            SourceFilesText = new InertString(TextPolicy.Field, hostile),
+            StatusText = new InertString(TextPolicy.Field, hostile),
+        };
+        var sourceIntegrity = new SourceIntegritySection
+        {
+            CrlfMismatchText = new InertString(TextPolicy.Field, hostile),
+            MismatchedFileTexts = [new InertString(TextPolicy.Field, hostile)],
+            StatusText = new InertString(TextPolicy.Field, hostile),
+        };
+
+        InertString[] texts =
+        [
+            reference.PublicKeyTokenText,
+            classified.DeclaringTypeText,
+            classified.SignatureText,
+            resource.VisibilityText,
+            resource.SizeText,
+            triage.MemberText,
+            triage.CandidateText,
+            triage.BoundaryText,
+            triage.AcquireILText,
+            triage.BoundaryILText,
+            performance.MemberText,
+            performance.EvidenceText,
+            performance.AllocationText!.Value,
+            performance.ReachText,
+            performanceGroup.KindText,
+            performanceGroup.MemberText,
+            performanceGroup.EvidenceText,
+            performanceGroup.AllocationText!.Value,
+            performanceGroup.LoopText!.Value,
+            performanceGroup.ReachText,
+            performanceGroup.WeightText!.Value,
+            performanceGroup.PriorityText,
+            performanceGroup.ConfidenceText,
+            failure.SectionText,
+            union.IUnionText,
+            sourceLink.SourceFilesText,
+            sourceLink.StatusText,
+            sourceIntegrity.CrlfMismatchText!.Value,
+            sourceIntegrity.MismatchedFileTexts![0],
+            sourceIntegrity.StatusText,
+        ];
+
+        Assert.Equal(30, texts.Length);
+        Assert.All(texts, text => Assert.Equal(concerns, text.Concerns));
+    }
+
+    [Fact]
+    public void SourceIntegrityTypedText_RendersAcrossMarkdownTsvAndJsonl()
+    {
+        const string cleanPath = @"C:\src\Foo.cs";
+        const string hostile = "path\u202E\nINJECTED.cs";
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            SourceIntegrityChecked = true,
+            SourceIntegrityMismatched = 2,
+            SourceIntegrityMismatches = [cleanPath, hostile],
+        });
+        var writerOptions = new MarkoutWriterOptions
+        {
+            IncludeSections = [SectionNames.SourceLinkIntegrity],
+        };
+
+        string markdown = MarkoutSerializer.Serialize(
+            view,
+            InspectionContext.Default,
+            writerOptions);
+        string tsv = RenderLibraryTable(view, tsv: true, jsonl: false);
+        string jsonl = RenderLibraryTable(view, tsv: false, jsonl: true);
+
+        foreach (string output in new[] { markdown, tsv })
+        {
+            Assert.Contains(cleanPath, output, StringComparison.Ordinal);
+            Assert.DoesNotContain(@"C:\\src\\Foo.cs", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", jsonl, StringComparison.Ordinal);
+
+        string[] jsonlRows =
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(5, jsonlRows.Length);
+        foreach (string jsonlRow in jsonlRows)
+        {
+            using JsonDocument document = JsonDocument.Parse(jsonlRow);
+            Assert.DoesNotContain(
+                document.RootElement.EnumerateObject(),
+                property => property.Name.EndsWith("_text", StringComparison.Ordinal));
+        }
+        Assert.Contains(
+            jsonlRows,
+            row => row.Contains(
+                "\"field\":\"Mismatched Files\"",
+                StringComparison.Ordinal));
+        string mismatchedFilesRow = Assert.Single(
+            jsonlRows,
+            row => row.Contains(
+                "\"field\":\"Mismatched Files\"",
+                StringComparison.Ordinal));
+        using JsonDocument mismatchedFilesDocument =
+            JsonDocument.Parse(mismatchedFilesRow);
+        string mismatchedFiles =
+            mismatchedFilesDocument.RootElement.GetProperty("value").GetString()!;
+        Assert.Contains(cleanPath, mismatchedFiles, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            @"C:\\src\\Foo.cs",
+            mismatchedFiles,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PerformanceGroupTypedText_RendersAcrossTsvAndJsonl()
+    {
+        const string hostile = "value\u200D\uFEFF\U000E0041\t\u202E\nINJECTED";
+        var view = new PerformanceGroupView(
+        [
+            new PerformanceGroupRow(
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile),
+        ]);
+
+        string tsv = RenderPerformanceGroupTable(
+            view,
+            tsv: true,
+            jsonl: false);
+        string jsonl = RenderPerformanceGroupTable(
+            view,
+            tsv: false,
+            jsonl: true);
+
+        foreach (string output in new[] { tsv, jsonl })
+        {
+            Assert.DoesNotContain("\u200D", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\uFEFF", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\U000E0041", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u200D", output, StringComparison.Ordinal);
+            Assert.Contains(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.Contains(@"\U000E0041", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^I", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+
+        string jsonlRow = Assert.Single(
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using JsonDocument document = JsonDocument.Parse(jsonlRow);
+        Assert.DoesNotContain(
+            document.RootElement.EnumerateObject(),
+            property => property.Name.EndsWith("_text", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -3450,6 +3664,41 @@ public class OutputFormatterTests
             writer.WriteParagraph($"... *and {truncatedCount} more types*");
         return writer.ToString().TrimEnd();
     }
+
+    private static string RenderLibraryTable(
+        LibraryInspectionView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                InspectionContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions
+                    {
+                        IncludeSections = [SectionNames.SourceLinkIntegrity],
+                    },
+                    tsv,
+                    jsonl)));
+
+    private static string RenderPerformanceGroupTable(
+        PerformanceGroupView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                InspectionContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
+                    tsv,
+                    jsonl)));
 
     private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections, bool topFieldsOnly = false)
     {

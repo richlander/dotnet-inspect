@@ -161,7 +161,7 @@ public record LibraryOptions : IProjectionOptions
     public bool Verbose { get; init; }
 
     /// <summary>
-    /// Report the work the run actually did — selected sections, the scanners they demanded, what
+    /// Report the work the run actually did — selected sections, the queries they demanded, what
     /// prerequisite expansion added, execution times, and expensive resource acquisition — on
     /// stderr. Diagnostic only: stdout is unchanged, so a caller parsing the document is unaffected.
     /// </summary>

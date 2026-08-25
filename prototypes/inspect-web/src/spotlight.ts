@@ -402,8 +402,9 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function rememberSelection(items: readonly SpotlightResult[]): void {
-    selectedResultIdentity = items[state.spotlightIndex]
-      ? spotlightResultIdentity(items[state.spotlightIndex])
+    const selected = items[state.spotlightIndex];
+    selectedResultIdentity = selected
+      ? spotlightResultIdentity(selected)
       : null;
   }
 
@@ -670,8 +671,11 @@ export function createSpotlight(options: SpotlightOptions) {
         available.length,
         event.shiftKey,
       );
-      state.spotlightChipIndex = next;
-      setScope(available[next].id);
+      const nextScope = available[next];
+      if (nextScope) {
+        state.spotlightChipIndex = next;
+        setScope(nextScope.id);
+      }
       return true;
     }
 
