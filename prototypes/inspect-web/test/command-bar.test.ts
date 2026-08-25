@@ -183,13 +183,14 @@ test("trailing whitespace preserves completed command arguments", () => {
       .map(result => [result.command, result.targetTypeId]),
     [["type Widget", "A.Widget"], ["type Widget", "B.Widget"]],
   );
-  for (const [command, expected] of [
+  const executableCommands: Array<[string, string]> = [
     ["show metadata ", "show metadata"],
     ["framework net9.0 ", "framework net9.0"],
     ["types kind ", "types kind"],
     ["clear ", "clear"],
     ["share ", "share"],
-  ]) {
+  ];
+  for (const [command, expected] of executableCommands) {
     assert.deepEqual(
       commandPaletteResults(commandContext(command), lenses)
         .map(result => [result.command, result.action]),

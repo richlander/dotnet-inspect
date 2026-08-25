@@ -1050,7 +1050,7 @@ public sealed partial class CSharpPrinter
             return null;
         var place = MultiDimArrayPlaceText(element.Array, tuple.Elements, "Get");
         if (place.UsesPseudoMember)
-            _printedRanges?.SetNodeKind(element, "InvocationExpression");
+            _printedRangeMetadata?.SetNodeKind(element, "InvocationExpression");
         return place.Text;
     }
 
