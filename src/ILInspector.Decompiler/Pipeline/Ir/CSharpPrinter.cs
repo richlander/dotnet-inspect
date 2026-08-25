@@ -228,7 +228,12 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            var printer = new CSharpPrinter(function, options)
+            {
+                _printedRanges = sink,
+                _printedRangeMetadata = sink,
+                _expressionText = [],
+            };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return WithAppliedLenses(printer.Result(output, function), appliedLenses);
@@ -297,7 +302,12 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            var printer = new CSharpPrinter(function, options)
+            {
+                _printedRanges = sink,
+                _printedRangeMetadata = sink,
+                _expressionText = [],
+            };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
@@ -344,7 +354,12 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
+            var printer = new CSharpPrinter(function, options)
+            {
+                _printedRanges = sink,
+                _printedRangeMetadata = sink,
+                _expressionText = [],
+            };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
@@ -472,7 +487,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
-    readonly HashSet<int> _emittedLabels = [];
+    HashSet<int> _emittedLabels = [];
+    string _labelScopeSuffix = "";
+    int _nextNestedLabelScopeOrdinal;
 
     readonly Dictionary<SwitchBranch, string> _switchTemps = [];
 
@@ -538,10 +555,27 @@ public sealed partial class CSharpPrinter
     PrintedRangeMap? _printedRanges;
 
     /// <summary>
-    /// Text captured per expression node while <see cref="_printedRanges"/> is
-    /// collecting, so <see cref="RecordExpressionRanges"/> can bind expressions to
-    /// characters. Null whenever the sink is, so the shipped print path allocates
-    /// nothing and runs the same code it did before.
+    /// Metadata sink retained while shared-scope lambda bodies compose into a
+    /// temporary builder. Coordinates are disabled there, but expression text
+    /// and syntax kinds are still captured for rebasing by the enclosing
+    /// statement once the lambda text reaches its final location.
+    /// </summary>
+    PrintedRangeMap? _printedRangeMetadata;
+
+    /// <summary>The empty-locals lambda currently sharing this printer's local scope.</summary>
+    Lambda? _sharedScopeLambda;
+
+    TypeRef? _returnTypeOverride;
+
+    TypeRef CurrentReturnType
+        => _returnTypeOverride ?? _function.Signature.ReturnType;
+
+    /// <summary>
+    /// Text captured per expression node while
+    /// <see cref="_printedRangeMetadata"/> is collecting, so
+    /// <see cref="RecordExpressionRanges"/> can bind expressions to characters.
+    /// It remains active while a temporary lambda builder disables coordinate
+    /// recording, but is null on the shipped print path.
     /// </summary>
     Dictionary<IrNode, string>? _expressionText;
 
@@ -715,6 +749,33 @@ public sealed partial class CSharpPrinter
             }
         }
 
+        var statementsByBlock = new List<List<IrNode>>(blocks.Count);
+        foreach (var block in blocks)
+        {
+            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset)
+                && block.Children.Count(statement => statement is not LocalFunctionStatement) == 1;
+            var emit = new List<IrNode>();
+            foreach (var statement in block.Children)
+            {
+                if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
+                    continue;
+                bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
+                bool statementOwnsLabel = statement.OwnsSourceLabel
+                    && statement.SourceOffset >= 0
+                    && _labelTargets.Contains(statement.SourceOffset);
+                if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
+                    && statement is Return { Value: null })
+                    continue;
+                emit.Add(statement);
+            }
+            statementsByBlock.Add(emit);
+        }
+        bool semanticSpacing = HasSemanticSpacingCandidates(
+                statementsByBlock.SelectMany(static statements => statements),
+                statementsByBlock.Any(HasGeneratedUnsafeSetupBoundary))
+            && blocks.All(block => !_labelTargets.Contains(block.StartOffset));
+        var spacingState = new SemanticSpacingState(semanticSpacing);
+
         // A label binds to the next statement, even one in a following block, so
         // an empty labeled block is fine mid-container. It only strands when the
         // container ends with no statement after the label; track that and emit a
@@ -732,31 +793,17 @@ public sealed partial class CSharpPrinter
                 if (topLevel)
                     _topLevelHasLabel = true;
             }
-            // The trailing 'return;' trims, current-style — unless it is a
-            // labeled block's only statement, where trimming would strand
-            // the label as invalid C#.
-            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset)
-                && block.Children.Count(statement => statement is not LocalFunctionStatement) == 1;
-            var emit = new List<IrNode>();
-            foreach (var statement in block.Children)
-            {
-                if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
-                    continue;   // lifted to the signature initializer / field declarations
-                bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
-                bool statementOwnsLabel = statement.OwnsSourceLabel
-                    && statement.SourceOffset >= 0
-                    && _labelTargets.Contains(statement.SourceOffset);
-                if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
-                    && statement is Return { Value: null })
-                    continue;
-                emit.Add(statement);
-            }
+            var emit = statementsByBlock[i];
 
             if (topLevel)
                 _topLevelStatements.AddRange(emit);
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
-            AppendStatements(sb, emit, indent);
+            AppendStatements(
+                sb,
+                emit,
+                indent,
+                ref spacingState);
         }
         if (labelPendingStatement)
             sb.Append(pad).AppendLf(";");
@@ -767,29 +814,59 @@ public sealed partial class CSharpPrinter
         // First printed occurrence owns the label; structured replacements stamp
         // the enclosing statement so it must render before any same-offset child.
         if (_emittedLabels.Add(offset))
-            sb.Append(pad).AppendLf($"IL_{offset:X4}:");
+            sb.Append(pad).Append(LabelName(offset)).AppendLf(":");
     }
+
+    string LabelName(int offset) => $"IL_{offset:X4}{_labelScopeSuffix}";
+
+    string AllocateNestedLabelScopeSuffix()
+        => $"{_labelScopeSuffix}_scope{++_nextNestedLabelScopeOrdinal}";
+
+    LabelScopeState EnterNestedLabelScope(IrNode functionScope)
+    {
+        var state = new LabelScopeState(
+            _labelTargets,
+            _emittedLabels,
+            _labelScopeSuffix);
+        _labelTargets = CollectBranchTargets(functionScope);
+        _emittedLabels = [];
+        _labelScopeSuffix = AllocateNestedLabelScopeSuffix();
+        return state;
+    }
+
+    void RestoreLabelScope(LabelScopeState state)
+    {
+        _labelTargets = state.Targets;
+        _emittedLabels = state.Emitted;
+        _labelScopeSuffix = state.Suffix;
+    }
+
+    readonly record struct LabelScopeState(
+        HashSet<int> Targets,
+        HashSet<int> Emitted,
+        string Suffix);
 
     /// <summary>
     /// A statement node that renders only as a comment — an <c>// endfinally</c>/
-    /// <c>// endfilter</c> EH marker or an unsupported <c>/* … */</c> node — so it
-    /// is not a real C# statement. A label sitting before one stays unsatisfied:
-    /// the trailing empty statement (';') must still follow to keep a labeled
-    /// region legal (a label requires a statement; a bare label before a closing
-    /// brace is <c>CS1525</c>).
+    /// <c>// endfilter</c> EH marker, residual <c>cpblk</c>, or an unsupported
+    /// <c>/* … */</c> node — so it is not a real C# statement. A label sitting
+    /// before one stays unsatisfied: the trailing empty statement (';') must
+    /// still follow to keep a labeled region legal (a label requires a statement;
+    /// a bare label before a closing brace is <c>CS1525</c>).
     /// </summary>
     static bool RendersAsCommentOnly(IrNode node) => node switch
     {
         EndFinally or EndFilter => true,
+        CopyBlock => true,
         UnsupportedNode => true,
         ExpressionStatement { Expression: UnsupportedNode } => true,
         _ => false,
     };
 
-    static HashSet<int> CollectBranchTargets(IrFunction function)
+    static HashSet<int> CollectBranchTargets(IrNode functionScope)
     {
         var targets = new HashSet<int>();
-        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        foreach (var node in functionScope.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -1122,7 +1199,7 @@ public sealed partial class CSharpPrinter
             StoreProperty store when ReferenceEquals(store.Value, load) => StorePropertyTargetType(store),
             StoreElement store when ReferenceEquals(store.Value, load) => store.ElementType,
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
-            Return ret when ReferenceEquals(ret.Value, load) => _function.Signature.ReturnType,
+            Return ret when ReferenceEquals(ret.Value, load) => CurrentReturnType,
             // A bool-in-int-slot load whose value flows into a boolean operator
             // or condition position (`!S`, `S && x`, `S ? a : b`, `if (S)`,
             // `while (S)`) has a boolean target — C# requires bool there. Without
@@ -1815,7 +1892,10 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys);
+                decisionKeys: _decisionKeys)
+            {
+                _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
+            };
             return nestedPrinter.PrintBody(function).TrimEnd();
         }
         finally
@@ -2106,6 +2186,11 @@ public sealed partial class CSharpPrinter
         statementStartOverride = null;
         _statementIndent = indent;
         string pad = new(' ', indent * 4);
+        if (node is Return && IsSharedScopeLambdaReturn(node))
+        {
+            sb.Append(pad).AppendLf(LambdaStatement(node)!);
+            return;
+        }
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
@@ -2131,9 +2216,20 @@ public sealed partial class CSharpPrinter
                     AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
                 else
                 {
-                    AppendContainer(sb, localFunction.Body, indent + 1);
-                    if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
-                        sb.Append(new string(' ', (indent + 1) * 4)).AppendLf("return default;");
+                    var enclosingReturnType = _returnTypeOverride;
+                    var enclosingLabelScope = EnterNestedLabelScope(localFunction);
+                    _returnTypeOverride = localFunction.ReturnType;
+                    try
+                    {
+                        AppendContainer(sb, localFunction.Body, indent + 1);
+                        if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
+                            sb.Append(new string(' ', (indent + 1) * 4)).AppendLf("return default;");
+                    }
+                    finally
+                    {
+                        _returnTypeOverride = enclosingReturnType;
+                        RestoreLabelScope(enclosingLabelScope);
+                    }
                 }
                 sb.Append(pad).AppendLf("}");
             }
@@ -2154,7 +2250,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum));
+                sb.Append(SwitchArmText(arm, CurrentReturnType, labelEnum));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2174,7 +2270,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SynthesizedSwitchArmText(nullArm, _function.Signature.ReturnType));
+                sb.Append(SynthesizedSwitchArmText(nullArm, CurrentReturnType));
                 CaptureContextRange(nullArm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2182,7 +2278,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(UnionSwitchArmText(arm, _function.Signature.ReturnType));
+                sb.Append(UnionSwitchArmText(arm, CurrentReturnType));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2190,7 +2286,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SynthesizedSwitchArmText(defaultArm, _function.Signature.ReturnType));
+                sb.Append(SynthesizedSwitchArmText(defaultArm, CurrentReturnType));
                 CaptureContextRange(defaultArm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2213,7 +2309,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(PatternSwitchArmText(arm, _function.Signature.ReturnType));
+                sb.Append(PatternSwitchArmText(arm, CurrentReturnType));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2221,7 +2317,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(SynthesizedSwitchArmText(defaultArm, _function.Signature.ReturnType));
+                sb.Append(SynthesizedSwitchArmText(defaultArm, CurrentReturnType));
                 CaptureContextRange(defaultArm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2244,7 +2340,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(inner);
                 int armStart = sb.Length;
-                sb.Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType));
+                sb.Append(TupleSwitchArmText(arm, componentTypes, CurrentReturnType));
                 CaptureContextRange(arm, armStart, sb.Length);
                 sb.AppendLf(",");
             }
@@ -2254,7 +2350,7 @@ public sealed partial class CSharpPrinter
             return;
         }
         if (node is Return { Value: StackAllocate stackAllocate }
-            && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
+            && CurrentReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
         {
             string localName = FreshSyntheticLocalName("__stackalloc");
             sb.Append(pad)
@@ -2567,7 +2663,7 @@ public sealed partial class CSharpPrinter
                 sb.Append(pad);
                 int caseStart = sb.Length;
                 sb.Append("if (").Append(temp).Append(" == ").Append(t)
-                    .AppendLf($") goto IL_{switchBranch.TargetOffsets[t]:X4};");
+                    .Append(") goto ").Append(LabelName(switchBranch.TargetOffsets[t])).AppendLf(";");
                 _printedRanges?.RecordRegion(PrintedRegionRole.Case, caseStart, sb.Length);
             }
             return;
@@ -2595,6 +2691,27 @@ public sealed partial class CSharpPrinter
     /// </summary>
     void AppendStatements(StringBuilder sb, IReadOnlyList<IrNode> statements, int indent)
     {
+        bool hasGeneratedUnsafeSetupBoundary =
+            HasGeneratedUnsafeSetupBoundary(statements);
+        bool semanticSpacing = HasSemanticSpacingCandidates(
+                statements,
+                hasGeneratedUnsafeSetupBoundary)
+            && (statements.FirstOrDefault()?.Parent is not Block block
+                || !_labelTargets.Contains(block.StartOffset));
+        var spacingState = new SemanticSpacingState(semanticSpacing);
+        AppendStatements(
+            sb,
+            statements,
+            indent,
+            ref spacingState);
+    }
+
+    void AppendStatements(
+        StringBuilder sb,
+        IReadOnlyList<IrNode> statements,
+        int indent,
+        ref SemanticSpacingState spacingState)
+    {
         int i = 0;
         while (i < statements.Count)
         {
@@ -2608,6 +2725,22 @@ public sealed partial class CSharpPrinter
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
+                int firstVisible = -1;
+                for (int k = i; k < j; k++)
+                {
+                    if (IsVisibleStatement(statements[k]))
+                    {
+                        firstVisible = k;
+                        break;
+                    }
+                }
+                if (firstVisible >= 0)
+                {
+                    AppendSemanticSeparator(
+                        sb,
+                        statements[firstVisible],
+                        spacingState);
+                }
                 sb.Append(pad).AppendLf("unsafe");
                 sb.Append(pad).AppendLf("{");
                 _unsafeDepth++;
@@ -2615,8 +2748,18 @@ public sealed partial class CSharpPrinter
                 {
                     if (statements[k] is StoreLocal unsafeInlineStore && _inlineReceiverTempStores.ContainsValue(unsafeInlineStore))
                         continue;
+                    bool visible = IsVisibleStatement(statements[k]);
+                    if (visible && k != firstVisible)
+                    {
+                        AppendSemanticSeparator(
+                            sb,
+                            statements[k],
+                            spacingState);
+                    }
                     AppendStatementLabel(sb, statements[k], indent + 1);
                     AppendStatement(sb, statements[k], indent + 1);
+                    if (visible)
+                        UpdateSemanticSpacingState(statements[k], ref spacingState);
                 }
                 _unsafeDepth--;
                 sb.Append(pad).AppendLf("}");
@@ -2624,11 +2767,162 @@ public sealed partial class CSharpPrinter
             }
             else
             {
+                bool visible = IsVisibleStatement(statements[i]);
+                if (visible)
+                {
+                    AppendSemanticSeparator(
+                        sb,
+                        statements[i],
+                        spacingState);
+                }
                 AppendStatementLabel(sb, statements[i], indent);
                 AppendStatement(sb, statements[i], indent);
+                if (visible)
+                    UpdateSemanticSpacingState(statements[i], ref spacingState);
                 i++;
             }
         }
+    }
+
+    bool IsVisibleStatement(IrNode statement)
+    {
+        if (RendersAsCommentOnly(statement))
+            return false;
+
+        return statement switch
+        {
+            StoreLocal store when _inlineReceiverTempStores.ContainsValue(store) => false,
+            ExpressionStatement { Expression: Call call }
+                when IsImplicitParameterlessBaseCall(call) => false,
+            _ => true,
+        };
+    }
+
+    bool RendersSourceLabel(IrNode statement)
+        => statement.OwnsSourceLabel
+            && statement.SourceOffset >= 0
+            && _labelTargets.Contains(statement.SourceOffset);
+
+    bool HasSemanticSpacingCandidates(
+        IEnumerable<IrNode> statements,
+        bool hasGeneratedUnsafeSetupBoundary)
+    {
+        int visibleStatements = 0;
+        foreach (var statement in statements)
+        {
+            if (RendersSourceLabel(statement))
+                return false;
+            if (IsVisibleStatement(statement))
+                visibleStatements++;
+        }
+        return visibleStatements >= 5 || hasGeneratedUnsafeSetupBoundary;
+    }
+
+    // Five visible siblings keeps compact bodies compact. Longer structured
+    // lists separate leading/terminating one-arm conditionals, substantial setup
+    // prefixes, and adjacent major constructs. Generated unsafe blocks with the
+    // same setup contour also qualify. Labeled lowered output declines the
+    // policy because its control-flow contour is explicit.
+    void AppendSemanticSeparator(
+        StringBuilder sb,
+        IrNode current,
+        SemanticSpacingState state)
+    {
+        if (!state.Enabled || state.Previous is null)
+            return;
+
+        if (state.PreviousCompletedConditional
+            || IsMajorControlFlow(current)
+                && (IsMajorControlFlow(state.Previous)
+                    || state.ConsecutiveSetupStatements >= 2))
+        {
+            sb.AppendLf();
+        }
+    }
+
+    bool HasGeneratedUnsafeSetupBoundary(IReadOnlyList<IrNode> statements)
+    {
+        if (!_newMemorySafetyRules || _unsafeDepth != 0)
+            return false;
+
+        int i = 0;
+        while (i < statements.Count)
+        {
+            if (!NeedsUnsafeContext(statements[i]))
+            {
+                i++;
+                continue;
+            }
+
+            int end = UnsafeRunEnd(statements, i);
+            int setupStatements = 0;
+            for (int k = i; k < end; k++)
+            {
+                if (!IsVisibleStatement(statements[k]))
+                    continue;
+
+                if (IsMajorControlFlow(statements[k]))
+                {
+                    if (setupStatements >= 2)
+                        return true;
+                    setupStatements = 0;
+                }
+                else
+                {
+                    setupStatements++;
+                }
+            }
+            i = end;
+        }
+
+        return false;
+    }
+
+    static bool IsCompletedConditionalGroup(IrNode statement, bool leading)
+        => statement is IfStatement { HasElse: false } conditional
+            && (leading
+                || conditional.Then.Children.LastOrDefault()
+                    is Return
+                        or Throw
+                        or Break
+                        or Continue
+                        or Branch
+                        or Leave
+                        or YieldBreak);
+
+    static bool IsMajorControlFlow(IrNode statement)
+        => statement is IfStatement
+            or Switch
+            or WhileLoop
+            or DoWhileLoop
+            or ForLoop
+            or TryCatch
+            or TryFinally
+            or Lock
+            or Fixed
+            or UsingStatement
+            or ForeachStatement;
+
+    void UpdateSemanticSpacingState(
+        IrNode statement,
+        ref SemanticSpacingState state)
+    {
+        state.PreviousCompletedConditional =
+            IsCompletedConditionalGroup(statement, state.EmittedStatements == 0);
+        state.ConsecutiveSetupStatements = IsMajorControlFlow(statement)
+            ? 0
+            : state.ConsecutiveSetupStatements + 1;
+        state.Previous = statement;
+        state.EmittedStatements++;
+    }
+
+    struct SemanticSpacingState(bool enabled)
+    {
+        public bool Enabled { get; } = enabled;
+        public IrNode? Previous { get; set; }
+        public bool PreviousCompletedConditional { get; set; }
+        public int ConsecutiveSetupStatements { get; set; }
+        public int EmittedStatements { get; set; }
     }
 
     int UnsafeRunEnd(IReadOnlyList<IrNode> statements, int start)
@@ -2808,11 +3102,16 @@ public sealed partial class CSharpPrinter
     string? ConstructorChainText(MethodRef callee, Call call)
     {
         bool isThis = Equals(callee.DeclaringType, _function.DeclaringType);
-        var arguments = call.Arguments.Skip(1).ToList();
-        if (!isThis && arguments.Count == 0)
+        if (IsImplicitParameterlessBaseCall(call))
             return null;  // implicit base()
+        var arguments = call.Arguments.Skip(1).ToList();
         return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds, chainFidelityCasts: true)});";
     }
+
+    bool IsImplicitParameterlessBaseCall(Call call)
+        => call.Callee is { Name: ".ctor", HasThis: true } callee
+            && !Equals(callee.DeclaringType, _function.DeclaringType)
+            && call.Arguments.Count == 1;
 
     /// <summary>The index of the base/this <c>.ctor</c> chain call in the entry block, or null when the body has none (a struct ctor, a static method, a body that never chains).</summary>
     static int? ChainCallIndex(Block entry)
@@ -3211,10 +3510,10 @@ public sealed partial class CSharpPrinter
         Throw t => $"throw {Expression(t.Value)};",
         Break => "break;",
         Continue => "continue;",
-        Branch b => $"goto IL_{b.TargetOffset:X4};",
-        ConditionalBranch c => $"if ({Condition(c.Condition)}) goto IL_{c.TargetOffset:X4};",
-        SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(t => $"IL_{t:X4}"))}];",
-        Leave l => $"goto IL_{l.TargetOffset:X4}; // leave",
+        Branch b => $"goto {LabelName(b.TargetOffset)};",
+        ConditionalBranch c => $"if ({Condition(c.Condition)}) goto {LabelName(c.TargetOffset)};",
+        SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(LabelName))}];",
+        Leave l => $"goto {LabelName(l.TargetOffset)}; // leave",
         EndFinally => "// endfinally",
         EndFilter f => $"// endfilter({CommentExpressionText(f.Value)})",
         _ => $"/* {node.Describe()} */",
@@ -3524,7 +3823,9 @@ public sealed partial class CSharpPrinter
             return ExpressionCore(node);
         string text = ExpressionCore(node);
         _expressionText[node] = text;
-        _printedRanges!.SetDefaultNodeKind(node, AnnotatedSourceNodeKindProjection.From(node));
+        _printedRangeMetadata!.SetDefaultNodeKind(
+            node,
+            AnnotatedSourceNodeKindProjection.From(node));
         return text;
     }
 
@@ -3544,7 +3845,7 @@ public sealed partial class CSharpPrinter
 
     string WithNodeKind(IrExpression node, string text, string kind)
     {
-        _printedRanges?.SetNodeKind(node, kind);
+        _printedRangeMetadata?.SetNodeKind(node, kind);
         if (_expressionText is not null)
             _expressionText[node] = text;
         return text;
@@ -3559,10 +3860,10 @@ public sealed partial class CSharpPrinter
 
     string CaptureContextualExpression(IrExpression operand, string text, string kind)
     {
-        if (_printedRanges is not null)
+        if (_printedRangeMetadata is not null && _expressionText is not null)
         {
             var node = new SynthesizedRenderedExpression(kind);
-            _printedRanges.SetNodeKind(node, kind);
+            _printedRangeMetadata.SetNodeKind(node, kind);
             (_contextualExpressions ??= [])[operand] = new(node, operand, text);
         }
         return text;
@@ -3575,7 +3876,7 @@ public sealed partial class CSharpPrinter
     }
 
     string RenderedNodeKind(IrNode node)
-        => _printedRanges?.TryGetNodeKind(node, out string? kind) == true
+        => _printedRangeMetadata?.TryGetNodeKind(node, out string? kind) == true
             ? kind
             : AnnotatedSourceNodeKindProjection.From(node);
 
@@ -5068,9 +5369,9 @@ public sealed partial class CSharpPrinter
     /// value is not a single place (a ref ternary binds <c>ref</c> per arm).
     /// </summary>
     string ReturnText(IrExpression value)
-        => _function.Signature.ReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
+        => CurrentReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
             ? $"return ref {place};"
-            : $"return {CoerceText(value, _function.Signature.ReturnType)};";
+            : $"return {CoerceText(value, CurrentReturnType)};";
 
     /// <summary>
     /// Renders the initializer for a place whose static type is <paramref name="target"/>:
@@ -5221,7 +5522,7 @@ public sealed partial class CSharpPrinter
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
             string statement = CompoundStatement(target, binary, targetType, out bool isIncrement);
-            _printedRanges?.SetNodeKind(
+            _printedRangeMetadata?.SetNodeKind(
                 owner,
                 binary.IsChecked
                     ? "CheckedStatement"
@@ -5860,7 +6161,7 @@ public sealed partial class CSharpPrinter
     /// <summary>A user-defined checked ++/-- in statement position: a <c>checked { x++; }</c> block, since the <c>checked(x++)</c> expression is CS0201 as a statement.</summary>
     string CheckedIncrementStatement(ExpressionStatement owner, IncrementDecrement id)
     {
-        _printedRanges?.SetNodeKind(owner, "CheckedStatement");
+        _printedRangeMetadata?.SetNodeKind(owner, "CheckedStatement");
         bool saved = _checkedContext;
         _checkedContext = true;
         try
@@ -5875,13 +6176,13 @@ public sealed partial class CSharpPrinter
 
     string UnsupportedStatement(ExpressionStatement owner, UnsupportedNode unsupported)
     {
-        _printedRanges?.SetNodeKind(owner, "UnsupportedExpression");
+        _printedRangeMetadata?.SetNodeKind(owner, "UnsupportedExpression");
         return Expression(unsupported);
     }
 
     string DiscardStatement(ExpressionStatement owner, IrExpression expression)
     {
-        _printedRanges?.SetNodeKind(owner, "AssignmentStatement");
+        _printedRangeMetadata?.SetNodeKind(owner, "AssignmentStatement");
         return $"_ = {Expression(expression)};";
     }
 
@@ -5889,8 +6190,10 @@ public sealed partial class CSharpPrinter
     string CommentExpressionText(IrExpression expression)
     {
         var printedRanges = _printedRanges;
+        var printedRangeMetadata = _printedRangeMetadata;
         var expressionText = _expressionText;
         _printedRanges = null;
+        _printedRangeMetadata = null;
         _expressionText = null;
         try
         {
@@ -5899,6 +6202,7 @@ public sealed partial class CSharpPrinter
         finally
         {
             _printedRanges = printedRanges;
+            _printedRangeMetadata = printedRangeMetadata;
             _expressionText = expressionText;
         }
     }
