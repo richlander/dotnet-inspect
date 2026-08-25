@@ -816,15 +816,16 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// A statement node that renders only as a comment — an <c>// endfinally</c>/
-    /// <c>// endfilter</c> EH marker or an unsupported <c>/* … */</c> node — so it
-    /// is not a real C# statement. A label sitting before one stays unsatisfied:
-    /// the trailing empty statement (';') must still follow to keep a labeled
-    /// region legal (a label requires a statement; a bare label before a closing
-    /// brace is <c>CS1525</c>).
+    /// <c>// endfilter</c> EH marker, residual <c>cpblk</c>, or an unsupported
+    /// <c>/* … */</c> node — so it is not a real C# statement. A label sitting
+    /// before one stays unsatisfied: the trailing empty statement (';') must
+    /// still follow to keep a labeled region legal (a label requires a statement;
+    /// a bare label before a closing brace is <c>CS1525</c>).
     /// </summary>
     static bool RendersAsCommentOnly(IrNode node) => node switch
     {
         EndFinally or EndFilter => true,
+        CopyBlock => true,
         UnsupportedNode => true,
         ExpressionStatement { Expression: UnsupportedNode } => true,
         _ => false,
@@ -2683,10 +2684,22 @@ public sealed partial class CSharpPrinter
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
-                AppendSemanticSeparator(
-                    sb,
-                    statements[i],
-                    spacingState);
+                int firstVisible = -1;
+                for (int k = i; k < j; k++)
+                {
+                    if (IsVisibleStatement(statements[k]))
+                    {
+                        firstVisible = k;
+                        break;
+                    }
+                }
+                if (firstVisible >= 0)
+                {
+                    AppendSemanticSeparator(
+                        sb,
+                        statements[firstVisible],
+                        spacingState);
+                }
                 sb.Append(pad).AppendLf("unsafe");
                 sb.Append(pad).AppendLf("{");
                 _unsafeDepth++;
@@ -2695,7 +2708,7 @@ public sealed partial class CSharpPrinter
                     if (statements[k] is StoreLocal unsafeInlineStore && _inlineReceiverTempStores.ContainsValue(unsafeInlineStore))
                         continue;
                     bool visible = IsVisibleStatement(statements[k]);
-                    if (k != i && visible)
+                    if (visible && k != firstVisible)
                     {
                         AppendSemanticSeparator(
                             sb,

@@ -101,6 +101,15 @@ sealed class FiveVisibleConstructorFixture
 [Trait("Area", "Printer")]
 public class CSharpPrinterSemanticSpacingTests
 {
+    public enum CommentOnlySiblingKind
+    {
+        UnsupportedExpression,
+        UnsupportedStatement,
+        CopyBlock,
+        EndFinally,
+        EndFilter,
+    }
+
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
@@ -189,9 +198,16 @@ public class CSharpPrinterSemanticSpacingTests
         Assert.Equal(1, output.Split("\n\n", StringSplitOptions.None).Length - 1);
     }
 
-    [Fact]
-    public void FourVisibleStatements_DoNotCountCommentOnlySibling()
+    [Theory]
+    [InlineData(CommentOnlySiblingKind.UnsupportedExpression)]
+    [InlineData(CommentOnlySiblingKind.UnsupportedStatement)]
+    [InlineData(CommentOnlySiblingKind.CopyBlock)]
+    [InlineData(CommentOnlySiblingKind.EndFinally)]
+    [InlineData(CommentOnlySiblingKind.EndFilter)]
+    public void FourVisibleStatements_DoNotCountCommentOnlySibling(
+        CommentOnlySiblingKind kind)
     {
+        var (commentOnly, expectedComment) = CommentOnlySibling(kind);
         var then = new Block();
         then.Add(new ExpressionStatement(new Constant(1, Int32)));
         var entry = new Block(0);
@@ -202,8 +218,7 @@ public class CSharpPrinterSemanticSpacingTests
         entry.Add(new ExpressionStatement(new Constant(2, Int32)));
         entry.Add(new ExpressionStatement(new Constant(3, Int32)));
         entry.Add(new ExpressionStatement(new Constant(4, Int32)));
-        entry.Add(new ExpressionStatement(
-            new UnsupportedNode(0x10, "probe", "comment-only sibling")));
+        entry.Add(commentOnly);
         var body = new BlockContainer();
         body.Add(entry);
         var function = new IrFunction(
@@ -224,10 +239,19 @@ public class CSharpPrinterSemanticSpacingTests
             "}\n" +
             "_ = 2;",
             output);
-        Assert.Contains(
-            "/* Unsupported IL_0010 probe: comment-only sibling */",
-            output);
+        Assert.Contains(expectedComment, output);
         Assert.DoesNotContain("\n\n", output);
+    }
+
+    [Fact]
+    public void CompilerProducedCopyBlock_DoesNotEnableSpacing()
+    {
+        var (output, _) = Print(
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives),
+            nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives.StackallocBooleanInitializer));
+
+        Assert.Contains("    }\n}\nreturn true;", output);
+        Assert.DoesNotContain("    }\n}\n\nreturn true;", output);
     }
 
     [Fact]
@@ -465,6 +489,59 @@ public class CSharpPrinterSemanticSpacingTests
         var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
 
         Assert.Contains("return 7;\n}\n\nunsafe\n{", output);
+    }
+
+    [Fact]
+    public void GeneratedUnsafeRun_UsesFirstVisibleMemberForSeparator()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var copy = new CopyBlock(
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "pointer", pointer),
+                new Constant(1, Int32)),
+            new LoadArgument(1, "pointer", pointer),
+            new Constant(4, Int32));
+        var entry = new Block(0);
+        entry.Add(ReturningIf("flag", 0, 7));
+        entry.Add(copy);
+        entry.Add(UnsafeReturningIf(pointer, 2, parameterIndex: 1));
+        entry.Add(new ExpressionStatement(new Constant(3, Int32)));
+        entry.Add(new ExpressionStatement(new Constant(4, Int32)));
+        entry.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "UnsafeRunCommentLeader",
+            TypeRef.CoreLib("Synthetic", "SemanticSpacing"),
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("flag", Boolean),
+                    new Parameter("pointer", pointer),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+
+        Assert.Contains("return 7;\n}\n\nunsafe\n{", output);
+        Assert.Contains(
+            "    /* unsupported cpblk */\n" +
+            "    if ((*pointer) != 0)",
+            output);
+        Assert.DoesNotContain(
+            "    /* unsupported cpblk */\n\n" +
+            "    if ((*pointer) != 0)",
+            output);
+        Assert.Contains("    }\n}\n\n_ = 3;", output);
     }
 
     [Theory]
@@ -949,6 +1026,32 @@ public class CSharpPrinterSemanticSpacingTests
             then,
             elseArm: null);
     }
+
+    static (IrNode Node, string ExpectedComment) CommentOnlySibling(
+        CommentOnlySiblingKind kind)
+        => kind switch
+        {
+            CommentOnlySiblingKind.UnsupportedExpression => (
+                new UnsupportedNode(0x10, "probe", "comment-only sibling"),
+                "/* Unsupported IL_0010 probe: comment-only sibling */"),
+            CommentOnlySiblingKind.UnsupportedStatement => (
+                new ExpressionStatement(
+                    new UnsupportedNode(0x10, "probe", "comment-only sibling")),
+                "/* Unsupported IL_0010 probe: comment-only sibling */"),
+            CommentOnlySiblingKind.CopyBlock => (
+                new CopyBlock(
+                    new Constant(0, Int32),
+                    new Constant(0, Int32),
+                    new Constant(4, Int32)),
+                "/* unsupported cpblk */"),
+            CommentOnlySiblingKind.EndFinally => (
+                new EndFinally(),
+                "// endfinally"),
+            CommentOnlySiblingKind.EndFilter => (
+                new EndFilter(new Constant(0, Int32)),
+                "// endfilter(0)"),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
 
     static IfStatement UnsafeReturningIf(
         TypeRef pointer,

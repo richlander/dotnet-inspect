@@ -505,7 +505,9 @@ for separated sibling conditionals. Compact setup is represented by
 
 `FourVisibleConstructor_DoesNotCountSuppressedBaseCall` and
 `FourVisibleStatements_DoNotCountCommentOnlySibling` ensure suppressed
-constructor chains and comment-only diagnostics do not enter the visible count.
+constructor chains and every comment-only statement form do not enter the
+visible count. `CompilerProducedCopyBlock_DoesNotEnableSpacing` pins the same
+boundary on a real residual-`cpblk` fixture.
 `FiveVisibleConstructor_SeparatesNonTerminatingLeadingConditional` enforces the
 exact threshold and leading-conditional boundary.
 `LongMethod_SeparatesCompletedConditionalGroupsButKeepsSetupCompact` and
@@ -528,7 +530,10 @@ context restored around structural emission.
 function-like return context and retained syntax-kind metadata.
 `GeneratedUnsafeRun_CarriesSpacingStateBetweenOriginalStatements` and
 `GeneratedUnsafeRun_PlacesLeadingSeparatorBeforeBlock` cover generated-block
-state and separator placement. The coordinate-preservation gates are
+state and separator placement, while
+`GeneratedUnsafeRun_UsesFirstVisibleMemberForSeparator` ensures an invisible
+run leader neither consumes nor duplicates that boundary. The
+coordinate-preservation gates are
 `InsertedBlankLines_StayOutsideStatementRangesAndPortableCoordinatesRemainExact`
 and `InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans`.
 
