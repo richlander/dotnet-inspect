@@ -83,9 +83,8 @@ content-shaped registry
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
 `Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
-`Top Leverage`, the Performance section family, and `Library Info` sections
-bind to concrete query definitions
-rather than relying solely on string scanner keys, and the CLI and package
+`Top Leverage`, `Body Shapes`, the Performance section family, and `Library
+Info` sections bind to concrete query definitions, and the CLI and package
 convenience route lower section selection into that same registry.
 Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
@@ -139,15 +138,16 @@ but cannot derive and probe an ambient sidecar path; this is gated by
 The query's in-memory host path and typed failure behavior are gated by
 `AssemblyContextSourceQueryTests`.
 
-This is an incremental boundary, not the completed split. The remaining Body
-Shapes library scanner still uses the transitional string-keyed `ScannerRegistry`,
-`LibraryMetadataService` still projects query results into the mutable
-`LibraryInspection` compatibility aggregate, and transitive reference resolution
-remains host-owned. The SourceLink document query delegates PDB acquisition to
-shared Services while the host supplies trusted symbol and SSRF-hardened source
-clients. The registry supports deterministic synchronous and asynchronous
-execution and passes each query's maximum transitive cost into the host
-execution scope.
+Library section production no longer has a string-keyed scanner axis. Body
+Shapes binds `BodyShapesQuery`, retains the typed `BodyShapeSearchResult`, and
+uses an optional typed dependency when Performance predicates narrow its
+MethodDef scope. `LibraryMetadataService` still projects query results into the
+mutable `LibraryInspection` compatibility aggregate, and transitive reference
+resolution remains host-owned. The SourceLink document query delegates PDB
+acquisition to shared Services while the host supplies trusted symbol and
+SSRF-hardened source clients. The registry supports deterministic synchronous
+and asynchronous execution and passes each query's maximum transitive cost
+into the host execution scope.
 
 `DotnetInspector.Artifacts` now provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
@@ -414,7 +414,7 @@ canaries:
 - The query registry exposes each executor's maximum transitive
   `InspectionCost` to a host execution scope. The CLI adapter maps it to
   `SectionCost` and enforces body-index and drill-map acquisition through
-  `ScannerContext`; the
+  `InspectionQueryContext`; the
   `TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost` and
   `TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost` gates enforce this
   boundary.
@@ -427,14 +427,13 @@ canaries:
 These are canaries, not the completed split. The remaining boundaries are
 intentional and visible:
 
-- Other library facets still use `ScannerRegistry`, string keys, and shared
-  `LibraryInspection` mutation. Diff Analysis, Implementation, and Finding
-  Transition production still runs directly from the command while their
-  presentation-shaped residual result contracts are separated from reusable
-  query results.
-- L2 currently registers assembly queries through a `ScannerContext` adapter so
-  typed queries and legacy scanners can borrow one metadata session. SourceLink
-  queries instead receive their narrower host-neutral context.
+- Library query results still project into shared `LibraryInspection` mutation.
+  Diff Analysis, Implementation, and Finding Transition production still runs
+  directly from the command while their presentation-shaped residual result
+  contracts are separated from reusable query results.
+- L2 currently registers assembly queries through an `InspectionQueryContext`
+  adapter so typed queries can borrow one metadata session. SourceLink queries
+  instead receive their narrower host-neutral context.
 - The CLI retains the typed metadata result on `LibraryInspection` because the
   existing renderer still consumes that aggregate. Its `Failed` case feeds the
   existing inspection-failure surface rather than collapsing into empty output.
@@ -453,25 +452,19 @@ are essentially free of it. The boundary is largely drawn; the metadata canary
 establishes the L1 project and structural pattern, but the remaining facets and
 the L2 project split still need migration.
 
-The structural fix is completing L1. Outside the metadata, direct-reference,
-extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, classified-method, audit-metadata, switch, SourceLink, and type/member inventory
-canaries, collection is still neither typed nor demand-driven:
+The structural fix is continuing L1 beyond the completed library section-query
+migration. Collection outside the typed query-bound library facets is still not
+uniformly content-shaped or demand-driven:
 
-- Data collection **mutates a shared aggregate** rather than returning typed
-  results for most scanner families, so a consumer cannot yet take those
-  queries without materializing `LibraryInspection`.
-- The binding to residual collection is a **nullable string key** for the
-  remaining scanner-backed sections. Metadata, `References`, `Library Info`,
-  `Extension Methods`, `Custom Attributes`, `Resources`, `Type Forwarders`,
-  `Union Types`, `Switches`, `P/Invoke Methods`, `Async Methods`, `Signals`,
-  `Unsafe Members`, `Top Leverage`, the Performance section family, SourceLink,
-  and the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections
-  use checked
-  query-definition bindings.
+- Baseline command collection still **mutates a shared aggregate** for assembly
+  identity, presence flags, symbols, and other facts that are not yet reusable
+  query results. Consumers of those facts must still materialize
+  `LibraryInspection`.
+- Library and diff section production use checked query-definition bindings;
+  sections that consume baseline command facts intentionally declare no query.
 - The collection context is **path-shaped**, so a consumer without a filesystem
-  cannot call the residual `LibraryMetadataService` orchestration. The
-  implemented queries themselves take a borrowed content owner, not a path.
+  cannot call the residual `LibraryMetadataService` orchestration. Implemented
+  queries themselves take a borrowed content owner, not a path.
 - Core assembly queries and workspace composition still reference package
   implementations directly. The target split keeps storage, artifact
   acquisition, packages, and assemblies as separate concepts; optional source adapters

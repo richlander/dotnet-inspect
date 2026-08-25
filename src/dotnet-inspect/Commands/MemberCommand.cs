@@ -206,7 +206,9 @@ public static class MemberCommand
                     ProjectAssetsPath = projectAssetsPath,
                 };
             }
-            else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
+            else if (!options.MemberSectionsPreResolved
+                && options.MemberFilter.Count == 0
+                && options.Select is { Length: > 0 })
             {
                 var actualPipeline = ApiMemberSectionPipelines.Create(options);
                 var actualSelect = SelectResolver.ResolveSelectAsSections(
@@ -802,8 +804,9 @@ public static class MemberCommand
         if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
-        if ((options.SelectDefault && options.Select is null)
-            || IsPureSelector(options.Select, SelectResolver.AllSelector))
+        if (!options.MemberSectionsPreResolved
+            && ((options.SelectDefault && options.Select is null)
+                || IsPureSelector(options.Select, SelectResolver.AllSelector)))
             return false;
 
         sections = SingleOverloadSectionNames
