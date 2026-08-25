@@ -15,6 +15,7 @@ import {
   type QueryCompletion,
   type QueryFacetTerm,
   type QueryResultRow,
+  type TerminalQueryCompletion,
 } from "../src/package-query.ts";
 
 const TFM_FACET: QueryFacetTerm = {
@@ -65,7 +66,7 @@ test("withCompletion sets the honesty label without touching rows", () => {
 
 function stubSource(
   pages: (readonly QueryResultRow[])[],
-  completion: QueryCompletion,
+  completion: TerminalQueryCompletion,
   failures: string[] = [],
 ): PackageQueryDataSource {
   return {
@@ -168,6 +169,36 @@ test("a superseded run's late pages never land in the newer outcome", async () =
 
   assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["fresh"]);
   assert.equal(state.outcome.completion.kind, "exhausted");
+});
+
+test("a superseded run's late rejection never overwrites the newer outcome", async () => {
+  const state = initialQueryState();
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+
+  const slowRejectThenFast: PackageQueryDataSource = {
+    async run(request, onPage) {
+      if (request.scopeQuery === "slow") {
+        await firstGate;
+        throw new Error("stale feed error");
+      }
+      onPage([row("fresh")]);
+      return { kind: "exhausted" };
+    },
+  };
+
+  const controller = createPackageQueryController(state, slowRejectThenFast, () => {});
+
+  const firstRun = controller.run(createQueryRequest("slow", "slow"));
+  await controller.run(createQueryRequest("fast", "fast"));
+  releaseFirst();
+  await firstRun;
+
+  // The first run's rejection resolves after the second run has already
+  // completed; it must not clobber the newer, successful outcome.
+  assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["fresh"]);
+  assert.equal(state.outcome.completion.kind, "exhausted");
+  assert.deepEqual(state.outcome.failures, []);
 });
 
 test("toggleSelection and clearSelection manage the selected set", () => {

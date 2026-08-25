@@ -67,6 +67,15 @@ export interface QueryResultRow {
 
 export type QueryCompletion =
   | { kind: "streaming" }
+  | TerminalQueryCompletion;
+
+/** The subset of `QueryCompletion` that represents a source having actually
+ * stopped (as opposed to still running). A `PackageQueryDataSource.run()`
+ * call settles when the source has stopped producing pages, so it can never
+ * legitimately resolve with `"streaming"` — that kind only ever describes an
+ * in-flight query as observed by the controller, never a source's own
+ * verdict on its own completion. */
+export type TerminalQueryCompletion =
   | { kind: "bounded"; reason: string }
   | { kind: "exhausted" }
   | { kind: "cancelled" }
@@ -119,7 +128,7 @@ export interface PackageQueryDataSource {
      * so the source can stop in-flight network/manifest work instead of
      * running it to completion unobserved. */
     abortSignal: AbortSignal,
-  ): Promise<QueryCompletion>;
+  ): Promise<TerminalQueryCompletion>;
 }
 
 export interface PackageQueryState {
@@ -160,7 +169,7 @@ export function createPackageQueryController(
       state.selected = new Set();
       onUpdate();
 
-      let completion: QueryCompletion;
+      let completion: TerminalQueryCompletion;
       try {
         completion = await source.run(
           request,

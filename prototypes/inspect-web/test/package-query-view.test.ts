@@ -180,6 +180,40 @@ test("zero rows plus a failure never renders as a confirmed empty result", () =>
   assert.match(html, /not a confirmed empty result/);
 });
 
+test("a failed outcome with rows still shows them, with an escaped reason in the footer", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(
+      appendRows(emptyOutcome(), [row("A")]),
+      { kind: "failed", reason: "<script>steal()</script>" },
+    ),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.match(html, /class="opp-type-name">A</);
+  assert.ok(!html.includes("<script>steal()"), "raw failure reason must not appear unescaped");
+  assert.match(html, /failed: &lt;script&gt;steal\(\)&lt;\/script&gt;/);
+  // A failed run never streamed to completion, so it must not offer Cancel.
+  assert.doesNotMatch(html, /data-query-cancel="1"/);
+});
+
+test("a failed outcome with zero rows renders the failed empty state with an escaped reason", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft.*", "Microsoft."),
+    outcome: withCompletion(emptyOutcome(), { kind: "failed", reason: "<script>steal()</script>" }),
+    selected: new Set(),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.match(html, /<h2>Query failed<\/h2>/);
+  assert.ok(!html.includes("<script>steal()"), "raw failure reason must not appear unescaped");
+  assert.match(html, /&lt;script&gt;steal\(\)&lt;\/script&gt; — not a confirmed empty result/);
+  assert.doesNotMatch(html, /<h2>No matches<\/h2>/);
+});
+
 test("a cancelled query with zero rows never renders as a confirmed empty result", () => {
   const state: PackageQueryState = {
     request: createQueryRequest("Microsoft.*", "Microsoft."),
