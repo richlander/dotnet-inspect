@@ -919,13 +919,11 @@ public sealed class EventSummaryRow(
 }
 
 [MarkoutSerializable]
-public sealed class MethodAttributeRow(
-    InertString nameText,
-    InertString valueText)
+public record MethodAttributeRow(
+    [property: MarkoutIgnore] InertString NameText,
+    [property: MarkoutIgnore] InertString ValueText)
 {
-    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
     public string Name => NameText.ToString();
-    [MarkoutIgnore, JsonIgnore] public InertString ValueText { get; } = valueText;
     public string Value => ValueText.ToString();
 }
 

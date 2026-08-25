@@ -696,6 +696,46 @@ public class UntrustedStringLiteralContainmentTests
 public class AttributeValueRetentionTests
 {
     [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task SelectedMember_CustomAttributes_ContainsCompilerProducedAttributeValue(string format)
+    {
+        const string Marker = "INJECTEDOBSOLETEBIDI";
+        List<string> args =
+        [
+            "member", "HostileLiterals", "DeprecatedBidiOnly:1",
+            "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
+            "-S", "Custom Attributes", format,
+        ];
+        if (format == "--markdown")
+            args.Add("-v:d");
+
+        var (exit, output, _) = await HostileCli.RunAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        HostileOutputAssert.MarkersRendered(output, string.Join(' ', args), Marker);
+        HostileOutputAssert.NoRenderingHazard(output, string.Join(' ', args));
+        HostileOutputAssert.NoLineSplit(output, Marker);
+
+        if (format == "--markdown")
+        {
+            Assert.Contains("| Name | Value |", output, StringComparison.Ordinal);
+        }
+        else if (format == "--tsv")
+        {
+            Assert.StartsWith($"name\tvalue{Environment.NewLine}", output, StringComparison.Ordinal);
+        }
+        else
+        {
+            using JsonDocument row = JsonDocument.Parse(output);
+            Assert.Equal(
+                ["name", "value"],
+                row.RootElement.EnumerateObject().Select(property => property.Name));
+        }
+    }
+
+    [Theory]
     [InlineData("INJECTEDOBSOLETEBIDI")]
     [InlineData("INJECTEDOBSOLETELSONLY")]
     public async Task ObsoleteMessage_WithHazardButNoControlCharacter_IsRenderedContainedNotDropped(string marker)
