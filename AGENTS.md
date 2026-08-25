@@ -227,6 +227,10 @@ choosing one.
 Keep user-facing product skills and repository-maintainer skills separate:
 
 - `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
+  Use these skills when consuming the published tool or when a product change
+  needs its user-facing commands, examples, and expectations reviewed. Do not
+  select them merely because an agent is maintaining this repository; they are
+  product artifacts, not contributor runbooks.
   When adding a focused product skill, register it in `SkillCommand.Skills` and
   add an `EmbeddedResource` line for it in
   `src/dotnet-inspect/dotnet-inspect.csproj`; the embeds are enumerated per
@@ -235,9 +239,35 @@ Keep user-facing product skills and repository-maintainer skills separate:
   frontmatter `description:` is the single source of truth for the generated
   skill listing.
 - `.github/skills/` and `.claude/skills/` contain repo-local guidance for
-  contributors and agents. Do not register or embed them in the product. Keep
-  release, CI, corpus maintenance, and other repository operations out of the
+  contributors and agents. Use the matching repo-local skill for release, CI,
+  corpus maintenance, and other repository operations. Do not register or
+  embed these skills in the product, and keep repository operations out of the
   user-facing `skills/` tree.
+
+### Which dotnet-inspect to run
+
+For routine repository development and investigation, use the latest production
+dotnet-inspect:
+
+```bash
+dnx dotnet-inspect -y -- <command>
+```
+
+The production tool is normally current and its Native AOT executable starts
+much faster than `dotnet run`. Prefer it for inspecting packages, platform
+libraries, local artifacts, and existing product behavior while developing.
+
+Use the source version primarily to test behavior from the current worktree:
+
+```bash
+dotnet run --project src/dotnet-inspect -c Release -- <command>
+```
+
+The source command is required when the evidence depends on an unmerged change,
+when reproducing or validating a source-only fix, or when checking output that
+the production release does not yet contain. Do not cite the production tool as
+evidence for worktree behavior, and do not pay the source-build startup cost for
+routine development queries that the production tool can answer.
 
 ## Repository-wide engineering constraints
 
