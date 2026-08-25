@@ -14,7 +14,8 @@ planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
 `ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
 [Implementation Diff](implementation-diff.md) owns the structured comparison
-that consumes endpoint manifests and opaque participant pairings.
+operation that budget-authorizes acquisition-owned participant pairing and
+then consumes its endpoint manifests and opaque pairings.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -588,8 +589,22 @@ payload, `Inputs` set, and `InputMap` uses only the qualified key. Sealing also
 requires the planned key's endpoint side to match the pairing binding's
 `Before`/`After` arm; a qualified key cannot legitimize a wrong-arm request.
 
-The comparison coordinator accepts only a sealed pairing plan and endpoint
-outcome set and emits one sealed
+For Implementation Diff, the comparison coordinator also requires the
+non-optional `IBodyEvidencePlanBudgetLease` issued by the active query
+operation. The coordinator remains the pairing-rule owner; the lease grants
+only checked reservation and charging against that query's aggregate budget.
+The narrow lease contract is declared with the coordinator in core Queries;
+the ResearchQueries operation supplies its concrete ledger. Acquisition takes
+no Research plan/result type and gains no mechanism or presentation authority.
+Before qualifying one input or allocating an outcome partition, the
+coordinator computes the exact checked sum of manifest entries from every
+realized request arm and reserves that complete qualified-input population.
+An overflow or rejected reservation returns one typed planning-budget failure
+without constructing qualified keys, candidate/affected payloads, `InputMap`,
+participant outcomes, or a partial slot-outcome set.
+
+The comparison coordinator accepts only that lease, a sealed pairing plan, and
+endpoint outcome set and emits one sealed
 `ComparisonEndpointPairingSlotOutcomeSet`. A slot whose two sides are explicit
 `Absent(proof)` becomes `EndpointAbsent` and retains both proofs. For a slot
 whose requested sides realize, the coordinator forms the exact union of the
@@ -662,9 +677,12 @@ shortening one.
 The owner that understands an endpoint coordinate also owns the logical
 participant slots it realizes **across versions**. The workspace role owner
 separately and exclusively owns same-side selection-to-body correspondence.
-`ImplementationComparisonQuery` receives the complete sealed slot-outcome set
-and lowers it without reconstructing either provenance or roles. Healthy
-producer and Research paths receive only admitted opaque
+`ImplementationComparisonQuery` begins the budget-owning operation, seals its
+questions, asks endpoint owners to realize the plan, and passes its scoped
+lease to the acquisition-owned comparison coordinator. It then receives and
+lowers the complete sealed slot-outcome set without reconstructing either
+provenance or roles. Healthy producer and Research paths receive only admitted
+opaque
 `ArtifactParticipantPairing.Id` values plus validated side-local role bindings.
 Terminal outcome payloads remain query/session failure evidence and reach
 presentation only through typed failure ledgers and diagnostics; producers
@@ -1222,6 +1240,8 @@ The target is complete only when tests equivalent to these exist:
 - `ComparisonPlannedPairingOutcomeSet_InputsEqualManifestUnion`
 - `ComparisonParticipantPairingOutcome_PayloadMatchesInputPartition`
 - `ComparisonParticipantPairingBinding_RequiresInputKeySideAgreement`
+- `ComparisonParticipantPairing_RequiresPlanBudgetLease`
+- `ComparisonParticipantPairing_BudgetsManifestUnionBeforeMaterialization`
 - `ComparisonParticipantPairingTerminal_RetainsCompleteTypedPayload`
 - `ComparisonParticipantPairingTerminal_HasNoAdmittedBinding`
 - `ComparisonEndpointFailure_RemainsComparisonInputFailure`
