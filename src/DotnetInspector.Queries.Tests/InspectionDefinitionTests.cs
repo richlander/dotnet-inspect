@@ -158,6 +158,11 @@ public class InspectionDefinitionTests
         Assert.Throws<InspectionDefinitionException>(() =>
             InspectionDefinitionJson.Parse(
                 """
+                { "schemaVersion": 1, "kind": "view", "id": "order", "libraries": ["B", "A"] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
                 { "schemaVersion": 1, "kind": "query", "id": "q", "libraries": null }
                 """));
     }

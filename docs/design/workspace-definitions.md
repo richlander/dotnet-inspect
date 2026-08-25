@@ -262,11 +262,11 @@ Field semantics:
   each field individually optional; member selectors require `type`, and
   `memberAnchor` and `memberSignature` are mutually exclusive). The singular
   `library` string is the compatible representation for exactly one identity;
-  `libraries` is the ordered string array for two or more identities. They are
-  mutually exclusive, and both are omitted for an unscoped view. Library scope
-  is a view concern, because scoping is a lens on a context, not a different
-  context. Selection state uses portable identities: `type` is a metadata type
-  name, and members are
+  `libraries` is the unique, ascending-ordinal string array for two or more
+  identities. They are mutually exclusive, and both are omitted for an
+  unscoped view. Library scope is a view concern, because scoping is a lens on
+  a context, not a different context. Selection state uses portable identities:
+  `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
 - `navigation` records — named ordered tab sets plus one focused tab id. Each
@@ -721,7 +721,14 @@ reachable v1 session has explicit navigation and context state and must
 transpose without inventing a relationship across groups. An authored record
 set may exceed the packet — per-overlay pins, query presets, multiple
 scenarios, or more than the packet's bounded tables — and the transposition
-layer refuses those with a typed outcome rather than silently flattening them.
+layer refuses those as `NonProjectable` rather than silently flattening them.
+Malformed or internally inconsistent record composition is instead
+`InvalidDefinitionSet`. Reverse projection normalizes exact NuGet versions,
+frameworks, and the supported Platform base pin before comparing or emitting
+them; runtime identifiers remain ordinal because they address case-sensitive
+runtime asset paths. When an unqualified and a target-qualified copy of one
+source coexist, an explicitly unqualified packet tuple maps to the unqualified
+record source rather than inheriting the qualified source's target.
 
 - **A format discriminator and strict validation are required.** The
   redesigned packet is the first supported wire contract; today's unversioned
@@ -913,12 +920,17 @@ Implementation must add, at minimum:
   canonical packet semantic identity, including target-bearing group-reference
   focus, canonical emission of inherited context targets, independent
   preservation of `a` navigation focus and `x` binding context, repeated tuple
-  references across contexts, and refusal of non-projectable authored record
-  sets —
+  references across contexts, exact-null target identity beside qualified
+  copies, canonical version/framework/base-pin normalization, and distinct
+  invalid-definition versus non-projectable failures —
   `WorkspaceSharePacketTransposerTests.Transpose_CanonicalPacket_RoundTripsByteForByte`,
   `ToPacket_CanonicalizesInheritedContextTargets`,
   `Transpose_PreservesIndependentFocusAndSelectedContext`,
-  `Transpose_PreservesRepeatedTupleAcrossContexts`, and the neighboring
+  `Transpose_PreservesRepeatedTupleAcrossContexts`,
+  `Transpose_PreservesExplicitNullTargetsBesideQualifiedTargets`,
+  `ToPacket_NormalizesEquivalentVersionsAndFrameworks`,
+  `ToPacket_NormalizesPlatformBasePin`,
+  `ToPacket_ClassifiesPacketCapacityAsNonProjectable`, and the neighboring
   `ToPacket_Rejects*` tests gate those properties;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
@@ -1038,11 +1050,13 @@ Definition records and product demos (this slice):
   isolated packet-local workspace, navigation, view, and scenario record set.
   The reverse projection preserves navigation order, independent focus and
   selected context, repeated tuples, effective context targets, group base
-  pins, selection, section, and multi-library scope. Authored state outside v1
-  returns a typed non-projectable outcome rather than being flattened. The
-  transposer validates forward input and reverse output through
-  `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
-  bind a query, or execute the scenario; and
+  pins, selection, section, and ascending-ordinal multi-library scope. It
+  normalizes equivalent framework and exact-version spellings, preserves
+  explicit null targets beside qualified copies, distinguishes malformed
+  definition sets from valid state outside v1, and returns a typed projection
+  outcome rather than flattening either. The transposer validates forward input
+  and reverse output through `WorkspaceSharePacketCodec`; it does not resolve
+  groups, acquire artifacts, bind a query, or execute the scenario; and
 - `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
   already-acquired package descriptors as coordinated surface and
   implementation groups. It owns role-local binding, identity collision

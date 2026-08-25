@@ -246,6 +246,7 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         {
             IReadOnlyList<string> frozenLibraries = DefinitionCollections.Freeze(libraries);
             var seenLibraries = new HashSet<string>(StringComparer.Ordinal);
+            string? previousLibrary = null;
             foreach (string item in frozenLibraries)
             {
                 _ = DefinitionText.Require(item, nameof(libraries));
@@ -255,6 +256,15 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
                         "libraries must not contain duplicate identities.",
                         nameof(libraries));
                 }
+                if (previousLibrary is not null
+                    && string.CompareOrdinal(previousLibrary, item) >= 0)
+                {
+                    throw new ArgumentException(
+                        "libraries must be in ascending ordinal order.",
+                        nameof(libraries));
+                }
+
+                previousLibrary = item;
             }
 
             Libraries = frozenLibraries;

@@ -553,8 +553,12 @@ public static class WorkspaceSharePacketCodec
                 ex);
         }
 
-        if (value.Length == 0)
-            throw InvalidShape($"Workspace share {owner} must not be empty.");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw InvalidShape(
+                $"Workspace share {owner} must not be empty or whitespace.");
+        }
+
         EnsureWellFormedUnicode(value, owner);
         return value;
     }
@@ -574,7 +578,7 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static bool IsGroupExpression(string value)
+    internal static bool IsGroupExpression(string value)
     {
         if (value.Length < 2 || value[0] != ':' || value.Contains('@', StringComparison.Ordinal))
             return false;

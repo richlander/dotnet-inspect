@@ -120,6 +120,45 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void Transpose_PreservesExplicitNullTargetsBesideQualifiedTargets()
+    {
+        WorkspaceSharePacket[] packets =
+        [
+            CreatePacket(
+                [
+                    Package("A", "1.0.0", "net10.0"),
+                    Package("A", "1.0.0"),
+                ],
+                [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]),
+            CreatePacket(
+                [
+                    Package("A", "1.0.0", runtimeIdentifier: "linux-x64"),
+                    Package("A", "1.0.0"),
+                ],
+                [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]),
+            CreatePacket(
+                [
+                    Group(":Platform", framework: "net10.0"),
+                    Group(":Platform"),
+                ],
+                [new WorkspaceShareContext([0]), new WorkspaceShareContext([1])]),
+        ];
+
+        foreach (WorkspaceSharePacket packet in packets)
+        {
+            string encoded = WorkspaceSharePacketCodec.Encode(packet);
+            WorkspaceSharePacketProjectionResult projection =
+                Project(Transpose(packet));
+
+            Assert.True(projection.Succeeded);
+            Assert.Equal(
+                encoded,
+                WorkspaceSharePacketCodec.Encode(
+                    Assert.IsType<WorkspaceSharePacket>(projection.Packet)));
+        }
+    }
+
+    [Fact]
     public void Transpose_PreservesComposedGroupBasePin()
     {
         WorkspaceSharePacket packet = CreatePacket(
@@ -204,6 +243,60 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void ToPacket_NormalizesEquivalentVersionsAndFrameworks()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [
+                    new WorkspaceContextDefinition(
+                        "c",
+                        "NET10.0",
+                        members:
+                        [
+                            PackageCoordinate("P", "1.0", "net10.0"),
+                        ]),
+                ]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate("P", "1.0.0", "NET10.0")),
+                ],
+                "p"));
+
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            Project(definitions).Packet);
+
+        Assert.Equal("1.0.0", packet.Tabs[0].Version);
+        Assert.Equal("net10.0", packet.Tabs[0].Framework);
+    }
+
+    [Fact]
+    public void ToPacket_NormalizesPlatformBasePin()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [new WorkspaceContextDefinition("c", "NET10.0", subscribe: ":Platform@10.0")]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [new NavigationTabDefinition("g", subscribe: ":Platform@10.0", framework: "net10.0")],
+                "g"));
+
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            Project(definitions).Packet);
+
+        Assert.Equal("10.0.0", packet.Tabs[0].Version);
+        Assert.Equal("net10.0", packet.Tabs[0].Framework);
+    }
+
+    [Fact]
     public void ToPacket_RejectsAmbiguousNavigationTarget()
     {
         WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
@@ -229,7 +322,7 @@ public sealed class WorkspaceSharePacketTransposerTests
 
         Assert.False(projection.Succeeded);
         Assert.Equal(
-            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
             projection.Failure?.Kind);
         Assert.Equal("navigation.tabs[0]", projection.Failure?.Path);
         Assert.Contains("ambiguous", projection.Failure?.Message);
@@ -256,6 +349,9 @@ public sealed class WorkspaceSharePacketTransposerTests
         WorkspaceSharePacketProjectionResult projection =
             Project(definitions);
 
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
         Assert.Equal("navigation.tabs[0]", projection.Failure?.Path);
         Assert.Contains("does not match", projection.Failure?.Message);
     }
@@ -284,6 +380,32 @@ public sealed class WorkspaceSharePacketTransposerTests
             WorkspaceSharePacketProjectionFailureKind.NonProjectable,
             projection.Failure?.Kind);
         Assert.Contains("pin", projection.Failure?.Message);
+    }
+
+    [Theory]
+    [InlineData("Platform")]
+    [InlineData("Newtonsoft.Json")]
+    [InlineData(":Platform+")]
+    public void ToPacket_RejectsInvalidGroupExpressionsWithoutChangingSourceKind(
+        string subscribe)
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [new WorkspaceContextDefinition("c", "net10.0", subscribe: subscribe)]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [new NavigationTabDefinition("g", subscribe: subscribe, framework: "net10.0")],
+                "g"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal("workspace.contexts[0].subscribe", projection.Failure?.Path);
     }
 
     [Fact]
@@ -319,6 +441,9 @@ public sealed class WorkspaceSharePacketTransposerTests
         WorkspaceSharePacketProjectionResult projection =
             Project(definitions);
 
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
         Assert.Equal("view.memberKey", projection.Failure?.Path);
     }
 
@@ -343,8 +468,47 @@ public sealed class WorkspaceSharePacketTransposerTests
 
         WorkspaceSharePacketProjectionResult projection = Project(definitions);
 
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
         Assert.Equal("navigation.tabs[0]", projection.Failure?.Path);
         Assert.Contains("coordinate", projection.Failure?.Message);
+    }
+
+    [Fact]
+    public void ToPacket_ClassifiesInvalidCoordinateTextAsInvalidDefinition()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [
+                    new WorkspaceContextDefinition(
+                        "c",
+                        "net10.0",
+                        members:
+                        [
+                            PackageCoordinate("P", "1.0.0+build", "net10.0"),
+                        ]),
+                ]),
+            new NavigationDefinition(
+                1,
+                "nav",
+                [
+                    new NavigationTabDefinition(
+                        "p",
+                        coordinate: PackageCoordinate("P", "1.0.0", "net10.0")),
+                ],
+                "p"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
+        Assert.Equal(
+            "workspace.contexts[0].members[0].version",
+            projection.Failure?.Path);
     }
 
     [Fact]
@@ -379,7 +543,42 @@ public sealed class WorkspaceSharePacketTransposerTests
 
         WorkspaceSharePacketProjectionResult projection = Project(definitions);
 
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            projection.Failure?.Kind);
         Assert.Equal("navigation.tabs[1].id", projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void ToPacket_ClassifiesPacketCapacityAsNonProjectable()
+    {
+        DefinitionMemberCoordinate[] members = Enumerable.Range(0, 13)
+            .Select(index => (DefinitionMemberCoordinate)PackageCoordinate(
+                $"P{index}",
+                "1.0.0",
+                "net10.0"))
+            .ToArray();
+        NavigationTabDefinition[] tabs = Enumerable.Range(0, 13)
+            .Select(index => new NavigationTabDefinition(
+                $"t{index}",
+                coordinate: PackageCoordinate(
+                    $"P{index}",
+                    "1.0.0",
+                    "net10.0")))
+            .ToArray();
+        WorkspaceSharePacketDefinitionSet definitions = CreateDefinitions(
+            new WorkspaceDefinition(
+                1,
+                "ws",
+                [new WorkspaceContextDefinition("c", "net10.0", members: members)]),
+            new NavigationDefinition(1, "nav", tabs, "t0"));
+
+        WorkspaceSharePacketProjectionResult projection = Project(definitions);
+
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("workspace.contexts", projection.Failure?.Path);
     }
 
     [Fact]
