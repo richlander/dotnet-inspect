@@ -40,7 +40,11 @@ export function packageIdentityKey(pkg: PackageIdentity | null | undefined): str
 export interface AssemblyDescriptor {
   id?: string;
   name?: string;
+  version?: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
   publicMembers?: number;
+  platformPack?: string | null;
 }
 
 export interface AssemblyDescribedType {
@@ -62,6 +66,136 @@ export function assemblyDescriptorForType(
     assembly.name === name
     || assembly.name === bare
     || assembly.name === `${bare}.dll`) ?? null;
+}
+
+export function accessibilityFilterIncludingType(
+  filter: ReadonlySet<string> | null | undefined,
+  type: { accessibilityId?: string } | null | undefined,
+): Set<string> {
+  const next = new Set(filter ?? []);
+  if (type?.accessibilityId) next.add(type.accessibilityId);
+  return next;
+}
+
+export function mergeInspectionErrors(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): string {
+  const messages = [current, next]
+    .map(value => (value ?? "").trim())
+    .filter(Boolean);
+  return [...new Set(messages)].join("; ");
+}
+
+export type PlatformPack = "netcore.app" | "aspnetcore.app";
+
+export function platformPackToken(value: unknown): PlatformPack | null {
+  return value === "netcore.app" || value === "aspnetcore.app"
+    ? value
+    : null;
+}
+
+export interface PlatformPackAssembly {
+  name?: string;
+  platformPack?: string | null;
+}
+
+export interface PlatformPackHint {
+  assembly?: string;
+  pack?: string | null;
+}
+
+export function runtimePackForFramework<
+  TPack extends { activeFramework?: string },
+>(
+  pack: TPack | null | undefined,
+  framework: string,
+): TPack | null {
+  if (!pack || !framework) return pack ?? null;
+  return (pack.activeFramework || "").toLowerCase()
+      === framework.toLowerCase()
+    ? pack
+    : null;
+}
+
+export function platformPackFromProvenance(
+  assembly: string,
+  exactPack: unknown,
+  loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
+  recent: readonly PlatformPackHint[] | null | undefined,
+  roster: readonly PlatformPackHint[] | null | undefined,
+): PlatformPack | null {
+  const exact = platformPackToken(exactPack);
+  if (exact) return exact;
+  const normalized = assembly.replace(/\.dll$/i, "");
+  const normalizedLower = normalized.toLowerCase();
+
+  const selectPack = (
+    candidates: readonly {
+      assembly?: string | undefined;
+      pack?: string | null | undefined;
+    }[],
+  ): PlatformPack | null => {
+    const packs = new Set<PlatformPack>();
+    for (const candidate of candidates) {
+      if ((candidate.assembly ?? "").replace(/\.dll$/i, "").toLowerCase() === normalizedLower) {
+        const pack = platformPackToken(candidate.pack);
+        if (pack) packs.add(pack);
+      }
+    }
+    if (packs.size > 1) {
+      throw new Error(
+        `Platform assembly '${normalized}' is available from multiple platform packs; select an exact pack.`);
+    }
+    return packs.values().next().value ?? null;
+  };
+
+  const loaded = selectPack((loadedAssemblies || []).map(candidate => ({
+    assembly: candidate.name,
+    pack: candidate.platformPack,
+  })));
+  if (loaded) return loaded;
+  const indexed = selectPack(roster || []);
+  if (indexed) return indexed;
+  const remembered = selectPack(recent || []);
+  if (remembered) return remembered;
+  return "netcore.app";
+}
+
+export function platformPackFromAcquiredProvenance(
+  assembly: string,
+  exactPack: unknown,
+  loadedAssemblies: readonly PlatformPackAssembly[] | null | undefined,
+): PlatformPack | null {
+  const exact = platformPackToken(exactPack);
+  if (exact) return exact;
+  const normalized = assembly.replace(/\.dll$/i, "").toLowerCase();
+  const acquired = (loadedAssemblies || []).filter(candidate =>
+    (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase() === normalized
+    && platformPackToken(candidate.platformPack));
+  if (acquired.length === 0) return null;
+  return platformPackFromProvenance(
+    assembly,
+    null,
+    acquired,
+    [],
+    []);
+}
+
+export function platformPackForGraphAssembly(
+  assembly: string,
+  exactPack: unknown,
+  runtimePack: {
+    activeFramework?: string;
+    assemblies?: readonly PlatformPackAssembly[];
+  } | null | undefined,
+  framework: string,
+): PlatformPack | null {
+  const resident = runtimePackForFramework(runtimePack, framework);
+  return platformPackFromAcquiredProvenance(
+    assembly,
+    exactPack,
+    resident?.assemblies);
 }
 
 export interface DependencyCoordinateCandidate extends PackageIdentity {
@@ -459,19 +593,14 @@ export function removeAppendedNotice(current: string, previous: string, appended
   return [previous, laterNotice].filter(Boolean).join(" ");
 }
 
-interface NavigationEntry {
+interface NavigationEntry<TView> {
   sig: string;
-  view: unknown;
+  view: TView;
 }
 
-export interface NavigationState {
+export interface NavigationState<TView = unknown> {
   index: number;
-  stack: NavigationEntry[];
-}
-
-export function replaceCurrentNavigationEntry(nav: NavigationState, sig: string, view: unknown): void {
-  if (nav.index < 0 || nav.index >= nav.stack.length) return;
-  nav.stack[nav.index] = { sig, view };
+  stack: NavigationEntry<TView>[];
 }
 
 export interface CallGraphTarget {
@@ -481,6 +610,9 @@ export interface CallGraphTarget {
   assemblyVersion?: string | null;
   assemblyCulture?: string | null;
   assemblyPublicKeyToken?: string | null;
+  memberName?: string | null;
+  selectorKey?: string | null;
+  metadataToken?: number | null;
   kind?: string | null;
 }
 
@@ -507,6 +639,216 @@ export function callGraphTargetMatchesType(
   return false;
 }
 
+export type GraphMemberShareTarget = readonly [
+  assembly: string,
+  assemblyVersion: string | null,
+  assemblyCulture: string | null,
+  assemblyPublicKeyToken: string | null,
+  typeDefinitionId: string,
+  typeMetadataId: string,
+  memberName: string,
+  selectorKey: string,
+  metadataToken: number | null,
+];
+
+export interface GraphMemberShareIdentity extends CallGraphTarget {
+  assembly: string;
+  typeDefinitionId: string;
+  memberName: string;
+  selectorKey: string;
+  metadataToken: number | null;
+}
+
+function isMethodDefinitionToken(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isInteger(value)
+    && value >= 0x06000001
+    && value <= 0x06ffffff;
+}
+
+export function graphMemberShareTarget(
+  target: CallGraphTarget | null | undefined,
+): GraphMemberShareTarget | null {
+  const hasAssemblyVersion = Object.prototype.hasOwnProperty.call(
+    target ?? {},
+    "assemblyVersion");
+  if (!target?.assembly
+    || !hasAssemblyVersion
+    || !target.typeDefinitionId
+    || !target.memberName
+    || !target.selectorKey
+    || (target.metadataToken != null
+      && !isMethodDefinitionToken(target.metadataToken))) {
+    return null;
+  }
+  return [
+    target.assembly,
+    target.assemblyVersion ?? null,
+    target.assemblyCulture ?? null,
+    target.assemblyPublicKeyToken ?? null,
+    target.typeDefinitionId,
+    target.typeMetadataId ?? "",
+    target.memberName,
+    target.selectorKey,
+    target.metadataToken ?? null
+  ];
+}
+
+export function replaceCurrentNavigationEntry<TView>(
+  navigation: NavigationState<TView>,
+  entry: NavigationEntry<TView>,
+): void {
+  if (navigation.index === -1 && navigation.stack.length === 0) {
+    navigation.stack.push(entry);
+    navigation.index = 0;
+    return;
+  }
+  if (!Number.isInteger(navigation.index)
+    || navigation.index < 0
+    || navigation.index >= navigation.stack.length) {
+    throw new Error("The current navigation entry is unavailable.");
+  }
+  navigation.stack[navigation.index] = entry;
+}
+
+export function reconcileCurrentNavigationEntry<TView>(
+  navigation: NavigationState<TView>,
+  entry: NavigationEntry<TView>,
+): void {
+  if (navigation.index < 0
+    || navigation.stack[navigation.index]?.sig === entry.sig) {
+    return;
+  }
+  replaceCurrentNavigationEntry(navigation, entry);
+}
+
+export function graphMemberTargetFromShare(
+  value: unknown,
+): GraphMemberShareIdentity | null {
+  if (!Array.isArray(value) || value.length !== 9) {
+    return null;
+  }
+  const fields: unknown[] = value;
+  const [
+    assembly,
+    assemblyVersion,
+    assemblyCulture,
+    assemblyPublicKeyToken,
+    typeDefinitionId,
+    typeMetadataId,
+    memberName,
+    selectorKey,
+    metadataToken,
+  ] = fields;
+  if (typeof assembly !== "string"
+    || (assemblyVersion != null
+      && (typeof assemblyVersion !== "string" || assemblyVersion.length === 0))
+    || (assemblyCulture != null && typeof assemblyCulture !== "string")
+    || (assemblyPublicKeyToken != null
+      && typeof assemblyPublicKeyToken !== "string")
+    || typeof typeDefinitionId !== "string"
+    || typeof typeMetadataId !== "string"
+    || typeof memberName !== "string"
+    || typeof selectorKey !== "string"
+    || assembly.length === 0
+    || typeDefinitionId.length === 0
+    || memberName.length === 0
+    || selectorKey.length === 0
+    || (metadataToken != null && !isMethodDefinitionToken(metadataToken))) {
+    return null;
+  }
+  return {
+    assembly,
+    assemblyVersion: assemblyVersion ?? null,
+    assemblyCulture: assemblyCulture ?? null,
+    assemblyPublicKeyToken: assemblyPublicKeyToken ?? null,
+    typeDefinitionId,
+    typeMetadataId: typeMetadataId || null,
+    memberName,
+    selectorKey,
+    metadataToken: metadataToken ?? null
+  };
+}
+
+export interface GraphMemberPacketResult {
+  target: GraphMemberShareIdentity | null;
+  error?: string;
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object";
+}
+
+export function graphMemberTargetFromPacket(
+  packet: unknown,
+): GraphMemberPacketResult {
+  if (!isUnknownRecord(packet)
+    || !Object.prototype.hasOwnProperty.call(packet, "g")) {
+    return { target: null };
+  }
+  const target = graphMemberTargetFromShare(packet.g);
+  const type = packet.y;
+  const member = packet.m;
+  const overload = packet.o;
+  if (!target
+    || typeof type !== "string"
+    || type.length === 0
+    || typeof member !== "string"
+    || member.length === 0
+    || typeof overload !== "number"
+    || !Number.isInteger(overload)
+    || overload < 0) {
+    return {
+      target: null,
+      error: "The shared graph member target is invalid and was ignored."
+    };
+  }
+  return { target };
+}
+
+export type GraphMemberDeepLinkDisposition =
+  "local" | "graph" | "mismatch" | "public" | "none";
+
+export interface LocalGraphMemberSelection {
+  group: { key: string };
+  overloadIndex: number;
+}
+
+export function graphMemberDeepLinkDisposition<TType>(
+  deep: {
+    member?: string | null;
+    overload?: string | null;
+    graphTarget?: GraphMemberShareIdentity | null;
+  } | null | undefined,
+  candidate: { status: string; type?: TType } | null,
+  selectedType: TType,
+  publicGroup: unknown,
+  localSelection: LocalGraphMemberSelection | null = null,
+): GraphMemberDeepLinkDisposition {
+  if (deep?.member && deep.graphTarget) {
+    if (candidate?.status !== "unique" || candidate.type !== selectedType)
+      return "mismatch";
+    if (!localSelection) return "graph";
+    return localSelection.group.key === deep.member ? "local" : "mismatch";
+  }
+  return publicGroup ? "public" : "none";
+}
+
+export interface PendingGraphMemberView {
+  packageKey: string;
+  viewSignature: string;
+}
+
+export function graphMemberPendingMatchesView(
+  pending: PendingGraphMemberView | null | undefined,
+  packageKey: string,
+  viewSignature: string,
+): boolean {
+  return !!pending
+    && pending.packageKey === packageKey
+    && pending.viewSignature === viewSignature;
+}
+
 export interface QueryIdentifiedType {
   id?: string;
   queryId?: string;
@@ -524,8 +866,8 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
 export interface CallGraphAssembly {
   name?: string;
   version?: string;
-  culture?: string;
-  publicKeyToken?: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
 }
 
 export function callGraphAssemblyIdentityMatches(
@@ -563,10 +905,85 @@ export interface ResolvableGraphPackage<TType extends ResolvableGraphType = Reso
   assemblies?: readonly AssemblyDescriptor[];
 }
 
+export interface OpportunitySourceIdentity {
+  sourceDefinitionId?: string | null;
+  sourceAssembly?: string | null;
+  sourceAssemblyVersion?: string | null;
+  sourceAssemblyCulture?: string | null;
+  sourceAssemblyPublicKeyToken?: string | null;
+}
+
 export type GraphTargetCandidate<TPackage, TType> =
   | { status: "missing" }
   | { status: "ambiguous" }
+  | { status: "skew" }
+  | { status: "resident" }
   | { status: "unique"; pkg: TPackage; type: TType };
+
+function resolveGraphTargetCandidate<
+  TPackage extends ResolvableGraphPackage<TType>,
+  TType extends ResolvableGraphType,
+>(
+  packages: readonly TPackage[],
+  target: CallGraphTarget | null | undefined,
+  includeRuntimePacks: boolean,
+): GraphTargetCandidate<TPackage, TType> {
+  const typeId = callGraphTargetTypeId(target);
+  if (!typeId || !target?.assembly) return { status: "missing" };
+  if (Object.prototype.hasOwnProperty.call(target, "assemblyVersion")
+      && !target.assemblyVersion) {
+    return { status: "missing" };
+  }
+  const targetAssembly = target.assembly
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  const matches = [];
+  let exactAssemblyResident = false;
+  let identitySkew = false;
+  for (const pkg of packages) {
+    if (!pkg || (!includeRuntimePacks && pkg.isRuntimePack)) continue;
+    const descriptors = pkg.assemblies ?? [];
+    const namedDescriptors = descriptors.filter(descriptor =>
+      (descriptor.name ?? "")
+        .replace(/\.dll$/i, "")
+        .toLowerCase() === targetAssembly);
+    if (namedDescriptors.some(descriptor =>
+        callGraphAssemblyIdentityMatches(target, descriptor))) {
+      exactAssemblyResident = true;
+    } else if (namedDescriptors.length > 0) {
+      identitySkew = true;
+    }
+    for (const type of pkg.types ?? []) {
+      const assembly =
+        (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
+        .replace(/\.dll$/i, "");
+      const descriptor = type.assemblyId
+        ? descriptors.find(candidate => candidate.id === type.assemblyId)
+        : descriptors.find(candidate =>
+            (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+                === assembly.toLowerCase()
+            && callGraphAssemblyIdentityMatches(target, candidate))
+          ?? descriptors.find(candidate =>
+            (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
+                === assembly.toLowerCase());
+      if (assembly.toLowerCase() !== targetAssembly
+          || !callGraphTargetMatchesType(target, type)) continue;
+      if (!callGraphAssemblyIdentityMatches(target, descriptor)) {
+        if (descriptor) identitySkew = true;
+        continue;
+      }
+      matches.push({ pkg, type });
+      if (matches.length > 1) return { status: "ambiguous" };
+    }
+  }
+  return matches.length === 1
+    ? { status: "unique", ...matches[0] }
+    : exactAssemblyResident
+      ? { status: "resident" }
+      : identitySkew
+        ? { status: "skew" }
+        : { status: "missing" };
+}
 
 export function resolveLoadedGraphTargetCandidate<
   TPackage extends ResolvableGraphPackage<TType>,
@@ -575,52 +992,154 @@ export function resolveLoadedGraphTargetCandidate<
   packages: readonly TPackage[],
   target: CallGraphTarget | null | undefined,
 ): GraphTargetCandidate<TPackage, TType> {
-  const typeId = callGraphTargetTypeId(target);
-  if (!typeId || !target?.assembly) return { status: "missing" };
-  const matches: { pkg: TPackage; type: TType }[] = [];
-  for (const pkg of packages) {
-    if (!pkg || pkg.isRuntimePack) continue;
-    for (const type of pkg.types ?? []) {
-      const assembly = (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
-        .replace(/\.dll$/i, "");
-      const descriptors = pkg.assemblies ?? [];
-      const descriptor = type.assemblyId
-        ? descriptors.find(candidate => candidate.id === type.assemblyId)
-        : descriptors.find(candidate =>
-            (candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
-              === assembly.toLowerCase());
-      if (assembly.toLowerCase() === target.assembly.toLowerCase()
-          && callGraphAssemblyIdentityMatches(target, descriptor)
-          && callGraphTargetMatchesType(target, type)) {
-        matches.push({ pkg, type });
-        if (matches.length > 1) return { status: "ambiguous" };
-      }
-    }
-  }
-  return matches.length === 1
-    ? { status: "unique", ...matches[0] }
+  return resolveGraphTargetCandidate<TPackage, TType>(
+    packages,
+    target,
+    false);
+}
+
+type RuntimeGraphPackage<TType extends ResolvableGraphType> =
+  ResolvableGraphPackage<TType>;
+
+export function resolveRuntimeGraphTargetCandidate<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): GraphTargetCandidate<RuntimeGraphPackage<TType>, TType> {
+  return pack?.isRuntimePack
+    ? resolveGraphTargetCandidate<RuntimeGraphPackage<TType>, TType>(
+        [pack],
+        target,
+        true)
     : { status: "missing" };
 }
 
-export type GraphTargetNavigationDisposition = "blocked" | "loaded" | "none" | "platform";
+export function runtimeGraphTargetAssemblyIsResident(
+  pack: ResolvableGraphPackage | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): boolean {
+  if (!pack?.isRuntimePack || !target?.assembly) return false;
+  const targetAssembly = target.assembly
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  return (pack.assemblies ?? []).some(assembly =>
+    (assembly.name ?? "")
+      .replace(/\.dll$/i, "")
+      .toLowerCase() === targetAssembly
+    && callGraphAssemblyIdentityMatches(target, assembly));
+}
+
+export function resolvePlatformGraphTargetType<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): TType | null {
+  const candidate = resolveRuntimeGraphTargetCandidate(pack, target);
+  return candidate.status === "unique" ? candidate.type : null;
+}
+
+export function resolveOpportunitySourceCandidate<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  opportunity: OpportunitySourceIdentity | null | undefined,
+): GraphTargetCandidate<RuntimeGraphPackage<TType>, TType> {
+  if (!pack || !opportunity?.sourceDefinitionId) return { status: "missing" };
+  return resolveGraphTargetCandidate<
+    RuntimeGraphPackage<TType>,
+    TType
+  >([pack], {
+    assembly: opportunity.sourceAssembly ?? null,
+    assemblyVersion: opportunity.sourceAssemblyVersion ?? null,
+    assemblyCulture: opportunity.sourceAssemblyCulture ?? null,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken ?? null,
+    typeDefinitionId: opportunity.sourceDefinitionId
+  }, true);
+}
+
+export function resolveOpportunitySourceType<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  opportunity: OpportunitySourceIdentity | null | undefined,
+): TType | null {
+  const candidate = resolveOpportunitySourceCandidate(pack, opportunity);
+  return candidate.status === "unique" ? candidate.type : null;
+}
+
+export type GraphTargetNavigationDisposition =
+  "blocked" | "loaded" | "none" | "platform" | "resident";
 
 export function graphTargetNavigationDisposition(
   candidate: GraphTargetCandidate<unknown, unknown>,
   target: CallGraphTarget | null | undefined,
+  resident = false,
 ): GraphTargetNavigationDisposition {
-  if (candidate.status === "ambiguous") return "blocked";
-  if (candidate.status === "unique") return "loaded";
   if (Object.prototype.hasOwnProperty.call(
       target ?? {},
       "assemblyVersion")
       && !target?.assemblyVersion) {
     return "none";
   }
+  if (candidate.status === "ambiguous"
+      || candidate.status === "skew"
+      || candidate.status === "resident") {
+    return "blocked";
+  }
+  if (candidate.status === "unique") return "loaded";
   return target?.kind === "external"
       && Boolean(target.assembly)
       && Boolean(callGraphTargetTypeId(target))
-    ? "platform"
+    ? resident ? "resident" : "platform"
     : "none";
+}
+
+export function combinedGraphTargetNavigationDisposition(
+  candidate: GraphTargetCandidate<unknown, unknown>,
+  runtimeCandidate: GraphTargetCandidate<unknown, unknown> | null,
+  target: CallGraphTarget | null | undefined,
+  runtimeResident = false,
+): GraphTargetNavigationDisposition {
+  const packageDisposition = graphTargetNavigationDisposition(candidate, target);
+  if (packageDisposition === "none") return "none";
+  if (runtimeCandidate) {
+    if (runtimeCandidate.status === "ambiguous"
+        || runtimeCandidate.status === "skew") {
+      return "blocked";
+    }
+    if (runtimeCandidate.status === "unique"
+        || runtimeCandidate.status === "resident"
+        || runtimeResident) {
+      return "resident";
+    }
+  }
+  return packageDisposition;
+}
+
+export type RuntimeGraphTargetNavigationDisposition =
+  "blocked" | "none" | "member" | "lookup" | "drill";
+
+export function runtimeGraphTargetNavigationDisposition(
+  candidate: { status?: string } | null | undefined,
+  target: CallGraphTarget | null | undefined,
+  hasMemberSelection: boolean,
+  assemblyResident = false,
+): RuntimeGraphTargetNavigationDisposition {
+  if (!target?.assembly || !callGraphTargetTypeId(target)) return "none";
+  if (Object.prototype.hasOwnProperty.call(target, "assemblyVersion")
+      && !target.assemblyVersion) {
+    return "none";
+  }
+  if (candidate?.status === "ambiguous" || candidate?.status === "skew")
+    return "blocked";
+  if (hasMemberSelection) return "member";
+  return target.kind === "external"
+      && candidate?.status === "missing"
+      && !assemblyResident
+    ? "lookup"
+    : "drill";
 }
 
 export interface PdbSourceLimitationSource {
@@ -638,6 +1157,37 @@ export function pdbSourceLimitationHtml(
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
   return `<span class="graph-source-status">PDB source unavailable: ${escaped}</span>`;
+}
+
+export function graphTargetBlockedReason(
+  candidate: { status?: string } | null | undefined,
+  scope: "runtime" | "package",
+): string {
+  const owner = scope === "runtime" ? "runtime" : "package";
+  if (candidate?.status === "skew")
+    return `the loaded ${owner} assembly identity does not match the exact target`;
+  if (candidate?.status === "resident")
+    return `the exact target type is not projected from the loaded ${owner} assembly`;
+  return `the exact ${owner} target identity matched multiple loaded types`;
+}
+
+export function graphOnlyBodyTarget<TTarget>(
+  overload: {
+    graphOnly?: boolean;
+    graphTarget?: TTarget | null;
+  } | null | undefined,
+): TTarget | null {
+  return overload?.graphOnly ? overload.graphTarget ?? null : null;
+}
+
+export function retainGraphOnlyBodyTarget<TTarget>(
+  overload: {
+    graphOnly?: boolean;
+    graphTarget?: TTarget | null;
+  } | null | undefined,
+  target: TTarget | null | undefined,
+): void {
+  if (overload?.graphOnly && target) overload.graphTarget = target;
 }
 
 export interface CallGraphDiagnostics {
@@ -707,8 +1257,8 @@ export interface GraphMemberGroup {
 }
 
 export interface GraphMemberTarget {
-  memberName: string;
-  selectorKey: string;
+  memberName?: string | null;
+  selectorKey?: string | null;
   metadataToken?: number | null;
 }
 
@@ -721,20 +1271,33 @@ export function graphMemberSelection(
   groups: readonly GraphMemberGroup[],
   target: GraphMemberTarget,
 ): GraphMemberSelection | null {
-  const bodyMatches: GraphMemberSelection[] = [];
+  const bodyMatches: (
+    GraphMemberSelection & { token: number | undefined }
+  )[] = [];
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
     const group = groups[groupIndex];
     for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
       const overload = group.overloads[overloadIndex];
-      if ((overload.bodySelectors ?? []).some(body =>
-        body.memberName === target.memberName
-        && body.selectorKey === target.selectorKey
-        && (target.metadataToken == null || body.token === target.metadataToken))) {
-        bodyMatches.push({ groupIndex, overloadIndex });
+      for (const body of overload.bodySelectors ?? []) {
+        if (body.memberName === target.memberName
+          && body.selectorKey === target.selectorKey) {
+          bodyMatches.push({ groupIndex, overloadIndex, token: body.token });
+        }
       }
     }
   }
-  if (bodyMatches.length === 1) return bodyMatches[0];
+  if (bodyMatches.length > 0) {
+    const [first] = bodyMatches;
+    if (bodyMatches.length === 1
+      || (first.token != null
+        && bodyMatches.every(match => match.token === first.token))) {
+      return {
+        groupIndex: first.groupIndex,
+        overloadIndex: first.overloadIndex,
+      };
+    }
+    return null;
+  }
 
   const ownerMatches: GraphMemberSelection[] = [];
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
@@ -745,6 +1308,38 @@ export function graphMemberSelection(
     }
   }
   return ownerMatches.length === 1 ? ownerMatches[0] : null;
+}
+
+export function searchableMemberGroups<
+  T extends { overloads: readonly { graphOnly?: boolean }[] },
+>(groups: readonly T[]): T[] {
+  return groups.filter(group =>
+    !group.overloads.some(overload => overload.graphOnly));
+}
+
+export function partitionGraphMembers<T extends { graphOnly?: boolean }>(
+  members: readonly T[] | null | undefined,
+): { publicMembers: T[]; graphMembers: T[] } {
+  const publicMembers: T[] = [];
+  const graphMembers: T[] = [];
+  for (const member of members ?? []) {
+    (member.graphOnly ? graphMembers : publicMembers).push(member);
+  }
+  return { publicMembers, graphMembers };
+}
+
+export function retainGraphMemberProjection<
+  TMember extends { name: string; graphOnly?: boolean },
+>(
+  types: readonly { api: TMember[] }[],
+  selected: TMember,
+): void {
+  for (const type of types) {
+    if (!type.api.some(member => member.graphOnly && member !== selected))
+      continue;
+    type.api = type.api.filter(
+      member => !member.graphOnly || member === selected);
+  }
 }
 
 export interface ScopedRequestState {
@@ -891,10 +1486,30 @@ export interface SectionableMember {
   kind?: string;
 }
 
-export function memberSectionIdsFor(member: SectionableMember | null | undefined): string[] {
-  return ["property", "field", "event", "constant"].includes(member?.kind ?? "")
-    ? ["overview"]
+export function memberSectionIdsFor(
+  member: SectionableMember | null | undefined,
+  isRuntimePack = false,
+  hasSelectedBody = false,
+): string[] {
+  if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
+    && !hasSelectedBody) {
+    return ["overview"];
+  }
+  const sections = isRuntimePack
+    ? ["overview", "call-graph", "facts"]
     : ["overview", "call-graph", "facts", "source", "annotated"];
+  return hasSelectedBody
+    && ["property", "event"].includes(member?.kind ?? "")
+    ? sections.filter(id => id !== "source")
+    : sections;
+}
+
+export function typeLensesFor(
+  pkg: { isRuntimePack?: boolean } | null | undefined,
+): readonly (readonly [string, string])[] {
+  return pkg?.isRuntimePack
+    ? lenses.filter(([id]) => id === "api")
+    : lenses;
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

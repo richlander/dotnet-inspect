@@ -40,18 +40,25 @@ shortening the selected assembly set.
    stable result. Neither path requests the NuGet.org v3 service index. The
    Browser adapter then selects one target framework — never "whatever the
    package happens to ship".
-2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
+2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
    admits the package from the Gallery package CDN through the shared typed
    source, transport, and archive policy. The Gallery payload carries its
    advertised length into the Browser reservation policy before body
    materialization.
    `PackageCompileAssetSelector` adds reference-group semantics around the
-   implementation universe selected by `PackageAssetSelector`, decodes each
-   healthy entry's real metadata identity, and creates one
+   implementation universe selected by `PackageAssetSelector`. The narrow
+   Browser acquisition adapter decodes each healthy entry's real metadata
+   identity and creates one
    `ResolvedAssemblyReference` per selected compile asset and, when the roles
    differ, per matching implementation asset. Malformed selected entries remain
    participants so queries report their rejection. Acquisition never inspects
    one.
+   `InspectionWorkspace.CreatePackageAssemblyContextRoles` then owns the
+   coordinated surface and implementation binding snapshots, equivalent-
+   identity rejection, group construction, reference-only surfaces, and exact
+   surface-to-implementation participant correspondence. Browser retains the
+   selected package/asset provenance used by source and navigation operations,
+   but does not implement assembly binding or group composition.
    The Browser adapter places one 30-second operation deadline around coordinate
    resolution and payload acquisition. The deadline token flows through the
    shared resolver, retry, response-body, archive-validation, and store paths;
@@ -92,9 +99,10 @@ shortening the selected assembly set.
    `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
    `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
    consumption.
-3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
-   and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
-   exposes exactly two hand-offs — `Use(group => query(group))` and
+3. **Hand a role group to a query.** The participants open one
+   `InspectionWorkspace` and one or two binding-consistent
+   `AssemblyContextGroup` instances. `BrowserInspectionScope` exposes exactly
+   two hand-offs — `Use(group => query(group))` and
    `UseParticipant(participant, (group, participant) => query(...))` — and no
    accessor for a session, an image, or a descriptor.
 
@@ -112,6 +120,52 @@ or whose selected set exceeds 256 assemblies. This keeps acquisition itself
 inside the same bound rather than relying on the later retained-snapshot check.
 Failures after the role passes that preflight remain typed participant outcomes
 beside healthy results.
+
+`BrowserPlatformWorkspace` uses the same package cache, aggregate byte
+accounting, operation deadline, and four-scope registry. The first selected
+assembly for a target framework and platform family records the exact pack
+version and producer. Later lazy selections re-acquire from that pin and
+replace the old scope with one cumulative binding-consistent group, so runtime
+and ASP.NET Core libraries never drift across versions or feeds and call
+graphs can lazily acquire a selected target and see every resident platform
+assembly. Surfaces and graph targets carry the pack membership recorded from
+those acquired implementation archives from the product loader's
+metadata-derived identities in its selected asset universe, so navigation does
+not depend on archive filenames or on the optional static index knowing the
+active framework. One graph expansion submits its complete missing assembly set
+as one batch, so the cumulative workspace is rebuilt once under one package
+operation deadline rather than once per assembly. Browser models qualify
+assembly residency by platform pack, and one target cannot select the same
+simple assembly name from both runtime and ASP.NET Core families; ambiguous
+pack inference fails visibly rather than routing by first match. Reuse updates
+both the shared scope LRU and its archive recency. Eviction severs the disposed
+scope's loaded context, removes its scope reference, and removes it from the
+registry, releasing the package content closures whose archives leave cache
+accounting. Exact coordinates remain in a lightweight four-target LRU so an
+evicted cumulative workspace can be re-acquired without version drift or lost
+participants. Every archive is temporarily leased as soon as acquisition
+returns it and until the cumulative candidate is registered or abandoned, so a
+later family download cannot evict bytes that the unregistered candidate still
+holds. Shared links carry the selected library's exact pack token, and initial
+member graphs use the same escaped definition identity as subsequent graph
+descent. Platform graph loads and descents also carry the target's complete
+assembly identity and reject an acquired root that is not binding-equivalent,
+rather than applying a valid selector to a different assembly version or
+public-key token. A selected Platform coordinate that matches multiple full
+metadata identities fails typed rather than choosing by archive order. The
+Platform workspace admits at most 256 realized assemblies and retains at most
+64 MB of opened images.
+`BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
+`PlatformWorkspace_BatchesCumulativeAssemblyExpansion`,
+`PlatformWorkspace_RejectsOneNameAcrossPackFamilies`,
+`PlatformWorkspace_UsesMetadataIdentityForPackMembership`,
+`PlatformWorkspace_LeasesArchivesUntilCandidateRegistration`,
+`PlatformWorkspace_ReuseTouchesTheSharedScopeLru`,
+`PlatformWorkspace_EvictionRemovesRetainedTargetState`,
+`PlatformWorkspace_CanceledQueueEntryPreservesSerialization`,
+`PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and
+`PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound` gate those host
+contracts.
 
 Because a scope is reused, nothing here runs the terminal participant-streaming
 forms of `AssemblyContextIntegrationsQuery` or
@@ -138,10 +192,23 @@ withholds it otherwise — `CallGraphMemberResolver.UnambiguousMetadataIdentity`
 owns that decision, and `DefinitionIdentity` is the injective identity the same
 resolver matches on the other side.
 `CallGraphTargets_DistinguishNestedFromLiteralPlusDeclaringTypes` gates the
-distinction at the browser boundary. Constructed generic nodes recover assembly
-identity from their definition. Synthetic array and function-pointer nodes remain visible but carry
+distinction at the browser boundary. A graph click on a non-public member of a
+public type lazily projects that exact member through the same product resolver
+and opens the ordinary member page; the shared URL retains the opaque target so
+refresh does not fall back to a source modal. `graph-only members open through
+the typed member surface` and `graph-only member targets round-trip through
+shared URLs` gate that path. Projected non-public rows remain separately labeled
+as graph-discovered implementation members rather than entering the Public API
+count. Constructed generic nodes recover assembly identity from their
+definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
-body selector even when the graph has no `MethodDef` token.
+body selector even when the graph has no `MethodDef` token. That exact body
+enables Call graph and Annotated source; Facts retains the engine's explicit
+unavailable response, and whole-member Source remains hidden because its product
+query intentionally rejects accessor bodies.
+The call-graph legend explains the independent border vocabulary: solid nodes
+receive no platform lookup, while dashed nodes are unresolved external
+assemblies that receive a .NET platform lookup on click.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 
@@ -153,13 +220,15 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, participant minting, and the bounded workspace registry |
+| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, descriptor minting, and the bounded workspace registry |
+| `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
-| `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
+| `engine/BrowserInspectionScope.cs` | package/asset provenance over product-owned surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/BrowserPlatformOperations.cs` | the supported Platform acquisition, Integrations, Opportunities, and call-graph exports |
 | `engine/BrowserSourceOperations.cs` | pathless PDB-mapped-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
@@ -249,6 +318,10 @@ surface group when no implementation participant exists.
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
 | `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
+| `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
+| `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
+| `QueryPlatformOpportunities` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `ExpandPlatformCallGraph` | lazily acquired target in the cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
 
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
@@ -461,13 +534,25 @@ rather than fixture results or success-shaped empty output.
 | --- | --- |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata queries named above |
+| `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
+| `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
+
+Package-backed type Metadata/Source and member Source/Annotated Source exports
+do not accept platform coordinates. The Platform UI therefore withholds those
+type lenses and member sections rather than routing `Microsoft.NETCore.App`
+through NuGet package acquisition. Platform call graphs and the explicit
+method-Facts refusal remain available.
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.
 
+Platform workspace acquisition and the supported adapters are tracked by
+[#4401].
+
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.
+
+[#4401]: https://github.com/richlander/dotnet-inspect/issues/4401
 
 ## Annotated source
 
@@ -656,13 +741,47 @@ not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
 navigation generation, share-packet encoding and decoding, URL parsing and
-building, and the browser-history port. `dotnet-inspect.ts` remains the sole
-mutable application-state owner: it supplies typed snapshots and explicit
-transition callbacks, and retains asynchronous workspace restoration and DOM
-event binding. `test/workspace-navigation.test.ts` gates history traversal,
-stale-entry removal, navigation cancellation, rich and legacy URL
-compatibility, visible invalid-state failures, and sandboxed history errors;
-`test/spotlight-identity.test.js` gates the composition-root wiring.
+building, the browser-history port, and the single delegated click listener
+that intercepts same-origin in-app anchor clicks
+(`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
+`target`-scoped link, `download` link, or cross-origin href keeps native
+browser behavior. `dotnet-inspect.ts` remains the sole mutable
+application-state owner: it supplies typed snapshots and explicit transition
+callbacks, calls the one link-navigation binder instead of adding its own
+click listener, and registers application-level gestures and context
+predicates with the shared keybinding dispatcher.
+
+`src/keybinding-registry.ts` is a dependency-free general component with no
+inspect-web imports. A registration declares keys, exact modifiers by default,
+priority, an optional event-path scope and context predicate, and a handler
+whose Boolean result distinguishes "matched" from "handled". The registry
+orders active matches by priority and nearest event-path scope, stops at the
+first handled result, and centrally applies `preventDefault()`. A false result
+falls through to the next candidate. Equal-precedence matches produce a
+structured conflict callback while retaining deterministic registration order.
+Event-scoped registrations live in a `WeakMap`; registration also returns an
+explicit disposer.
+
+`src/workbench-keybindings.ts` is the inspect-web adapter: it defines the
+workspace, element, and modal priority policy and reports conflicts. Local
+owners including Spotlight, type/member filters, package tabs, and graph
+interactions register their gestures against the rendered element. The
+composition root registers workspace and modal gestures, then attaches the
+registry's only raw `keydown` listener to `document`. Alt+←/→ and Shift+←/→
+drive `navBack()`/`navForward()`; element-scoped gestures arbitrate in the same
+dispatcher instead of relying on bubbling order or `defaultPrevented`
+cooperation. Shift+←/→ remain gated by the shared typing check so they never
+steal native text selection inside an input or filter field; Shift+↑/↓ stay
+unclaimed globally.
+
+`test/keybinding-registry.test.ts` gates precedence, scoped arbitration,
+handled fallthrough, exact modifiers, conflict reporting, disposal, and the
+original stack-navigation collision. `test/spotlight-identity.test.js` gates
+the single-listener wiring and the complete workbench priority order.
+`test/workspace-navigation.test.ts` gates
+history traversal, stale-entry removal, navigation cancellation, rich and
+legacy URL compatibility, visible invalid-state failures, sandboxed history
+errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
@@ -859,8 +978,9 @@ image rather than the API surface within it, so they share one module the way
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
 the explorer's focus/history stack, lazy `IntersectionObserver` hydration,
-resize coordination, and the global keydown handler, supplying those effects
-through typed callbacks; the shared helpers used well beyond these views
+resize coordination, and global gesture effects, supplying those effects
+through typed callbacks and registry declarations; the shared helpers used
+well beyond these views
 (`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.

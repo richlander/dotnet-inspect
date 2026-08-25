@@ -792,7 +792,7 @@ public sealed class AssemblyContextGroup : IDisposable
 /// <summary>
 /// Shared owner for one or more assembly context groups.
 /// </summary>
-public sealed class InspectionWorkspace : IDisposable
+public sealed partial class InspectionWorkspace : IDisposable
 {
     readonly object _gate = new();
     readonly List<AssemblyContextGroup> _groups = [];

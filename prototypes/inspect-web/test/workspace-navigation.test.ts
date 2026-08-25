@@ -7,8 +7,12 @@ import {
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  shouldInterceptLinkClick,
+  workspaceViewSignature,
+  type LinkNavigationClick,
   type WorkspaceLocationSnapshot,
   type WorkspaceUrlState,
+  type WorkspaceView,
 } from "../src/workspace-navigation.ts";
 
 interface TestView {
@@ -40,6 +44,7 @@ function workspaceState(
     atPackageRoot: false,
     packageLens: "overview",
     library: null,
+    libraryPack: null,
     selectedTypeId: "Example.Widget",
     selectedMemberKey: "method:Build",
     selectedOverloadIndex: 2,
@@ -49,11 +54,56 @@ function workspaceState(
       selectorKey: "method",
       metadataToken: 42,
     },
+    graphTarget: null,
     memberBrowse: true,
     memberTextFilter: "build",
     memberKindFilter: "method",
     memberAccessibilityFilter: "public",
     memberTraitFilter: "isStatic",
+    ...overrides,
+  };
+}
+
+function sharePacket(url: URL): Record<string, unknown> {
+  const encoded = url.searchParams.get("w");
+  assert.ok(encoded);
+  const value: unknown = JSON.parse(
+    Buffer.from(encoded, "base64url").toString("utf8"));
+  assert.ok(value && typeof value === "object" && !Array.isArray(value));
+  return Object.fromEntries(Object.entries(value));
+}
+
+function workspaceView(
+  overrides: Partial<WorkspaceView> = {},
+): WorkspaceView {
+  const graphTarget = {
+    assembly: "Example.Second",
+    assemblyVersion: "2.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Build",
+    selectorKey: "Build|System.String",
+    metadataToken: 0x0600002a,
+  };
+  return {
+    package: "Example.Second",
+    packageKey: "example.second@2.0.0/net10.0",
+    lens: "api",
+    selectedTypeId: "Example.Widget",
+    selectedMemberKey: "graph:method:Build",
+    memberBrowseTypeId: "Example.Widget",
+    memberKindFilter: "all",
+    memberAccessibilityFilter: "all",
+    memberTraitFilter: "",
+    memberTextFilter: "",
+    selectedOverloadIndex: 0,
+    bodyTarget: graphTarget,
+    memberSection: "overview",
+    atPackageRoot: false,
+    packageLens: "overview",
+    libraryScope: null,
     ...overrides,
   };
 }
@@ -212,6 +262,7 @@ test("navigation sequence has one monotonic cancellation authority", () => {
 test("rich workspace URLs round-trip coordinates, scope, and member selection", () => {
   const state = workspaceState({
     library: "System.Private.CoreLib",
+    libraryPack: "netcore.app",
   });
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/packages/old?stale=1#metadata",
@@ -228,6 +279,7 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.framework, "net10.0");
   assert.equal(parsed.lens, null);
   assert.equal(parsed.library, "System.Private.CoreLib");
+  assert.equal(parsed.libraryPack, "netcore.app");
   assert.equal(parsed.type, "Example.Widget");
   assert.equal(parsed.member, "method:Build");
   assert.equal(parsed.overload, "2");
@@ -241,13 +293,92 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.workspaceNotice, "");
 });
 
+test("graph member URLs retain exact identity instead of a lossy body target", () => {
+  const graphTarget = {
+    assembly: "Example.Second",
+    assemblyVersion: "2.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "0011223344556677",
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Build",
+    selectorKey: "Build|System.String",
+    metadataToken: 0x0600002a,
+  };
+  const state = workspaceState({
+    selectedBodyTarget: graphTarget,
+    graphTarget,
+  });
+  const url = buildWorkspaceStateUrl("https://inspect.example/", state);
+  const packet = sharePacket(url);
+  const parsed = parseWorkspaceLocation(locationSnapshot(url));
+
+  assert.equal(Object.hasOwn(packet, "g"), true);
+  assert.equal(Object.hasOwn(packet, "d"), false);
+  assert.deepEqual(parsed.graphTarget, graphTarget);
+  assert.equal(parsed.bodyTarget, null);
+  assert.equal(parsed.type, state.selectedTypeId);
+  assert.equal(parsed.member, state.selectedMemberKey);
+  assert.equal(parsed.overload, String(state.selectedOverloadIndex));
+});
+
+test("history signatures distinguish exact graph member identity", () => {
+  const original = workspaceView();
+  const originalTarget = {
+    assembly: "Example.Second",
+    assemblyVersion: "2.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Build",
+    selectorKey: "Build|System.String",
+    metadataToken: 0x0600002a,
+  };
+  const variants = [
+    { ...originalTarget, memberName: "BuildAsync" },
+    { ...originalTarget, selectorKey: "Build|System.Int32" },
+    { ...originalTarget, metadataToken: 0x0600002b },
+  ];
+
+  for (const bodyTarget of variants) {
+    assert.notEqual(
+      workspaceViewSignature(original),
+      workspaceViewSignature(workspaceView({ bodyTarget })));
+  }
+});
+
+test("history signatures distinguish captured library scope", () => {
+  const original = workspaceView({
+    libraryScope: ["System.Collections", "System.Runtime"],
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature(workspaceView({
+      libraryScope: ["System.Text.Json"],
+    })));
+});
+
 test("package-root URLs omit stale type selection and retain their package lens", () => {
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/",
     workspaceState({
       atPackageRoot: true,
       packageLens: "dependencies",
+      graphTarget: {
+        assembly: "Example.Second",
+        assemblyVersion: "2.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: null,
+        typeDefinitionId: "T:Example.Widget",
+        typeMetadataId: "Example.Widget",
+        memberName: "Build",
+        selectorKey: "Build|",
+        metadataToken: 0x0600002a,
+      },
     }));
+  const packet = sharePacket(url);
   const parsed = parseWorkspaceLocation(locationSnapshot(url));
 
   assert.equal(parsed.atPackageRoot, true);
@@ -257,6 +388,8 @@ test("package-root URLs omit stale type selection and retain their package lens"
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, null);
   assert.equal(parsed.bodyTarget, null);
+  assert.equal(parsed.graphTarget, null);
+  assert.equal(Object.hasOwn(packet, "g"), false);
   assert.equal(parsed.memberBrowse, false);
   assert.equal(parsed.memberTextFilter, "");
   assert.equal(parsed.memberKindFilter, "all");
@@ -301,6 +434,115 @@ test("invalid and oversized workspace packets stay visible", () => {
   assert.match(oversized.workspaceNotice, /65536-character limit/);
 });
 
+test("malformed rich packet fields cannot override the visible package", () => {
+  const base = {
+    t: [["Hidden.Package", "1.0.0", "net10.0"]],
+    a: 0,
+  };
+  const invalidPackets: Record<string, unknown>[] = [
+    { ...base, a: undefined },
+    { ...base, a: "0" },
+    { ...base, a: 0.5 },
+    { ...base, a: -1 },
+    { ...base, a: 1 },
+    ...["l", "v", "y", "m", "c", "q", "k", "e", "r"]
+      .map(key => ({ ...base, [key]: 1 })),
+    ...[null, "", "not-a-platform-pack", 1]
+      .map(p => ({ ...base, p })),
+    ...[null, "0", -1, 0.5]
+      .map(o => ({ ...base, o })),
+    ...[null, "body", [], [null, null, null], ["Build", null, 0.5]]
+      .map(d => ({ ...base, d })),
+    ...[null, 0, true, "1"]
+      .map(b => ({ ...base, b })),
+  ];
+  delete invalidPackets[0].a;
+
+  for (const packet of invalidPackets) {
+    const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?package=Visible.Package&w=${encoded}`));
+    assert.equal(parsed.package, "Visible.Package");
+    assert.deepEqual(parsed.tabs, []);
+    assert.equal(
+      parsed.workspaceNotice,
+      "The shared workspace state is invalid and was ignored.");
+  }
+});
+
+test("invalid graph identities reject the rich packet without hiding the visible package", () => {
+  const validGraph = [
+    "Example.Second",
+    "2.0.0.0",
+    null,
+    null,
+    "T:Example.Widget",
+    "Example.Widget",
+    "Build",
+    "Build|",
+    0x0600002a,
+  ];
+  const packets = [
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      g: [...validGraph.slice(0, 8), "not-a-token"],
+    },
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      o: 0,
+      g: [validGraph[0], "", ...validGraph.slice(2)],
+    },
+    ...[
+      -1,
+      0,
+      0x02000001,
+      0x06000000,
+      0x07000000,
+      0x106000001,
+    ].map(metadataToken => ({
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      o: 0,
+      g: [...validGraph.slice(0, 8), metadataToken],
+    })),
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      g: validGraph,
+    },
+    {
+      t: [["Hidden.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Build",
+      o: "0",
+      g: validGraph,
+    },
+  ];
+
+  for (const packet of packets) {
+    const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?package=Visible.Package&w=${encoded}`));
+    assert.equal(parsed.package, "Visible.Package");
+    assert.deepEqual(parsed.tabs, []);
+    assert.equal(parsed.graphTarget, null);
+    assert.equal(
+      parsed.workspaceNotice,
+      "The shared graph member target is invalid and was ignored.");
+  }
+});
+
 test("location persistence contains sync failures but leaves direct build failures visible", () => {
   const current = locationSnapshot("https://inspect.example/");
   const replaced: string[] = [];
@@ -337,4 +579,66 @@ test("location persistence contains sync failures but leaves direct build failur
       memberTextFilter: "x".repeat(65537),
     })),
     /65536-character limit/);
+});
+
+function linkClick(overrides: Partial<LinkNavigationClick> = {}): LinkNavigationClick {
+  return {
+    button: 0,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: false,
+    download: false,
+    target: null,
+    href: "https://inspect.example/credits",
+    origin: "https://inspect.example",
+    currentOrigin: "https://inspect.example",
+    ...overrides,
+  };
+}
+
+test("shouldInterceptLinkClick takes over a plain same-origin left click", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick()), true);
+});
+
+test("shouldInterceptLinkClick leaves default-prevented clicks alone", () => {
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ defaultPrevented: true })),
+    false);
+});
+
+test("shouldInterceptLinkClick leaves non-primary-button clicks alone", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick({ button: 1 })), false);
+});
+
+test("shouldInterceptLinkClick leaves modified clicks alone (new tab/window)", () => {
+  for (const overrides of [
+    { metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true },
+  ]) {
+    assert.equal(shouldInterceptLinkClick(linkClick(overrides)), false);
+  }
+});
+
+test("shouldInterceptLinkClick leaves download links alone", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick({ download: true })), false);
+});
+
+test("shouldInterceptLinkClick leaves an explicit other-target link alone", () => {
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ target: "_blank" })),
+    false);
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ target: "_self" })),
+    true);
+});
+
+test("shouldInterceptLinkClick leaves cross-origin links alone", () => {
+  assert.equal(
+    shouldInterceptLinkClick(linkClick({ origin: "https://github.com" })),
+    false);
+});
+
+test("shouldInterceptLinkClick requires a resolvable href", () => {
+  assert.equal(shouldInterceptLinkClick(linkClick({ href: null })), false);
 });

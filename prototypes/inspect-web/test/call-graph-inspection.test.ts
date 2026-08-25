@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  callGraphErrorForView,
   createCallGraphInspectionCoordinator,
   type CallGraphInspectionDependencies,
   type CallGraphInspectionState,
@@ -52,6 +53,7 @@ function inspectionState(
     memberCallGraph: null,
     memberCallGraphLoading: false,
     memberCallGraphError: "",
+    graphMemberNavigationError: "",
     memberCallGraphKey: "",
     memberCallGraphExpanding: false,
     memberCallGraphSeq: 0,
@@ -84,6 +86,10 @@ function memberRequest(
     version: "1.2.3",
     framework: "net10.0",
     assembly: "Example.Package.dll",
+    platformPack: "netcore.app",
+    platformAssemblyVersion: "1.0.0.0",
+    platformAssemblyCulture: null,
+    platformAssemblyPublicKeyToken: null,
     typeIdentity: "T:Example.Widget",
     type: "Example.Widget",
     platformType: "Example.Widget",
@@ -104,12 +110,17 @@ function drillRequest(
   return {
     framework: "net10.0",
     assembly: "System.Text.Json.dll",
+    pack: "netcore.app",
+    assemblyVersion: "10.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
     type: "T:System.Text.Json.JsonSerializer",
     member: "Serialize",
     selectorKey: "Serialize|System.Object",
     metadataToken: 0x06000001,
     title: "JsonSerializer.Serialize",
     errorTarget: "System.Text.Json.JsonSerializer.Serialize",
+    isCurrent: () => true,
     ...overrides,
   };
 }
@@ -366,6 +377,333 @@ test("workspace expansion failure keeps the local graph and remains visible", as
   assert.equal(graphRenders, 2);
 });
 
+test("platform descent preserves a completed in-flight workspace expansion", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const full = graph("full");
+  let workspaceQueries = 0;
+  let patches = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        workspaceQueries++;
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      patchCallGraphSection: () => patches++,
+    }));
+  const request = memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  });
+
+  const load = coordinator.load(request);
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  await coordinator.drill(drillRequest());
+  expansion.resolve(full);
+  await load;
+
+  assert.equal(workspaceQueries, 2);
+  assert.equal(state.memberCallGraph, full);
+  assert.equal(state.memberCallGraphExpanding, false);
+  assert.equal(patches, 0);
+  await coordinator.popDrill();
+  await coordinator.load(request);
+  assert.equal(workspaceQueries, 2);
+  assert.equal(state.memberCallGraph, full);
+});
+
+test("platform descent preserves an in-flight workspace expansion failure", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  let workspaceQueries = 0;
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        workspaceQueries++;
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+  const request = memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  });
+
+  const load = coordinator.load(request);
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  await coordinator.drill(drillRequest());
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+
+  assert.equal(graphRenders, 2);
+  assert.equal(
+    state.memberCallGraphError,
+    "Workspace expansion was incomplete: workspace unavailable");
+  assert.equal(callGraphErrorForView(state), "");
+  state.graphMemberNavigationError =
+    "Could not open System.Text.Json.JsonSerializer.Serialize: exact projection failed";
+  assert.equal(
+    callGraphErrorForView(state),
+    "Could not open System.Text.Json.JsonSerializer.Serialize: exact projection failed");
+  state.graphMemberNavigationError = "";
+  await coordinator.popDrill();
+  assert.equal(
+    callGraphErrorForView(state),
+    "Workspace expansion was incomplete: workspace unavailable");
+  await coordinator.load(request);
+  assert.equal(workspaceQueries, 2);
+  assert.equal(state.memberCallGraph, local);
+  assert.equal(
+    state.memberCallGraphError,
+    "Workspace expansion was incomplete: workspace unavailable");
+});
+
+test("blocked platform activation publishes its in-flight workspace expansion", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const full = graph("full");
+  let patches = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      patchCallGraphSection: previous => {
+        assert.equal(previous, "local");
+        patches++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  expansion.resolve(full);
+  await load;
+
+  assert.equal(state.memberCallGraph, full);
+  assert.equal(patches, 1);
+});
+
+test("blocked platform activation publishes its workspace expansion failure", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+
+  assert.equal(
+    state.memberCallGraphError,
+    "Workspace expansion was incomplete: workspace unavailable");
+  assert.equal(graphRenders, 2);
+});
+
+test("canceled expansion cannot replace a newer same-key local graph", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const newer = graph("newer");
+  let patches = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      patchCallGraphSection: () => patches++,
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraph = newer;
+  expansion.resolve(graph("stale-full"));
+  await load;
+
+  assert.equal(state.memberCallGraph, newer);
+  assert.equal(patches, 0);
+});
+
+test("canceled expansion failure cannot contaminate a newer same-key local graph", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const newer = graph("newer");
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraph = newer;
+  expansion.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(state.memberCallGraph, newer);
+  assert.equal(state.memberCallGraphError, "");
+  assert.equal(graphRenders, 1);
+});
+
+test("canceled expansion failure retains a newer same-view activation error", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.graphMemberNavigationError =
+    "Could not open Example.Widget.Hidden: exact projection failed";
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+
+  assert.equal(
+    callGraphErrorForView(state),
+    "Could not open Example.Widget.Hidden: exact projection failed; "
+      + "Workspace expansion was incomplete: workspace unavailable");
+});
+
+test("newer same-view activation error retains an earlier expansion failure", async () => {
+  const expansion = deferred<BrowserCallGraph>();
+  const expansionStarted = deferred<void>();
+  const local = graph("local");
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryWorkspace: async (_request, workspace) => {
+        if (!workspace.length) return local;
+        expansionStarted.resolve(undefined);
+        return expansion.promise;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    workspacePackages: [{
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+    }],
+    hasOtherLibraries: true,
+  }));
+  await expansionStarted.promise;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  expansion.reject(new Error("workspace unavailable"));
+  await load;
+  state.graphMemberNavigationError =
+    "Could not open Example.Widget.Hidden: exact projection failed";
+
+  assert.equal(
+    callGraphErrorForView(state),
+    "Could not open Example.Widget.Hidden: exact projection failed; "
+      + "Workspace expansion was incomplete: workspace unavailable");
+});
+
 test("initial workspace failure remains visible without rendering a graph", async () => {
   let focusRenders = 0;
   let graphRenders = 0;
@@ -463,6 +801,10 @@ test("runtime members route directly through platform graph expansion", async ()
           [
             request.framework,
             request.assembly,
+            request.pack,
+            request.assemblyVersion,
+            request.assemblyCulture,
+            request.assemblyPublicKeyToken,
             request.type,
             request.member,
             request.selectorKey,
@@ -471,6 +813,10 @@ test("runtime members route directly through platform graph expansion", async ()
           [
             "net10.0",
             "Example.Package.dll",
+            "netcore.app",
+            "1.0.0.0",
+            null,
+            null,
             "T:Example.Widget",
             "Run",
             "Run|",
@@ -530,6 +876,55 @@ test("superseded runtime graph completion cannot publish", async () => {
   assert.equal(state.memberCallGraphLoading, true);
 });
 
+test("runtime graph completion cannot publish after its view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  let graphRenders = 0;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.load(memberRequest({
+    isRuntimePack: true,
+    isCurrent: () => current,
+  }));
+  current = false;
+  request.resolve(graph("stale"));
+  await load;
+
+  assert.equal(state.memberCallGraph, null);
+  assert.equal(state.memberCallGraphLoading, true);
+  assert.equal(state.memberCallGraphError, "");
+  assert.equal(graphRenders, 0);
+});
+
+test("runtime graph failures stay silent after their view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+    }));
+
+  const load = coordinator.load(memberRequest({
+    isRuntimePack: true,
+    isCurrent: () => current,
+  }));
+  current = false;
+  request.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(state.memberCallGraph, null);
+  assert.equal(state.memberCallGraphLoading, true);
+  assert.equal(state.memberCallGraphError, "");
+});
+
 test("platform drill publishes current graphs and pop restores the parent", async () => {
   const drilled = graph("drilled");
   const events: string[] = [];
@@ -544,6 +939,10 @@ test("platform drill publishes current graphs and pop restores the parent", asyn
           [
             request.framework,
             request.assembly,
+            request.pack,
+            request.assemblyVersion,
+            request.assemblyCulture,
+            request.assemblyPublicKeyToken,
             request.type,
             request.member,
             request.selectorKey,
@@ -552,6 +951,10 @@ test("platform drill publishes current graphs and pop restores the parent", asyn
           [
             "net10.0",
             "System.Text.Json.dll",
+            "netcore.app",
+            "10.0.0.0",
+            null,
+            "cc7b13ffcd2ddd51",
             "T:System.Text.Json.JsonSerializer",
             "Serialize",
             "Serialize|System.Object",
@@ -628,6 +1031,66 @@ test("superseded platform drill completion cannot publish", async () => {
   assert.equal(state.platformStack.length, 0);
   assert.equal(state.platformDrillLoading, true);
   assert.equal(state.platformDrillError, "");
+});
+
+test("platform drill completion cannot publish after its view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  let graphRenders = 0;
+  let memberRenders = 0;
+  const state = inspectionState({ memberCallGraphSeq: 5 });
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+      renderPreservingMemberFocus: () => {
+        memberRenders++;
+        return focusSnapshot();
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.drill(drillRequest({ isCurrent: () => current }));
+  current = false;
+  request.resolve(graph("stale"));
+  await load;
+
+  assert.equal(state.platformStack.length, 0);
+  assert.equal(state.platformDrillLoading, false);
+  assert.equal(state.platformDrillError, "");
+  assert.equal(graphRenders, 0);
+  assert.equal(memberRenders, 2);
+});
+
+test("platform drill failures stay silent after their view owner changes", async () => {
+  const request = deferred<BrowserCallGraph>();
+  let current = true;
+  let graphRenders = 0;
+  let memberRenders = 0;
+  const state = inspectionState({ memberCallGraphSeq: 5 });
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: async () => request.promise,
+      renderPreservingMemberFocus: () => {
+        memberRenders++;
+        return focusSnapshot();
+      },
+      renderCallGraph: async () => {
+        graphRenders++;
+      },
+    }));
+
+  const load = coordinator.drill(drillRequest({ isCurrent: () => current }));
+  current = false;
+  request.reject(new Error("stale failure"));
+  await load;
+
+  assert.equal(state.platformStack.length, 0);
+  assert.equal(state.platformDrillLoading, false);
+  assert.equal(state.platformDrillError, "");
+  assert.equal(graphRenders, 0);
+  assert.equal(memberRenders, 2);
 });
 
 test("duplicate platform drill requests do not query or render", async () => {

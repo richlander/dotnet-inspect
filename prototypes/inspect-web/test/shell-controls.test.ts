@@ -5,7 +5,13 @@ import {
   bindLoadErrorShell,
   bindWorkbenchShell,
 } from "../src/shell-controls.ts";
+import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
+
+setProductHomeDemoCatalog([
+  { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
+  { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
+]);
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -101,9 +107,8 @@ test("home shell accepts only known demos", () => {
   const theme = new FakeElement();
   const dismiss = new FakeElement();
   const credits = new FakeElement();
-  const stj = new FakeElement({ homeDemo: "stj" });
-  const runtime = new FakeElement({ homeDemo: "runtime" });
-  const callgraph = new FakeElement({ homeDemo: "callgraph" });
+  const stj = new FakeElement({ homeDemo: "stj-serializer" });
+  const callgraph = new FakeElement({ homeDemo: "extensions-callgraph" });
   const unknown = new FakeElement({ homeDemo: "other" });
   const absent = new FakeElement();
   root.add("#home-theme", theme);
@@ -112,7 +117,6 @@ test("home shell accepts only known demos", () => {
   root.addAll(
     "[data-home-demo]",
     stj,
-    runtime,
     callgraph,
     unknown,
     absent,
@@ -134,7 +138,6 @@ test("home shell accepts only known demos", () => {
   assert.deepEqual(calls, ["theme", "dismiss"]);
   assert.equal(credits.dispatch("click"), true);
   stj.dispatch("click");
-  runtime.dispatch("click");
   callgraph.dispatch("click");
   unknown.dispatch("click");
   absent.dispatch("click");
@@ -142,9 +145,8 @@ test("home shell accepts only known demos", () => {
     "theme",
     "dismiss",
     "credits",
-    "demo:stj",
-    "demo:runtime",
-    "demo:callgraph",
+    "demo:stj-serializer",
+    "demo:extensions-callgraph",
   ]);
 });
 

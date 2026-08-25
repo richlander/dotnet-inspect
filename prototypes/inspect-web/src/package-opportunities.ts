@@ -3,7 +3,7 @@ import type {
   BrowserPackageOpportunities,
 } from "./inspect-web-engine.d.ts";
 
-type OpportunityItem = BrowserOpportunityItem;
+export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
   BrowserPackageOpportunities,
   "categories" | "totalOpportunities" | "inspectionError"
@@ -24,7 +24,17 @@ export interface RenderPackageOpportunitiesOptions {
 export interface PackageOpportunitiesBindingActions {
   onLookForSelect: (query: string) => void;
   onPackageSelect: (packageId: string) => void;
-  onTypeSelect: (typeId: string) => void;
+  onTypeSelect: (target: PackageOpportunityTarget) => void;
+}
+
+export interface PackageOpportunityTarget {
+  typeId: string;
+  sourceIdentity: "legacy" | "exact" | "unknown";
+  sourceDefinitionId: string | null;
+  sourceAssembly: string | null;
+  sourceAssemblyVersion: string | null;
+  sourceAssemblyCulture: string | null;
+  sourceAssemblyPublicKeyToken: string | null;
 }
 
 export function bindPackageOpportunities(
@@ -34,7 +44,19 @@ export function bindPackageOpportunities(
   root.querySelectorAll<HTMLElement>("[data-opp-type]").forEach(button =>
     button.addEventListener(
       "click",
-      () => actions.onTypeSelect(button.dataset.oppType ?? "")));
+      () => actions.onTypeSelect({
+        typeId: button.dataset.oppType ?? "",
+        sourceIdentity: button.dataset.oppSourceIdentity === "exact"
+          ? "exact"
+          : button.dataset.oppSourceIdentity === "unknown"
+            ? "unknown"
+            : "legacy",
+        sourceDefinitionId: button.dataset.oppSourceDefinition ?? null,
+        sourceAssembly: button.dataset.oppSourceAssembly ?? null,
+        sourceAssemblyVersion: button.dataset.oppSourceVersion ?? null,
+        sourceAssemblyCulture: button.dataset.oppSourceCulture || null,
+        sourceAssemblyPublicKeyToken: button.dataset.oppSourceToken || null,
+      })));
   root.querySelectorAll<HTMLElement>("[data-opp-package]").forEach(button =>
     button.addEventListener(
       "click",
@@ -90,6 +112,14 @@ function renderLookForChips(lookFor: string, escapeHtml: (value: unknown) => str
 function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown) => string): string {
   const api = splitApiName(item.api);
   const kind = splitOpportunityKind(item.integrationType);
+  const hasSourceIdentity = Object.prototype.hasOwnProperty.call(
+    item,
+    "sourceDefinitionId");
+  const sourceIdentity = !hasSourceIdentity
+    ? ""
+    : item.sourceDefinitionId
+      ? ` data-opp-source-identity="exact" data-opp-source-definition="${escapeHtml(item.sourceDefinitionId)}" data-opp-source-assembly="${escapeHtml(item.sourceAssembly)}" data-opp-source-version="${escapeHtml(item.sourceAssemblyVersion)}" data-opp-source-culture="${escapeHtml(item.sourceAssemblyCulture ?? "")}" data-opp-source-token="${escapeHtml(item.sourceAssemblyPublicKeyToken ?? "")}"`
+      : ` data-opp-source-identity="unknown"`;
   const kindHtml = kind.package
     ? `<button class="opp-package-chip" data-opp-package="${escapeHtml(kind.package)}" title="Load ${escapeHtml(kind.package)} into the workspace">${escapeHtml(kind.package)}</button>${kind.text ? `<span class="opp-kind-text">${escapeHtml(kind.text)}</span>` : ""}`
     : `<span class="opp-kind-text">${escapeHtml(item.integrationType)}</span>`;
@@ -98,7 +128,7 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
       <span class="signal-badge signal-type">T</span>
       <div class="opp-body">
         <div class="opp-head">
-          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}" title="Open ${escapeHtml(item.api)} in this package">
+          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}"${sourceIdentity} title="Open ${escapeHtml(item.api)} in this package">
             <span class="opp-type-name">${escapeHtml(api.short)}</span>${api.qualifier ? `<span class="opp-type-ns">${escapeHtml(api.qualifier)}</span>` : ""}
           </button>
           <span class="opp-kind">${kindHtml}</span>
