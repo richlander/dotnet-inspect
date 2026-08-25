@@ -337,6 +337,90 @@ test("a truncated platform surface merges instead of failing the whole load", as
     "the truncated surface's types were merged into the resident package");
 });
 
+test("a truncated full-pack surface merges into a compatible resident", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface(
+      "aspnet",
+      "Microsoft.AspNetCore.Http.Abstractions",
+      "Microsoft.AspNetCore.Http.HttpContext",
+      2,
+      "aspnetcore.app"));
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [typeSurface("System.Object", "System.Private.CoreLib")],
+      totalMembers: 2,
+      inspectionError: "System.Private.CoreLib: extraction truncated.",
+    })),
+    runtimePackage: () => resident,
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePack("net10.0");
+
+  assert.equal(result.error, null);
+  assert.equal(result.packageModel, resident);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(
+    resident.types.map(type => type.id),
+    ["Microsoft.AspNetCore.Http.HttpContext", "System.Object"]);
+  assert.equal(resident.assemblyId, "aspnet");
+  assert.equal(
+    resident.inspectionError,
+    "System.Private.CoreLib: extraction truncated.");
+});
+
+test("retrying a truncated surface does not inflate resident aggregates", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  let engineCalls = 0;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => {
+      engineCalls++;
+      return JSON.stringify(packageSurface({
+        package: "Microsoft.NETCore.App",
+        activeFramework: "net10.0",
+        defaultAssemblyId: "missing",
+        assemblies: [],
+        types: [
+          typeSurface("System.Object", "System.Private.CoreLib"),
+          typeSurface("System.Text.Json.JsonDocument", "System.Text.Json"),
+        ],
+        accessibility: [{
+          id: "public",
+          label: "Public",
+          order: 0,
+          isDefault: true,
+          count: 2,
+        }],
+        totalMembers: 4,
+      }));
+    },
+    runtimePackage: () => resident,
+  }));
+
+  await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+  await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Text.Json",
+    "netcore.app");
+
+  assert.equal(engineCalls, 2);
+  assert.deepEqual(
+    resident.types.map(type => type.id),
+    ["System.Object", "System.Text.Json.JsonDocument"]);
+  assert.equal(resident.totalMembers, 4);
+  assert.equal(resident.accessibility[0]?.count, 2);
+});
+
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path
 // returned before any identity check, so a surface with an absent, empty, or
 // whitespace-only `defaultAssemblyId` succeeded -- and mutated the resident package --
@@ -547,7 +631,7 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
   assert.deepEqual(
     mergedModel.types.map(candidate => candidate.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
-  assert.equal(mergedModel.totalMembers, 5);
+  assert.equal(mergedModel.totalMembers, 4);
   // Main's added assertions, with this slice's checked-index guard on the one indexed
   // read among them.
   const publicAccessibility = mergedModel.accessibility[0];

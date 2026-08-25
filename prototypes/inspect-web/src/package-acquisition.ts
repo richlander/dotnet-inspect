@@ -202,8 +202,12 @@ export function mergeRuntimePackageSurface(
 
   const newTypes = packageTypes(result);
   const seenTypes = new Set(existing.types.map(type => type.id));
+  const acceptedTypes: BrowserTypeSurface[] = [];
   for (const type of newTypes) {
-    if (!seenTypes.has(type.id)) existing.types.push(type);
+    if (seenTypes.has(type.id)) continue;
+    seenTypes.add(type.id);
+    existing.types.push(type);
+    acceptedTypes.push(type);
   }
 
   const assemblyKey = (assembly: BrowserAssemblySurface) => [
@@ -217,23 +221,51 @@ export function mergeRuntimePackageSurface(
   ].join("\0");
   const seenAssemblies = new Set(existing.assemblies.map(assemblyKey));
   for (const assembly of result.assemblies ?? []) {
-    if (!seenAssemblies.has(assemblyKey(assembly))) {
-      existing.assemblies.push(assembly);
-    }
+    const key = assemblyKey(assembly);
+    if (seenAssemblies.has(key)) continue;
+    seenAssemblies.add(key);
+    existing.assemblies.push(assembly);
   }
 
+  // Preserve authoritative surface aggregates for a wholly new result. A partial or
+  // repeated merge must instead count only rows accepted above.
+  const acceptedAllTypes =
+    newTypes.length > 0 && acceptedTypes.length === newTypes.length;
+  const acceptedAccessibilityCounts = new Map<string, number>();
+  if (acceptedAllTypes) {
+    for (const descriptor of result.accessibility ?? []) {
+      acceptedAccessibilityCounts.set(descriptor.id, descriptor.count);
+    }
+  } else {
+    for (const type of acceptedTypes) {
+      acceptedAccessibilityCounts.set(
+        type.accessibilityId,
+        (acceptedAccessibilityCounts.get(type.accessibilityId) ?? 0) + 1);
+    }
+  }
   const descriptors = new Map(
     existing.accessibility.map(descriptor => [descriptor.id, descriptor]));
   for (const descriptor of result.accessibility ?? []) {
+    const acceptedCount = acceptedAccessibilityCounts.get(descriptor.id) ?? 0;
+    if (acceptedCount === 0) continue;
     const current = descriptors.get(descriptor.id);
     descriptors.set(descriptor.id, current
-      ? { ...current, count: current.count + descriptor.count }
-      : descriptor);
+      ? { ...current, count: current.count + acceptedCount }
+      : { ...descriptor, count: acceptedCount });
   }
   existing.accessibility = [...descriptors.values()]
     .sort((left, right) => left.order - right.order);
   existing.totalTypes = existing.types.length;
-  existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
+  const defaultAccessibilityIds = new Set(
+    (result.accessibility ?? [])
+      .filter(descriptor => descriptor.isDefault)
+      .map(descriptor => descriptor.id));
+  const acceptedMembers = acceptedAllTypes
+    ? (result.totalMembers || 0)
+    : acceptedTypes
+      .filter(type => defaultAccessibilityIds.has(type.accessibilityId))
+      .reduce((total, type) => total + type.members, 0);
+  existing.totalMembers = (existing.totalMembers || 0) + acceptedMembers;
   existing.inspectionError = mergeInspectionErrors(
     existing.inspectionError,
     result.inspectionError);
@@ -380,16 +412,21 @@ export function createPackageAcquisition(
             await dependencies.loadRuntimePack(requestedFramework));
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
-          const packageModel = createRuntimePackageModel(result);
           const current = dependencies.runtimePackage();
           if (current
             && (!requestedFramework
               || current.activeFramework.toLowerCase()
                 === requestedFramework.toLowerCase())) {
-            mergeRuntimePackageSurface(current, result);
-            promoteRuntimePackagePrimary(current, packageModel);
-            return current;
+            const merged = mergeRuntimePackageSurface(current, result);
+            const primary = selectedAssembly(result);
+            if (primary) {
+              promoteRuntimePackagePrimary(
+                merged,
+                createRuntimePackageModelForAssembly(result, primary));
+            }
+            return merged;
           }
+          const packageModel = createRuntimePackageModel(result);
           dependencies.retainPackage(packageModel, existing);
           return packageModel;
         }, isCurrent);
