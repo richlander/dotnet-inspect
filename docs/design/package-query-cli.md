@@ -102,14 +102,59 @@ need its own bespoke implementation in the `find`-specific formatter if this
 gap isn't closed first.
 
 **Recommendation:** migrate `find --package-prefix` row rendering onto the
-shared Sections/shape-ladder registry as a preparatory, behavior-preserving
-slice, before adding facet predicates on top of it. Doing the facet work
-first would mean either duplicating `--where`'s row-predicate semantics a
-second time inside the bespoke formatter, or building the facet feature on
-a foundation that has to be migrated out from under it immediately after.
+shared Sections/shape-ladder registry as a preparatory slice, before adding
+facet predicates on top of it — mostly behavior-preserving except for the
+one deliberate flag change named just below. Doing the facet work first
+would mean either duplicating `--where`'s row-predicate semantics a second
+time inside the bespoke formatter, or building the facet feature on a
+foundation that has to be migrated out from under it immediately after.
 This migration is orthogonal to and does not require changing anything about
 where `PackageProfileQuery` itself lives (L1 is already right); it only moves
 *rendering* onto the shared L2 path.
+
+### `-t` is the wrong flag to build on, and the migration should point at `--top`
+
+The `-t 100` #4551 uses for `find --package-prefix` reuses `find`'s own
+pre-existing `-t`, whose description was widened from "Limit type count
+(`-t 5`) or filter by glob (`-t *Json*`)" to "Limit result count... or
+filter API types by glob." That reuse is real and already merged, but it is
+not a precedent this document should build new predicate/limit flags on, for
+two reasons:
+
+- **`-t` already means something unrelated everywhere else in the CLI.**
+  `library`, `type`, `member`, and `package -S "SourceLink: Files"` all bind
+  `-t`/`--type` to a type name or glob filter — a different noun than "how
+  many rows." Only `find` overloads it as count-or-glob, and only because
+  `find`'s own type search predates a dedicated row-count flag.
+- **The repository already has (or is proposing) a flag family for this
+  concept, and it is not `--rows` either.** `-n N` / bare numeric shorthand
+  (`-20`) is a *rendered-line* window (the `--head`/`--tail` family,
+  [output-shapes.md](output-shapes.md)). `--rows N` is a *display* window —
+  "the first six data rows" — applied after projection, with no filter or
+  order awareness of its own; [row-query-order.md](row-query-order.md) is
+  explicit that "`--rows N` remains a renderer/display cap" and a non-goal to
+  avoid ("do not make `--top` a renderer cap; `--rows N` already owns that
+  role"). "The first 500 packages that match" is a **semantic** cap — first N
+  *after* filtering and ordering — which is exactly what
+  [row-query-order.md](row-query-order.md) proposes `--top` for ("take the
+  first N rows after filtering and ordering"; `--count` reports the
+  post-filter count before `--top` applies).
+
+The Sections-registry migration recommended above is the moment to fix this:
+once `find --package-prefix` rows are declared sections, `--top` (the
+semantic, filter-and-order-aware cap) and `--rows` (the display window on top
+of it, for paging a possibly-larger `--top`-capped set) both apply "for
+free," the same way the row-query-order.md pipeline already describes for
+every other section (`filter -> order -> apply --top -> project -> render`,
+then `--rows` further windows the rendered rows). That migration should
+retire `-t`-as-package-limit in favor of `--top`, not carry the overload
+forward, and should not reach for `--rows` either, since `--rows` explicitly
+does not carry filter/order semantics. `-t` should return to meaning only
+what it means for `find`'s type-search mode, or be dropped from
+`--package-prefix` mode entirely. This document uses `--top` for the
+semantic corpus-match bound in every example below; where #4551's landed
+`-t 100` conflicts with that, treat it as the thing this migration should
+change, not as settled vocabulary to preserve.
 
 ## Two-tier facets, reusing `--where`
 
@@ -199,15 +244,16 @@ the CLI should not reinvent that wording, and the browser experience should
 not need to translate a differently-shaped CLI completion signal.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
-corpus bound (`-t`, `find --package-prefix`'s existing streaming cutoff)
-apply before or after a nuspec-tier predicate runs? `-t` is a corpus-scope
-limit, not the row-count cap [row-query-order.md](row-query-order.md) already
-names as a goal for `--top` ("keep `--top` meaningful by defining it as a
-post-filter, post-order semantic row cap") — but the same before/after
-question applies to it once a predicate can shrink what the bound counts:
+corpus bound apply before or after a nuspec-tier predicate runs? Per the
+[flag-numbering correction above](#-t-is-the-wrong-flag-to-build-on-and-the-migration-should-point-at---top),
+that bound should be `--top`, not `find`'s current `-t` — and
+[row-query-order.md](row-query-order.md) already frames the underlying
+question as a general goal ("keep `--top` meaningful by defining it as a
+post-filter, post-order semantic row cap"). The same before/after question
+applies once a predicate can shrink what the bound counts:
 
-- **Nuspec-tier `--where`** should filter before `-t` truncates: `-t 500`
-  should mean "the first 500 packages that match," not "the first 500
+- **Nuspec-tier `--where`** should filter before `--top` truncates: `--top
+  500` should mean "the first 500 packages that match," not "the first 500
   packages, then whichever of those happen to match." The former is the
   honest reading of "first N matches" and the one #4654's browser review
   process would flag the latter for overclaiming.
@@ -260,10 +306,12 @@ the CLI's named facets as canonical for the browser's facet rail.
 1. **This document** — layering and vocabulary, reviewable independently of
    any implementation.
 2. **Migrate `find --package-prefix` rendering onto the shared Sections
-   registry** — a behavior-preserving prerequisite so `-S`/`--where`/
-   `--count`/`--rows` work the same way they do for `library`/`member`/
-   `package`, without a second bespoke implementation inside
-   `PackageProfileFindOutputFormatter`.
+   registry** — a mostly behavior-preserving prerequisite so `-S`/`--where`/
+   `--count`/`--top`/`--rows` work the same way they do for
+   `library`/`member`/`package`, without a second bespoke implementation
+   inside `PackageProfileFindOutputFormatter`. Its one deliberate, called-out
+   behavior change is retiring `-t`-as-package-limit in favor of `--top`, per
+   [`-t` is the wrong flag to build on](#-t-is-the-wrong-flag-to-build-on-and-the-migration-should-point-at---top).
 3. **Wire nuspec-tier `--where`** onto package-profile rows, deciding and
    documenting the filter-before-bound ordering from
    [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).
