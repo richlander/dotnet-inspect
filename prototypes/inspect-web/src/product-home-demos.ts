@@ -139,7 +139,11 @@ export function productHomeDemoLocationHref(
   const active = Math.min(
     Math.max(demo.focusTabIndex, 0),
     tabs.length - 1);
-  const focusPackage = tabs[active].id;
+  const focusTab = tabs[active];
+  if (!focusTab) {
+    throw new Error(`Product home demo '${demo.id}' has no active navigation tab.`);
+  }
+  const focusPackage = focusTab.id;
   return locationHref(workspaceUrlState({
     package: focusPackage,
     tabs,
