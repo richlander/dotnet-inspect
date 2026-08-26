@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -2147,10 +2148,33 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void BuildIdentity_ReadsHostAssemblyAttributes()
     {
+        Assembly assembly = typeof(InspectionEngine).Assembly;
+        AssemblyInformationalVersionAttribute? informationalVersion =
+            assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
         BrowserBuildIdentity identity =
-            BrowserBuildIdentityReader.Read(typeof(InspectionEngine).Assembly);
+            BrowserBuildIdentityReader.Read(assembly);
 
-        Assert.NotEmpty(identity.Version);
+        Assert.NotNull(informationalVersion);
+        Assert.Equal(
+            informationalVersion.InformationalVersion.Split('+', 2)[0],
+            identity.Version);
+    }
+
+    [Fact]
+    public void BuildIdentity_UsesFileVersionWithoutInformationalVersion()
+    {
+        const string fileVersion = "2.3.4.5";
+        AssemblyBuilder assembly = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("BrowserBuildIdentityFallback"),
+            AssemblyBuilderAccess.Run);
+        ConstructorInfo constructor =
+            typeof(AssemblyFileVersionAttribute).GetConstructor([typeof(string)])!;
+        assembly.SetCustomAttribute(
+            new CustomAttributeBuilder(constructor, [fileVersion]));
+
+        BrowserBuildIdentity identity = BrowserBuildIdentityReader.Read(assembly);
+
+        Assert.Equal(fileVersion, identity.Version);
     }
 
     [Fact]
