@@ -4,6 +4,9 @@ This document describes the conceptual model for how dotnet-inspect commands con
 
 See also [Output Composition Model](output-composition.md) for how section
 selection, filtering, and writer capabilities compose end-to-end.
+[Item and line limits](item-and-line-limits.md) owns the approved target for
+multi-item print projection; released behavior remains unary until that
+implementation lands.
 
 ## Two Axes of Control
 
@@ -58,7 +61,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Prints one document behind a selected printable section row; use `--row N\|first\|last` to choose the printable row when multiple printable rows exist |
+| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--out` remove that envelope |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -106,7 +109,17 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 
 ### Each lens owns its own rendering
 
-The `--files` view renders a tree. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. `member -S "Call Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid` select standalone graph renderings, while `--markdown --mermaid` embeds the diagram in the composable Markdown document. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
+The `--files` view renders a tree. The `--versions` view renders a list. In the
+multi-item target, `--print` requires one selected row set and projects every
+row to a framed document success or failure; `--row N` narrows that set to one
+stable address. `--jsonl`
+emits one complete success/failure object per selected row. `member -S "Call
+Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid`
+select standalone graph renderings, while `--markdown --mermaid` embeds the
+diagram in the composable Markdown document. These rendering choices are
+intrinsic to the lens, not controlled by verbosity. A lens may support its own
+sub-options (e.g. `--files --all` to include all files, not just DLLs) but those
+are scoped to that lens.
 
 ### Default rendering should be the most useful
 
@@ -117,7 +130,7 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--versions`, `-S Signals` |
-| `project` | — | `-S Skills`, `-S Skills --print --row N` |
+| `project` | — | `-S Skills`, `-S Skills --paths`, `-S Skills --print` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "PDB Source" --print` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |

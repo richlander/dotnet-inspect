@@ -51,7 +51,13 @@ public static class CustomAttributeValueGuard
     /// <see langword="true"/> so SRM's catchable failure remains the decoder
     /// result. Returns <see langword="false"/> when a declared count would
     /// allocate more slots than the remaining bytes can describe, or when
-    /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>.
+    /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>. A caller
+    /// <paramref name="enumUnderlyingType"/> is bound to the same
+    /// local-TypeDef-first, <see cref="EnumUnderlyingPrimitive.Normalize"/>
+    /// oracle <c>DecodeValue</c> uses, so a direct skip cannot diverge. A
+    /// TypeDef-index failure during that bind is <see langword="false"/>, not
+    /// a swallowed blob-format success: the walk never finished, so a later
+    /// <c>DecodeValue</c> with a different provider must not run.
     /// </summary>
     public static bool IsSafeToDecode(
         MetadataReader reader,
@@ -61,12 +67,24 @@ public static class CustomAttributeValueGuard
     {
         try
         {
+            if (enumUnderlyingType is not null)
+            {
+                enumUnderlyingType = AttributeDecoder.BindEnumWidthResolver(
+                    reader,
+                    beforeMaterialize,
+                    enumUnderlyingType);
+            }
+
             return Check(
                     reader,
                     attribute,
                     beforeMaterialize,
                     enumUnderlyingType)
                 != Result.Unsafe;
+        }
+        catch (AttributeDecoder.TypeDefinitionIndexException)
+        {
+            return false;
         }
         catch (BadImageFormatException)
         {
@@ -671,7 +689,9 @@ public static class CustomAttributeValueGuard
                     beforeMaterialize);
             return name is null
                 ? PrimitiveTypeCode.Int32
-                : enumUnderlyingType(name);
+                : EnumUnderlyingPrimitive.Normalize(
+                    enumUnderlyingType(
+                        EnumUnderlyingPrimitive.NormalizeSerializedName(name)));
         }
 
         if (handle.Kind == HandleKind.TypeDefinition)
@@ -705,7 +725,7 @@ public static class CustomAttributeValueGuard
             return PrimitiveTypeCode.Int32;
         string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(enumName);
         return enumUnderlyingType is not null
-            ? enumUnderlyingType(normalized)
+            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(normalized))
             : EnumUnderlyingPrimitive.FromSerializedName(reader, normalized);
     }
 

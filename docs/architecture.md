@@ -312,6 +312,43 @@ redirects to that portable `any` package (the framework-dependent build) at the 
 and inspects its managed assemblies. The redirect benefits every package-consuming command
 (`type`, `member`, `package`, `depends`).
 
+The extraction result retains the ordered wrapper chain separately from the final payload
+coordinate. Package inspection uses the requested wrapper's tool manifest for classification
+and commands while keeping the payload package identity and producer as the provenance of the
+managed assemblies being inspected. RID companion availability is verified when an explicit
+Manifest selection or effective discovery requests it. Normal and detailed local-file views also
+verify local siblings because that work is filesystem-only; ordinary remote views do not gain
+hidden network traffic. A coordinate-matching nuspec or an exact entry in an authoritative
+version index proves presence, authoritative absence renders `no`, and malformed or otherwise
+inconclusive probes remain `unknown`. A local sibling
+matches by NuGet's case-insensitive coordinate identity and must also pass bounded package-archive
+admission before its strict UTF-8 nuspec can prove presence; an existing but empty, non-regular,
+corrupt, unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
+mapped package present only when verification was requested and its extracted root nuspec has one
+consistently namespaced metadata, id, and version element that matches the acquired coordinate.
+Indeterminate acquired evidence remains `unknown` when every other applicable probe is absent;
+any coordinate-matching present probe still wins.
+Malformed critical `PackageBaseAddress` entries likewise keep a source's negative
+answer indeterminate without suppressing matching evidence from a usable sibling
+endpoint.
+Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective discovery renders
+every discoverable section established by its bounded automatic producer candidates, so it
+performs the same Manifest verification as targeted discovery without authorizing identifier,
+symbol, or source enrichment. Targeted discovery may authorize the producer for the explicitly
+requested section, and an explicit section selection constrains both discovery output and its producers.
+`RidPackageVerifierTests` and `PackageInspectorMetadataSourceTests` gate these local, remote, and
+acquired distinctions. Verification deduplicates case-insensitive package ids, probes at most 64
+distinct coordinates, snapshots a bounded local sibling directory once, and reads at most 500 MB
+of compressed local sibling archives across one verification operation. Each reservation uses
+the length of the opened file handle that is then read, so a path replacement cannot receive an
+uncharged allowance. Mappings and archive
+candidates beyond those limits, and candidates that race with the snapshot, remain `unknown`;
+missing paths still establish absence without spending the archive-byte budget.
+Availability is not retained in the payload index; each explicit request evaluates the current
+source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
+NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,
+and invalid UTF-8 cannot establish presence.
+
 ### Signature decoding
 
 Method and property signatures are decoded using `SignatureTypeProvider`, which implements `ISignatureTypeProvider<string, object?>`:
@@ -1019,6 +1056,22 @@ Research overlay bridge, and the application layer:
   source/evidence projection, while
   `PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis` gates the
   unsupported document shape.
+  `OptimizationOpportunityRanking` owns opportunity priority, semantic loop
+  classification, source-owner aggregation for lifted bodies, and stable
+  triage ordering. Both the CLI compatibility projection and
+  `AssemblyContextOptimizationOpportunitiesQuery` consume that policy rather
+  than sorting or classifying Analysis evidence in their hosts. The group query
+  opens optimization-only indexes over workspace-retained snapshots,
+  constrains reference resolution to binding-selected siblings in the same
+  group, attributes analyzed bodies to owning public API members with exact
+  metadata type identity and stable member selectors, and carries participant,
+  Analysis, and API-projection failures in its typed result. It
+  executes participants sequentially so whole-group ranking remains available
+  on single-threaded Browser/Wasm. `OptimizationOpportunityRankingTests` and
+  `AssemblyContextOptimizationOpportunitiesQueryTests` gate these ownership,
+  ordering, attribution, and execution contracts;
+  `AssemblyContextResearchProjectionQueryTests.Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup`
+  gates containment in the shared resolver.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation
