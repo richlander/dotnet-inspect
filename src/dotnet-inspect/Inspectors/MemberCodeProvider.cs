@@ -19,7 +19,20 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, ResolvedAssemblyReference? AssemblyReference = null, ResolvedAssemblyReference? TokenOriginAssemblyReference = null, string? CaretFocus = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, ResolvedAssemblyReference? AssemblyReference = null, ResolvedAssemblyReference? TokenOriginAssemblyReference = null, string? CaretFocus = null)
+    {
+        internal bool RequiresCodeCollection =>
+            DecompiledSource
+            || AnnotatedSource
+            || CostOverlay
+            || SemanticsOverlay
+            || IL
+            || Attributes
+            || Facts
+            || FidelityCauses
+            || AppliedTaste
+            || SourceDocument;
+    }
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -53,6 +66,8 @@ internal static class MemberCodeProvider
         PrinterOptions? renderOptions = null)
     {
         var results = new List<(ApiMember, Item)>();
+        if (!request.RequiresCodeCollection)
+            return results;
         
         // Sections that require a single selected method (IL, decompiled source, etc.)
         // are skipped when no overload index is provided. Callers works across all overloads
@@ -72,12 +87,6 @@ internal static class MemberCodeProvider
             return results;
 
         var bodySource = image.MethodBodies;
-        IReadOnlyDictionary<int, int> bodyTokens =
-            ApiBodyMemberCorrespondence.Resolve(
-                methods,
-                request.TokenOriginAssemblyReference ?? assembly,
-                assembly);
-
         // All decompiler-backed sections (decompiled source, annotated source, IR
         // stages) read through one MetadataSource that owns its own readers.
         // A malformed-metadata failure opening it degrades those sections to
@@ -116,7 +125,10 @@ internal static class MemberCodeProvider
                 lookupOverloadIndex,
                 publicOnly,
                 method.MetadataToken is { } sourceToken
-                    ? bodyTokens[sourceToken]
+                    ? ApiBodyMemberCorrespondence.Resolve(
+                        [sourceToken],
+                        request.TokenOriginAssemblyReference ?? assembly,
+                        assembly)[sourceToken]
                     : null);
             int? methodToken = selection?.MetadataToken;
 

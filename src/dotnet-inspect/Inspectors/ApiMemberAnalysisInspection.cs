@@ -22,9 +22,12 @@ internal sealed class ApiMemberAnalysisInspection
     readonly bool _includeGraphOpportunities;
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
-    readonly IReadOnlySet<int>? _bodyScope;
-    readonly IReadOnlyDictionary<int, int> _bodyTokens;
+    readonly bool _needsWholeAssemblyBody;
+    readonly ResolvedAssemblyReference _tokenOriginAssembly;
     readonly bool _requiresBodyTokenCorrespondence;
+    IReadOnlySet<int>? _bodyScope;
+    bool _bodyScopeResolved;
+    readonly Dictionary<int, int> _bodyTokens = [];
     readonly Dictionary<
         Analysis.TypeRef,
         Analysis.CallerScopeReachabilityPlan> _plans = [];
@@ -59,14 +62,11 @@ internal sealed class ApiMemberAnalysisInspection
             ?? ResolvedAssemblyReference.CreateFromPath(
                 assemblyPath,
                 AssemblyResolutionProvenance.Local("API member target"));
-        ResolvedAssemblyReference tokenOrigin =
+        _tokenOriginAssembly =
             options?.TokenOriginAssemblyReference ?? _targetAssembly;
         _requiresBodyTokenCorrespondence =
-            tokenOrigin.Registration != _targetAssembly.Registration;
-        _bodyTokens = ApiBodyMemberCorrespondence.Resolve(
-            methods,
-            tokenOrigin,
-            _targetAssembly);
+            _tokenOriginAssembly.Registration
+                != _targetAssembly.Registration;
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
@@ -86,32 +86,34 @@ internal sealed class ApiMemberAnalysisInspection
             }
         }
 
-        bool needsWholeAssemblyBody =
+        _needsWholeAssemblyBody =
             requestedSections.Contains(SectionNames.Callers)
             || requestedSections.Contains(SectionNames.CallGraph);
-        if (!needsWholeAssemblyBody)
-        {
-            var memberTokens = methods
-                .Where(member => member.MetadataToken.HasValue)
-                .Select(member => ResolveTargetToken(member.MetadataToken!.Value))
-                .ToHashSet();
-            if (memberTokens.Count > 0
-                && memberTokens.Count == methods.Count)
-            {
-                _bodyScope = memberTokens;
-            }
-        }
     }
 
     internal Analysis.LibraryBodyIndex BodyIndex => Session.BodyIndex;
 
-    internal int ResolveTargetToken(int sourceToken) =>
-        _bodyTokens.TryGetValue(sourceToken, out int targetToken)
+    internal int ResolveTargetToken(int sourceToken)
+    {
+        if (!_requiresBodyTokenCorrespondence)
+            return sourceToken;
+
+        return _bodyTokens.TryGetValue(sourceToken, out int targetToken)
             ? targetToken
-            : !_requiresBodyTokenCorrespondence
-                ? sourceToken
-            : throw new InvalidOperationException(
-                $"MethodDef token 0x{sourceToken:X8} has no body-acquisition correspondence.");
+            : ResolveTargetTokenCore(sourceToken);
+    }
+
+    int ResolveTargetTokenCore(int sourceToken)
+    {
+        IReadOnlyDictionary<int, int> resolved =
+            ApiBodyMemberCorrespondence.Resolve(
+                [sourceToken],
+                _tokenOriginAssembly,
+                TargetAssembly);
+        int targetToken = resolved[sourceToken];
+        _bodyTokens.Add(sourceToken, targetToken);
+        return targetToken;
+    }
 
     internal IReadOnlyList<CallGraphField> CallGraphFields =>
         _callGraphFields;
@@ -215,7 +217,31 @@ internal sealed class ApiMemberAnalysisInspection
                 _options),
             _includeAllocations,
             _includeOpportunities,
-            _bodyScope);
+            BodyScope);
+
+    IReadOnlySet<int>? BodyScope
+    {
+        get
+        {
+            if (_needsWholeAssemblyBody)
+                return null;
+            if (_bodyScopeResolved)
+                return _bodyScope;
+
+            var memberTokens = _methods
+                .Where(member => member.MetadataToken.HasValue)
+                .Select(member =>
+                    ResolveTargetToken(member.MetadataToken!.Value))
+                .ToHashSet();
+            if (memberTokens.Count > 0
+                && memberTokens.Count == _methods.Count)
+            {
+                _bodyScope = memberTokens;
+            }
+            _bodyScopeResolved = true;
+            return _bodyScope;
+        }
+    }
 
     ResolvedAssemblyReference TargetAssembly =>
         _targetAssembly ??=

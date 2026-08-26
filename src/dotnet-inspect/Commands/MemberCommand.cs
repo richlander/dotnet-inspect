@@ -491,17 +491,10 @@ public static class MemberCommand
                         ApiServices.AssemblyReferenceRole.RuntimeOrPdb)
                     ?? throw new InvalidOperationException(
                         "Could not retain the acquired assembly for member source resolution.");
-                // A metadata token is valid only when source resolution opens
-                // the same acquisition that produced it. Otherwise resolve by
-                // member identity rather than reinterpreting the row in a
-                // reference/runtime counterpart or forwarding facade.
-                var sourceMetadataToken =
-                    memberMetadataAssembly is not null
-                    && ReferenceEquals(
-                        memberMetadataAssembly.Registration,
-                        sourceResolutionAssembly.Registration)
-                        ? sourceMember?.MetadataToken ?? 0
-                        : 0;
+                int sourceMetadataToken = ResolveSourceMetadataToken(
+                    sourceMember,
+                    memberMetadataAssembly,
+                    sourceResolutionAssembly);
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath,
                     sourceResolutionAssembly,
@@ -552,6 +545,7 @@ public static class MemberCommand
                         + "\"Kind=<C# Body Kinds ID>\".");
                     return 1;
                 }
+
                 return ApiCommand.ExecuteEffectiveDiscovery(
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions,
                     new ApiCommand.TypeAcquisitionContext(
@@ -671,6 +665,30 @@ public static class MemberCommand
 
             callerScopeAssemblySet?.Dispose();
         }
+    }
+
+    internal static int ResolveSourceMetadataToken(
+        ApiMember? sourceMember,
+        ResolvedAssemblyReference? memberMetadataAssembly,
+        ResolvedAssemblyReference sourceResolutionAssembly)
+    {
+        if (sourceMember?.MetadataToken is not int sourceToken
+            || memberMetadataAssembly is null)
+        {
+            return 0;
+        }
+
+        if (ReferenceEquals(
+                memberMetadataAssembly.Registration,
+                sourceResolutionAssembly.Registration))
+        {
+            return sourceToken;
+        }
+
+        return ApiBodyMemberCorrespondence.Resolve(
+            [sourceToken],
+            memberMetadataAssembly,
+            sourceResolutionAssembly)[sourceToken];
     }
 
     private static bool DeferredExactTargetUsesTypePipeline(

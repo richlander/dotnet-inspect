@@ -166,9 +166,19 @@ independently from each acquisition's SRM metadata and maps to the runtime
 MethodDef before opening any body-backed section. This correspondence identity
 is intentionally stricter than the durable, user-facing `MemberAnchor`: it
 retains calling conventions, return and parameter signatures, generic
-positions, function-pointer conventions, and custom modifiers. Missing or
-ambiguous identity correspondence is a visible failure; a foreign token is
-never used as a fallback.
+positions, function-pointer conventions, and custom modifiers. A nominal type
+inside that signature is projected by namespace and root-to-leaf metadata name,
+not by whether one acquisition encodes it as a TypeDef or as a TypeRef through
+an assembly scope. That erasure may establish correspondence only when the
+projected MethodDef identity is unique in both acquisitions. Missing or
+ambiguous identity correspondence is a visible failure; a foreign token or
+overload ordinal is never used as a fallback.
+`MethodBodyInspectionSessionTests.BodyCorrespondence_NormalizesDefinitionAndReferenceTypeNames`
+gates TypeDef/TypeRef and generic-constraint normalization;
+`BodyCorrespondence_AmbiguousMetadataNamesFailClosed` gates source-wide
+uniqueness for a singleton request; and
+`PdbSourceToken_CorrespondsReorderedOverloads` gates exact runtime-token
+selection for PDB lookup.
 
 When a reference surface defines a type but the corresponding runtime assembly
 forwards it, the runtime role follows that forwarding chain to the assembly

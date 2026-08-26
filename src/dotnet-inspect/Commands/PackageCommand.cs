@@ -265,6 +265,8 @@ public class PackageCommand
             return 1;
         if (!ValidatePackageContentMode(options))
             return 1;
+        if (!ValidatePackageBodyKindMode(options))
+            return 1;
 
         if (options.AllLibraries && !ValidatePackageAllLibrariesMode(options))
             return 1;
@@ -3673,6 +3675,21 @@ public class PackageCommand
     internal static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
         options.Verbosity >= Verbosity.Detailed
         || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
+
+    private static bool ValidatePackageBodyKindMode(
+        InspectionOptions options)
+    {
+        if (!options.BodyKindQuery.HasFilter
+            || options.AllLibraries
+            || options.PackageLibrary is not null)
+        {
+            return true;
+        }
+
+        CommandError.Write(
+            "--where Kind=... requires --library or --all-libraries.");
+        return false;
+    }
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {

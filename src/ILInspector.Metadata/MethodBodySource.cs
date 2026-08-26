@@ -213,8 +213,16 @@ public sealed class MethodBodySource : IOperandNameResolver
             throw new BadImageFormatException(
                 "The target method table exceeds the correspondence safety limit.");
         }
+        if (_reader.MethodDefinitions.Count
+            > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+        {
+            throw new BadImageFormatException(
+                "The source method table exceeds the correspondence safety limit.");
+        }
 
-        var sourceSignatures = new StructuralSignatureBuilder(_reader);
+        var sourceSignatures = new StructuralSignatureBuilder(
+            _reader,
+            StructuralNominalTypeIdentity.MetadataName);
         var requested = new Dictionary<StructuralMethodKey, List<int>>();
         foreach (int sourceToken in sourceMethodTokens.Distinct())
         {
@@ -246,12 +254,49 @@ public sealed class MethodBodySource : IOperandNameResolver
             tokens.Add(sourceToken);
         }
 
-        var resolved = new Dictionary<int, MethodBodySelection>();
-        var ambiguous = new HashSet<int>();
         var requestedTypes = requested.Keys
             .Select(key => key.DeclaringType)
             .ToHashSet();
-        var targetSignatures = new StructuralSignatureBuilder(target._reader);
+        var sourceMatchCounts = requested.Keys
+            .ToDictionary(key => key, _ => 0);
+        var sourceDeclaringTypes =
+            new Dictionary<TypeDefinitionHandle, bool>();
+        foreach (MethodDefinitionHandle sourceHandle
+            in _reader.MethodDefinitions)
+        {
+            MethodDefinition sourceMethod =
+                _reader.GetMethodDefinition(sourceHandle);
+            TypeDefinitionHandle declaringType =
+                sourceMethod.GetDeclaringType();
+            if (!sourceDeclaringTypes.TryGetValue(
+                    declaringType,
+                    out bool declaringTypeMatches))
+            {
+                declaringTypeMatches = requestedTypes.Contains(
+                    sourceSignatures.BuildTypeKey(declaringType));
+                sourceDeclaringTypes.Add(
+                    declaringType,
+                    declaringTypeMatches);
+            }
+            if (!declaringTypeMatches)
+                continue;
+
+            StructuralMethodKey key =
+                sourceSignatures.BuildMethodKey(sourceMethod);
+            if (sourceMatchCounts.TryGetValue(key, out int count))
+                sourceMatchCounts[key] = checked(count + 1);
+        }
+
+        var resolved = new Dictionary<int, MethodBodySelection>();
+        var ambiguous = requested
+            .Where(entry =>
+                entry.Value.Count != 1
+                || sourceMatchCounts[entry.Key] != 1)
+            .SelectMany(entry => entry.Value)
+            .ToHashSet();
+        var targetSignatures = new StructuralSignatureBuilder(
+            target._reader,
+            StructuralNominalTypeIdentity.MetadataName);
         var matchingDeclaringTypes =
             new Dictionary<TypeDefinitionHandle, bool>();
         foreach (MethodDefinitionHandle targetHandle
@@ -277,6 +322,9 @@ public sealed class MethodBodySource : IOperandNameResolver
             StructuralMethodKey key =
                 targetSignatures.BuildMethodKey(targetMethod);
             if (!requested.TryGetValue(key, out List<int>? sourceTokens))
+                continue;
+            if (sourceTokens.Count != 1
+                || sourceMatchCounts[key] != 1)
                 continue;
 
             MethodBodySelection selection =

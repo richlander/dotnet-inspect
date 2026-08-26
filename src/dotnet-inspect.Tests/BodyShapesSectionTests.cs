@@ -161,6 +161,58 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task PackageOverviewKindPredicate_FailsBeforeAcquisition()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "package",
+                    "Package.That.Must.Not.Be.Acquired",
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--where Kind=... requires --library or --all-libraries.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageUnsupportedPredicate_UsesModeNeutralDiagnostic()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "package",
+                    "Package.That.Must.Not.Be.Acquired",
+                    "--where",
+                    "RootReach>=10",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "Package inspection supports only --where Kind=... predicates.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package --all-libraries",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberBodyShapeGlobExpansion_RequiresKindPredicate()
     {
         var root = CommandLineBuilder.CreateRootCommand();

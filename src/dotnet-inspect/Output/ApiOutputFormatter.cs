@@ -1857,7 +1857,11 @@ public static class ApiOutputFormatter
         if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
+        IEnumerable<(ApiMember Member, MemberCodeProvider.Item Code)> codeItems =
+            request.RequiresCodeCollection
+                ? MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions)
+                : [];
+        foreach (var (member, code) in codeItems)
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {

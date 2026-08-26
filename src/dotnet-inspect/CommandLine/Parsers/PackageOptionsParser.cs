@@ -135,7 +135,7 @@ public static class PackageOptionsParser
         if (remainingWhere.Length > 0)
         {
             return new InvalidOption(
-                "Package --all-libraries supports only "
+                "Package inspection supports only "
                 + "--where Kind=... predicates.");
         }
 
