@@ -133,6 +133,8 @@ precision, and recall bounds; it does not mean retrieval was perfect.
 **Semantic lookalike** means structural evidence ranked a behaviorally
 different candidate highly. **Declared peer not recovered within reviewed
 depth** means a relevant ledger candidate ranked below K or was not ranked.
+The aggregate count is unavailable when retrieval does not complete for a
+query with declared relevant peers.
 
 The seven-query evaluation meets all ledger expectations with six relevant
 peers among 14 reviewed results (42.85% precision) and recovers six of seven

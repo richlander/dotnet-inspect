@@ -365,9 +365,10 @@ information-retrieval meaning: a deliberately plausible but unrelated
 candidate. **Semantic lookalike** and **declared peer not recovered within
 reviewed depth** are harness descriptions of visible retrieval limitations.
 The latter includes a relevant ledger candidate ranked below K or not ranked
-at all. These figures describe only the authored version-pair ledger. They
-establish retrieval behavior, not cross-reader clone relations or semantic
-equivalence.
+at all; its aggregate count is unavailable when retrieval does not complete
+for a query with declared relevant peers. These figures describe only the
+authored version-pair ledger. They establish retrieval behavior, not
+cross-reader clone relations or semantic equivalence.
 `StructuralCloneCrossAssemblyCorpusTests.CommittedCorpus_GradesVersionPair`
 gates the real fixture run and exact text report, while
 `CommittedCorpus_PinsNonVacuousReviewCoverage` gates the project/type

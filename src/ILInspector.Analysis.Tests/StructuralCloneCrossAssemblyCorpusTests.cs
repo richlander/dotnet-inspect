@@ -247,6 +247,12 @@ public class StructuralCloneCrossAssemblyCorpusTests
         Assert.DoesNotContain(
             "over declared peers: n/a (",
             text);
+        Assert.Contains(
+            "Declared peers not recovered within reviewed depth: n/a",
+            text);
+        Assert.DoesNotContain(
+            "Declared peers not recovered within reviewed depth: 0",
+            text);
     }
 
     [Fact]

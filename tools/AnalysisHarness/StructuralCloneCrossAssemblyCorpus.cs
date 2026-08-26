@@ -517,7 +517,14 @@ public static class StructuralCloneCrossAssemblyCorpus
             .Append(report.HardNegativesAtK)
             .AppendLine();
         text.Append("Declared peers not recovered within reviewed depth: ")
-            .Append(report.KnownMisses)
+            .Append(
+                report.Queries.All(static query =>
+                    query.RelevantLabels == 0
+                    || query.RetrievalDisposition
+                        == StructuralCloneRetrievalDisposition.Completed)
+                    ? report.KnownMisses.ToString(
+                        CultureInfo.InvariantCulture)
+                    : "n/a")
             .AppendLine();
         text.Append("Query artifact: ")
             .Append(report.LeftAssembly)
