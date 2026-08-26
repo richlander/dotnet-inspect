@@ -615,6 +615,11 @@ either preserve sequencing or surface unexpected rejection visibly. The exact
 `node:test` `test` call is the only configured safe promise-returning call
 because the test runner owns and observes that returned promise.
 
+Closed workspace scopes, type and package lenses, member sections, and
+Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
+tokens are decoded before they reach typed state or actions; the scope-bar and
+workspace-navigation tests gate rejection of unknown values.
+
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
@@ -651,12 +656,41 @@ tsgolint package metadata, requires both Linux libc variants, and pins the npm
 preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
 gates the supported paths.
 
-`noUncheckedIndexedAccess` is not enabled yet. A TypeScript 7.0.2 migration
-probe reports 77 findings across 15 files: 65 in nine product files and 12 in
-six test files. [Issue #4549](https://github.com/richlander/dotnet-inspect/issues/4549)
-records the probe commands, file distribution, and migration discipline; the
-set should be migrated with close negative tests for indexing behavior rather
-than hidden behind assertions.
+`noUncheckedIndexedAccess` is enabled in the shared configuration and therefore
+applies to both product and test projects. Indexed and lookup values are checked
+at their use sites, with malformed decoded coordinates ignored and missing
+decoded assembly descriptors reported through the existing visible failure
+paths. Close-negative tests cover those boundaries rather than relying on
+non-null assertions.
+
+The scope, lens, and member-section vocabularies are closed union types derived
+from the catalogs that render them. `data.ts` and `spotlight.ts` own those
+catalogs; narrower typed subsets such as the platform library picker may repeat
+only the values that surface exposes, with assignment back to catalog-derived
+state checked by TypeScript. Values arriving from `dataset` attributes, URL
+query parameters, hashes, and share packets are admitted through `isTypeLens`,
+`isPackageLens`, `isMemberSection`, `isWorkspaceScope`, and `availableScope`;
+an unrecognized value is rejected at that boundary rather than cast into typed
+state.
+
+Because those catalogs also render the choices a user can pick, adding an entry
+widens the union *and* immediately offers the new value. Every dispatch named by
+the exhaustiveness gate therefore ends in `assertNever`, so adding a catalog
+entry fails compilation until each such dispatch says what the new value does.
+The gate derives its vocabulary roster from every exported type alias in
+`data.ts` and `spotlight.ts` that queries a catalog; it is not tied to one
+formatting or indexing shape.
+
+Nothing at runtime can observe that property — an unhandled value would simply
+take whichever branch the consumer fell through to — so the gate is the compiler, and
+`widening a UI vocabulary catalog fails compilation until every consumer handles it`
+in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
+in a throwaway copy of the real TypeScript source graph and asserts `tsc`
+reports the expected `assertNever` location in every named dispatch, with no
+unrelated diagnostic. Deleting any one exhaustive dispatch turns it red.
+`packageLensBody` is exhaustive too: an unwired package lens used to render a
+placeholder that was indistinguishable from an empty lens, but now fails
+compilation until its behavior is explicit.
 
 ## Test
 
@@ -1047,9 +1081,12 @@ archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
 `inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
 download that artifact by ID with digest mismatch configured as an error and
 deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
-includes the managed API's hidden `.azurefunctions` dependencies, and the
-post-download gate requires its extension loader before deployment. Candidate
-build code never runs in the staging deployment job. The separate
+includes the managed API's hidden `.azurefunctions` dependencies and overwrites
+the same-name artifact on a rerun, so a cancelled attempt can be retried without
+leaving multiple artifacts that promotion rejects.
+`PromotionWorkflowContract` gates both properties. The post-download gate
+requires the extension loader before deployment. Candidate build code never
+runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
@@ -1071,18 +1108,20 @@ hook before and after artifact transfer.
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
 operator supplies the staging run ID and types `promote`; the workflow verifies
-that the run was a successful `main` push through the staging workflow, that
+that the run was a successful `main` build through the staging workflow, that
 its `Publish staging` job succeeded, and that it produced one unexpired,
-nonempty `inspect-web-site` artifact. After production approval it revalidates
-the run attempt, commit, artifact identity, and digest, downloads the exact
-artifact ID with digest mismatch configured as an error, and deploys the
-archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
-by inspect-web CI, gates the evidence discriminator and close negative cases;
+nonempty `inspect-web-site` artifact. Main-push staging is the default. An
+operator-dispatched staging run is accepted only when the promotion dispatch
+explicitly enables `allow_manual_staging`; the validator rejects it otherwise.
+After production approval the workflow revalidates that same override, run
+attempt, commit, artifact identity, and digest, downloads the exact artifact ID
+with digest mismatch configured as an error, and deploys the archived staging
+files. `validate-inspect-web-promotion.cs --self-test`, run by inspect-web CI,
+gates the default rejection, explicit exception, and other close negative cases;
 the CI change-detection workflow contract gate keeps all deployment jobs free
 of candidate code, closes the CoreCLR runtime and credential contract, keeps
 production revalidation on the trusted dispatch revision, and orders each
-artifact download before only verification and deployment. Manual staging runs
-remain useful for recovery but are deliberately not promotable.
+artifact download before only verification and deployment.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`

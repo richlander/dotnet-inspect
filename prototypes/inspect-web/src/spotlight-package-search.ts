@@ -1,8 +1,11 @@
-import type { SpotlightPackageHit } from "./spotlight.ts";
+import type {
+  SpotlightPackageHit,
+  SpotlightScope,
+} from "./spotlight.ts";
 
 export interface SpotlightPackageSearchState {
   spotlightQuery: string;
-  spotlightScope: string;
+  spotlightScope: SpotlightScope;
   spotlightPkgHits: SpotlightPackageHit[];
   spotlightPkgQuery: string;
   spotlightPkgLoading: boolean;

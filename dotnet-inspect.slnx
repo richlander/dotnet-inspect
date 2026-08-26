@@ -10,6 +10,8 @@
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
+    <Project Path="src/DotnetInspector.Artifacts.Tests/DotnetInspector.Artifacts.Tests.csproj" />
+    <Project Path="src/DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
@@ -94,6 +96,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSharpText.Tests/CSharpText.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />

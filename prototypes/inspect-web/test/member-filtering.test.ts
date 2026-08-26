@@ -103,7 +103,7 @@ test("history rejects a missing member and stale overload body", () => {
     memberTraitFilter: "",
     memberTextFilter: "",
     selectedOverloadIndex: 4,
-    memberSection: "source",
+    memberSection: "source" as const,
     bodyTarget: {
       metadataToken: 99,
       memberName: "Build",
@@ -165,14 +165,16 @@ const groups = [
 ];
 
 test("member filters compose on one matching overload", () => {
-  assert.equal(memberGroupMatches(groups[0], {
+  const methodGroup = groups[0];
+  assert.ok(methodGroup);
+  assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "public",
     trait: "isStatic",
     query: "path",
   }), true);
 
-  assert.equal(memberGroupMatches(groups[0], {
+  assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "protected",
     trait: "isStatic",
@@ -205,7 +207,7 @@ test("member search covers names and signatures", () => {
 test("member scope follows the resolved type identity", () => {
   const state = {
     atPackageRoot: false,
-    lens: "api",
+    lens: "api" as const,
     selectedMemberKey: "",
     memberBrowseTypeId: "Type0",
     selectedTypeId: null,

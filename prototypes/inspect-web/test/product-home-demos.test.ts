@@ -161,13 +161,25 @@ function parseDemoHref(href: string) {
   };
 }
 
+function requiredItem<T>(values: readonly T[], index: number, label: string): T {
+  const value = values[index];
+  assert.ok(value, `missing ${label} at index ${index}`);
+  return value;
+}
+
 test("isProductHomeDemoId uses the installed engine catalog", () => {
   setProductHomeDemoCatalog([
     { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
     { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
+    { id: "stj-serialize-callgraph", title: "Serialize call graph", summary: "Dense package-local STJ graph" },
+    { id: "config-bind-callgraph", title: "Configuration Bind", summary: "Recursive binder call graph" },
+    { id: "options-add-callgraph", title: "Options hub", summary: "Inbound fan-in at AddOptions" },
   ]);
   assert.equal(isProductHomeDemoId("stj-serializer"), true);
   assert.equal(isProductHomeDemoId("extensions-callgraph"), true);
+  assert.equal(isProductHomeDemoId("stj-serialize-callgraph"), true);
+  assert.equal(isProductHomeDemoId("config-bind-callgraph"), true);
+  assert.equal(isProductHomeDemoId("options-add-callgraph"), true);
   assert.equal(isProductHomeDemoId("platform-list"), false);
   assert.equal(isProductHomeDemoId("stj"), false);
   assert.equal(isProductHomeDemoId("runtime"), false);
@@ -214,11 +226,49 @@ test("extensions-callgraph delegates execution to the engine instead of encoding
   assert.equal(productHomeDemoLocationHref(callGraphResolved), null);
 });
 
+test("single-package Call Graph demos also delegate to the engine", () => {
+  const serializeResolved: BrowserHomeDemoResolved = {
+    id: "stj-serialize-callgraph",
+    title: "Serialize call graph",
+    summary: "Dense package-local STJ graph",
+    workspaceMembers: [
+      {
+        kind: "package",
+        id: "System.Text.Json",
+        version: "10.0.0",
+        framework: "net10.0",
+        assembly: null,
+      },
+    ],
+    tabs: [
+      {
+        id: "stj",
+        member: {
+          kind: "package",
+          id: "System.Text.Json",
+          version: "10.0.0",
+          framework: "net10.0",
+          assembly: null,
+        },
+      },
+    ],
+    focusTabIndex: 0,
+    view: {
+      library: null,
+      type: "System.Text.Json.JsonSerializer",
+      memberAnchor: "1dc14dd1fb",
+      memberKey: "method:Serialize",
+      section: "Call Graph",
+    },
+  };
+  assert.equal(productHomeDemoLocationHref(serializeResolved), null);
+});
+
 test("platform residual rejects pinned runtime coordinates", () => {
   const pinned = {
     ...unversionedRuntimeResolved,
     tabs: [
-      unversionedRuntimeResolved.tabs[0],
+      requiredItem(unversionedRuntimeResolved.tabs, 0, "package tab"),
       {
         id: "runtime",
         member: {

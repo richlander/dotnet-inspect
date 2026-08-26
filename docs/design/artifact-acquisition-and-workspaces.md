@@ -668,8 +668,9 @@ full host --> core Queries + selected optional adapters/companions
 local host --> core Queries + local adapter
 ```
 
-Exact project names are deferred, but the split must produce these compile-time
-properties:
+`DotnetInspector.Artifacts` now owns the source-neutral contract floor. The
+remaining adapter and companion project names are deferred, but the split must
+produce these compile-time properties:
 
 1. artifact contracts reference no storage implementation, package domain, or
    assembly inspection project;
@@ -743,7 +744,9 @@ The migration is intentionally incremental:
 2. **Extract source-neutral artifact contracts.** Introduce artifact identity,
    guarded content access, provenance marker, acquisition registration and
    outcome, admission/query authorization, quiescent lifetime, and lease
-   contracts in a package- and Metadata-free project.
+   contracts in a package- and Metadata-free project. Implemented by
+   `DotnetInspector.Artifacts`; no existing acquisition path consumes the new
+   contracts yet.
 3. **Prove local acquisition.** Adapt explicit local files/directories into the
    contracts with admission-time content identity and form a workspace without
    any package reference. Preserve explicit caller designation as authorized
@@ -781,7 +784,7 @@ materialization.
 
 ## Required gates
 
-The target remains unverified until tests equivalent to these exist:
+The target is complete only when tests equivalent to these exist:
 
 - `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
 - `PackagesClosure_ExcludesMetadata`
@@ -846,6 +849,23 @@ unconditional path and prefetched-image grants from the reader-construction
 site inventory and asserts coverage equality, so adding or reshaping an entry
 point cannot escape the migration. The browser gate runs the same composition
 sequentially without threads, blocking waits, or a filesystem.
+
+`AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations` and
+`MetadataClosure_ExcludesPackageAndStorageImplementations` are enforced by
+`LayeringTests` from Release-evaluated project references and each closure
+project's resolved Release assets graph. They witness the required package-free
+local-only variant; they do not claim that every configuration-specific
+full-host graph is package-free. The remaining gates are migration targets and
+remain unverified.
+
+`ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
+is enforced from the exact Release project and resolved-assets graph by
+`LayeringTests`. `ArtifactContractTests` enforce generation-scoped identity,
+closed acquisition outcome arms, catalog descriptors without an unguarded
+content route, admission expiry, atomic query-authorization replacement, and
+revocation of new opens without invalidating an already-issued stream. Session,
+snapshot, budget, quiescence, adapter, and Metadata-consumer gates remain
+unverified.
 
 ## Non-goals
 
