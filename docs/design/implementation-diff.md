@@ -161,6 +161,53 @@ alignment; `AnnotationGestureTests.
 AlignedDetailContinuationsShareTheFirstCaretColumn` gates continuation
 alignment in the reusable renderer.
 
+### PDB-source convergence
+
+`member -S "Source Diff"` is the PDB Source → After reviewer lens. It compares
+the Portable-PDB-selected, checksum-matching declaration with the candidate
+decompiled member as line-oriented text. It does not reuse structural
+correspondence: PDB-mapped C# has no product-issued IL-origin node identity, so
+this lens reports text convergence and never claims that source syntax nodes
+correspond to decompiler nodes. Checksum agreement proves that the bytes match
+the Portable PDB declaration, not that they were the physical syntax tree that
+produced the MethodDef.
+
+Normal verbosity renders standard unified hunks with three context lines,
+retains at most five emitted hunk examples and 80 lines per logical hunk, and
+reports `Partial` with the omitted counts when either bound is crossed. A
+logical hunk split around omitted middle lines consumes two emitted examples;
+the five-example budget still applies. Detailed
+verbosity (`-v:d`) retains the complete line stream. Both forms identify the
+PDB source location and distinguish exact document-byte checksum agreement
+from agreement after CR/LF normalization.
+`SourceTextDiffRendererTests.
+ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange` and
+`ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure`, plus
+`ReviewerSizedDiff_BoundsTheNumberOfHunkExamples` and
+`ReviewerSizedDiff_BoundsEmittedFragmentsFromOversizedHunks`, gate the bounded
+projection.
+`CommandExecutionTests.
+Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence` gates the
+normal/detailed boundary, and
+`Member_SourceDiff_UsesRequestedVerbosityBeforeSectionPromotion` gates the real
+CLI path after explicit section selection promotes effective verbosity.
+`Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff`
+gates visible PDB source identity and exact/normalized checksum evidence. The
+acquisition side is gated by
+`VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
+`VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
+`PdbSourceAcquisitionTests.
+FromContent_MismatchedChecksumProducesFailedInspection`, while
+`FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence` gates the
+network result's typed verification. A source context is
+published only after one of the local, repository, or fetched paths accepts the
+content against the portable-PDB checksum.
+
+This lens does not infer validity, behavior, or compile-back fidelity from
+text. Decompiler raise reviews place the independently measured compile-back
+status beside it and keep the structural Before → After lens available when
+PDB source is unavailable.
+
 ## Research comparison model
 
 `ResearchDiff` is the operation facade. It returns one `ResearchComparison`
