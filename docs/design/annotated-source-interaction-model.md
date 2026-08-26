@@ -3,8 +3,10 @@
 Status: proposed, merge-blocking design for
 [PR #4448](https://github.com/richlander/dotnet-inspect/pull/4448).
 
-This document owns the browser interaction model for Annotated Source. It does
-not redefine:
+**Owner:** Annotated Source browser interaction.
+
+This is the owning document for the browser interaction model. It does not
+redefine:
 
 - the Finding and annotation semantics in
   [Hidden-Fact Annotations](hidden-fact-annotations.md);

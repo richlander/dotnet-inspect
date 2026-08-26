@@ -78,6 +78,10 @@ substrates, and inspection producers that will extend that space.
   network-policy enforcement, network telemetry, and hardened XML/JSON readers.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
+- **Annotated Source browser interaction** owns the read, inspect, and act
+  contract for browser presentation of product-issued annotated documents,
+  including progressive disclosure, selection, actions, and durable view state;
+  see the [interaction model](design/annotated-source-interaction-model.md).
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
