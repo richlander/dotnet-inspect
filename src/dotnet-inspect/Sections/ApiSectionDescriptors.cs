@@ -370,7 +370,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
+        public static bool CanRender(ApiType model) => model.Members.Any(HasExecutableBody);
     }
 
     public sealed class SafetyFacts : ISectionDescriptor<ApiType>
@@ -379,7 +379,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
+        public static bool CanRender(ApiType model) => model.Members.Any(HasExecutableBody);
     }
 
     public sealed class CostFacts : ISectionDescriptor<ApiType>
@@ -388,7 +388,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
+        public static bool CanRender(ApiType model) => model.Members.Any(HasExecutableBody);
     }
 
     public sealed class TopLeverage : ISectionDescriptor<ApiType>
@@ -400,7 +400,7 @@ public static class ApiMemberSectionDescriptors
         // than opening the index to probe, mirroring OptimizationOpportunities.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsBodyBacked);
+            => model.Members.Any(HasExecutableBody);
     }
 
     public sealed class OptimizationOpportunities : ISectionDescriptor<ApiType>
@@ -412,7 +412,7 @@ public static class ApiMemberSectionDescriptors
         // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsBodyBacked);
+            => model.Members.Any(HasExecutableBody);
     }
 
     public sealed class SourceLocations : ISectionDescriptor<ApiType>
@@ -467,7 +467,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1 && model.Members.Any(IsBodyBacked);
+            => model.Members.Count == 1 && model.Members.Any(HasExecutableBody);
     }
 
     public sealed class PdbSource : ISectionDescriptor<ApiType>
@@ -484,16 +484,18 @@ public static class ApiMemberSectionDescriptors
         member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
 
     /// <summary>
-    /// True when the member carries executable IL that a body section can analyze.
-    /// A method-like member is its own body; a property/event (including an indexer)
-    /// has no body of its own but is backed by accessor methods (get/set, add/remove)
-    /// whose tokens are recorded on the member. Body sections resolve such a member to
-    /// its accessor method(s) (issue #3265). Fields carry no accessor token and stay
-    /// body-less.
+    /// True when a body or source section can address the member through a method token.
+    /// A property/event (including an indexer) is addressed through accessor tokens.
+    /// Abstract and interface methods remain addressable even though they carry no IL body.
     /// </summary>
     internal static bool IsBodyBacked(ApiMember member) =>
-        !member.IsAbstract
-        && (IsMethodLike(member) || HasAccessorTokens(member));
+        IsMethodLike(member) || HasAccessorTokens(member);
+
+    /// <summary>
+    /// True when the member has executable IL that a body-analysis section can inspect.
+    /// </summary>
+    internal static bool HasExecutableBody(ApiMember member) =>
+        !member.IsAbstract && IsBodyBacked(member);
 
     /// <summary>
     /// True when a property/event member records at least one accessor method token
@@ -703,7 +705,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.CustomAttributes;
         public static bool IsExpensive => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
@@ -736,7 +738,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+               && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>
@@ -746,7 +748,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class AppliedTaste : ISectionDescriptor<ApiType>
@@ -756,7 +758,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class CostOverlay : ISectionDescriptor<ApiType>
@@ -767,7 +769,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class SemanticsOverlay : ISectionDescriptor<ApiType>
@@ -778,7 +780,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class PdbSource : ISectionDescriptor<ApiType>
@@ -822,7 +824,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.IL;
         public static bool IsExpensive => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
@@ -832,7 +834,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class Calls : ISectionDescriptor<ApiType>
@@ -843,7 +845,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+               && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class Callers : ISectionDescriptor<ApiType>
@@ -889,7 +891,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     /// <summary>
@@ -907,7 +909,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+               && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
 }
