@@ -989,6 +989,187 @@ public partial class CommandExecutionTests
         }
     }
 
+    private static (string AssemblyPath, string FixtureDir)
+        CreateEmbeddedSourceLinkDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class EmbeddedSourceLink
+            {
+                public static int Value() => 42;
+            }
+            """;
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"embedded-sourcelink-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                "EmbeddedSourceLinkDiscovery.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "EmbeddedSourceLinkDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview),
+                        path: "/_/EmbeddedSourceLinkDiscovery.cs")
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            using (var sourceLink = new MemoryStream(
+                Encoding.UTF8.GetBytes(
+                    """{"documents":{"/_/*":"https://example.test/*"}}""")))
+            {
+                EmitResult result = compilation.Emit(
+                    assembly,
+                    sourceLinkStream: sourceLink,
+                    options: new EmitOptions(
+                        debugInformationFormat:
+                            DebugInformationFormat.Embedded,
+                        pdbFilePath:
+                            "EmbeddedSourceLinkDiscovery.pdb"));
+                Assert.True(
+                    result.Success,
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
+
+            using var service =
+                SourceLinkService.Open(assemblyPath);
+            Assert.True(service.Context.HasEmbeddedPdb);
+            Assert.True(service.HasSourceLink);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+            throw;
+        }
+    }
+
+    private static (string AssemblyPath, string FixtureDir)
+        CreateIncompleteUnsafeDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class IncompleteUnsafeDiscovery
+            {
+                public static int Broken(int value)
+                {
+                    int local = value;
+                    return local + 1;
+                }
+            }
+            """;
+
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"incomplete-unsafe-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                "IncompleteUnsafeDiscovery.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "IncompleteUnsafeDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview))
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Debug,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            {
+                EmitResult result =
+                    compilation.Emit(assembly);
+                Assert.True(
+                    result.Success,
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
+
+            byte[] image = File.ReadAllBytes(assemblyPath);
+            using var peReader = new PEReader(
+                new MemoryStream(
+                    image,
+                    writable: false));
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            MethodDefinition method = reader.MethodDefinitions
+                .Select(reader.GetMethodDefinition)
+                .Single(method =>
+                    reader.GetString(method.Name) == "Broken");
+            MethodBodyBlock body =
+                peReader.GetMethodBody(
+                    method.RelativeVirtualAddress);
+            Assert.False(body.LocalSignature.IsNil);
+
+            int sectionIndex =
+                peReader.PEHeaders.GetContainingSectionIndex(
+                    method.RelativeVirtualAddress);
+            SectionHeader section =
+                peReader.PEHeaders.SectionHeaders[sectionIndex];
+            int headerOffset =
+                section.PointerToRawData
+                + method.RelativeVirtualAddress
+                - section.VirtualAddress;
+            Assert.Equal(3, image[headerOffset] & 3);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    headerOffset + 8,
+                    sizeof(int)),
+                0x11FFFFFE);
+            File.WriteAllBytes(
+                assemblyPath,
+                image);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+            throw;
+        }
+    }
+
     private static string CompileBodyStateFixture(
         string fixtureDir,
         string assemblyName,
@@ -10657,7 +10838,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingQuery()
+    public async Task Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery()
     {
         string assemblyPath = typeof(InstructionProducer).Assembly.Location;
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -10685,13 +10866,164 @@ public partial class CommandExecutionTests
         Assert.Contains("trace: library", error);
         Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
+
+        var (bareExit, bareOutput, bareError) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D",
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, bareExit);
+        Assert.Contains(
+            $"| {SectionNames.UnsafeMembers} | section |",
+            bareOutput);
+        Assert.Contains(
+            UnsafeEvidencePresenceQuery.Definition.Name,
+            bareError);
+        Assert.DoesNotContain("body index", bareError);
+    }
+
+    [Fact]
+    public async Task Discover_Bare_OmitsUnsafeMembersWhenMethodBodiesHaveNoUnsafeEvidence()
+    {
+        var (assemblyPath, _, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", assemblyPath,
+                "-D",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain(
+                $"| {SectionNames.UnsafeMembers} | section |",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Discover_Bare_FailsVisiblyWhenUnsafePresenceIsIncomplete()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                assemblyPath,
+                "-D",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Could not determine {SectionNames.UnsafeMembers} applicability",
+                error);
+            Assert.Contains(
+                "Unsafe evidence presence is incomplete",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Discover_Bare_DoesNotLoadAdjacentSourceLinkPdb()
+    {
+        string assemblyPath =
+            FixtureCatalog.SourceLinkNormalized.AssemblyPath();
+        using (var sourceLink =
+            ILInspector.SourceLink.SourceLinkService.Open(
+                assemblyPath))
+        {
+            Assert.True(
+                sourceLink.HasSourceLink,
+                "The adjacent fixture PDB must carry SourceLink for this gate to prove it stays unloaded.");
+        }
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("@SourceLink", output);
+    }
+
+    [Fact]
+    public async Task Discover_Bare_PreservesEmbeddedSourceLinkDoor()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateEmbeddedSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (markdownExit, markdown, markdownError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--tips", "q");
+            var (jsonExit, json, jsonError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--json",
+                    "--tips", "q");
+            var (treeExit, tree, treeError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--tree",
+                    "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.Contains(
+                "| @SourceLink | category |",
+                markdown);
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            using JsonDocument document =
+                JsonDocument.Parse(json);
+            Assert.Contains(
+                document.RootElement.EnumerateArray(),
+                item =>
+                    item.GetProperty("name").GetString()
+                        == "@SourceLink"
+                    && item.GetProperty("kind").GetString()
+                        == "category");
+
+            Assert.Equal(0, treeExit);
+            Assert.Empty(treeError);
+            Assert.Contains("@SourceLink", tree);
+            Assert.Contains(
+                SectionNames.SourceLinkAvailability,
+                tree);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
     }
 
     [Fact]
     public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
-        const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v23";
+        const string legacyCategory = "effective-v27";
+        const string currentCategory = "effective-v28";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -10724,7 +11056,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains(SectionNames.References, output);
-            Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
+            Assert.Contains(SectionNames.UnsafeMembers, output);
         }
         finally
         {
@@ -17511,6 +17843,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signals | section |", output);
         Assert.Contains("| Async Methods | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
+        Assert.Contains("| Unsafe Members | section |", output);
         Assert.DoesNotContain("section (opt-in)", output);
         Assert.DoesNotContain("section (verbose)", output);
     }
