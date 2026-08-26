@@ -271,12 +271,17 @@ public class PackageCommand
         if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
             return 1;
 
+        InspectionOptions producerOptions = CreateProducerOptions(
+            options,
+            userVerbosity,
+            pipeline);
         var logger = context.Logger;
 
         if (packageArgs.Length > 1)
             return await ExecuteMultiPackageAsync(
                 packageArgs,
                 options,
+                producerOptions,
                 context,
                 pipeline,
                 queryRegistry);
@@ -917,11 +922,30 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
             }
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
+            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+                producerOptions,
+                PackageSections.Signals,
+                pipeline);
+            bool wantsRidPackageAvailability =
+                RequestsRidPackageAvailability(
+                    producerOptions,
+                    target.IsLocalFile,
+                    pipeline);
+            bool enrichesSignals =
+                wantsSignals
+                && options.Discover is not { Length: 0 };
+            bool wantsIdentifierMetadata =
+                RequiresIdentifierMetadata(
+                    producerOptions,
+                    pipeline,
+                    includeSignals: enrichesSignals);
             bool wantsPackageMetadata =
-                RequiresPackageMetadata(options, pipeline);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
+                RequiresPackageMetadata(
+                    producerOptions,
+                    pipeline,
+                    includeSignals: enrichesSignals);
+            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
+                producerOptions)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
 
@@ -929,9 +953,10 @@ public class PackageCommand
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
-                options.ForceLatest, options.Verbosity,
+                options.ForceLatest, producerOptions.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsIdentifierMetadata,
+                verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
@@ -948,22 +973,25 @@ public class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
-            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            if (ShouldPopulatePackageContentAudit(
+                    producerOptions,
+                    pipeline))
                 PopulatePackageContentAudit(result, extractPath);
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
-                    options.Verbosity,
-                    options.IncludeSections,
-                    options.FixedOverview,
+                    producerOptions.Verbosity,
+                    producerOptions.IncludeSections,
+                    producerOptions.FixedOverview,
                     excludeUnbounded: effectiveDiscovery);
-            if (ShouldPopulatePackageSourceFiles(options) || sourceQueries.Count > 0)
+            if (ShouldPopulatePackageSourceFiles(producerOptions)
+                || sourceQueries.Count > 0)
             {
                 await PopulatePackageSourceLinkAsync(
                     result,
                     extractPath,
                     packageName,
                     version,
-                    options,
+                    producerOptions,
                     context,
                     logger,
                     queryRegistry,
@@ -1016,7 +1044,7 @@ public class PackageCommand
                     result);
             }
 
-            if (wantsSignals)
+            if (enrichesSignals)
             {
                 await PopulatePackageSignalsAsync(
                     result, extractPath, packageName, version, client, logger, options.SourceOptions);
@@ -1209,6 +1237,7 @@ public class PackageCommand
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
         InspectionOptions options,
+        InspectionOptions producerOptions,
         CommandContext context,
         SectionPipeline<InspectionResult> pipeline,
         InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
@@ -1254,6 +1283,7 @@ public class PackageCommand
             var result = await InspectPackageAsync(
                 target,
                 options,
+                producerOptions,
                 context,
                 wantsFilesSection,
                 pipeline,
@@ -1692,10 +1722,15 @@ public class PackageCommand
         return result;
     }
 
-    private static bool DiscoverRequestsSection(string[]? discover, string sectionName, SectionPipeline<InspectionResult> pipeline)
+    internal static bool DiscoverRequestsSection(
+        string[]? discover,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        if (discover is not { Length: > 0 })
+        if (discover is null)
             return false;
+        if (discover.Length == 0)
+            return true;
 
         var categories = pipeline.GetCategoryMap();
         foreach (var value in discover)
@@ -1710,6 +1745,90 @@ public class PackageCommand
         }
 
         return false;
+    }
+
+    internal static bool RequestsSelectedOrDiscoveredSection(
+        InspectionOptions options,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (options.IncludeSections is { } selectedSections)
+        {
+            return selectedSections.Contains(sectionName)
+                && (options.Discover is null
+                    || DiscoverRequestsSection(
+                        options.Discover,
+                        sectionName,
+                        pipeline));
+        }
+
+        return DiscoverRequestsSection(
+            options.Discover,
+            sectionName,
+            pipeline);
+    }
+
+    internal static InspectionOptions CreateProducerOptions(
+        InspectionOptions options,
+        Verbosity userVerbosity,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        HashSet<string>? producerSections = options.IncludeSections;
+        if (options.Discover is not null)
+        {
+            HashSet<string> candidates;
+            if (options.Discover.Length == 0)
+            {
+                candidates = pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview);
+                if (options.IncludeSections is { } selectedSections)
+                    candidates.IntersectWith(selectedSections);
+            }
+            else
+            {
+                candidates = options.IncludeSections is { } selectedSections
+                    ? selectedSections.ToHashSet(
+                        StringComparer.OrdinalIgnoreCase)
+                    : pipeline.SelectableSectionNames.ToHashSet(
+                        StringComparer.OrdinalIgnoreCase);
+            }
+
+            producerSections = candidates
+                .Where(section => DiscoverRequestsSection(
+                    options.Discover,
+                    section,
+                    pipeline))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return options with
+        {
+            Verbosity = userVerbosity,
+            IncludeSections = producerSections,
+        };
+    }
+
+    internal static bool RequestsRidPackageAvailability(
+        InspectionOptions options,
+        bool isLocalFile,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (RequestsSelectedOrDiscoveredSection(
+                options,
+                PackageSections.Manifest,
+                pipeline))
+        {
+            return true;
+        }
+
+        return isLocalFile
+            && options.IncludeSections is null
+            && options.Discover is null
+            && pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview)
+                .Contains(PackageSections.Manifest);
     }
 
     private static bool ValidateMultiPackageMode(InspectionOptions options)
@@ -2416,6 +2535,7 @@ public class PackageCommand
     private static async Task<InspectionResult?> InspectPackageAsync(
         PackageReferenceTarget target,
         InspectionOptions options,
+        InspectionOptions producerOptions,
         CommandContext context,
         bool wantsFilesSection,
         SectionPipeline<InspectionResult> pipeline,
@@ -2455,14 +2575,21 @@ public class PackageCommand
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(
-                    options.Discover,
-                    PackageSections.Signals,
+            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+                producerOptions,
+                PackageSections.Signals,
+                pipeline);
+            bool wantsRidPackageAvailability =
+                RequestsRidPackageAvailability(
+                    producerOptions,
+                    target.IsLocalFile,
                     pipeline);
+            bool wantsIdentifierMetadata =
+                RequiresIdentifierMetadata(producerOptions, pipeline);
             bool wantsPackageMetadata =
-                RequiresPackageMetadata(options, pipeline);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
+                RequiresPackageMetadata(producerOptions, pipeline);
+            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
+                producerOptions)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
             var result = await PackageInspector.InspectAsync(
@@ -2475,9 +2602,10 @@ public class PackageCommand
                 context.HttpClient,
                 logger,
                 options.ForceLatest,
-                options.Verbosity,
+                producerOptions.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsIdentifierMetadata,
+                verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)
@@ -2495,7 +2623,9 @@ public class PackageCommand
             if (wantsFilesSection)
                 PopulatePackageFileSections(result, extractPath, options);
 
-            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            if (ShouldPopulatePackageContentAudit(
+                    producerOptions,
+                    pipeline))
             {
                 if (result.PackageFiles is null)
                     PopulatePackageFileSections(result, extractPath, options);
@@ -2504,18 +2634,19 @@ public class PackageCommand
 
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
-                    options.Verbosity,
-                    options.IncludeSections,
-                    options.FixedOverview,
+                    producerOptions.Verbosity,
+                    producerOptions.IncludeSections,
+                    producerOptions.FixedOverview,
                     excludeUnbounded: options.Discover != null && !options.Schema);
-            if (ShouldPopulatePackageSourceFiles(options) || sourceQueries.Count > 0)
+            if (ShouldPopulatePackageSourceFiles(producerOptions)
+                || sourceQueries.Count > 0)
             {
                 await PopulatePackageSourceLinkAsync(
                     result,
                     extractPath,
                     resolvedPackageName,
                     version,
-                    options,
+                    producerOptions,
                     context,
                     logger,
                     queryRegistry,
@@ -2870,11 +3001,10 @@ public class PackageCommand
     private static bool ShouldPopulatePackageContentAudit(
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
-        => options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.AuditFindings,
-                pipeline);
+        => RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.AuditFindings,
+            pipeline);
 
     private static void PopulatePackageContentAudit(
         InspectionResult result,
@@ -3981,7 +4111,7 @@ public class PackageCommand
 
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var queryRegistry = catalog.QueryRegistry;
+        var queryCatalog = catalog.QueryCatalog;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         libraryOptions = LibraryCommand.NormalizeBareSelect(libraryOptions);
@@ -4058,6 +4188,8 @@ public class PackageCommand
             RequiresGroupedIntegrations(
                 queries,
                 out bool includeIntegrationOpportunities);
+        InspectionQueryPlan<InspectionQueryContext> queryPlan =
+            queryCatalog.Plan(queries);
         using PackageIntegrationsWorkspace? integrationsWorkspace =
             requiresGroupedIntegrations
                 ? PackageIntegrationsWorkspace.Create(
@@ -4098,8 +4230,7 @@ public class PackageCommand
                     packageName,
                     version,
                     context.HttpClient,
-                    queries: queries,
-                    queryRegistry: queryRegistry,
+                    queryPlan: queryPlan,
                     assemblyReference: assemblyReference,
                     integrationsEntry: integrations,
                     integrationOpportunitiesEntry: opportunities);
@@ -4450,22 +4581,43 @@ public class PackageCommand
 
     internal static bool RequiresPackageMetadata(
         InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline,
+        bool includeSignals = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
 
-        return options.IncludeSections?.Contains(PackageSections.Signals) == true
-            || options.IncludeSections?.Contains(
-                PackageSections.AuditIdentifierConfusion) == true
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.Signals,
-                pipeline)
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.AuditIdentifierConfusion,
-                pipeline);
+        return RequiresIdentifierMetadata(
+                   options,
+                   pipeline,
+                   includeSignals)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Statistics,
+                   pipeline)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Vulnerabilities,
+                   pipeline);
+    }
+
+    internal static bool RequiresIdentifierMetadata(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline,
+        bool includeSignals = true)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        return (includeSignals
+                && RequestsSelectedOrDiscoveredSection(
+                    options,
+                    PackageSections.Signals,
+                    pipeline))
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.AuditIdentifierConfusion,
+                   pipeline);
     }
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)

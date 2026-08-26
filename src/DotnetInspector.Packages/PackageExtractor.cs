@@ -7,9 +7,12 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml;
+using System.Xml.Linq;
 using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
+using NuGet.Versioning;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -31,7 +34,72 @@ public record PackageExtractionResult(
     string? Version,
     string? NupkgPath = null,
     bool FromCache = false,
-    string? ProducerKey = null);
+    string? ProducerKey = null)
+{
+    /// <summary>
+    /// Tool wrapper packages traversed before reaching this inspectable payload,
+    /// ordered from the requested package to the final redirect hop.
+    /// </summary>
+    public IReadOnlyList<ToolWrapperPackage> ToolWrapperChain { get; init; } = [];
+}
+
+/// <summary>
+/// A tool wrapper package whose managed inspection payload lives in another package.
+/// </summary>
+/// <param name="ExtractPath">Path to the extracted wrapper contents.</param>
+/// <param name="PackageName">Wrapper package identity.</param>
+/// <param name="Version">Wrapper package version.</param>
+/// <param name="ProducerKey">Canonical identity of the source that produced the wrapper.</param>
+public sealed record ToolWrapperPackage(
+    string ExtractPath,
+    string PackageName,
+    string? Version,
+    string? ProducerKey);
+
+public enum NuspecProbeStatus
+{
+    Present,
+    Absent,
+    Indeterminate
+}
+
+public readonly record struct NuspecProbeResult(
+    string? Xml,
+    NuspecProbeStatus Status);
+
+/// <summary>
+/// Bounds aggregate compressed archive bytes across related local probes.
+/// </summary>
+public sealed class PackageArchiveReadBudget
+{
+    private long _remaining;
+
+    public PackageArchiveReadBudget(long maxBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        _remaining = maxBytes;
+    }
+
+    internal bool TryReserve(long bytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(bytes);
+        while (true)
+        {
+            long remaining = Volatile.Read(ref _remaining);
+            if (bytes > remaining)
+                return false;
+
+            if (Interlocked.CompareExchange(
+                    ref _remaining,
+                    remaining - bytes,
+                    remaining)
+                == remaining)
+            {
+                return true;
+            }
+        }
+    }
+}
 
 /// <summary>
 /// Outcome of a package extraction operation, carrying either a successful result or an error message.
@@ -69,6 +137,25 @@ public static class PackageExtractor
 {
     private const int MaxEquivalentSearchEndpoints = 4;
     private const int MaxToolWrapperRedirectHops = 8;
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    public static bool IsValidPackageId(string packageId)
+        => PackageCoordinateResolver.IsCanonicalPackageId(packageId);
+
+    public static bool TryNormalizePackageVersion(
+        string? version,
+        out string normalizedVersion)
+    {
+        if (NuGetVersion.TryParse(version, out NuGetVersion? parsed))
+        {
+            normalizedVersion = parsed.ToNormalizedString();
+            return true;
+        }
+
+        normalizedVersion = "";
+        return false;
+    }
 
     /// <summary>
     /// Hard cap on package <c>.nuspec</c> bodies (cache file or remote manifest
@@ -129,6 +216,7 @@ public static class PackageExtractor
         var visitedPackageIds = new HashSet<string>(
             StringComparer.OrdinalIgnoreCase);
         List<string> redirectChain = [];
+        List<ToolWrapperPackage> wrapperPackages = [];
         string currentPackageSource = packageSource;
         string? currentVersion = version;
         bool currentForceLatest = forceLatest;
@@ -161,7 +249,14 @@ public static class PackageExtractor
                 NuGetFetch.PackageExtractor.TryGetToolWrapperRedirect(
                     result.ExtractPath);
             if (redirectId is null)
-                return result;
+            {
+                return wrapperPackages.Count == 0
+                    ? result
+                    : result with
+                    {
+                        ToolWrapperChain = wrapperPackages.ToArray()
+                    };
+            }
 
             if (string.IsNullOrWhiteSpace(result.PackageName))
             {
@@ -177,6 +272,17 @@ public static class PackageExtractor
             }
 
             redirectChain.Add(result.PackageName);
+            wrapperPackages.Add(new ToolWrapperPackage(
+                result.ExtractPath,
+                result.PackageName,
+                result.Version,
+                result.ProducerKey));
+            if (!IsValidPackageId(redirectId))
+            {
+                return PackageExtractionOutcome.Error(
+                    $"Tool wrapper package '{result.PackageName}' declares an invalid redirect package id.");
+            }
+
             if (visitedPackageIds.Contains(redirectId))
                 return ToolWrapperRedirectCycle(redirectChain, redirectId);
 
@@ -737,37 +843,6 @@ public static class PackageExtractor
     }
 
     /// <summary>
-    /// Builds the flat-container URL for a package's .nuspec ({base}/{id}/{version}/{id}.nuspec),
-    /// or null if the source exposes no usable flat-container endpoint.
-    /// </summary>
-    private static async Task<string?> GetNuspecUrlAsync(
-        HttpClient client,
-        NuGetSource source,
-        string packageName,
-        string version,
-        Action<string>? log)
-    {
-        string fileName = $"{packageName}.nuspec";
-
-        var flatContainerUrl = source.GetFlatContainerUrl();
-        if (flatContainerUrl != null)
-        {
-            return PackageResourceUrl.Combine(
-                flatContainerUrl,
-                packageName,
-                version,
-                fileName);
-        }
-
-        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
-        return PackageResourceUrl.Combine(
-            baseAddress,
-            packageName,
-            version,
-            fileName);
-    }
-
-    /// <summary>
     /// Fetches just a package's .nuspec XML — from the extracted NuGet cache if present, otherwise
     /// downloading only the nuspec (not the whole .nupkg) from the flat-container endpoint. Used by
     /// transitive dependency resolution, which needs nothing but the dependency groups. Returns null
@@ -779,87 +854,626 @@ public static class PackageExtractor
         string version,
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null)
+        => (await ProbeNuspecXmlCoreAsync(
+            client,
+            packageId,
+            version,
+            log,
+            sourceOptions,
+            validateCoordinate: false).ConfigureAwait(false)).Xml;
+
+    /// <summary>
+    /// Probes a package's nuspec while preserving whether a missing document was
+    /// authoritatively absent or could not be checked.
+    /// </summary>
+    public static async Task<NuspecProbeResult> ProbeNuspecXmlAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
+        => await ProbeNuspecXmlCoreAsync(
+            client,
+            packageId,
+            version,
+            log,
+            sourceOptions,
+            validateCoordinate: true).ConfigureAwait(false);
+
+    /// <summary>
+    /// Probes an extracted package for bounded, coordinate-matching nuspec
+    /// evidence.
+    /// </summary>
+    public static async Task<NuspecProbeResult> ProbeExtractedPackageNuspecAsync(
+        string extractPath,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+        => await ProbeExtractedPackageNuspecCoreAsync(
+            extractPath,
+            packageId,
+            version,
+            validateCoordinate: true,
+            log,
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Probes a local package archive for bounded, coordinate-matching nuspec
+    /// evidence.
+    /// </summary>
+    /// <remarks>
+    /// Gated end to end by
+    /// <c>RidPackageVerifierTests.VerifyAsync_UnusableLocalSiblingLeavesAvailabilityUnknown</c>.
+    /// </remarks>
+    public static async Task<NuspecProbeResult> ProbeLocalPackageArchiveAsync(
+        string packagePath,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        PackageArchiveReadBudget? archiveReadBudget = null)
     {
+        if (!IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(version, out _))
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(packagePath);
+            if ((attributes
+                    & (FileAttributes.Directory
+                        | FileAttributes.ReparsePoint))
+                != 0)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    "Local RID package path was not a regular file.");
+            }
+
+            var info = new FileInfo(packagePath);
+            if (info.Length <= 0
+                || info.Length
+                    > PackagePayloadLimits.Default.MaxArchiveBytes)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    "Local RID package was empty or exceeded the package archive limit.");
+            }
+        }
+        catch (FileNotFoundException)
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Absent);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package directory could not be read: {ex.GetType().Name}");
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package metadata could not be read: {ex.GetType().Name}");
+        }
+
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(
+                packagePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+        }
+        catch (FileNotFoundException)
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Absent);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package directory could not be read: {ex.GetType().Name}");
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package could not be opened: {ex.GetType().Name}");
+        }
+
+        await using (stream)
+        {
+            try
+            {
+                long archiveLength = stream.Length;
+                if (archiveLength <= 0
+                    || archiveLength
+                        > PackagePayloadLimits.Default.MaxArchiveBytes)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package was empty or exceeded the package archive limit.");
+                }
+
+                // Reserve from the opened handle, then read that same handle.
+                if (archiveReadBudget is not null
+                    && !archiveReadBudget.TryReserve(archiveLength))
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package archive read budget was exhausted; "
+                        + "remaining evidence is unknown.");
+                }
+
+                byte[]? archive =
+                    await PackageContentAdmission.ReadBoundedAsync(
+                            stream,
+                            archiveLength,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (archive is null || archive.Length == 0)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package changed while it was being read.");
+                }
+
+                if (PackageArchiveValidator.Validate(
+                        archive,
+                        cancellationToken: cancellationToken)
+                    is PackageArchiveValidation.Rejected rejection)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package was not a usable package archive: "
+                        + rejection.Reason);
+                }
+
+                using var archiveStream = new MemoryStream(
+                    archive,
+                    writable: false);
+                using var package = new ZipArchive(
+                    archiveStream,
+                    ZipArchiveMode.Read);
+                ZipArchiveEntry? nuspec = null;
+                foreach (ZipArchiveEntry entry in package.Entries)
+                {
+                    if (!IsRootNuspec(entry))
+                        continue;
+
+                    if (nuspec is not null)
+                    {
+                        return IndeterminateLocalProbe(
+                            log,
+                            "Local RID package contained multiple root nuspec files.");
+                    }
+
+                    nuspec = entry;
+                }
+
+                if (nuspec is null)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package contained no root nuspec file.");
+                }
+
+                await using Stream nuspecStream = nuspec.Open();
+                byte[]? nuspecBytes =
+                    await PackageContentAdmission.ReadBoundedAsync(
+                            nuspecStream,
+                            MaxNuspecBytes,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (nuspecBytes is null || nuspecBytes.Length == 0)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package nuspec was empty or exceeded the nuspec limit.");
+                }
+
+                string xml;
+                try
+                {
+                    xml = StrictUtf8.GetString(nuspecBytes);
+                }
+                catch (DecoderFallbackException)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package nuspec was not valid UTF-8.");
+                }
+
+                if (!IsExpectedNuspec(xml, packageId, version))
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package nuspec was malformed or did not match "
+                        + "the requested package.");
+                }
+
+                return new NuspecProbeResult(
+                    xml,
+                    NuspecProbeStatus.Present);
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or InvalidDataException
+                    or NotSupportedException)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    $"Local RID package could not be validated: {ex.GetType().Name}");
+            }
+        }
+    }
+
+    private static NuspecProbeResult IndeterminateLocalProbe(
+        Action<string>? log,
+        string message)
+    {
+        log?.Invoke(message);
+        return new NuspecProbeResult(
+            null,
+            NuspecProbeStatus.Indeterminate);
+    }
+
+    private static bool IsRootNuspec(ZipArchiveEntry entry)
+    {
+        string path = entry.FullName;
+        return path.EndsWith(
+                   ".nuspec",
+                   StringComparison.OrdinalIgnoreCase)
+               && path.IndexOf('/') < 0
+               && path.IndexOf('\\') < 0;
+    }
+
+    private static async Task<NuspecProbeResult> ProbeNuspecXmlCoreAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions,
+        bool validateCoordinate)
+    {
+        if (!IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion))
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+
+        normalizedVersion = normalizedVersion.ToLowerInvariant();
         string normalizedName = packageId.ToLowerInvariant();
-        string normalizedVersion = version.ToLowerInvariant();
+        bool sawAuthoritativeAbsence = false;
+        bool sawIndeterminateSource = false;
 
         // Cache hit: read the nuspec straight from the already-extracted package,
         // under the same byte ceiling as the remote path. Marker presence alone
         // is not a size admission gate.
-        var cachedPath = NuGetCache.TryGetCachedPackage(
-            normalizedName,
-            normalizedVersion,
+        IReadOnlyList<string> sourceKeys =
             NuGetSourceResolver.ResolveSourceKeysForPackage(
                 sourceOptions,
-                packageId));
-        if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
+                packageId);
+        foreach (CachedPackage cached in
+                 NuGetCache.EnumerateCachedPackageContent(
+                     normalizedName,
+                     normalizedVersion,
+                     sourceKeys))
         {
-            var cachedNuspec = Directory
-                .GetFiles(cachedPath, "*.nuspec", SearchOption.TopDirectoryOnly)
-                .FirstOrDefault();
-            if (cachedNuspec != null)
+            string cachedPath = cached.ExtractPath;
+            try
             {
-                string? cachedXml = await TryReadNuspecFileAsync(cachedNuspec)
-                    .ConfigureAwait(false);
-                if (cachedXml != null)
-                    return cachedXml;
+                if (!NuGetCache.IsCachedPackageValid(cachedPath))
+                {
+                    sawIndeterminateSource = true;
+                    continue;
+                }
+
+                NuspecProbeResult cachedProbe =
+                    await ProbeExtractedPackageNuspecCoreAsync(
+                        cachedPath,
+                        packageId,
+                        version,
+                        validateCoordinate,
+                        log,
+                        CancellationToken.None).ConfigureAwait(false);
+                if (cachedProbe.Status == NuspecProbeStatus.Present)
+                {
+                    return cachedProbe;
+                }
             }
+            catch (IOException ex)
+            {
+                log?.Invoke(
+                    $"Cached nuspec read failed: {ex.GetType().Name}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                log?.Invoke(
+                    $"Cached nuspec read failed: {ex.GetType().Name}");
+            }
+
+            sawIndeterminateSource = true;
         }
 
         foreach (var source in NuGetSourceResolver.ResolveSourcesForPackage(
             sourceOptions,
             packageId))
         {
-            foreach (NuGetSource transport in NuGetSourceResolver.Transports(source))
+            using IPackageSourceClient sourceClient =
+                PackageSourceClientProvider.Create(source, client);
+            using var trafficScope =
+                NetworkTelemetry.Scope(NetworkTrafficKind.PackageManifest);
+            PackageSourceOperationResult<PackageSourceManifest> operation;
+            try
             {
-                HttpClient sourceClient =
-                    IsHttpSource(transport)
-                        && HttpClientFactory.IsSharedClient(client)
-                        ? HttpClientFactory.GetPackageSourceClient(transport.Url)
-                        : client;
-                var url = await GetNuspecUrlAsync(
-                    sourceClient,
-                    transport,
-                    normalizedName,
-                    normalizedVersion,
-                    log).ConfigureAwait(false);
-                if (url == null)
-                    continue;
+                operation = await sourceClient.GetManifestAsync(
+                        normalizedName,
+                        normalizedVersion)
+                    .ConfigureAwait(false);
+            }
+            catch (OfflineException)
+            {
+                log?.Invoke("Network access is disabled (--offline mode).");
+                sawIndeterminateSource = true;
+                continue;
+            }
 
-                try
+            if (operation
+                is PackageSourceOperationResult<PackageSourceManifest>.Failed
+                    failed)
+            {
+                PackageSourceClientProvider.RecordFailure(
+                    source,
+                    failed.Failure,
+                    NetworkTrafficKind.PackageManifest);
+                if (failed.Failure.Kind == PackageSourceFailureKind.NotFound)
                 {
-                    HttpRetryHelper.HttpBodyFetchResult body =
-                        await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                            sourceClient,
-                            url,
-                            static _ => true,
-                            log: log,
-                            auth: NuGetCredentialScope.AuthFor(transport, url, log),
-                            trafficKind: NetworkTrafficKind.PackageManifest,
-                            maxDownloadSize: MaxNuspecBytes).ConfigureAwait(false);
-                    if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
-                        && body.Bytes is { Length: > 0 })
-                    {
-                        return Encoding.UTF8.GetString(body.Bytes);
-                    }
-
-                    if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
-                    {
-                        log?.Invoke(
-                            $"Nuspec from {PackageSourceDisplay.ForDiagnostics(transport)} "
-                            + $"exceeded {MaxNuspecBytes} byte cap.");
-                    }
+                    sawAuthoritativeAbsence = true;
                 }
-                catch (HttpRequestException ex)
+                else
                 {
                     log?.Invoke(
-                        $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(transport)} failed: "
-                        + $"{ex.GetType().Name}");
+                        $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(source)} "
+                        + $"failed: {failed.Failure.Kind}");
+                    sawIndeterminateSource = true;
                 }
+
+                continue;
             }
+
+            PackageSourceManifest manifest =
+                ((PackageSourceOperationResult<PackageSourceManifest>.Succeeded)
+                    operation).Value;
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            if (manifest.Content.IsEmpty
+                || manifest.Coordinate != coordinate
+                || manifest.Producer != sourceClient.Identity)
+            {
+                log?.Invoke(
+                    $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
+                    + "had mismatched provenance or coordinate.");
+                sawIndeterminateSource = true;
+                continue;
+            }
+
+            string xml;
+            try
+            {
+                xml = (validateCoordinate ? StrictUtf8 : Encoding.UTF8)
+                    .GetString(manifest.Content.Span);
+            }
+            catch (DecoderFallbackException)
+            {
+                log?.Invoke(
+                    $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
+                    + "was not valid UTF-8.");
+                sawIndeterminateSource = true;
+                continue;
+            }
+
+            if (!validateCoordinate
+                || IsExpectedNuspec(xml, packageId, version))
+            {
+                return new NuspecProbeResult(
+                    xml,
+                    NuspecProbeStatus.Present);
+            }
+
+            log?.Invoke(
+                $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
+                + "was malformed or did not match the requested package.");
+            sawIndeterminateSource = true;
         }
 
-        return null;
+        return new NuspecProbeResult(
+            null,
+            sawAuthoritativeAbsence && !sawIndeterminateSource
+                ? NuspecProbeStatus.Absent
+                : NuspecProbeStatus.Indeterminate);
+    }
+
+    private static async Task<NuspecProbeResult>
+        ProbeExtractedPackageNuspecCoreAsync(
+            string extractPath,
+            string packageId,
+            string version,
+            bool validateCoordinate,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        if (!IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(version, out _))
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+
+        try
+        {
+            string[] nuspecs = Directory
+                .EnumerateFiles(
+                    extractPath,
+                    "*",
+                    SearchOption.TopDirectoryOnly)
+                .Where(path => path.EndsWith(
+                    ".nuspec",
+                    StringComparison.OrdinalIgnoreCase))
+                .Take(2)
+                .ToArray();
+            if (nuspecs.Length == 0
+                || (validateCoordinate && nuspecs.Length > 1))
+            {
+                log?.Invoke(
+                    nuspecs.Length == 0
+                        ? "Extracted package contained no root nuspec file."
+                        : "Extracted package contained multiple root nuspec files.");
+                return new NuspecProbeResult(
+                    null,
+                    NuspecProbeStatus.Indeterminate);
+            }
+
+            string? xml = await TryReadNuspecFileAsync(
+                    nuspecs[0],
+                    cancellationToken,
+                    strictUtf8: validateCoordinate)
+                .ConfigureAwait(false);
+            if (xml is null
+                || (validateCoordinate
+                    && !IsExpectedNuspec(
+                        xml,
+                        packageId,
+                        version)))
+            {
+                log?.Invoke(
+                    "Extracted package nuspec was unreadable, malformed, or "
+                    + "did not match the requested package.");
+                return new NuspecProbeResult(
+                    null,
+                    NuspecProbeStatus.Indeterminate);
+            }
+
+            return new NuspecProbeResult(
+                xml,
+                NuspecProbeStatus.Present);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException)
+        {
+            log?.Invoke(
+                $"Extracted package nuspec could not be inspected: {ex.GetType().Name}");
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+    }
+
+    private static bool IsExpectedNuspec(
+        string xml,
+        string packageId,
+        string version)
+    {
+        try
+        {
+            string parseableXml = xml.Length > 0 && xml[0] == '\uFEFF'
+                ? xml[1..]
+                : xml;
+            using var textReader = new StringReader(parseableXml);
+            using XmlReader reader = XmlReader.Create(
+                textReader,
+                new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    MaxCharactersInDocument = MaxNuspecBytes,
+                });
+            XDocument document = XDocument.Load(reader, LoadOptions.None);
+            XElement? root = document.Root;
+            if (root is null
+                || root.Name.LocalName != "package")
+            {
+                return false;
+            }
+
+            XNamespace nuspecNamespace = root.Name.Namespace;
+            XElement[] metadataElements = root.Elements()
+                .Where(element =>
+                    element.Name.LocalName == "metadata")
+                .Take(2)
+                .ToArray();
+            if (metadataElements.Length != 1
+                || metadataElements[0].Name.Namespace
+                    != nuspecNamespace)
+            {
+                return false;
+            }
+
+            XElement metadata = metadataElements[0];
+            XElement[] idElements = metadata.Elements()
+                .Where(element => element.Name.LocalName == "id")
+                .Take(2)
+                .ToArray();
+            XElement[] versionElements = metadata.Elements()
+                .Where(element =>
+                    element.Name.LocalName == "version")
+                .Take(2)
+                .ToArray();
+            if (idElements.Length != 1
+                || idElements[0].Name.Namespace != nuspecNamespace
+                || versionElements.Length != 1
+                || versionElements[0].Name.Namespace != nuspecNamespace)
+            {
+                return false;
+            }
+
+            string actualId = idElements[0].Value;
+            string actualVersion = versionElements[0].Value;
+
+            return string.Equals(
+                       actualId.Trim(),
+                       packageId,
+                       StringComparison.OrdinalIgnoreCase)
+                   && TryNormalizePackageVersion(
+                       version,
+                       out string expected)
+                   && TryNormalizePackageVersion(
+                       actualVersion.Trim(),
+                       out string actual)
+                   && string.Equals(
+                       expected,
+                       actual,
+                       StringComparison.OrdinalIgnoreCase);
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -868,7 +1482,8 @@ public static class PackageExtractor
     /// </summary>
     internal static async Task<string?> TryReadNuspecFileAsync(
         string nuspecPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool strictUtf8 = false)
     {
         try
         {
@@ -890,13 +1505,18 @@ public static class PackageExtractor
             if (bytes is null || bytes.Length == 0)
                 return null;
 
-            return Encoding.UTF8.GetString(bytes);
+            return (strictUtf8 ? StrictUtf8 : Encoding.UTF8)
+                .GetString(bytes);
         }
         catch (IOException)
         {
             return null;
         }
         catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (DecoderFallbackException)
         {
             return null;
         }
@@ -1885,9 +2505,14 @@ public static class PackageExtractor
             is PackageSourceOperationResult<PackageVersionResult>.Failed failed)
         {
             RecordVersionSourceFailure(source, failed.Failure);
-            return failed.Failure.Kind == PackageSourceFailureKind.Unsupported
-                ? SourceVersionList.MissingSource
-                : SourceVersionList.Failure;
+            return failed.Failure.Kind switch
+            {
+                PackageSourceFailureKind.NotFound =>
+                    SourceVersionList.Absent,
+                PackageSourceFailureKind.Unsupported =>
+                    SourceVersionList.MissingSource,
+                _ => SourceVersionList.Failure,
+            };
         }
 
         PackageVersionResult versions =
@@ -1954,7 +2579,7 @@ public static class PackageExtractor
         {
             return (
                 lookup.Versions,
-                Authoritative: true,
+                Authoritative: !lookup.Failed,
                 lookup.Failed,
                 lookup.SourceMissing);
         }
@@ -3135,9 +3760,10 @@ public static class PackageExtractor
                 cancellationToken).ConfigureAwait(false)
             : null;
 
-        bool authoritative = !isNuGetOrg
-            || registration is not null
-                && RegistrationCovers(versions, registration.AllVersions);
+        bool authoritative = !lookup.Failed
+            && (!isNuGetOrg
+                || registration is not null
+                    && RegistrationCovers(versions, registration.AllVersions));
         var listings = versions
             .Select(v => new PackageVersionInfo(
                 v,
@@ -3147,7 +3773,7 @@ public static class PackageExtractor
         return (
             listings,
             authoritative,
-            Failed: !authoritative,
+            Failed: lookup.Failed || !authoritative,
             SourceMissing: false);
     }
 

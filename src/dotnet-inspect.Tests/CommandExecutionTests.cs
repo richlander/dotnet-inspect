@@ -29873,6 +29873,16 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain('\u001B', markdown.Output);
             Assert.DoesNotContain('\u0007', markdown.Output);
 
+            var discovered = await RunAppAsync(
+                "package",
+                packagePath,
+                "-D");
+
+            Assert.Equal(0, discovered.Exit);
+            Assert.DoesNotContain(
+                PackageSections.AuditFindings,
+                discovered.Output);
+
             var jsonl = await RunAppAsync(
                 "package",
                 packagePath,
