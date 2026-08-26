@@ -457,7 +457,8 @@ AssemblyParticipantRoleManifest
   Bindings               sealed map, exactly one binding per selection
 
 DirectSourceParticipant
-  Id                     DirectMemberDesignationId + Before | After
+  Id                     exact DirectDesignatedSourceId
+  Designation            exact DirectMemberDesignationId + Before | After
   Source                 exact live MetadataSource, internal only
   Mvid                   exact source module MVID
   Lifetime               cannot outlive the designation or source
@@ -474,7 +475,8 @@ ArtifactParticipantManifest
 ArtifactParticipantInputKey
   Origin                 Planned(ComparisonEndpointKey + manifest revision) |
                          Direct(designation id + Before | After)
-  LocalId                originating manifest-/designation-local input id
+  LocalId                originating manifest-local input id |
+                         exact DirectDesignatedSourceId
 
 ArtifactParticipantPairing
   Id                     opaque comparison-scoped participant identity;
@@ -690,12 +692,14 @@ originating qualified input keys on its non-absent before/after bindings. For
 an ambiguous outcome, they must equal exactly the qualified keys represented by
 its complete candidate payload. For a failed outcome, they must equal exactly
 the qualified keys represented by its complete affected-input payload. The
-direct path applies the same admitted equality after qualifying its two local
-ids as `Direct(designation id, Before)` and
-`Direct(designation id, After)`. Those keys remain distinct even when both
-methods use one live source. Their side must likewise match the direct
-pairing's binding arm. Missing, extra, foreign, wrong-arm, or swapped payload
-identities reject sealing even when `InputMap` by itself is a total partition.
+direct path applies the same admitted equality after qualifying its two opaque
+source ids as
+`Direct(designation id, Before, before-source-id)` and
+`Direct(designation id, After, after-source-id)`. Those keys remain distinct
+even when both methods use one live source. Their source id and side must
+likewise match the direct pairing's binding arm. Missing, extra, foreign,
+wrong-arm, or swapped payload identities reject sealing even when `InputMap`
+by itself is a total partition.
 
 The outer slot-outcome set requires exact plan-slot/outcome equality and
 validates each embedded slot id. The participant outcome set requires exact
@@ -813,28 +817,43 @@ The direct live-member call is the one non-adapter designation.
 ResearchQueries explicitly authorizes exactly two already-open
 `MetadataSource` values and returns a typed
 `DirectMemberPairingDesignation`. The factory mints its opaque
-invocation-scoped designation id and retains only the two sources, their exact
-MVIDs, and a lifetime bounded by those sources. The designation is not an
+invocation-scoped designation id and one opaque `DirectDesignatedSourceId` per
+side. It binds each source id to the exact source object, side, and MVID and
+retains a lifetime bounded by those sources. The two ids remain distinct when
+both sides use the same source. They are designation-local source bindings, not
+participants or cross-version pairing evidence. The designation is not an
 `ArtifactParticipantPairing` and contains no workspace participant, role
 manifest/binding, qualified input key, endpoint slot, outcome receipt,
 question, work item, path, handle, method token/address, or display identity.
 
+The designation factory is also the only constructor for
+`DirectDesignatedMethodAddress`. It accepts one of the exact designated
+`MetadataSource` objects, its side, a `MethodDefinitionHandle`, and a
+relationship role; validates source object identity and row bounds; and creates
+the `MetadataMethodAddress` from that exact source's reader. It rejects a
+foreign or wrong-side source even when the source is byte-distinct but carries
+the same MVID. The bound address retains only the designation/source ids, side,
+physical address, and role; it does not retain another live source reference.
+
 The Queries-owned direct operation first mints its ledger and charges its one
 slot. It then charges and seals the direct question from the designation id and
-the separately supplied exact addresses/roles; no direct participant, manifest,
-binding, qualified key, or pairing exists yet. During the subsequent cataloged
-participant-pairing stage, it passes the
+the separately minted designation-bound addresses/roles and non-empty C#/IL
+mechanism set; no direct participant, manifest, binding, qualified key, or
+pairing exists yet. During the subsequent cataloged participant-pairing stage,
+it passes the
 non-optional operation-stamped `IDirectParticipantPairingBudgetLease` to the
 core-Queries direct-pairing factory. The factory charges both participant
 inputs and every pairing-authored retained character before materializing a
 direct participant, qualifying either key, or creating a role currency. It
 projects each designated source/MVID into one invocation-scoped
-`DirectSourceParticipant` keyed by designation id and side, so the participants
-and keys remain distinct even when both selections use one live source. For
-each side it mints a single-participant role manifest whose selection and
-implementation roles share that participant, so each direct binding has
-`Body = SameSelection`; the caller cannot substitute a terminal or
-`ReferenceOnly` arm. It then constructs the one admitted
+`DirectSourceParticipant` keyed by the exact designated source id and side, so
+the participants and keys remain distinct even when both selections use one
+live source. It requires each bound method-address value to carry that same
+source id before creating the participant. For each side it mints a
+single-participant role manifest whose selection and implementation roles share
+that participant, so each direct binding has `Body = SameSelection`; the caller
+cannot substitute a terminal or `ReferenceOnly` arm. It then constructs the one
+admitted
 `ArtifactParticipantPairing` and internal outcome. The pairing's id and
 `DirectMemberDesignation` authority are the exact
 `DirectMemberDesignationId` declared in core Queries, not a second identity.
@@ -855,12 +874,13 @@ compare an original assembly with a differently named emitted artifact, or two
 arbitrary methods selected by `match --implementation`. It cannot enumerate
 another member, widen into an assembly comparison, or authorize cross-side body
 correspondence. The exact before/after method addresses and relationship roles
-are supplied separately by the direct comparison input.
+are supplied separately by the direct comparison input only as
+designation-bound method-address values.
 
 The direct operation separately validates its exact participant-scoped method
-addresses and per-side relationship roles against the operation-issued
-bindings. It cannot feed an assembly-wide comparison or outlive either
-supplied source.
+addresses, source ids, sides, and relationship roles against the
+operation-issued bindings. It cannot feed an assembly-wide comparison or
+outlive either supplied source.
 
 ## Source adapters
 

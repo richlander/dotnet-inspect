@@ -143,13 +143,17 @@ Two resolution paths, chosen by scope:
   `MemberBodyCorrespondenceKey` from the independently resolved methods; a
   direct comparison instead first requires a ResearchQueries-issued
   `DirectMemberPairingDesignation` over the two live sources, then the
-  Queries-owned operation accepts a `DirectMemberComparisonInput`, admits the
-  slot, and seals its question from each independently resolved exact address
-  and relationship role. Only then does core Queries create the direct
-  participant pairing. ResearchQueries bijectively projects that query
-  population into Research-owned identities before Research plan expansion.
-  Neither path resolves by normalized canonical signature, `MemberAnchor`
-  fingerprint, `ResearchMemberIdentity`, display spelling, token equality, or
+  designation binds each exact handle and relationship role to its exact
+  designated source object and side. The Queries-owned operation accepts those
+  `DirectDesignatedMethodAddress` values in a
+  `DirectMemberComparisonInput`, admits the slot, and seals its C#/IL-only
+  question. Only then does core Queries create the direct participant pairing.
+  ResearchQueries bijectively projects that query population into
+  Research-owned identities before Research plan expansion. A byte-distinct
+  same-MVID source cannot substitute for the designated source because binding
+  validates source object identity before minting the address. Neither path
+  resolves by normalized canonical signature, `MemberAnchor` fingerprint,
+  `ResearchMemberIdentity`, display spelling, token equality, MVID alone, or
   occurrence. Duplicate structural candidates remain typed ambiguity.
 
   API and metadata spellings still differ (`int` versus `System.Int32`,

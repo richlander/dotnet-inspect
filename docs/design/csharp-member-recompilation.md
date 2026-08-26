@@ -161,9 +161,12 @@ requests, not one physical target. Each donor independently mints its own
 only inside its donor participant. The round-trip request first asks
 `DirectImplementationComparisonOperation.DesignateMemberPair` for a
 `DirectMemberPairingDesignation` that authorizes only the two live donor
-sources and retains their MVIDs. `Execute` admits that grant, charges and seals
-the direct question from the exact addresses/roles, and only then constructs
-the single-participant role manifests and direct pairing under its ledger.
+sources, retains their MVIDs, and binds one opaque source id to each exact donor
+object and side. The designation factory mints each
+`DirectDesignatedMethodAddress` from that exact donor's reader and handle.
+`Execute` admits the grant, charges and seals the C#/IL-only direct question
+from those bound addresses/roles, and only then constructs the
+single-participant role manifests and direct pairing under its ledger.
 ResearchQueries then seals the query domain/correlation and that domain's inert
 receipt, then projects the complete query population into disjoint
 Research-owned identities before Research plan expansion. Neither the common
@@ -538,10 +541,14 @@ required preservation boundary.
   `RoundTripArtifactIdentity` and reject substituting the generation-scoped
   `DotnetInspector.Artifacts.ArtifactIdentity` for digest/provenance evidence.
 - A direct-donor fixture proves the pairing designation retains only its
-  designation id, the two live sources, and both MVIDs; the comparison input
-  separately retains both exact addresses/roles. Before admission, the
-  designation must contain no participant, role binding, qualified input key,
-  role manifest, or pairing. A wrong-participant address still fails
+  designation id, two opaque side/source ids, the two live sources, and both
+  MVIDs; the comparison input separately retains both exact
+  designation-bound addresses/roles and its C#/IL mechanism set. Before
+  admission, the designation must contain no participant, role binding,
+  qualified input key, role manifest, or pairing. Byte-distinct sources with
+  the same MVID prove that a foreign or wrong-side source cannot mint or
+  substitute a bound address; the same-source/opposite-side case proves that
+  the two source ids remain distinct. Mismatched source ids still fail
   validation after the operation-issued bindings exist.
 - A reference fixture supplies different binaries with the same assembly identity
   and requires their content-hash mismatch to make scope A/B unavailable.
