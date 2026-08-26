@@ -40,7 +40,10 @@ public sealed record PdbTypeSourceInspection(
         Lines.Value is FindingInspection<string>.Complete;
 }
 
-public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
+public sealed record VerifiedSourceTextResult(
+    string? Text,
+    string? Failure,
+    SourceChecksumVerification ChecksumVerification = SourceChecksumVerification.Unavailable)
 {
     public bool IsVerified => Text is not null;
 }
@@ -448,7 +451,10 @@ public static class PdbSourceAcquisition
                     : "Fetched source does not match the portable-PDB checksum.");
         }
 
-        return new VerifiedSourceTextResult(DecodeSourceText(fetch.Bytes), null);
+        return new VerifiedSourceTextResult(
+            DecodeSourceText(fetch.Bytes),
+            null,
+            verification);
     }
 
     public static PdbMemberSourceInspection FromContent(

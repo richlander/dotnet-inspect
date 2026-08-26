@@ -50,10 +50,11 @@ Each window must identify its PR, current state, and any decision it needs.
 ### Name the window for identity
 
 ```sh
-tmux rename-window -t "$TMUX_PANE" pr<number>
+tmux rename-window -t "${TMUX_PANE:?}" pr<number>
 ```
 
-Always target `"$TMUX_PANE"`; a bare command can rename another window. Rename
+Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
+empty variable silently targets the current one. Rename
 the window, never the shared session. Use `pr<number>`, or `i<number>` before a
 PR exists. Keep the name stable except for these temporary suffixes:
 
@@ -85,17 +86,28 @@ not the record.
 Update both window-scoped options whenever state changes:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
-tmux set -w -t "$TMUX_PANE" @agent_state \
-  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
-tmux show -w -t "$TMUX_PANE" @agent_state
+tmux set -w -t "${TMUX_PANE:?}" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
 
 # Clear when this window no longer owns the PR.
-tmux set -w -t "$TMUX_PANE" -u @agent
-tmux set -w -t "$TMUX_PANE" -u @agent_state
+tmux set -w -t "${TMUX_PANE:?}" -u @agent
+tmux set -w -t "${TMUX_PANE:?}" -u @agent_state
 ```
 
-Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
+**Publish state as single, separate commands.** Never wrap them in `if`, `&&`,
+or a `for` loop. Publishing is the one thing that must never stop to ask
+permission: an approval prompt on it blocks the agent on the very act of
+reporting that it is blocked, and semi-autonomous work stops dead. A bare
+`tmux …` matches an approval rule for `tmux`; `if [ … ]; then tmux … && tmux …;
+fi` does not match it, because the command being judged is now the compound.
+That difference has stalled real work.
+
+`${TMUX_PANE:?}` is what keeps the target safe without a guard clause. If the
+variable is empty the shell fails the command outright and nothing is written —
+which matters, because `tmux set -w -t ""` does not error: it silently applies
+to whichever window is *current*, which is somebody else's.
+
+Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
 is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
@@ -123,8 +135,8 @@ When blocked on a human decision, set a persistent `HELP` state and send one
 best-effort nudge:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
-tmux display-message -d 10000 -t "$TMUX_PANE" \
+tmux set -w -t "${TMUX_PANE:?}" @agent "HELP: integrate main into pr4405, or close it?"
+tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
   "HELP pr4405 in w#{window_index}: integrate main, or close it?"
 ```
 
@@ -147,6 +159,11 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   the user may authorize auto-merge for the intended final head; the agent may
   ask. If the head moves after arming, disarm, review the new head, and ask
   again.
+- **"CI is ready":** the user's statement that CI has no failures and the PR is
+  mergeable. Trust it without re-checking and move to the next task, such as
+  dispatching the next round's reviewers.
+- **Authorizing the next round before CI completes:** the agent does not need
+  to check CI status first; proceed with the authorized round.
 
 ## Before changing files
 
@@ -204,10 +221,12 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
+| Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |
 | Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Running a review round, or checking PR status | `docs/round-orchestration.md` |
+| Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
 | Release and publishing | `docs/release-workflow.md` |
 | Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
@@ -268,6 +287,95 @@ when reproducing or validating a source-only fix, or when checking output that
 the production release does not yet contain. Do not cite the production tool as
 evidence for worktree behavior, and do not pay the source-build startup cost for
 routine development queries that the production tool can answer.
+
+## Design scope and composition
+
+Default every design effort to exactly one architectural owner and name its
+owning document. A focused owner is either an independently owned architecture
+unit whose authority was already stated in
+[the overview](docs/overview.md) or an existing focused owning document before
+the effort began, or exactly one new unit established by the effort. A
+new-owner effort adds the unit's authority entry to the overview, creates or
+names its focused owning document, and declares its responsibility, immediate
+boundaries, and non-claims. It may introduce a new responsibility or transfer
+one cohesive responsibility from one existing owner when that transfer is the
+effort's single claim and the donor's other authority is unchanged. The donor's
+relinquishment of that one responsibility and corrections that only remove
+stale statements assigning it to the donor are part of the transfer; those
+edits may not change any other owner contract. Any other normative donor change
+is a separate effort. A new owner may not aggregate responsibilities from
+multiple owners or create an umbrella owner to evade the broad-design gate. A
+project boundary alone neither creates nor erases a component boundary. Every
+focused issue and PR names the owner and owning document. For this rule, each
+such owner is one component.
+
+A focused design may specify its owner's immediate typed input and output
+obligations. It may reference an adjacent component's owner-issued types and
+state the preconditions it consumes and the results it returns, but it must not
+redefine that component's construction, validation, identity, lifetime, or
+failure semantics. Except for the bounded one-donor transfer above, if closing
+the claim requires normative changes in two owners, use two focused efforts and
+connect them with a thin composition map.
+
+A composition document may name sequencing and typed handoffs, but must
+reference owner contracts rather than restating participating components'
+internal inventories or policies. When another component needs prerequisite
+work, file or record that residual and handle it as an independently reviewable
+effort or stack slice. Do not expand the current design merely to make the whole
+end-to-end system appear closed. The preference for fewer coherent PRs does not
+justify combining independently owned component designs.
+
+A **broad design** sweeps an end-to-end lifecycle such as acquisition,
+analysis, publication, and presentation or, outside the bounded one-donor
+transfer above, normatively specifies multiple independently owned components.
+Do not start one or broaden a focused effort into one unless the user explicitly
+requests or approves that scope. A large issue, cross-cutting motivation,
+general request to redesign a subsystem, or reviewer suggestion is not
+approval. Before requesting approval, present the component map, explain why
+focused designs cannot close independently, and name the intended claims and
+non-claims.
+
+### Reviewing focused designs
+
+Review a focused design against its named owner, owning document, immediate
+typed boundaries, and declared non-claims. If repeated review keeps discovering
+new component-internal contracts or manually synchronized cross-component
+inventories, stop and apply the scope-violation recovery transition. Adding
+more prose, stages, gates, or receipts to a sweeping document is not evidence
+that it closes.
+
+### Recovering from an over-broad design
+
+If you discover that current work violates this guidance, stop broadening,
+repairing, or reviewing the design in place and apply the
+[scope-violation recovery transition](#recovery-transitions). Keep a locked
+candidate unchanged while discussing the violation with the user. Name the
+components whose ownership has been combined, explain the closure or review
+evidence that exposed the problem, and propose component-sized replacements in
+priority order, including their owners, owning documents, immediate boundaries,
+dependencies and parallel work, claims, and non-claims.
+
+After that discussion, preserve significant design problems found in other
+components as focused issues rather than dropping them or absorbing them into
+the current design. Each issue names the owning component and document,
+concrete evidence and consequence, why the problem is outside the current
+claim, and any boundary or sequencing dependency. Filing the issue preserves
+the finding; it does not approve a solution or expand the current effort.
+
+Present three explicit outcomes, recommend one, and ask the user to choose:
+
+- **Split into focused successors.** Supersede the broad candidate and re-derive
+  each successor's normative contract in its owning document; do not copy or
+  mechanically move an unclosed contract. Close the broad effort, or replace it
+  with one named focused successor when the user explicitly chooses that use.
+- **Abandon.** Supersede and close the current effort without committing to
+  successors. Preserve useful analysis only as explicitly non-normative source
+  material and retain any already-filed focused issues as independent records.
+- **Approve a broad exception.** Record the user-approved scope and preserve
+  every other requirement in this section.
+
+Do not silently narrow the work or infer approval to continue broadly. Until the
+decision, do not dispatch another review or describe the design as ready.
 
 ## Repository-wide engineering constraints
 
@@ -590,6 +698,14 @@ least one reviewer returned a finding.
 - **Conflict:** supersede the attempt, integrate and resolve, push immediately,
   and restart the same round without waiting for CI. The six-round boundary
   still applies.
+- **Scope violation:** keep the locked head unchanged while the user chooses
+  split, abandonment, or an explicitly approved broad exception. Split or
+  abandonment supersedes the attempt without spending the round; reconcile
+  returned findings publicly, then close the broad effort or replace it with a
+  user-selected focused successor. A replacement head follows the
+  author-change transition at the same round. A broad exception may resume the
+  unchanged attempt after its scope is recorded; any required head change
+  follows the author-change transition.
 - **Failure requiring an author change:** supersede the attempt, push the fix,
   satisfy the failed-gate row, and restart the same round.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
@@ -727,6 +843,14 @@ Before requesting another block, answer:
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
 
+At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
+
+1. **Would a design doc better define the design space?** Foundational APIs
+   weigh heavily toward yes.
+2. **Can hardening move to followups?** State whether deferring remaining
+   hardening to followup work would unlock this PR's value for other agent
+   work sooner.
+
 State the proposed remedy and end with one recommendation: approve the next
 implementation block, switch to a docs-only design PR, or stop. If consecutive
 rounds only strengthen the harness while the product goes unchallenged, report
@@ -741,6 +865,10 @@ must not contain the checkpoint itself.
 
 Validation proves correctness; a demo shows value. Post the intended demo early
 enough to change the implementation.
+
+For a network-accessible inspect-web demo, follow
+[`docs/runbooks/inspect-web-demo-hosting.md`](docs/runbooks/inspect-web-demo-hosting.md).
+A local HTTP listener or successful `curl` is not a user-visible demo.
 
 A useful demo:
 

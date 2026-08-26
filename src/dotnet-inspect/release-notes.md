@@ -40,6 +40,9 @@
 - Library-inspection references, classified methods, resources, performance,
   source-integrity summaries, failures, and union rows now carry their remaining
   presentation text through typed inert-text boundaries (#3463).
+- API inspection identity fields, failures, type summaries, and unified member
+  and surface tables now carry presentation text through typed inert-text
+  boundaries (#3463).
 
 ### Source and implementation evidence
 
