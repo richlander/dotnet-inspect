@@ -73,6 +73,7 @@ of repeated in every row.
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
 | `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
+| `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 
@@ -92,6 +93,97 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+`ApiTypeShape` is also the currency for a serialized
+`[JsonSerializable(typeof(T))]` root. Its parser accepts only complete
+structural generic argument lists: leading, doubled, and trailing delimiters
+are rejected, and the sum of canonical `MetadataNameArity` segments must equal
+the argument count. This keeps a malformed serialized name from projecting the
+same shape as a valid registration while preserving assembly-qualified nested
+generic identities. Primitive shapes additionally require a platform-signed
+core contract assembly name; a same-named type from another signed assembly
+remains a named shape rather than aliasing an intrinsic primitive.
+`JsonSerializableAttributeTests.ReadJsonSerializableRoots_ParsesAssemblyQualifiedNestedGenerics`,
+`ReadJsonSerializableRoots_RejectsMalformedGenericDelimitersAndArity` gate
+and `ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly` gate that
+contract.
+
+`ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
+the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
+metadata contains enough exact wrapper-name MethodDefs with target-matched
+`DynamicDependency` rows on the SDK-generated registration container for the
+export's overload group. Another type's registration or a handwritten row
+outside that container cannot be borrowed.
+`RuntimeJsExportWrapperCandidates` retains the exact wrapper MethodDef token,
+unique registration MethodDef token, and total decoded registration count
+rather than asking a Boolean to carry provenance. Each candidate also retains
+the owning module MVID, so MethodDef tokens from a separately read image cannot
+be combined with Analysis evidence from another module. The candidate is
+deliberately not publication provenance:
+`ILInspector.JsExportSurface` authenticates the Analysis-owned
+registration body and wrapper-to-stub-to-export MethodDef call chain, including
+an exact count of trusted `BindManagedFunction` calls, exactly one call whose
+proven first string-literal argument is the export's structured runtime binding
+name, equal module identities throughout, and complete body analysis for the
+registration, wrapper, and stub, before publishing a runtime binding.
+This separates Metadata's declaration fact from body evidence and rejects
+diagnosed chains, prefix siblings, or handwritten wrapper names. Null remains
+the compatibility shape for older or hand-composed surfaces only through the
+declaration-only `Build(surface)` seam; a body-backed build requires exact
+non-null provenance.
+`Build_RejectsRegistrationBodyCountMismatch` and
+`Build_RejectsDuplicatedRuntimeBindingTarget`,
+`Build_RejectsRuntimeWrapperFromDifferentModule`,
+`Build_WithBodiesRejectsLegacyNullWrapperProvenance`, and
+`ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence` gate the exact evidence
+and persistence boundary. Authentic `[JSExport]` rows on MethodDefs
+that have no declarable `ApiMember` remain `FilteredRuntimeJsExportFact`
+evidence on their retained type, or on `ApiSurface` when the MethodDef belongs
+to a wholly filtered compiler-generated type. These are publishability facts,
+not invented API members.
+`JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
+`Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
+`Build_RejectsHandwrittenRuntimeWrapperCandidate`,
+`Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
+`Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_RejectsDiagnosedRuntimeWrapperChain`,
+`Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`, and
+`ApiOutputFormatterTests.ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence`
+gate extraction, consumption, and persistence.
+
+Serializer-root evidence also retains the exact custom
+`TypeInfoPropertyName`, an authentic STJ source-generator marker on the owning
+context, and one unsupported placeholder per undecodable authentic
+`[JsonSerializable]` row. Custom property names participate in the extraction
+retained-text budget; malformed rows therefore remain local reached evidence
+without creating an unbounded or success-shaped side channel.
+`ApiSurfaceExtractorBoundsTests.JsonSerializablePropertyNameContributesItsRetainedText`,
+`JsonSerializableAttributeTests.ReadJsonSerializableRoots_RetainsFullyMalformedAuthenticRow`,
+and
+`JsExportSurfaceBuilderTests.Build_RejectsReachedHandwrittenSerializerContextImplementation`
+are the gates.
+
+Evidence for generated JSExport and serializer-context bodies is **linked, not
+adjacent**. A call present in a body, a constructor counted in a `.cctor`, or a
+descriptor element sitting near a registration proves nothing on its own: each
+has to be reachable from the body entry and connected to the next fact by a
+resolved value. The root getter's `GetTypeInfo` result must be the value stored
+into the cache field the entry reload reads; the default-instance chain must run
+default-options `newobj` to its static field, that field's load into the
+copy constructor, that copy into the context constructor, and that context into
+the field `get_Default` returns; and the registration's signature hash and
+`JSMarshalerType` descriptor elements must equal the wrapper name's own decimal
+suffix and the export's managed signature. Unrelated static initialization in
+the same `.cctor` — a user partial's own `static readonly JsonSerializerOptions`
+— is allowed precisely because the chain is followed rather than counted.
+`GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo`,
+`Build_RejectsGeneratedContextWithUnlinkedDefaultInstance`,
+`Build_RejectsUnreachableGeneratedWrapperEntry`,
+`Build_RejectsRegistrationWithMismatchedSignatureHash`,
+`Build_RejectsRegistrationWithSwappedDescriptorElement`, and
+`Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` are the gates; each
+negative patches the IL bytes of a real compiler-generated fixture and asserts
+the unpatched control still publishes.
+
 #### `ILInspector.Analysis`
 
 | Currency | Scope | Answers | Does not answer |
@@ -100,6 +192,70 @@ than becoming an empty inventory.
 | `TypeReferenceOrigin`, `ResolvableTypeReference` | One decoded named type | Exact metadata lookup name and the assembly/current-assembly/core-library/module origin that supplied it | Resolution without the source candidate or structural `TypeRef` equality |
 | `CallerScopeReachabilityPlan`, `CallerResolutionPlan` | One direct-caller query | Which scope candidates can reach the target and how decoded call-site types correspond to its definition | Transitive graph identity or cross-query persistence |
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
+| `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
+| `FieldStoreFact`, `FieldLoadFact` | One `stsfld`/`stfld` or `ldsfld`/`ldfld` instruction | Which field the instruction touches, whether its receiver is an argument, whether the block is reachable, and (for stores) the resolved stored value | Whether some other body also writes the field, or aliased/indirect access |
+| `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef` whatever its parent encoding; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
+| `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
+| `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
+
+`ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
+and `MethodResultSink.SourceCallOffsets`, not a reinterpretation of them. The
+older currencies answer "was every reaching producer a direct call?", which is
+call-only by construction; the union answers "which producers reach this value?"
+across the wider set of kinds above. Both are populated together and neither
+reads the other, so existing consumers keep their exact semantics.
+`MethodCallResolvedValueTests` is the gate for the union; the call-only
+completeness boundary keeps its own
+`MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate.
+
+`MethodReturnFlow` is a **whole-body** fact, not a per-sink one, and it is
+likewise separate from `MethodResultSink`, which keeps its historical call-only
+`IsComplete` meaning. A body that caches a value returns it from two paths that
+merge at a shared `ret`, where the evaluation-stack join collapses to
+`StackValue.NoProducer`: per-`ret` resolution cannot see either alternative, and
+no per-sink answer can say whether some *other* return path exists. The fact
+answers "which values can this body hand back, and is that the complete set?"
+Alternatives are recovered by walking block predecessors over the interpreter's
+recorded per-block exit stacks, and only while the merged slot is the one the
+predecessor was entered with, so a value that entered the stack for any other
+reason fails closed rather than being attributed to the wrong producer.
+Exception-handler entry stacks are injected independently and never inherit
+protected-block exits; a reachable `jmp` completion likewise makes the whole
+fact unresolved.
+`MethodCallResolvedValueTests.ResolvesReturnAlternativesAcrossControlFlowMerge`,
+`LeavesUnprovenReturnAlternativeUnresolved`,
+`LeavesExceptionHandlerEntryValueUnresolved`,
+`LeavesReachableJumpCompletionUnresolved`, and
+`CollectsReturnFlowWithoutResultSinkBuilder` gate these boundaries and the
+fact's independent wiring.
+
+`FieldIdentity` exists because a `MemberRef` alias and the `FieldDef` it names
+carry different metadata tokens for the same runtime field. A consumer asking
+"is this the only write to this field?" and linking by token would count one
+write where there are two, so field accesses are linked by identity instead.
+For a local parent — a `TypeDef`, or any `TypeRef`, `TypeSpec`, or `ModuleRef`
+whose declaring type resolves back to the current module or assembly — Analysis
+matches both name and field signature and canonicalizes a unique match to its
+reader-local `FieldDef` token. The parent's *encoding* is not what makes an
+alias local; only the type it names is, so adding a parent kind cannot quietly
+reopen the bypass. Duplicate matches, a signature mismatch, or an unresolvable
+potentially local operand produce no identity. This also keeps an external
+same-simple-name assembly reference from standing in for a current-module
+field.
+
+Equality answers "provably the same field": two canonicalized identities are
+compared by local definition token alone, because canonicalization deliberately
+retains each alias's own declaring-type spelling. `GetHashCode` therefore
+ignores the declaring type whenever a local token is present, or identities that
+compare equal would land in different hash buckets. A consumer counting writes
+needs the weaker `MightBeSameFieldAs`, which additionally treats an unresolved
+access, or one that named the field without canonicalizing, as a candidate:
+"might be this field" has to fail closed exactly as "is this field twice" does.
+`LibraryBodyIndexTests.FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature`,
+`FieldIdentity_LocalAliases_HashConsistentlyWithEquality`,
+`FieldIdentity_DistinguishesUnprovenForeignFields`,
+`MethodCallResolvedValueTests.FieldIdentity_DistinguishesDeclaringTypeOrigins`,
+and `LeavesUnresolvableFieldAccessesWithoutIdentity` gate it.
 
 #### `ILInspector.Decompiler`
 

@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
 using CSharpText;
 using ILInspector.Findings;
@@ -132,6 +134,9 @@ public class ApiSurface
     int _constraintResolutionSummaryIndex = -1;
     int _suppressedConstraintResolutionFailureCount;
 
+    [JsonIgnore]
+    public ApiAssemblyIdentity? AssemblyIdentity { get; set; }
+
     /// <summary>
     /// Package or assembly name.
     /// </summary>
@@ -149,6 +154,20 @@ public class ApiSurface
     public string? Source { get; set; }
 
     public List<ApiType> Types { get; set; } = [];
+
+    [JsonIgnore]
+    public List<FilteredRuntimeJsExportFact> FilteredRuntimeJsExportFacts
+        { get; set; } = [];
+
+    [JsonPropertyName("filtered_runtime_js_export_facts")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FilteredRuntimeJsExportFact>? FilteredRuntimeJsExportEvidence
+    {
+        get => FilteredRuntimeJsExportFacts.Count == 0
+            ? null
+            : FilteredRuntimeJsExportFacts;
+        set => FilteredRuntimeJsExportFacts = value ?? [];
+    }
 
     public List<ApiSurfaceInspectionFailure> InspectionFailures { get; set; } = [];
 
@@ -554,6 +573,20 @@ public class ApiSignature
     /// </summary>
     public string? StructuralReturnType { get; set; }
 
+    [JsonIgnore]
+    public List<ApiTypeReferenceIdentity> ReturnTypeReferences { get; set; } = [];
+
+    [JsonIgnore]
+    public ApiTypeReferenceIdentity? ReturnTypeDefinitionReference
+        { get; set; }
+
+    /// <summary>
+    /// Exact signature shape retained for consumers that must compare a type
+    /// argument rather than its display spelling or named references.
+    /// </summary>
+    [JsonIgnore]
+    public ApiTypeShape? ReturnTypeShape { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
@@ -601,6 +634,10 @@ public class ApiParameter
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public string? CanonicalType { get; set; }
+
+    [JsonIgnore]
+    public List<ApiTypeReferenceIdentity> TypeReferences
+        { get; set; } = [];
 
     /// <summary>
     /// Opaque structural parameter-type identity for call-graph selectors. Null on
@@ -661,6 +698,63 @@ public enum SignatureDecodeStatus
     Degraded
 }
 
+/// <summary>
+/// Why a field carrying <c>[JsonPropertyName]</c> is absent from the declarable
+/// <see cref="ApiMember"/> list.
+/// </summary>
+public enum FilteredJsonPropertyNameKind
+{
+    AutoPropertyBackingField,
+    EventBackingField,
+    CompilerNamedField,
+}
+
+/// <summary>
+/// A JSON-name attribute retained from a metadata field that API-surface
+/// reconstruction deliberately folds or filters.
+/// </summary>
+public sealed record FilteredJsonPropertyNameFact(
+    FilteredJsonPropertyNameKind Kind,
+    string? AssociatedMemberName,
+    int MetadataToken,
+    List<string?> PropertyNames);
+
+/// <summary>
+/// Authentic <c>[JSExport]</c> evidence retained from a MethodDef that API
+/// surface extraction deliberately omits, such as an accessor or local
+/// function. Keeping this outside <see cref="ApiType.Members"/> preserves the
+/// API model while preventing a runtime export claim from disappearing.
+/// </summary>
+/// <remarks>
+/// <c>JsExportSurfaceBuilderTests.Extract_RetainsFilteredJsExportMethodDefsAsFailureEvidence</c>
+/// and
+/// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+/// gate extraction and persistence.
+/// </remarks>
+public sealed record FilteredRuntimeJsExportFact(
+    string MethodName,
+    int MetadataToken,
+    int AttributeCount,
+    bool HasValidRow,
+    bool HasMalformedRow);
+
+/// <summary>
+/// Exact MethodDef evidence associating a generated runtime wrapper with its
+/// unique generated registration method and decoded registration count.
+/// </summary>
+public sealed record RuntimeJsExportWrapperCandidate(
+    int WrapperMethodToken,
+    int RegistrationMethodToken,
+    int RegistrationCount)
+{
+    /// <summary>
+    /// Module identity that owns both MethodDef tokens. Null preserves older
+    /// serialized surfaces but cannot authenticate runtime publication.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ModuleVersionId { get; init; }
+}
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -668,7 +762,7 @@ public class ApiType
 
     [JsonIgnore]
     public int? MetadataToken { get; set; }
-    
+
     /// <summary>
     /// The exact metadata name, preserving literal '+' characters and using '+'
     /// to delimit nested types, matching how TypeRef constructs its names.
@@ -703,27 +797,95 @@ public class ApiType
     public string? EnumUnderlyingType { get; set; }
 
     /// <summary>
-    /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries <c>[Flags]</c>. STJ serializes a
-    /// <c>[Flags]</c> combination as a comma-joined string of member names (e.g. <c>"Read, Write"</c>), which is
-    /// not representable as the closed single-member string-literal union used for a plain enum. Null for
-    /// non-enum types and for older serialized surfaces that predate this field.
+    /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries <c>[Flags]</c>. With the default
+    /// string-enum converter, STJ serializes named combinations as a comma-joined string of member names
+    /// (e.g. <c>"Read, Write"</c>) but can serialize unnamed combinations numerically. Null for non-enum types
+    /// and for older serialized surfaces that predate this field. True only for a well-formed authentic row;
+    /// <see cref="FlagsAttributeCount"/> and <see cref="HasMalformedFlagsAttribute"/> carry the evidence a
+    /// wire projection needs to fail closed instead of reading unreadable metadata as absence.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsFlagsEnum { get; set; }
 
     /// <summary>
+    /// Number of well-formed authentic <c>[Flags]</c> rows on an enum. More than one is unsupported
+    /// evidence: <c>[Flags]</c> is <c>AllowMultiple = false</c>, so a duplicate row cannot have come
+    /// from a compiler.
+    /// </summary>
+    [JsonIgnore]
+    public int FlagsAttributeCount { get; set; }
+
+    /// <summary>
+    /// True when an authentic <c>[Flags]</c> row on an enum carried a constructor or value blob this
+    /// reader cannot honor. The claim is real but unreadable, so consumers must treat it as unsupported
+    /// evidence rather than as absence.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasMalformedFlagsAttribute { get; set; }
+
+    /// <summary>
     /// For an enum (<see cref="Kind"/> == <c>"enum"</c>): whether it carries
     /// <c>[JsonConverter(typeof(JsonStringEnumConverter&lt;...&gt;))]</c> (or the non-generic form), which makes
-    /// STJ serialize its values by declared name rather than by numeric underlying value. This is captured here,
-    /// rather than derived from <see cref="Attributes"/>, because the converter's <c>typeof()</c> argument is a
-    /// generic type reference that the rendered <see cref="Attributes"/> text cannot represent (dropped whole by
-    /// the C#-spelling renderer). Null for non-enum types and for older serialized surfaces.
+    /// STJ serialize declared values by name while its default configuration can serialize undefined values
+    /// numerically. This is captured here, rather than derived from <see cref="Attributes"/>, because the
+    /// converter's <c>typeof()</c> argument is a generic type reference that the rendered
+    /// <see cref="Attributes"/> text cannot represent (dropped whole by the C#-spelling renderer). Null for
+    /// non-enum types and for older serialized surfaces.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonStringEnumConverter { get; set; }
 
+    [JsonIgnore]
+    public int JsonConverterAttributeCount { get; set; }
+
+    [JsonIgnore]
+    public bool HasUnsupportedJsonWireAttributes { get; set; }
+
+    [JsonIgnore]
+    public int JsonSerializableAttributeCount { get; set; }
+
+    [JsonIgnore]
+    public List<ApiJsonSerializableRoot> JsonSerializableRoots
+        { get; set; } = [];
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
+
+    /// <summary>
+    /// The effective source-generation mode declared by this serializer
+    /// context. This remains a metadata fact because consumers must not infer
+    /// deserialize support from a generated <c>JsonTypeInfo&lt;T&gt;</c> property.
+    /// </summary>
+    [JsonIgnore]
+    public JsonSourceGenerationMode JsonSourceGenerationMode { get; set; }
+
+    /// <summary>
+    /// Whether an extracted serializer registration type carries the authentic
+    /// marker emitted by the System.Text.Json source generator. Registration
+    /// attributes and matching getter names do not establish generated
+    /// implementation provenance by themselves. Null is retained for ordinary
+    /// types and older or hand-composed surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasSystemTextJsonSourceGenerationMarker { get; set; }
+
+    [JsonIgnore]
+    public List<FilteredJsonPropertyNameFact> FilteredJsonPropertyNameFacts
+        { get; set; } = [];
+
+    [JsonIgnore]
+    public List<FilteredRuntimeJsExportFact> FilteredRuntimeJsExportFacts
+        { get; set; } = [];
+
+    [JsonPropertyName("filtered_runtime_js_export_facts")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FilteredRuntimeJsExportFact>? FilteredRuntimeJsExportEvidence
+    {
+        get => FilteredRuntimeJsExportFacts.Count == 0
+            ? null
+            : FilteredRuntimeJsExportFacts;
+        set => FilteredRuntimeJsExportFacts = value ?? [];
+    }
 
     public bool IsSealed { get; set; }
     public bool IsAbstract { get; set; }
@@ -740,6 +902,8 @@ public class ApiType
     public bool IsReadOnly { get; set; }
 
     public string? BaseType { get; set; }
+    [JsonIgnore]
+    public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
 
     /// <summary>
@@ -858,6 +1022,19 @@ public class ApiMember
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
+    /// Number of index parameters on a property. Null means older or
+    /// hand-composed evidence could not prove the property is non-indexed.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsonWireMemberRulesTests.ExtractedCompilerIndexerIsExcludedFromJsonContract</c>
+    /// and
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+    /// gate extraction and persistence.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? IndexParameterCount { get; set; }
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>
@@ -870,11 +1047,52 @@ public class ApiMember
     public int? MetadataToken { get; set; }
 
     /// <summary>
+    /// Method generic arity from the MethodDef. Runtime JSExport does not
+    /// publish generic methods, so consumers must not infer a wrapper from the
+    /// rendered signature alone.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsGenericJsExportWithoutRuntimeWrapper</c>
+    /// and
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+    /// are the gates.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int GenericArity { get; set; }
+
+    /// <summary>
+    /// PropertyDef or FieldDef token used to identify declaration-scoped
+    /// metadata diagnostics without changing the MethodDef-only body token
+    /// contract of <see cref="MetadataToken"/>. Gated by
+    /// <c>MatchCommandTests.ExecuteAsync_PropertyWithGetterAndSetter_RejectsRatherThanSilentlySelectingGetter</c>
+    /// and <c>ExecuteAsync_GetOnlyProperty_ResolvesToGetterBody</c>.
+    /// </summary>
+    [JsonIgnore]
+    public int? DeclarationMetadataToken { get; set; }
+
+    /// <summary>
     /// MethodDef tokens of a property's get/set accessors when known. Lets accessor-level
     /// call-graph rows (e.g. <c>get_Foo</c>) map back to the owning property's selector.
     /// </summary>
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
+
+    [JsonIgnore]
+    public bool? HasGetter { get; set; }
+
+    [JsonIgnore]
+    public string? GetterAccessibility { get; set; }
+
+    /// <summary>
+    /// Whether a property has a setter, and that setter's accessibility.
+    /// Null preserves older or hand-composed surface compatibility.
+    /// </summary>
+    [JsonIgnore]
+    public bool? HasSetter { get; set; }
+
+    /// <inheritdoc cref="HasSetter"/>
+    [JsonIgnore]
+    public string? SetterAccessibility { get; set; }
 
     /// <summary>
     /// MethodDef tokens of an event's add/remove accessors when known. Serialized (like
@@ -913,6 +1131,39 @@ public class ApiMember
     public bool IsAsync { get; set; }
 
     /// <summary>
+    /// Whether this MethodDef has a managed body RVA. Null is retained for
+    /// older or hand-composed surfaces that predate the exact metadata fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasMethodBody { get; set; }
+
+    /// <summary>
+    /// Whether metadata contains an exact-name runtime-wrapper MethodDef and a
+    /// target-matched <c>DynamicDependency</c> row on the SDK-generated
+    /// registration container for this JSExport MethodDef. This is not body
+    /// provenance: consumers that publish runtime bindings must authenticate
+    /// the wrapper's call chain. Null preserves older or hand-composed
+    /// surfaces.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsJsExportWithoutGeneratedRuntimeWrapper</c>
+    /// and
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence</c>
+    /// gate extraction, enforcement, and persistence.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRuntimeJsExportWrapperCandidate { get; set; }
+
+    /// <summary>
+    /// Exact wrapper and registration MethodDef evidence behind
+    /// <see cref="HasRuntimeJsExportWrapperCandidate"/>. Runtime publishers
+    /// authenticate these tokens against Analysis-owned call evidence.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<RuntimeJsExportWrapperCandidate>?
+        RuntimeJsExportWrapperCandidates { get; set; }
+
+    /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").
     /// Null for public members.
     /// </summary>
@@ -933,19 +1184,136 @@ public class ApiMember
     public bool IsCompilerGenerated { get; set; }
 
     /// <summary>
-    /// True when the member carries <c>[JsonInclude]</c>, which makes STJ include an otherwise-non-public
-    /// property or field in serialization. A wire-shape emitter that otherwise filters non-public members
-    /// (e.g. to exclude a record's compiler-synthesized <c>EqualityContract</c>) must not use this attribute
-    /// as an exclusion signal.
+    /// True when the member carries <c>[JsonInclude]</c>. Source-generated STJ
+    /// can honor the opt-in only when the generated context can access the
+    /// member or relevant accessor.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }
 
+    /// <summary>
+    /// True when an authentic <c>[JsonInclude]</c> row carried a constructor or
+    /// value blob this reader cannot honor. The opt-in is real but unreadable,
+    /// so consumers must treat it as unsupported evidence rather than absence.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasMalformedJsonInclude { get; set; }
+
+    /// <summary>
+    /// One entry per authentic <c>[JsonIgnore]</c> row, in metadata order, with
+    /// <see langword="null"/> marking a row whose metadata cannot be honored.
+    /// This is the authoritative directional fact; <see cref="HasJsonIgnore"/>
+    /// and <see cref="HasJsonIgnoreNever"/> are derived from it so the two
+    /// cannot drift apart. Its persisted projection is
+    /// <see cref="JsonIgnoreConditionEvidence"/>.
+    /// </summary>
+    [JsonIgnore]
+    public List<JsonWireIgnoreCondition?> JsonIgnoreConditions { get; set; } = [];
+
+    /// <summary>
+    /// The persisted projection of <see cref="JsonIgnoreConditions"/>, named
+    /// <c>json_ignore_conditions</c> on the wire and omitted when the member
+    /// carries no authentic <c>[JsonIgnore]</c> row.
+    /// </summary>
+    /// <remarks>
+    /// The conditions themselves are persisted rather than the derived
+    /// <see cref="HasJsonIgnore"/> flag, because <c>WhenWriting</c> and
+    /// <c>WhenReading</c> are directional and a single boolean cannot
+    /// reconstruct which direction survived. A <see langword="null"/> element
+    /// persists an authentic row whose metadata could not be decoded, so
+    /// unreadable evidence stays visible across a round trip instead of
+    /// reappearing as a well-formed condition or as absence. The wire name is
+    /// pinned with <see cref="JsonPropertyNameAttribute"/> so this projection
+    /// does not read as a second, differently-named fact under a context whose
+    /// naming policy differs.
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsDirectionalAndMalformedJsonIgnoreEvidence</c>
+    /// is the gate.
+    /// </remarks>
+    [JsonPropertyName("json_ignore_conditions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<JsonWireIgnoreCondition?>? JsonIgnoreConditionEvidence
+    {
+        get => JsonIgnoreConditions.Count == 0 ? null : JsonIgnoreConditions;
+        set => JsonIgnoreConditions = value ?? [];
+    }
+
+    /// <summary>
+    /// True when the member carries any authentic <c>[JsonIgnore]</c> row,
+    /// including a malformed one. Derived from
+    /// <see cref="JsonIgnoreConditions"/> and emitted for compatibility with
+    /// consumers of the existing <c>has_json_ignore</c> field; a reader
+    /// reconstructs it from the persisted
+    /// <see cref="JsonIgnoreConditionEvidence"/> rather than from this field,
+    /// which carries no direction.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool HasJsonIgnore { get; set; }
+    public bool HasJsonIgnore => JsonIgnoreConditions.Count > 0;
+
+    [JsonIgnore]
+    public bool HasJsonIgnoreNever =>
+        JsonIgnoreConditions is [JsonWireIgnoreCondition.Never];
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? JsonPropertyName { get; set; }
+
+    [JsonIgnore]
+    public List<string?> JsonPropertyNameAttributeValues { get; set; } = [];
+
+    [JsonIgnore]
+    public int JsonConverterAttributeCount { get; set; }
+
+    [JsonIgnore]
+    public bool HasUnsupportedJsonWireAttributes { get; set; }
+
+    /// <summary>
+    /// Compatibility projection of authentic valid <c>[JSExport]</c> evidence.
+    /// The count and malformed marker retain the rows that this Boolean cannot
+    /// express.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasRuntimeJsExport { get; set; }
+
+    /// <summary>
+    /// Number of authentic framework-signed <c>[JSExport]</c> rows. A count
+    /// other than one is unsupported evidence rather than an absent export.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int RuntimeJsExportAttributeCount { get; set; }
+
+    /// <summary>
+    /// True when an authentic framework-signed <c>[JSExport]</c> row could not
+    /// be decoded or did not have the marker attribute shape.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasMalformedRuntimeJsExportAttribute { get; set; }
+
+    [JsonIgnore]
+    public List<string?> JsonStringEnumMemberNameAttributeValues { get; set; } = [];
+
+    [JsonIgnore]
+    public string? JsonStringEnumMemberName =>
+        JsonStringEnumMemberNameAttributeValues is [string name]
+            ? name
+            : null;
+
+    /// <summary>
+    /// Ordered persisted evidence for authentic
+    /// <c>[JsonStringEnumMemberName]</c> rows. Null entries retain malformed
+    /// rows, and the resolved wire name is derived only from one valid row.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_RoundTripsEnumWireNameEvidence</c>
+    /// gates the production JSON contract.
+    /// </remarks>
+    [JsonPropertyName("json_string_enum_member_names")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string?>? JsonStringEnumMemberNameEvidence
+    {
+        get => JsonStringEnumMemberNameAttributeValues.Count == 0
+            ? null
+            : JsonStringEnumMemberNameAttributeValues;
+        set => JsonStringEnumMemberNameAttributeValues = value ?? [];
+    }
 
     /// <summary>
     /// True if the member carries an [Obsolete] attribute.
@@ -1013,4 +1381,348 @@ public class ApiMember
 
     // Documentation (populated with --docs)
     public DocComment Documentation { get; set; } = new();
+}
+
+public sealed class ApiAssemblyIdentity : IEquatable<ApiAssemblyIdentity>
+{
+    public ApiAssemblyIdentity(
+        string name,
+        Version? version,
+        string? culture,
+        string? publicKeyToken)
+    {
+        Name = name;
+        Version = version;
+        Culture = culture;
+        PublicKeyToken = publicKeyToken;
+    }
+
+    public string Name { get; }
+    public Version? Version { get; }
+    public string? Culture { get; }
+    public string? PublicKeyToken { get; }
+
+    public bool Equals(ApiAssemblyIdentity? other) =>
+        other is not null
+        && StringComparer.OrdinalIgnoreCase.Equals(Name, other.Name)
+        && Version == other.Version
+        && StringComparer.OrdinalIgnoreCase.Equals(
+            NormalizeCulture(Culture),
+            NormalizeCulture(other.Culture))
+        && StringComparer.OrdinalIgnoreCase.Equals(
+            PublicKeyToken ?? "",
+            other.PublicKeyToken ?? "");
+
+    public override bool Equals(object? obj) =>
+        obj is ApiAssemblyIdentity other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Name, StringComparer.OrdinalIgnoreCase);
+        hash.Add(Version);
+        hash.Add(
+            NormalizeCulture(Culture),
+            StringComparer.OrdinalIgnoreCase);
+        hash.Add(
+            PublicKeyToken ?? "",
+            StringComparer.OrdinalIgnoreCase);
+        return hash.ToHashCode();
+    }
+
+    internal int RetainedCharacterCount =>
+        Name.Length
+        + (Culture?.Length ?? 0)
+        + (PublicKeyToken?.Length ?? 0);
+
+    internal static ApiAssemblyIdentity FromDefinition(
+        MetadataReader reader,
+        Action<int>? beforeMaterialize = null)
+    {
+        AssemblyDefinition definition = reader.GetAssemblyDefinition();
+        return new(
+            ReadString(reader, definition.Name, beforeMaterialize),
+            definition.Version,
+            ReadStringOrNull(
+                reader,
+                definition.Culture,
+                beforeMaterialize),
+            ReadToken(
+                reader,
+                definition.PublicKey,
+                isPublicKey: true,
+                beforeMaterialize));
+    }
+
+    internal static ApiAssemblyIdentity FromReference(
+        MetadataReader reader,
+        AssemblyReferenceHandle handle,
+        Action<int>? beforeMaterialize = null)
+    {
+        System.Reflection.Metadata.AssemblyReference reference =
+            reader.GetAssemblyReference(handle);
+        return new(
+            ReadString(reader, reference.Name, beforeMaterialize),
+            reference.Version,
+            ReadStringOrNull(
+                reader,
+                reference.Culture,
+                beforeMaterialize),
+            ReadToken(
+                reader,
+                reference.PublicKeyOrToken,
+                (reference.Flags & AssemblyFlags.PublicKey) != 0,
+                beforeMaterialize));
+    }
+
+    static string ReadString(
+        MetadataReader reader,
+        StringHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        beforeMaterialize?.Invoke(reader.GetBlobReader(handle).Length);
+        return reader.GetString(handle);
+    }
+
+    static string? ReadStringOrNull(
+        MetadataReader reader,
+        StringHandle handle,
+        Action<int>? beforeMaterialize) =>
+        handle.IsNil
+            ? null
+            : ReadString(reader, handle, beforeMaterialize);
+
+    static string? ReadToken(
+        MetadataReader reader,
+        BlobHandle handle,
+        bool isPublicKey,
+        Action<int>? beforeMaterialize)
+    {
+        if (handle.IsNil)
+            return null;
+
+        int length = reader.GetBlobReader(handle).Length;
+        long work = (long)length
+            + (isPublicKey ? 16L : (long)length * 2);
+        beforeMaterialize?.Invoke(
+            (int)Math.Min(int.MaxValue, work));
+        return AssemblyReferenceIdentity.TokenOrNull(
+            reader,
+            handle,
+            isPublicKey);
+    }
+
+    static string NormalizeCulture(string? value) =>
+        string.IsNullOrEmpty(value)
+            || value.Equals(
+                "neutral",
+                StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : value;
+}
+
+public sealed record ApiTypeReferenceIdentity(
+    ApiAssemblyIdentity Assembly,
+    string FullName,
+    MetadataTypeDefinitionName? DefinitionName = null);
+
+/// <summary>
+/// The structural shape of a metadata signature or serializer root. This is
+/// intentionally separate from display spelling and named-reference lists:
+/// primitive codes, array rank, generic arguments, and exact named-definition
+/// identities all participate in equality.
+/// </summary>
+public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
+{
+    ApiTypeShape(
+        ApiTypeShapeKind kind,
+        ApiPrimitiveType? primitive = null,
+        ApiTypeReferenceIdentity? definition = null,
+        ApiTypeShape? elementType = null,
+        ImmutableArray<ApiTypeShape> typeArguments = default,
+        int arrayRank = 0,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default)
+    {
+        Kind = kind;
+        Primitive = primitive;
+        Definition = definition;
+        ElementType = elementType;
+        TypeArguments = typeArguments.IsDefault ? [] : typeArguments;
+        ArrayRank = arrayRank;
+        ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
+        ArrayLowerBounds = arrayLowerBounds.IsDefault
+            ? []
+            : arrayLowerBounds;
+    }
+
+    public ApiTypeShapeKind Kind { get; }
+
+    public ApiPrimitiveType? Primitive { get; }
+
+    public ApiTypeReferenceIdentity? Definition { get; }
+
+    public ApiTypeShape? ElementType { get; }
+
+    public ImmutableArray<ApiTypeShape> TypeArguments { get; }
+
+    public int ArrayRank { get; }
+
+    /// <summary>
+    /// Optional ECMA array shape sizes retained for multi-dimensional
+    /// signature identity.
+    /// </summary>
+    public ImmutableArray<int> ArraySizes { get; }
+
+    /// <summary>
+    /// Optional ECMA array shape lower bounds retained for
+    /// multi-dimensional signature identity.
+    /// </summary>
+    public ImmutableArray<int> ArrayLowerBounds { get; }
+
+    public static ApiTypeShape PrimitiveType(ApiPrimitiveType primitive) =>
+        new(ApiTypeShapeKind.Primitive, primitive: primitive);
+
+    public static ApiTypeShape Named(ApiTypeReferenceIdentity definition) =>
+        new(ApiTypeShapeKind.Named, definition: definition);
+
+    public static ApiTypeShape GenericInstance(
+        ApiTypeReferenceIdentity definition,
+        ImmutableArray<ApiTypeShape> typeArguments) =>
+        new(
+            ApiTypeShapeKind.GenericInstance,
+            definition: definition,
+            typeArguments: typeArguments);
+
+    public static ApiTypeShape SzArray(ApiTypeShape elementType) =>
+        new(ApiTypeShapeKind.SzArray, elementType: elementType);
+
+    public static ApiTypeShape Array(
+        ApiTypeShape elementType,
+        int rank,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default) =>
+        new(
+            ApiTypeShapeKind.Array,
+            elementType: elementType,
+            arrayRank: rank,
+            arraySizes: arraySizes,
+            arrayLowerBounds: arrayLowerBounds);
+
+    public bool Equals(ApiTypeShape? other)
+    {
+        if (other is null)
+            return false;
+
+        var pending = new Stack<(ApiTypeShape Left, ApiTypeShape Right)>();
+        pending.Push((this, other));
+        while (pending.Count > 0)
+        {
+            (ApiTypeShape left, ApiTypeShape right) = pending.Pop();
+            if (ReferenceEquals(left, right))
+                continue;
+            if (left.Kind != right.Kind
+                || left.Primitive != right.Primitive
+                || left.Definition != right.Definition
+                || left.ArrayRank != right.ArrayRank
+                || !left.ArraySizes.AsSpan().SequenceEqual(
+                    right.ArraySizes.AsSpan())
+                || !left.ArrayLowerBounds.AsSpan().SequenceEqual(
+                    right.ArrayLowerBounds.AsSpan())
+                || left.TypeArguments.Length != right.TypeArguments.Length
+                || (left.ElementType is null) != (right.ElementType is null))
+            {
+                return false;
+            }
+
+            if (left.ElementType is not null)
+                pending.Push((left.ElementType, right.ElementType!));
+            for (int i = 0; i < left.TypeArguments.Length; i++)
+                pending.Push((left.TypeArguments[i], right.TypeArguments[i]));
+        }
+
+        return true;
+    }
+
+    public override bool Equals(object? obj) => Equals(obj as ApiTypeShape);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(this);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            hash.Add(current.Kind);
+            hash.Add(current.Primitive);
+            hash.Add(current.Definition);
+            hash.Add(current.ArrayRank);
+            foreach (int size in current.ArraySizes)
+                hash.Add(size);
+            foreach (int lowerBound in current.ArrayLowerBounds)
+                hash.Add(lowerBound);
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int i = current.TypeArguments.Length - 1; i >= 0; i--)
+                pending.Push(current.TypeArguments[i]);
+        }
+        return hash.ToHashCode();
+    }
+}
+
+public enum ApiTypeShapeKind
+{
+    Primitive,
+    Named,
+    GenericInstance,
+    SzArray,
+    Array,
+}
+
+public enum ApiPrimitiveType
+{
+    Void,
+    Boolean,
+    Char,
+    SByte,
+    Byte,
+    Int16,
+    UInt16,
+    Int32,
+    UInt32,
+    Int64,
+    UInt64,
+    Single,
+    Double,
+    Decimal,
+    String,
+    Object,
+}
+
+public sealed record ApiJsonSerializableRoot(
+    ApiTypeReferenceIdentity? ElementType,
+    bool IsArray,
+    string? TypeInfoPropertyName = null)
+{
+    /// <summary>
+    /// Exact registered root shape. Null means the authentic row was unreadable
+    /// or names a shape the metadata model cannot represent.
+    /// </summary>
+    [JsonIgnore]
+    public ApiTypeShape? Type { get; init; }
+
+    /// <summary>
+    /// Visible failure evidence for an authentic root whose metadata or type
+    /// shape is not supported.
+    /// </summary>
+    [JsonIgnore]
+    public string? UnsupportedReason { get; init; }
+
+    /// <summary>
+    /// Per-root source-generation override. <see cref="JsonSourceGenerationMode.Default"/>
+    /// delegates to the owning context's mode.
+    /// </summary>
+    [JsonIgnore]
+    public JsonSourceGenerationMode GenerationMode { get; init; }
 }
