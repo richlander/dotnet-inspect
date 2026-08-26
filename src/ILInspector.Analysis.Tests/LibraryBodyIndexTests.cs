@@ -209,6 +209,41 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void AsyncSiblingOpportunities_DoNotRequireAllocationAnalysis()
+    {
+        string path = typeof(OptimizationOpportunityFixtures)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities,
+            resolver);
+
+        Assert.False(index.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.Allocations));
+        Assert.False(index.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        OptimizationOpportunityAsyncSiblingFixtures
+                            .CallsSyncSiblingFromAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape != "sync-call-in-async");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce()
     {
         string path =
@@ -12004,6 +12039,33 @@ public class LibraryBodyIndexTests
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected reflection signal for {methodName}");
         Assert.True(s.Reflection >= expected, $"expected >= {expected} reflection for {methodName}, got {s.Reflection}");
+    }
+
+    [Fact]
+    public void MethodSignals_ReflectionDoesNotDependOnAllocationFeature()
+    {
+        string path = typeof(LibraryBodyIndex).Assembly.Location;
+        var compact = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        var classified = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.Allocations);
+        IReadOnlyDictionary<int, MethodSignals> compactSignals =
+            compact.GetMethodSignals();
+        IReadOnlyDictionary<int, MethodSignals> classifiedSignals =
+            classified.GetMethodSignals();
+
+        Assert.All(
+            classified.Methods,
+            method => Assert.Equal(
+                classifiedSignals
+                    .GetValueOrDefault(method.MetadataToken)
+                    ?.Reflection ?? 0,
+                compactSignals
+                    .GetValueOrDefault(method.MetadataToken)
+                    ?.Reflection ?? 0));
     }
 
     // #1623 rung 3 (signal recall): one consolidated per-signal recall scorecard over a
