@@ -52,11 +52,6 @@ interface ScopedAlias<T> {
   scopeEnd: number;
 }
 
-interface AliasScope {
-  readonly start: number;
-  readonly end: number;
-}
-
 interface DatasetObjectUse {
   file: string;
   line: number;
@@ -253,8 +248,8 @@ function domAttribute(
     const argument = expression.arguments[0];
     if (argument?.type === "Literal"
       && typeof argument.value === "string"
-      && argument.value.startsWith("data-")) {
-      return dataAttributeName(argument.value);
+      && argument.value.toLowerCase().startsWith("data-")) {
+      return dataAttributeName(argument.value.toLowerCase());
     }
     if (!(argument?.type === "Literal"
       && typeof argument.value === "string")) {
@@ -280,7 +275,7 @@ function addScopedAlias<T>(
   aliases: Map<string, ScopedAlias<T>[]>,
   local: string,
   value: T | null,
-  scope: AliasScope,
+  scope: Node,
 ) {
   const entries = aliases.get(local) ?? [];
   if (!entries.some(entry =>
@@ -316,7 +311,7 @@ function scopedAliasValues<T>(
 function addDatasetProperties(
   pattern: Node,
   aliases: DomAliases,
-  scope: AliasScope,
+  scope: Node,
 ) {
   if (pattern.type !== "ObjectPattern") return;
   const properties: unknown = Reflect.get(pattern, "properties");
@@ -347,7 +342,7 @@ function addDatasetProperties(
 function addBindingMasks(
   aliases: DomAliases,
   patterns: readonly unknown[],
-  scope: AliasScope,
+  scope: Node,
 ) {
   for (const name of patterns.flatMap(bindingNames)) {
     addScopedAlias(aliases.datasets, name, null, scope);
@@ -358,7 +353,7 @@ function addBindingMasks(
 function addNestedDatasetAliases(
   pattern: Node,
   aliases: DomAliases,
-  scope: AliasScope,
+  scope: Node,
 ): Set<string> {
   if (pattern.type === "AssignmentPattern") {
     const left: unknown = Reflect.get(pattern, "left");
@@ -410,7 +405,7 @@ function addNestedDatasetAliases(
 function addPatternAliasesAndMasks(
   patterns: readonly unknown[],
   aliases: DomAliases,
-  scope: AliasScope,
+  scope: Node,
 ) {
   for (const pattern of patterns) {
     if (!isNode(pattern)) continue;
@@ -461,15 +456,8 @@ function domAliases(program: Program): DomAliases {
         || node.type === "ArrowFunctionExpression") {
         const parameters: unknown = Reflect.get(node, "params");
         if (Array.isArray(parameters)) {
-          for (const parameter of parameters) {
-            if (!isNode(parameter)) continue;
-            // A parameter binding is visible to later defaults and the body, but not
-            // to references in its own initializer.
-            addPatternAliasesAndMasks(
-              [parameter],
-              aliases,
-              { start: parameter.end, end: node.end });
-          }
+          // Fail closed across the function's parameter environment and default initializers.
+          addPatternAliasesAndMasks(parameters, aliases, node);
         }
       } else if (node.type === "CatchClause") {
         const body: unknown = Reflect.get(node, "body");
@@ -560,7 +548,11 @@ function isReferenceNode(
     } else if (ancestor.type === "CatchClause") {
       bindings = [Reflect.get(ancestor, "param")];
     } else if (ancestor.type === "AssignmentExpression") {
-      bindings = [Reflect.get(ancestor, "left")];
+      const left: unknown = Reflect.get(ancestor, "left");
+      if (isNode(left)
+        && (left.type === "ObjectPattern" || left.type === "ArrayPattern")) {
+        bindings = [left];
+      }
     }
     if (bindings.some(binding => isBindingPosition(binding, node))) {
       return false;
@@ -931,6 +923,7 @@ const { overload = "" } = button.dataset;
 Number(overload);
 parseNonNegativeInteger(button.dataset.slIndex?.trim());
 parseNonNegativeInteger(button.dataset.mdeRow);
+Number(button.getAttribute("DATA-MDE-ROW"));
 const key = "overload";
 Number(button.dataset[key]);
 consume(button.dataset[key]);
@@ -949,7 +942,7 @@ consume(button.getAttribute(key));
     [null]);
   assert.deepEqual(
     reads.get("mdeRow")?.map(site => site.decoder),
-    ["parseNonNegativeInteger"]);
+    ["parseNonNegativeInteger", null]);
   assert.deepEqual(
     reads.get(dynamicAttribute)?.map(site => site.decoder),
     [null, null, null, null]);
@@ -970,6 +963,19 @@ let reassignedDataset: DOMStringMap;
     site.endsWith("assigned = button.dataset.overload")));
   assert.ok(assignmentViolations.some(site =>
     site.includes("{ dataset: reassignedDataset } = button")));
+  const assignmentTargetProbe = sourceFile("assignment-target-probe.ts", `
+const rawIndex = button.dataset.slIndex;
+const { dataset } = button;
+sink[rawIndex] = 1;
+sink[consume(dataset)] = 1;
+`);
+  assert.ok(
+    attributeReads([assignmentTargetProbe], decoders)
+      .get("slIndex")?.some(site =>
+        site.text === "rawIndex" && site.decoder === null));
+  assert.deepEqual(
+    datasetObjectUses([assignmentTargetProbe]).map(use => use.callee),
+    ["consume"]);
   const writeProbe = sourceFile("write-probe.ts", `
 button.dataset.slIndex = String(index);
 delete button.dataset.mdeRow;
@@ -1019,6 +1025,14 @@ function fromEvent({ currentTarget: { dataset } }) {
 function fromDefault({ dataset }, index = Number(dataset.overload)) {
   return index;
 }
+function fromSamePattern({ dataset, index = Number(dataset.mdeRow) }) {
+  return index;
+}
+function fromNestedPattern(
+  { currentTarget: { dataset, index = Number(dataset.mdeRow) } },
+) {
+  return index;
+}
 items.forEach(({ dataset: { mdeRow } }) => Number(mdeRow));
 for (const { dataset: loopDataset } of items) {
   Number(loopDataset.overload);
@@ -1026,7 +1040,7 @@ for (const { dataset: loopDataset } of items) {
 `);
   assert.equal(
     numericCoercionViolations([parameterProbe]).length,
-    4);
+    6);
 
   const objectDefaultProbe = sourceFile("object-default-probe.ts", `
 const rawIndex = button.dataset.slIndex;
