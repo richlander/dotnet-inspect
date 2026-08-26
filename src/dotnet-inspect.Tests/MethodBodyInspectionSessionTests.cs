@@ -63,6 +63,46 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    public void BodyCorrespondence_DistinguishesFunctionPointerCallingConventions()
+    {
+        ResolvedAssemblyReference tokenOrigin =
+            TestAssemblyReferences.Designated(TestPath);
+        ResolvedAssemblyReference bodyAssembly =
+            TestAssemblyReferences.Designated(TestPath);
+        using var originImage =
+            AssemblyInspectionSession.Open(tokenOrigin);
+        int[] sourceTokens = originImage.MethodBodies.EnumerateMethods()
+            .Where(method =>
+                method.DeclaringType.EndsWith(
+                    nameof(FunctionPointerConversionFixture),
+                    StringComparison.Ordinal)
+                && method.Name == "op_Explicit")
+            .Select(method => method.MetadataToken)
+            .ToArray();
+        string[] canonicalSignatures = sourceTokens
+            .Select(token =>
+                originImage.MethodBodies.ResolveMethodAnchor(token)!
+                    .CanonicalSignature)
+            .ToArray();
+
+        IReadOnlyDictionary<int, int> correspondence =
+            ApiBodyMemberCorrespondence.Resolve(
+                sourceTokens,
+                tokenOrigin,
+                bodyAssembly);
+
+        Assert.Equal(2, sourceTokens.Length);
+        Assert.Single(canonicalSignatures.Distinct(StringComparer.Ordinal));
+        Assert.Equal(2, correspondence.Count);
+        Assert.All(
+            sourceTokens,
+            token => Assert.Equal(token, correspondence[token]));
+        Assert.NotSame(
+            tokenOrigin.Registration,
+            bodyAssembly.Registration);
+    }
+
+    [Fact]
     public void MemberAnalysis_CorrespondsMethodIdentityAcrossDistinctAcquisitions()
     {
         byte[] referenceImage = CompileFixture(

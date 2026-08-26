@@ -102,6 +102,65 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task PackageAllLibrariesKindPredicate_RetainsPackageAcquisition()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shapes-all-libraries-{Guid.NewGuid():N}");
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string libraryDir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(libraryDir);
+            File.Copy(
+                FixturePath,
+                Path.Combine(libraryDir, "BodyShapes.Package.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "BodyShapes.Package.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var root = CommandLineBuilder.CreateRootCommand();
+            var result = await ConsoleCapture.RunAsync(() =>
+                root.Parse(
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "--where",
+                        "Kind=ObjectCreationExpression",
+                        "--tips",
+                        "q",
+                    ])
+                    .InvokeAsync());
+
+            Assert.True(
+                result.ExitCode == 0,
+                $"Exit: {result.ExitCode}{Environment.NewLine}"
+                + $"Error: {result.Error}{Environment.NewLine}"
+                + $"Output: {result.Output}");
+            Assert.DoesNotContain(
+                "Error:",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Output.Contains(
+                    "## Body Shapes",
+                    StringComparison.Ordinal),
+                $"Error: {result.Error}{Environment.NewLine}"
+                + $"Output: {result.Output}");
+            Assert.Contains(
+                nameof(BodyShapeFixture.PublicCreation),
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task MemberBodyShapeGlobExpansion_RequiresKindPredicate()
     {
         var root = CommandLineBuilder.CreateRootCommand();

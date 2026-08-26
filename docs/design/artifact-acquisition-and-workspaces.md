@@ -161,10 +161,21 @@ owner-issued registration after that generation ends.
 Metadata tokens are acquisition-local addresses and never establish
 correspondence between registrations. When an API member selected from a
 reference acquisition is analyzed against a distinct runtime acquisition, the
-consumer derives the member's canonical identity independently from each
-acquisition's SRM metadata and maps to the runtime MethodDef before opening any
-body-backed section. Missing or ambiguous identity correspondence is a visible
-failure; a foreign token is never used as a fallback.
+consumer derives an exact metadata-owned MethodDef structural identity
+independently from each acquisition's SRM metadata and maps to the runtime
+MethodDef before opening any body-backed section. This correspondence identity
+is intentionally stricter than the durable, user-facing `MemberAnchor`: it
+retains calling conventions, return and parameter signatures, generic
+positions, function-pointer conventions, and custom modifiers. Missing or
+ambiguous identity correspondence is a visible failure; a foreign token is
+never used as a fallback.
+
+When a reference surface defines a type but the corresponding runtime assembly
+forwards it, the runtime role follows that forwarding chain to the assembly
+that owns the implementation TypeDef before establishing member
+correspondence. A forwarding facade is not an implementation acquisition, and
+an unavailable or ambiguous terminal definition fails visibly rather than
+pairing source tokens with the facade.
 
 Caller designation is a policy input, not source provenance or assembly
 identity. The current `AssemblyResolutionProvenance.DesignatedAsset` carries the

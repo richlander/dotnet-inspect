@@ -16,6 +16,70 @@ public class SourceForwarderResolutionTests
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
     [Fact]
+    public void RuntimeRole_FollowsRuntimeFacadeToImplementationDefinition()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string referenceDirectory =
+                Path.Combine(directory, "reference");
+            string runtimeDirectory =
+                Path.Combine(directory, "runtime");
+            Directory.CreateDirectory(referenceDirectory);
+            Directory.CreateDirectory(runtimeDirectory);
+            string referencePath =
+                Path.Combine(referenceDirectory, "Facade.dll");
+            string runtimePath =
+                Path.Combine(runtimeDirectory, "Facade.dll");
+            string targetPath =
+                Path.Combine(runtimeDirectory, "Target.dll");
+            var targetIdentity = new AssemblyReferenceIdentity(
+                "Target",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+            File.WriteAllBytes(
+                referencePath,
+                BuildAssembly("Facade", definesType: true));
+            File.WriteAllBytes(
+                runtimePath,
+                BuildAssembly("Facade", targetIdentity));
+            File.WriteAllBytes(
+                targetPath,
+                BuildAssembly("Target", definesType: true));
+            ResolvedAssemblyReference reference =
+                TestAssemblyReferences.Designated(referencePath);
+            ResolvedAssemblyReference runtime =
+                TestAssemblyReferences.Designated(runtimePath);
+            ApiSurface api = Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(reference));
+            ApiType type = Assert.Single(
+                api.Types,
+                candidate => candidate.FullName == "N.Type");
+            var loaded = new ApiServices.LoadedApiSurface(
+                api,
+                referencePath,
+                runtimePath,
+                reference,
+                runtime);
+
+            ResolvedAssemblyReference implementation =
+                Assert.IsType<ResolvedAssemblyReference>(
+                    ApiServices.AssemblyReferenceForRole(
+                        loaded,
+                        type,
+                        ApiServices.AssemblyReferenceRole.RuntimeOrPdb));
+
+            Assert.Equal("Target", implementation.Identity.Name);
+            Assert.Equal(targetPath, implementation.Path);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolutionSession_FollowsLegitimateAcquiredSibling()
     {
         string directory = CreateDirectory();

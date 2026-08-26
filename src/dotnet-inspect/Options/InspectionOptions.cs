@@ -8,6 +8,9 @@ namespace DotnetInspector.Options;
 /// </summary>
 public record InspectionOptions : IProjectionOptions
 {
+    public BodyKindQueryOptions BodyKindQuery { get; init; } =
+        BodyKindQueryOptions.Default;
+
     /// <summary>
     /// Package name/path arguments (positional). First element is package identifier.
     /// </summary>

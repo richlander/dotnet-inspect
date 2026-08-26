@@ -50,13 +50,15 @@ internal static class ApiBodyMemberCorrespondence
             sourceAnchors.Add(sourceToken, anchor);
         }
 
-        IReadOnlyDictionary<string, MethodBodySelection> bodyMethods =
-            bodyImage.MethodBodies.ResolveMethods(sourceAnchors.Values);
+        IReadOnlyDictionary<int, MethodBodySelection> bodyMethods =
+            originImage.MethodBodies.ResolveCorrespondingMethods(
+                sourceTokens,
+                bodyImage.MethodBodies);
         var resolved = new Dictionary<int, int>();
         foreach ((int sourceToken, MemberAnchor anchor) in sourceAnchors)
         {
             if (!bodyMethods.TryGetValue(
-                    anchor.CanonicalSignature,
+                    sourceToken,
                     out MethodBodySelection? selection))
             {
                 throw new InvalidOperationException(

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -142,6 +143,145 @@ public class MemberBodyProducerUnionTests
         Assert.Contains("private Result(double value)", source);
         Assert.Contains("public Result() : this(true)", source);
         await AssertSdkPreviewBuilds(source);
+    }
+
+    [Fact]
+    public void UnionDeclaration_CrossAcquisitionTokensStayInTheirOwningDomain()
+    {
+        const string preamble = """
+            #nullable enable
+            namespace System.Runtime.CompilerServices
+            {
+                [System.AttributeUsage(System.AttributeTargets.Struct)]
+                public sealed class UnionAttribute : System.Attribute;
+                public interface IUnion
+                {
+                    object Value { get; }
+                }
+            }
+            namespace UnionFixtures
+            {
+            """;
+        const string suffix = """
+            }
+            """;
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-union-token-domains-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string referencePath =
+                Path.Combine(directory, "reference", "UnionTokenDomains.dll");
+            string runtimePath =
+                Path.Combine(directory, "runtime", "UnionTokenDomains.dll");
+            using var referenceAssembly = CompileTo(
+                preamble
+                + """
+                    [System.Runtime.CompilerServices.Union]
+                    public readonly struct Result
+                        : System.Runtime.CompilerServices.IUnion
+                    {
+                        public Result(int value) => Value = value;
+                        public Result(bool value) => Value = value;
+                        internal Result(string message, int code)
+                        {
+                            Value = "source-explicit-" + message + code;
+                        }
+                        public object Value { get; }
+                    }
+                """
+                + suffix,
+                referencePath,
+                "UnionTokenDomains");
+            using var runtimeAssembly = CompileTo(
+                preamble
+                + """
+                    [System.Runtime.CompilerServices.Union]
+                    public readonly struct Result
+                        : System.Runtime.CompilerServices.IUnion
+                    {
+                        public Result(int value) => Value = value;
+                        internal Result(string message, int code)
+                        {
+                            Value = "runtime-explicit-" + message + code;
+                        }
+                        public Result(bool value) => Value = value;
+                        public object Value { get; }
+                    }
+                """
+                + suffix,
+                runtimePath,
+                "UnionTokenDomains");
+            ResolvedAssemblyReference tokenOrigin =
+                ResolvedAssemblyReference.CreateFromPath(
+                    referencePath,
+                    AssemblyResolutionProvenance.Designated("union reference"));
+            ResolvedAssemblyReference bodyAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    runtimePath,
+                    AssemblyResolutionProvenance.Designated("union runtime"));
+            using var sourcePe = new PEReader(File.OpenRead(referencePath));
+            ApiSurface surface = ApiSurfaceExtractor.Extract(sourcePe);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.FullName == "UnionFixtures.Result");
+            int[] sourceTokens = type.Members
+                .SelectMany(member => new int?[]
+                {
+                    member.MetadataToken,
+                    member.GetterToken,
+                    member.SetterToken,
+                    member.AdderToken,
+                    member.RemoverToken,
+                })
+                .OfType<int>()
+                .Distinct()
+                .ToArray();
+            using var sourceImage =
+                AssemblyInspectionSession.Open(tokenOrigin);
+            using var runtimeImage =
+                AssemblyInspectionSession.Open(bodyAssembly);
+            IReadOnlyDictionary<int, MethodBodySelection> resolved =
+                sourceImage.MethodBodies.ResolveCorrespondingMethods(
+                    sourceTokens,
+                    runtimeImage.MethodBodies);
+            IReadOnlyDictionary<int, int> bodyTokens =
+                resolved.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.MetadataToken);
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(runtimePath));
+
+            DecompilerResult result = MemberBodyProducer.Project(
+                type,
+                bodyAssembly,
+                resolver,
+                bodyTokens: bodyTokens);
+
+            Assert.True(
+                result.Succeeded,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics.Select(
+                        diagnostic => diagnostic.Message)));
+            Assert.True(
+                result.Output!.Contains(
+                    "public readonly union Result(int, bool)",
+                    StringComparison.Ordinal),
+                result.Output);
+            Assert.Contains(
+                "internal Result(string message, int code)",
+                result.Output);
+            Assert.Contains("runtime-explicit-", result.Output);
+            Assert.DoesNotContain("source-explicit-", result.Output);
+            Assert.DoesNotContain("public Result(int value)", result.Output);
+            Assert.DoesNotContain("public Result(bool value)", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -1775,6 +1915,33 @@ public class MemberBodyProducerUnionTests
         using var stream = File.Create(path);
         var result = compilation.Emit(stream);
         Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        return new TempAssembly(path);
+    }
+
+    static TempAssembly CompileTo(
+        string source,
+        string path,
+        string assemblyName)
+    {
+        Directory.CreateDirectory(
+            System.IO.Path.GetDirectoryName(path)!);
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions:
+                    NullableContextOptions.Enable));
+
+        using var stream = File.Create(path);
+        var result = compilation.Emit(stream);
+        Assert.True(
+            result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics));
         return new TempAssembly(path);
     }
 

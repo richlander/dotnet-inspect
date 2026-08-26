@@ -51,6 +51,8 @@ public static class PackageOptionsParser
     /// </summary>
     public record UnrecognizedOption(string Option) : PackageParseResult;
 
+    public record InvalidOption(OptionError Error) : PackageParseResult;
+
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
@@ -120,9 +122,26 @@ public static class PackageOptionsParser
         }
 
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
+        string[] whereExpressions =
+            parseResult.GetValue(opts.RowWhere) ?? [];
+        if (!BodyKindQueryOptions.TryExtract(
+                whereExpressions,
+                out BodyKindQueryOptions bodyKindQuery,
+                out string[] remainingWhere,
+                out OptionError bodyKindError))
+        {
+            return new InvalidOption(bodyKindError);
+        }
+        if (remainingWhere.Length > 0)
+        {
+            return new InvalidOption(
+                "Package --all-libraries supports only "
+                + "--where Kind=... predicates.");
+        }
 
         var options = new InspectionOptions
         {
+            BodyKindQuery = bodyKindQuery,
             PackageArgs = packageArgs,
             ExplicitVersion = explicitVersion,
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),

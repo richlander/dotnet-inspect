@@ -46,7 +46,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["PrinterPrecedenceTests.cs"] = (1, "Product-output validity: compiles printer-produced precedence source per case."),
             ["UnboxValueReadPassTests.cs"] = (1, "Product-output validity: compiles the normalized unbox value-read source (cast vs Unsafe.Unbox) per case."),
             ["IrImporterTests.cs"] = (1, "Product-output validity: compiles synthesized source feeding the IR importer."),
-            ["MemberBodyProducerUnionTests.cs"] = (1, "Product-output validity: recompiles member-body producer output per rule set."),
+            ["MemberBodyProducerUnionTests.cs"] = (2, "Product-output validity: recompiles member-body producer output per rule set and builds same-identity reference/runtime union fixtures with reordered MethodDefs."),
             ["MemberBodyProducerExpressionBodyTests.cs"] = (1, "Product-output validity: decompiles a compiled single-switch-return member and asserts the expression-bodied rendering (#3088)."),
             ["LadderRung6GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-6 gate source."),
             ["LadderRung9GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-9 gate source with feature parse options."),
@@ -128,9 +128,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #4607 adds CSharpPrinterSemanticSpacingTests.cs (1 site): recompiles
     //     nested-function label scopes and structured lambda bodies containing
     //     printer line comments.
-    //   Combined: 43 files, 53 sites.
+    //   PR #4623 adds a second site to MemberBodyProducerUnionTests.cs (1 -> 2):
+    //     builds same-identity reference/runtime union fixtures with reordered
+    //     MethodDefs to gate acquisition-local token ownership.
+    //   Combined: 43 files, 54 sites.
     const int ExpectedDynamicFiles = 43;
-    const int ExpectedDynamicSites = 53;
+    const int ExpectedDynamicSites = 54;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

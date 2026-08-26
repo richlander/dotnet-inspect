@@ -3809,6 +3809,37 @@ public class PackageCommand
             };
         }
 
+        bool bodyShapesSelected =
+            libraryOptions.IncludeSections?.Contains(
+                SectionNames.BodyShapes) == true;
+        if (libraryOptions.BodyKindQuery.HasFilter
+            && libraryOptions.IncludeSections is not { Count: > 0 })
+        {
+            libraryOptions = libraryOptions with
+            {
+                IncludeSections = [SectionNames.BodyShapes],
+                ExactIncludeSectionsOverride = [SectionNames.BodyShapes],
+            };
+            bodyShapesSelected = true;
+        }
+        if (libraryOptions.BodyKindQuery.HasFilter
+            && !bodyShapesSelected)
+        {
+            CommandError.Write(
+                $"--where Kind=... targets section "
+                + $"'{SectionNames.BodyShapes}'. Omit -S or include "
+                + $"-S \"{SectionNames.BodyShapes}\".");
+            return 1;
+        }
+        if (bodyShapesSelected
+            && !libraryOptions.BodyKindQuery.HasFilter)
+        {
+            CommandError.Write(
+                $"Section '{SectionNames.BodyShapes}' requires "
+                + "--where \"Kind=<C# Body Kinds ID>\".");
+            return 1;
+        }
+
         if (libraryOptions.Count
             && !CountOutput.ValidateSectionsSelected(
                 libraryOptions.IncludeSections,
@@ -3903,9 +3934,22 @@ public class PackageCommand
             LibraryInspection? inspection;
             try
             {
+                ResolvedAssemblyReference? inspectionAssemblyReference =
+                    integrationsWorkspace is null
+                        ? ResolvedAssemblyReference
+                            .CreateInspectionReferenceFromPathIfManaged(
+                                selection.Path,
+                                acquisition.CreateProvenance(
+                                    TfmResolver
+                                        .ExtractFrameworkFolderFromPath(
+                                            relativePath)))
+                        : null;
                 inspection =
                     integrationsWorkspace is null
-                        ? await InspectAsync(null, null, null)
+                        ? await InspectAsync(
+                            inspectionAssemblyReference,
+                            null,
+                            null)
                         : await InspectGroupedAssemblyAsync(
                             integrationsWorkspace,
                             selection.Path,
@@ -3919,6 +3963,20 @@ public class PackageCommand
                     (
                         relativePath,
                         ex.FailureKind));
+                continue;
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or NotSupportedException
+                    or ObjectDisposedException
+                    or BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                logger.LogWarning(
+                    $"Could not read library: "
+                    + $"{Path.GetFileName(selection.Path)}: {ex.Message}");
                 continue;
             }
 
@@ -4267,6 +4325,7 @@ public class PackageCommand
         => new()
         {
             AssemblyName = assemblyName,
+            BodyKindQuery = options.BodyKindQuery,
             IncludeMetadata = true,
             PackagePath = packageReference,
             IncludePrerelease = options.IncludePrerelease,

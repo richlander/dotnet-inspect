@@ -1154,15 +1154,32 @@ public static class MemberBodyProducer
         var overloadIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         bool first = true;
 
-        var members = union is { ExplicitConstructors.Count: > 0 }
-            ? type.Members.Concat(union.ExplicitConstructors)
-                .OrderBy(member => member.MetadataToken ?? int.MaxValue)
-                .ToList()
-            : type.Members;
-
-        foreach (var member in members)
+        IEnumerable<(ApiMember Member, bool RuntimeOwned)> members =
+            type.Members.Select(
+                member => (Member: member, RuntimeOwned: false));
+        if (union is { ExplicitConstructors.Count: > 0 })
         {
-            if (union is not null && IsHiddenUnionMember(member, union))
+            members = members
+                .Concat(
+                    union.ExplicitConstructors.Select(
+                        member => (Member: member, RuntimeOwned: true)))
+                .OrderBy(entry =>
+                    MapToken(
+                        entry.Member.MetadataToken,
+                        entry.RuntimeOwned ? null : bodyTokens)
+                    ?? int.MaxValue)
+                .ToList();
+        }
+
+        foreach ((ApiMember member, bool runtimeOwned) in members)
+        {
+            IReadOnlyDictionary<int, int>? memberBodyTokens =
+                runtimeOwned ? null : bodyTokens;
+            if (union is not null
+                && IsHiddenUnionMember(
+                    member,
+                    union,
+                    memberBodyTokens))
             {
                 // Hidden union case constructors still occupy metadata overload
                 // slots. Keep fallback overload counting aligned for any
@@ -1213,7 +1230,7 @@ public static class MemberBodyProducer
                             reader,
                             typeHandle,
                             member,
-                            bodyTokens)
+                            memberBodyTokens)
                         ?? Pipeline.IrImporter.ResolveMethodHandle(
                             reader,
                             member.DeclaringType ?? type.FullName,
@@ -1325,7 +1342,7 @@ public static class MemberBodyProducer
                         printerOptions,
                         attributeMode,
                         failOnDiagnostic: only is not null,
-                        bodyTokens: bodyTokens);
+                        bodyTokens: memberBodyTokens);
                     break;
                 }
 
@@ -1349,7 +1366,7 @@ public static class MemberBodyProducer
                         printerOptions,
                         attributeMode,
                         failOnDiagnostic: only is not null,
-                        bodyTokens: bodyTokens);
+                        bodyTokens: memberBodyTokens);
                     break;
                 }
             }
@@ -1359,8 +1376,11 @@ public static class MemberBodyProducer
         }
     }
 
-    static bool IsHiddenUnionMember(ApiMember member, UnionDeclarationInfo union)
-        => member.MetadataToken is { } token
+    static bool IsHiddenUnionMember(
+        ApiMember member,
+        UnionDeclarationInfo union,
+        IReadOnlyDictionary<int, int>? bodyTokens)
+        => MapToken(member.MetadataToken, bodyTokens) is { } token
             && union.HiddenMethodTokens.Contains(token)
             && member.DeclaringOverloadIndex is null
             || member.Kind == "property" && IsUnionValuePropertyName(member.Name);

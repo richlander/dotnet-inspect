@@ -7,6 +7,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -333,6 +334,37 @@ public class ApiMemberAnalysisInspectionTests
             node => node.Member.Name == "Leaf"
                 && node.Kind
                     == ILInspector.CallGraph.CallGraphNodeKind.Normal);
+    }
+
+    [Fact]
+    public void CallGraph_DependencyScopeUsesPathlessAuthoritativeDescriptor()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string unrelated =
+            FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
+        ResolvedAssemblyReference callerReference =
+            TestAssemblyReferences.Designated(caller)
+                .WithoutLocalPath();
+        var inspection = new ApiMemberAnalysisInspection(
+            "/diagnostic-path-must-not-be-opened.dll",
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [unrelated, target],
+            new ApiOptions
+            {
+                AssemblyReference = callerReference,
+            });
+
+        IReadOnlyList<MethodBodyInspectionSession>? calleeScopes =
+            inspection.CalleeScopes();
+
+        Assert.NotNull(calleeScopes);
+        Assert.Equal(
+            ["ILInspector.Analysis.CallerGraphTarget"],
+            calleeScopes.Select(scope => scope.SourceName));
     }
 
     // Round-5 review: a zero-byte or malformed *.dll beside real ones was classified as

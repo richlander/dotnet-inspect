@@ -423,16 +423,11 @@ internal sealed class ApiMemberAnalysisInspection
         [NotNullWhen(true)]
         out IReadOnlyList<string>? references)
     {
-        if (assembly.Path is null)
-        {
-            references = null;
-            return false;
-        }
-
         try
         {
-            AssemblyIdentityNames names =
-                AssemblyIdentityScanner.Scan(assembly.Path);
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(assembly);
+            AssemblyIdentityNames names = session.IdentityNames();
             references = names.ReferenceNames;
             return names.ReferencesComplete;
         }

@@ -98,6 +98,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.PlainText);
         opts.AddOutputOptionsTo(packageCommand);
         opts.AddSectionOptionsTo(packageCommand);
+        packageCommand.Options.Add(opts.RowWhere);
         opts.AddCountOptionTo(packageCommand);
         opts.AddPrintOptionTo(packageCommand);
         opts.AddShapeProjectionOptionsTo(packageCommand);
@@ -127,6 +128,10 @@ public static class PackageCommandDefinitions
                         ArgumentPreprocessor.GetRemovedPackageOptionError(error.Option) is { } removed
                             ? removed
                             : $"Unrecognized option '{error.Option}'.");
+                    return 1;
+
+                case PackageOptionsParser.InvalidOption error:
+                    CommandError.Write(error.Error);
                     return 1;
 
                 case PackageOptionsParser.Success success:

@@ -28,7 +28,13 @@ internal static class ApiServices
         string PdbLookupPath,
         ResolvedAssemblyReference? AssemblyReference,
         ResolvedAssemblyReference? RuntimeAssemblyReference,
-        bool IsSummary = false);
+        bool IsSummary = false,
+        string? ProjectAssetsPath = null,
+        string? PlatformFramework = null)
+    {
+        internal Dictionary<MetadataTypeDefinitionName, ResolvedAssemblyReference>
+            RuntimeImplementationAssemblies { get; } = [];
+    }
 
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
@@ -116,7 +122,9 @@ internal static class ApiServices
             apiDllPath,
             runtimeAssemblyPath ?? apiDllPath,
             assemblyReference,
-            runtimeAssemblyReference);
+            runtimeAssemblyReference,
+            ProjectAssetsPath: options.ProjectAssetsPath,
+            PlatformFramework: options.PlatformFramework);
     }
 
     static TypeDefinitionResolutionSession? TryCreateResolutionSession(
@@ -185,8 +193,9 @@ internal static class ApiServices
     internal static ResolvedAssemblyReference? AssemblyReferenceForRole(
         LoadedApiSurface loaded,
         ApiType type,
-        AssemblyReferenceRole role) =>
-        role switch
+        AssemblyReferenceRole role)
+    {
+        return role switch
         {
             AssemblyReferenceRole.TokenOrigin =>
                 type.SourceAssemblyReference
@@ -194,18 +203,72 @@ internal static class ApiServices
             AssemblyReferenceRole.Surface =>
                 loaded.AssemblyReference,
             AssemblyReferenceRole.RuntimeOrPdb =>
-                IsForwardedTypeAcquisition(
-                    loaded,
-                    type)
-                    ? type.SourceAssemblyReference
-                    : loaded.RuntimeAssemblyReference
-                        ?? loaded.AssemblyReference
-                        ?? type.SourceAssemblyReference,
+                RuntimeAssemblyReference(loaded, type),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(role),
                 role,
                 "Unknown assembly-reference role."),
         };
+    }
+
+    static ResolvedAssemblyReference? RuntimeAssemblyReference(
+        LoadedApiSurface loaded,
+        ApiType type)
+    {
+        if (IsForwardedTypeAcquisition(loaded, type))
+            return type.SourceAssemblyReference;
+
+        ResolvedAssemblyReference? runtime =
+            loaded.RuntimeAssemblyReference
+                ?? loaded.AssemblyReference
+                ?? type.SourceAssemblyReference;
+        if (runtime is null || type.DefinitionName is not { } definitionName)
+            return runtime;
+
+        if (loaded.RuntimeImplementationAssemblies.TryGetValue(
+                definitionName,
+                out ResolvedAssemblyReference? implementation))
+        {
+            return implementation;
+        }
+
+        using (AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(runtime))
+        {
+            if (session.ProbeDeclaration(definitionName)
+                is not TypeDeclarationResult.Forwarded)
+            {
+                loaded.RuntimeImplementationAssemblies.Add(
+                    definitionName,
+                    runtime);
+                return runtime;
+            }
+        }
+
+        using var resolution = new TypeDefinitionResolutionSession(
+            runtime,
+            projectAssetsPath: loaded.ProjectAssetsPath,
+            targetFramework: loaded.Api.Tfm,
+            platformFramework: loaded.PlatformFramework);
+        TypeResolutionOutcome outcome = resolution.Resolve(definitionName);
+        if (outcome is not TypeResolutionOutcome.Resolved resolved)
+        {
+            string terminal =
+                outcome.TerminalAssemblyIdentity?.Name
+                ?? "unknown assembly";
+            throw new InvalidOperationException(
+                $"Cannot resolve runtime implementation of "
+                + $"'{definitionName.ToEscapedFullName()}' from "
+                + $"'{runtime.Identity.Name}'; resolution ended at "
+                + $"'{terminal}' with {outcome.GetType().Name}.");
+        }
+
+        implementation = resolved.Definition.Assembly.Assembly;
+        loaded.RuntimeImplementationAssemblies.Add(
+            definitionName,
+            implementation);
+        return implementation;
+    }
 
     static bool IsForwardedTypeAcquisition(
         LoadedApiSurface loaded,

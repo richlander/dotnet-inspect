@@ -195,6 +195,108 @@ public sealed class MethodBodySource : IOperandNameResolver
     }
 
     /// <summary>
+    /// Resolves source MethodDef tokens to exact corresponding methods in a
+    /// distinct metadata source. Missing and ambiguous identities are omitted.
+    /// </summary>
+    public IReadOnlyDictionary<int, MethodBodySelection> ResolveCorrespondingMethods(
+        IEnumerable<int> sourceMethodTokens,
+        MethodBodySource target)
+    {
+        _ensureAlive();
+        ArgumentNullException.ThrowIfNull(sourceMethodTokens);
+        ArgumentNullException.ThrowIfNull(target);
+        target._ensureAlive();
+
+        if (target._reader.MethodDefinitions.Count
+            > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+        {
+            throw new BadImageFormatException(
+                "The target method table exceeds the correspondence safety limit.");
+        }
+
+        var sourceSignatures = new StructuralSignatureBuilder(_reader);
+        var requested = new Dictionary<StructuralMethodKey, List<int>>();
+        foreach (int sourceToken in sourceMethodTokens.Distinct())
+        {
+            EntityHandle entity = MetadataTokens.EntityHandle(sourceToken);
+            if (entity.Kind != HandleKind.MethodDefinition)
+                continue;
+
+            MethodDefinitionHandle sourceHandle =
+                (MethodDefinitionHandle)entity;
+            MethodDefinition sourceMethod;
+            try
+            {
+                sourceMethod = _reader.GetMethodDefinition(sourceHandle);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentOutOfRangeException)
+            {
+                continue;
+            }
+
+            StructuralMethodKey key =
+                sourceSignatures.BuildMethodKey(sourceMethod);
+            if (!requested.TryGetValue(key, out List<int>? tokens))
+            {
+                tokens = [];
+                requested.Add(key, tokens);
+            }
+            tokens.Add(sourceToken);
+        }
+
+        var resolved = new Dictionary<int, MethodBodySelection>();
+        var ambiguous = new HashSet<int>();
+        var requestedTypes = requested.Keys
+            .Select(key => key.DeclaringType)
+            .ToHashSet();
+        var targetSignatures = new StructuralSignatureBuilder(target._reader);
+        var matchingDeclaringTypes =
+            new Dictionary<TypeDefinitionHandle, bool>();
+        foreach (MethodDefinitionHandle targetHandle
+            in target._reader.MethodDefinitions)
+        {
+            MethodDefinition targetMethod =
+                target._reader.GetMethodDefinition(targetHandle);
+            TypeDefinitionHandle declaringType =
+                targetMethod.GetDeclaringType();
+            if (!matchingDeclaringTypes.TryGetValue(
+                    declaringType,
+                    out bool declaringTypeMatches))
+            {
+                declaringTypeMatches = requestedTypes.Contains(
+                    targetSignatures.BuildTypeKey(declaringType));
+                matchingDeclaringTypes.Add(
+                    declaringType,
+                    declaringTypeMatches);
+            }
+            if (!declaringTypeMatches)
+                continue;
+
+            StructuralMethodKey key =
+                targetSignatures.BuildMethodKey(targetMethod);
+            if (!requested.TryGetValue(key, out List<int>? sourceTokens))
+                continue;
+
+            MethodBodySelection selection =
+                target.CreateSelection(targetHandle);
+            foreach (int sourceToken in sourceTokens)
+            {
+                if (!resolved.TryAdd(sourceToken, selection))
+                {
+                    resolved.Remove(sourceToken);
+                    ambiguous.Add(sourceToken);
+                }
+            }
+        }
+
+        foreach (int sourceToken in ambiguous)
+            resolved.Remove(sourceToken);
+        return resolved;
+    }
+
+    /// <summary>
     /// Returns the metadata-owned canonical identity of a MethodDef token in
     /// this source. The token is interpreted only within this acquisition.
     /// </summary>
