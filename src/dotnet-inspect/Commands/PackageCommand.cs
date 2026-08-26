@@ -837,7 +837,7 @@ public class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                ShouldVerifyPackageSignature(options, wantsSignals, pipeline),
+                ShouldVerifyPackageSignature(options, wantsSignals),
                 logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
@@ -1454,7 +1454,13 @@ public class PackageCommand
         bool anyColumnMatches = options.Columns.Any(pattern =>
             selectedSections.Any(section =>
             {
+                // "*" names the complete structural row. Narrower patterns that also
+                // select package fields remain wrong-kind projections.
                 if (IsMultiPackageFieldSection(section)
+                    && !string.Equals(
+                        pattern,
+                        "*",
+                        StringComparison.Ordinal)
                     && ResolveProjectionNames(
                         GetMultiPackageFieldNames(section),
                         [pattern]).Length > 0)
@@ -2582,7 +2588,7 @@ public class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                ShouldVerifyPackageSignature(options, wantsSignals, pipeline),
+                ShouldVerifyPackageSignature(options, wantsSignals),
                 logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
@@ -2677,8 +2683,7 @@ public class PackageCommand
 
     private static bool ShouldVerifyPackageSignature(
         InspectionOptions options,
-        bool wantsSignals,
-        SectionPipeline<InspectionResult> pipeline)
+        bool wantsSignals)
         => options.Verbosity >= Verbosity.Normal
             || wantsSignals
             || ProjectionRequestsSigned(options.Fields)
@@ -2686,13 +2691,7 @@ public class PackageCommand
                 "Signed",
                 StringComparer.OrdinalIgnoreCase) == true
             || options.IncludeSections?.Contains(
-                PackageSections.PackageInfo) == true
-            || options.IncludeSections?.Contains(
-                PackageSections.Signature) == true
-            || (options.FixedOverview
-                && pipeline.FixedOverviewSectionNames.Contains(
-                    PackageSections.PackageInfo,
-                    StringComparer.OrdinalIgnoreCase));
+                PackageSections.Signature) == true;
 
     private static bool ProjectionRequestsSigned(string[]? selectors)
         => selectors is { Length: > 0 }

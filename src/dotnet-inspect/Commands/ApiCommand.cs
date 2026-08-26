@@ -1760,8 +1760,8 @@ public class ApiCommand
     /// legitimately projectable names is wider than any one section's schema:
     /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
     /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
-    /// that survives regardless of which section is selected. Both of those RENDER, so ordering
-    /// emptiness first puts the schema's blind spots out of reach.
+    /// that survives regardless of which section is selected. The candidates below include the
+    /// product-owned fact-table columns when API Info is selected.
     /// </remarks>
     private static bool TryReportEmptyProjection(
         string rendered,
@@ -1829,6 +1829,16 @@ public class ApiCommand
         // unrelated section's column and silently succeed while printing nothing. `--fields` can
         // only be satisfied by a field and `--columns` only by a column.
         var candidates = new List<string>();
+        if (string.Equals(
+                wantedKind,
+                "column",
+                StringComparison.OrdinalIgnoreCase)
+            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
+        {
+            candidates.Add("Field");
+            candidates.Add("Value");
+        }
+
         foreach (var section in schema.SectionNames)
         {
             foreach (var item in schema.Discover(section) ?? [])

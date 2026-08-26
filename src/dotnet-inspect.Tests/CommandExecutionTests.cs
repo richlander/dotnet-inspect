@@ -8643,6 +8643,17 @@ public partial class CommandExecutionTests
         Assert.Empty(mixedCountOutput);
         Assert.Contains("NoSuchField", mixedCountError, StringComparison.Ordinal);
 
+        var (mixedColumnExit, mixedColumnOutput, mixedColumnError) =
+            await RunAppAsync(
+                "type", "--platform", "System.Text.Json",
+                "-S", "API Info,Classes",
+                "--columns", "NoSuchColumn",
+                "--tips", "q");
+
+        Assert.Equal(1, mixedColumnExit);
+        Assert.Empty(mixedColumnOutput);
+        Assert.Contains("NoSuchColumn", mixedColumnError, StringComparison.Ordinal);
+
         var (directCountExit, directCountOutput, directCountError) =
             await RunAppAsync(
                 "type", "System.String", "--platform", "System.Private.CoreLib",
@@ -8723,6 +8734,8 @@ public partial class CommandExecutionTests
     // Synthesized by the fact-table renderer; named in no schema.
     [InlineData(new[] { "-S", "API Info", "--columns", "Field" }, "| Field |")]
     [InlineData(new[] { "-S", "API Info", "--columns", "Value" }, "| Value |")]
+    [InlineData(new[] { "-S", "API Info,Classes", "--columns", "Field" }, "| Field |")]
+    [InlineData(new[] { "-S", "@All", "--columns", "Value" }, "| Value |")]
     // A document-level field, which survives whichever section is selected.
     [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
@@ -26471,14 +26484,27 @@ public partial class CommandExecutionTests
             var (packageInfoExit, packageInfoOutput, _) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info", "--count", "--json");
+            var (packageInfoWildcardExit, packageInfoWildcardOutput, packageInfoWildcardError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info", "--columns", "*", "--count", "--json");
+            var (normalPackageInfoExit, normalPackageInfoOutput, normalPackageInfoError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info", "--count", "--json", "-v:n");
             var (targetFrameworksExit, targetFrameworksOutput, _) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Target Frameworks", "--count", "--json");
 
             Assert.Equal(0, packageInfoExit);
+            Assert.Equal(0, packageInfoWildcardExit);
+            Assert.Empty(packageInfoWildcardError);
+            Assert.Equal(packageInfoOutput, packageInfoWildcardOutput);
+            Assert.Equal(0, normalPackageInfoExit);
+            Assert.Empty(normalPackageInfoError);
             Assert.Equal(0, targetFrameworksExit);
             var packageInfoCount = int.Parse(
-                packageInfoOutput.Trim(), CultureInfo.InvariantCulture);
+                normalPackageInfoOutput.Trim(), CultureInfo.InvariantCulture);
             var targetFrameworksCount = int.Parse(
                 targetFrameworksOutput.Trim(), CultureInfo.InvariantCulture);
 
@@ -27299,6 +27325,54 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("| Signed | No |", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_QuietPackageInfoSelectionDoesNotRequestVerification()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalPackageWithoutReadme("Test.Quiet.Package.Info");
+        try
+        {
+            var implicitInfo = await RunAppAsync(
+                "package",
+                packagePath,
+                "-v:q",
+                "--tips",
+                "q");
+            var explicitInfo = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package Info",
+                "-v:q",
+                "--tips",
+                "q");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "-v:q",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, implicitInfo.Exit);
+            Assert.Equal(0, explicitInfo.Exit);
+            Assert.Equal(0, fixedOverview.Exit);
+            Assert.Empty(implicitInfo.Error);
+            Assert.Empty(explicitInfo.Error);
+            Assert.Empty(fixedOverview.Error);
+            Assert.DoesNotContain("| Signed |", implicitInfo.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("| Signed |", explicitInfo.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("| Signed |", fixedOverview.Output, StringComparison.Ordinal);
+            Assert.Contains("Version: 1.0.0", implicitInfo.Output, StringComparison.Ordinal);
+            Assert.Contains("| Version | 1.0.0 |", explicitInfo.Output, StringComparison.Ordinal);
+            Assert.Contains("Version: 1.0.0", fixedOverview.Output, StringComparison.Ordinal);
         }
         finally
         {
