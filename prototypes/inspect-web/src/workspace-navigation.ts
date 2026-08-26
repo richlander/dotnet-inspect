@@ -361,8 +361,9 @@ function richSharePacketIsValid(
   if (hasOwn(raw, "p") && platformPackToken(raw.p) === null) return false;
   if (hasOwn(raw, "o")
     && (typeof raw.o !== "number"
-      || !Number.isInteger(raw.o)
-      || raw.o < 0)) {
+      || !Number.isSafeInteger(raw.o)
+      || raw.o < 0
+      || Object.is(raw.o, -0))) {
     return false;
   }
   if (hasOwn(raw, "d") && decodeBodyTarget(raw.d) === null) return false;
@@ -555,8 +556,8 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   const route = location.pathname.split("/");
   const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
   const share = decodeWorkspaceShareState(params.get("w"));
-  // Every URL field that names nothing is recorded here rather than silently becoming a
-  // default, so a stale or mistyped link fails visibly instead of appearing to have worked.
+  // Every present URL field that cannot be decoded is recorded here rather than silently
+  // becoming a default, so a stale or mistyped link fails visibly instead of appearing to work.
   const rejectedFields: string[] = [];
 
   let pkg: string | null;
@@ -566,8 +567,12 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
     const versionToken = route[packageAt + 2];
     pkg = packageToken ? decodeRouteComponent(packageToken) : null;
     version = versionToken ? decodeRouteComponent(versionToken) : null;
-    if (pkg === null) rejectedFields.push("package");
-    if (version === null) rejectedFields.push("version");
+    if (pkg === null && (Boolean(packageToken) || Boolean(versionToken))) {
+      rejectedFields.push("package");
+    }
+    if (version === null && Boolean(versionToken)) {
+      rejectedFields.push("version");
+    }
   } else {
     pkg = params.get("package");
     version = params.get("version");

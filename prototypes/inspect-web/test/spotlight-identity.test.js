@@ -2186,6 +2186,10 @@ test("shared member views retain scope and filter state", () => {
   assert.match(
     capture,
     /selectedBodyTarget: pending \? null : state\.selectedBodyTarget,[\s\S]*graphTarget/);
+  assert.match(
+    capture,
+    /const pendingOverload = pending\?\.overload \?\? null;[\s\S]*Number\.isInteger\(pendingOverload\)/);
+  assert.doesNotMatch(capture, /Number\(pending\?\.overload\)/);
   assert.match(capture, /memberBrowse: memberScopeIsActive\(state, selectedType\(\)\?\.id\)/);
   assert.match(capture, /memberTextFilter: state\.memberTextFilter/);
   assert.match(capture, /memberKindFilter: state\.memberKindFilter/);
@@ -2195,6 +2199,10 @@ test("shared member views retain scope and filter state", () => {
   assert.match(
     deepLink,
     /state\.memberSection = "overview";[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody\)\.includes\(deep\.section\)[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
+  assert.match(
+    deepLink,
+    /const overloadIndex = deep\.overload \?\? null;[\s\S]*Number\.isInteger\(overloadIndex\)/);
+  assert.doesNotMatch(deepLink, /Number\(deep\.overload\)/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
@@ -3257,6 +3265,22 @@ test("graph-only member targets round-trip through shared URLs", () => {
       g: encoded
     }),
     { target });
+  assert.match(
+    graphMemberTargetFromPacket({
+      y: "Example.Widget",
+      m: "method:Run",
+      o: -0,
+      g: encoded
+    }).error,
+    /shared graph member target is invalid/);
+  assert.match(
+    graphMemberTargetFromPacket({
+      y: "Example.Widget",
+      m: "method:Run",
+      o: Number.MAX_SAFE_INTEGER + 1,
+      g: encoded
+    }).error,
+    /shared graph member target is invalid/);
   assert.match(
     graphMemberTargetFromPacket({
       y: "Example.Widget",

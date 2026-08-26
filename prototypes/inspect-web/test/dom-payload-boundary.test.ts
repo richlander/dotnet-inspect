@@ -52,6 +52,11 @@ interface ScopedAlias<T> {
   scopeEnd: number;
 }
 
+interface AliasScope {
+  readonly start: number;
+  readonly end: number;
+}
+
 interface DatasetObjectUse {
   file: string;
   line: number;
@@ -275,7 +280,7 @@ function addScopedAlias<T>(
   aliases: Map<string, ScopedAlias<T>[]>,
   local: string,
   value: T | null,
-  scope: Node,
+  scope: AliasScope,
 ) {
   const entries = aliases.get(local) ?? [];
   if (!entries.some(entry =>
@@ -311,7 +316,7 @@ function scopedAliasValues<T>(
 function addDatasetProperties(
   pattern: Node,
   aliases: DomAliases,
-  scope: Node,
+  scope: AliasScope,
 ) {
   if (pattern.type !== "ObjectPattern") return;
   const properties: unknown = Reflect.get(pattern, "properties");
@@ -342,7 +347,7 @@ function addDatasetProperties(
 function addBindingMasks(
   aliases: DomAliases,
   patterns: readonly unknown[],
-  scope: Node,
+  scope: AliasScope,
 ) {
   for (const name of patterns.flatMap(bindingNames)) {
     addScopedAlias(aliases.datasets, name, null, scope);
@@ -353,7 +358,7 @@ function addBindingMasks(
 function addNestedDatasetAliases(
   pattern: Node,
   aliases: DomAliases,
-  scope: Node,
+  scope: AliasScope,
 ): Set<string> {
   if (pattern.type === "AssignmentPattern") {
     const left: unknown = Reflect.get(pattern, "left");
@@ -405,7 +410,7 @@ function addNestedDatasetAliases(
 function addPatternAliasesAndMasks(
   patterns: readonly unknown[],
   aliases: DomAliases,
-  scope: Node,
+  scope: AliasScope,
 ) {
   for (const pattern of patterns) {
     if (!isNode(pattern)) continue;
@@ -455,12 +460,16 @@ function domAliases(program: Program): DomAliases {
         || node.type === "FunctionExpression"
         || node.type === "ArrowFunctionExpression") {
         const parameters: unknown = Reflect.get(node, "params");
-        const body: unknown = Reflect.get(node, "body");
-        if (Array.isArray(parameters) && isNode(body)) {
-          addPatternAliasesAndMasks(
-            parameters as unknown[],
-            aliases,
-            body);
+        if (Array.isArray(parameters)) {
+          for (const parameter of parameters) {
+            if (!isNode(parameter)) continue;
+            // A parameter binding is visible to later defaults and the body, but not
+            // to references in its own initializer.
+            addPatternAliasesAndMasks(
+              [parameter],
+              aliases,
+              { start: parameter.end, end: node.end });
+          }
         }
       } else if (node.type === "CatchClause") {
         const body: unknown = Reflect.get(node, "body");
@@ -550,13 +559,12 @@ function isReferenceNode(
       bindings = [Reflect.get(ancestor, "id")];
     } else if (ancestor.type === "CatchClause") {
       bindings = [Reflect.get(ancestor, "param")];
+    } else if (ancestor.type === "AssignmentExpression") {
+      bindings = [Reflect.get(ancestor, "left")];
     }
     if (bindings.some(binding => isBindingPosition(binding, node))) {
       return false;
     }
-  }
-  if (ancestors.some(ancestor => ancestor.type === "ObjectPattern")) {
-    return false;
   }
   if (parent?.type === "VariableDeclarator"
     && Reflect.get(parent, "id") === node) {
@@ -869,6 +877,35 @@ function assignmentAliasViolations(files: readonly SourceFile[]): string[] {
   return violations;
 }
 
+function getAttributeEscapeViolations(files: readonly SourceFile[]): string[] {
+  const violations: string[] = [];
+  for (const file of files) {
+    walk(file.program, (node, ancestors) => {
+      const parent = ancestors.at(-1);
+      if (node.type === "Property"
+        && parent?.type === "ObjectPattern"
+        && propertyName(Reflect.get(node, "key")) === "getAttribute") {
+        violations.push(
+          `${file.name}:${lineOf(file.text, node.start)}: `
+          + file.text.slice(node.start, node.end));
+        return;
+      }
+      if (node.type !== "MemberExpression"
+        || memberName(node) !== "getAttribute") {
+        return;
+      }
+      if (parent?.type === "CallExpression"
+        && Reflect.get(parent, "callee") === node) {
+        return;
+      }
+      violations.push(
+        `${file.name}:${lineOf(file.text, node.start)}: `
+        + file.text.slice(node.start, node.end));
+    });
+  }
+  return violations;
+}
+
 test("no browser payload is numerically coerced outside the canonical parsers", () => {
   const files = sources();
   assert.deepEqual(
@@ -881,6 +918,10 @@ test("no browser payload is numerically coerced outside the canonical parsers", 
     assignmentAliasViolations(files),
     [],
     "a DOM payload escaped inspection through assignment to an existing binding");
+  assert.deepEqual(
+    getAttributeEscapeViolations(files),
+    [],
+    "getAttribute escaped direct-call inspection");
 });
 
 test("the gate rejects preprocessing, dynamic reads, and defaulted aliases", () => {
@@ -975,6 +1016,9 @@ coerce(button.dataset);
 function fromEvent({ currentTarget: { dataset } }) {
   Number(dataset.slIndex);
 }
+function fromDefault({ dataset }, index = Number(dataset.overload)) {
+  return index;
+}
 items.forEach(({ dataset: { mdeRow } }) => Number(mdeRow));
 for (const { dataset: loopDataset } of items) {
   Number(loopDataset.overload);
@@ -982,7 +1026,29 @@ for (const { dataset: loopDataset } of items) {
 `);
   assert.equal(
     numericCoercionViolations([parameterProbe]).length,
-    3);
+    4);
+
+  const objectDefaultProbe = sourceFile("object-default-probe.ts", `
+const rawIndex = button.dataset.slIndex;
+const { picked = rawIndex } = options;
+Number(picked);
+`);
+  const objectDefaultReads = attributeReads(
+    [objectDefaultProbe],
+    new Set(["parseNonNegativeInteger"]));
+  assert.ok(
+    objectDefaultReads.get("slIndex")?.some(site =>
+      site.text === "rawIndex" && site.decoder === null));
+
+  const getAttributeEscapeProbe = sourceFile("get-attribute-escape-probe.ts", `
+const read = button.getAttribute.bind(button);
+Number(read("data-overload"));
+const { getAttribute: extracted } = button;
+Number(extracted("data-overload"));
+`);
+  assert.equal(
+    getAttributeEscapeViolations([getAttributeEscapeProbe]).length,
+    2);
 });
 
 test("the gate requires unshadowed decoder imports", () => {

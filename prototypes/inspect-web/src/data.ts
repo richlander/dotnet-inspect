@@ -873,8 +873,9 @@ export function graphMemberTargetFromPacket(
     || typeof member !== "string"
     || member.length === 0
     || typeof overload !== "number"
-    || !Number.isInteger(overload)
-    || overload < 0) {
+    || !Number.isSafeInteger(overload)
+    || overload < 0
+    || Object.is(overload, -0)) {
     return {
       target: null,
       error: "The shared graph member target is invalid and was ignored."

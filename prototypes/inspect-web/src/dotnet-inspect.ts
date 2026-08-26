@@ -504,7 +504,7 @@ interface PendingGraphMemberDeepLink {
   viewSignature: string;
   type: string;
   member: string;
-  overload: number | string | null;
+  overload: number | null;
   section: string | null;
   target: GraphMemberShareIdentity;
 }
@@ -5802,8 +5802,9 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     currentViewSignature)
     ? state.pendingGraphMemberDeepLink
     : null;
-  const pendingOverload = Number(pending?.overload);
+  const pendingOverload = pending?.overload ?? null;
   const selectedOverloadIndex = pending
+    && pendingOverload !== null
     && Number.isInteger(pendingOverload)
     && pendingOverload >= 0
     ? pendingOverload
@@ -6019,10 +6020,12 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     } else if (disposition === "graph"
       && deep.member
       && deep.graphTarget) {
-      const overloadIndex = Number(deep.overload);
+      const overloadIndex = deep.overload ?? null;
       state.selectedMemberKey = deep.member;
       state.selectedOverloadIndex =
-        Number.isInteger(overloadIndex) && overloadIndex >= 0
+        overloadIndex !== null
+          && Number.isInteger(overloadIndex)
+          && overloadIndex >= 0
           ? overloadIndex
           : null;
       state.memberSection = deep.section && isMemberSection(deep.section)

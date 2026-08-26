@@ -460,6 +460,20 @@ test("a recognized view and an absent hash produce no rejection notice", () => {
   }
 });
 
+test("versionless package routes produce no rejection notice", () => {
+  for (const href of [
+    "https://inspect.example/packages",
+    "https://inspect.example/packages/",
+    "https://inspect.example/packages/Example.Package",
+    "https://inspect.example/packages/Example.Package/",
+  ]) {
+    assert.equal(
+      parseWorkspaceLocation(locationSnapshot(href)).workspaceNotice,
+      "",
+      `${href} should not report an absent route coordinate`);
+  }
+});
+
 test("a malformed percent-escape in a package route fails visibly instead of throwing", () => {
   // `decodeURIComponent` throws `URIError` on a malformed escape, and the first parse runs
   // during module initialization, before there is any state or error surface to report it.
@@ -530,7 +544,7 @@ test("the overload coordinate is parsed once, canonically, at the URL boundary",
   const negativeZero = parseWorkspaceLocation(locationSnapshot(
     `https://inspect.example/?w=${negativeZeroPacket}`));
   assert.equal(negativeZero.overload, null);
-  assert.match(negativeZero.workspaceNotice, /overload/);
+  assert.match(negativeZero.workspaceNotice, /invalid and was ignored/);
 });
 
 test("invalid and oversized workspace packets stay visible", () => {
@@ -600,7 +614,7 @@ test("malformed rich packet fields cannot override the visible package", () => {
       .map(key => ({ ...base, [key]: 1 })),
     ...[null, "", "not-a-platform-pack", 1]
       .map(p => ({ ...base, p })),
-    ...[null, "0", -1, 0.5]
+    ...[null, "0", -1, 0.5, Number.MAX_SAFE_INTEGER + 1]
       .map(o => ({ ...base, o })),
     ...[null, "body", [], [null, null, null], ["Build", null, 0.5]]
       .map(d => ({ ...base, d })),
@@ -704,6 +718,19 @@ test("invalid graph identities reject the rich packet without hiding the visible
       parsed.workspaceNotice,
       "The shared graph member target is invalid and was ignored.");
   }
+
+  const negativeZero = Buffer.from(
+    `{"t":[["Hidden.Package","1.0.0","net10.0"]],"a":0,`
+    + `"y":"Example.Widget","m":"method:Build","o":-0,`
+    + `"g":${JSON.stringify(validGraph)}}`)
+    .toString("base64url");
+  const parsed = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?package=Visible.Package&w=${negativeZero}`));
+  assert.equal(parsed.package, "Visible.Package");
+  assert.deepEqual(parsed.tabs, []);
+  assert.equal(parsed.overload, null);
+  assert.equal(parsed.graphTarget, null);
+  assert.match(parsed.workspaceNotice, /invalid and was ignored/);
 });
 
 test("location persistence contains sync failures but leaves direct build failures visible", () => {
