@@ -488,7 +488,8 @@ public class PackageCommand
                             NuGetSourceResolver.ResolveSourcesForPackage(
                                 options.SourceOptions,
                                 normalizedName),
-                            logger.Log);
+                            logger.Log,
+                            options.IncludePrerelease);
                     if (selected is null)
                     {
                         WriteVersionLookupFailure(

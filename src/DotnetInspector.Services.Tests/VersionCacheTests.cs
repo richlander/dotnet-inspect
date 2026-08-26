@@ -374,6 +374,29 @@ public class VersionCacheTests : IDisposable
         Assert.Equal("2.0.0", result);
     }
 
+    [Theory]
+    [InlineData(false, "2.0.0")]
+    [InlineData(true, "2.1.0-preview.1")]
+    public async Task ResolveVersionPattern_RespectsPrereleasePolicy(
+        bool includePrerelease,
+        string expected)
+    {
+        SetListings(
+            "PatternPackage",
+            NuGetOrgSource,
+            "2.0.0\n2.1.0-preview.1");
+
+        string? result = await PackageExtractor.ResolveVersionPatternAsync(
+            FailingClient,
+            "PatternPackage",
+            "2.*",
+            [NuGetOrgSource],
+            log: null,
+            includePrerelease);
+
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public async Task GetVersions_WithCachedVersionList_ReturnsCachedValues()
     {

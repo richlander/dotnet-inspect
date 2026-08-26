@@ -281,7 +281,8 @@ public static class PackageExtractor
                     packageName,
                     version,
                     sources,
-                    log).ConfigureAwait(false);
+                    log,
+                    includePrerelease).ConfigureAwait(false);
             if (resolution is null)
             {
                 return PackageExtractionOutcome.Error($"No version matching pattern found for '{packageName}'.");
@@ -1766,20 +1767,23 @@ public static class PackageExtractor
         string packageName,
         string pattern,
         List<NuGetSource> sources,
-        Action<string>? log)
+        Action<string>? log,
+        bool includePrerelease = true)
         => (await ResolveVersionPatternWithSourcesAsync(
             client,
             packageName,
             pattern,
             sources,
-            log).ConfigureAwait(false))?.Version;
+            log,
+            includePrerelease).ConfigureAwait(false))?.Version;
 
     internal static async Task<PackageVersionResolution?> ResolveVersionPatternWithSourcesAsync(
         HttpClient client,
         string packageName,
         string pattern,
         List<NuGetSource> sources,
-        Action<string>? log)
+        Action<string>? log,
+        bool includePrerelease = true)
     {
         string normalizedName = packageName.ToLowerInvariant();
         string prefix = pattern.Replace("*", "");
@@ -1811,6 +1815,7 @@ public static class PackageExtractor
                     && NuGet.Versioning.NuGetVersion.TryParse(
                         normalizedVersion,
                         out var parsed)
+                    && (includePrerelease || !parsed.IsPrerelease)
                     && (best == null || parsed > best))
                 {
                     best = parsed;
@@ -1835,6 +1840,7 @@ public static class PackageExtractor
                     && NuGet.Versioning.NuGetVersion.TryParse(
                         normalizedVersion,
                         out var parsed)
+                    && (includePrerelease || !parsed.IsPrerelease)
                     && parsed == best))
             {
                 AddReporter(reporters, candidate.Source);

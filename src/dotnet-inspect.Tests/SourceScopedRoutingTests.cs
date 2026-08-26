@@ -545,6 +545,36 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false, "2.0.0")]
+    [InlineData(true, "2.1.0-preview.1")]
+    public async Task WildcardSingleVersionListingHonorsPrereleasePolicy(
+        bool includePrerelease,
+        string expected)
+    {
+        string packageName = $"WildcardPreview{Guid.NewGuid():N}";
+        string[] prereleaseArgs =
+            includePrerelease ? ["--prerelease"] : [];
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["2.0.0", "2.1.0-preview.1"],
+                [
+                    "package",
+                    $"{packageName}@2.*",
+                    "--versions",
+                    "1",
+                    .. prereleaseArgs,
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(expected, output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
     [InlineData("pinned")]
     [InlineData("latest")]
     [InlineData("all")]
@@ -928,13 +958,28 @@ public sealed class SourceScopedRoutingTests : IDisposable
             return await CommandLineBuilder.InvokeAsync(parseResult);
         });
 
-    private static async Task<(
+    private static Task<(
         int Exit,
         string Output,
         string Error,
         ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
             string packageName,
             string version,
+            string[] args,
+            HttpStatusCode? refusedStatus = null) =>
+        RunOnlineVersionFeedCommandAsync(
+            packageName,
+            [version],
+            args,
+            refusedStatus);
+
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
+            string packageName,
+            IReadOnlyList<string> versions,
             string[] args,
             HttpStatusCode? refusedStatus = null)
     {
@@ -943,7 +988,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             innerHandler => new VersionFeedHandler(
                 SecondSource,
                 packageName,
-                version,
+                versions,
                 refusedStatus,
                 requests,
                 innerHandler));
@@ -987,7 +1032,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     private sealed class VersionFeedHandler(
         string sourceUrl,
         string packageName,
-        string version,
+        IReadOnlyList<string> versions,
         HttpStatusCode? refusedStatus,
         ConcurrentQueue<string> requests,
         HttpMessageHandler innerHandler)
@@ -1025,9 +1070,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     """,
                 _ when url.Equals(
                     $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.OrdinalIgnoreCase) => $$"""
-                    {"versions":["{{version}}"]}
-                    """,
+                    StringComparison.OrdinalIgnoreCase) =>
+                    $$"""{"versions":[{{string.Join(",", versions.Select(version => $"\"{version}\""))}}]}""",
                 _ => null,
             };
 
