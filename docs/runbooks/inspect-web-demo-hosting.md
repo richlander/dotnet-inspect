@@ -7,14 +7,14 @@ Use one of two private hosting patterns:
 
 1. **Viewer-side SSH forwarding (preferred):** the viewer forwards a local
    loopback port over SSH to the build host's loopback static server.
-2. **Tailscale Serve:** a stable gateway receives the static server through an
-   SSH reverse tunnel and exposes it to authenticated tailnet clients over
-   HTTPS.
+2. **Tailscale Serve:** a standing Serve mapping on the build host exposes its
+   loopback static server to authenticated tailnet clients over HTTPS.
 
-Both patterns keep the static server bound to loopback. The preferred pattern
-opens no application port on either network; it reuses the build host's
-existing SSH access. Use Tailscale Serve when a stable shared URL is more
-important than the additional gateway and tailnet dependencies.
+Both patterns use one build-and-host machine; the only second machine is the
+viewer. Both keep the static server bound to build-host loopback. The preferred
+pattern opens no application port on either network and reuses the build host's
+existing SSH access. Use Tailscale Serve when the user has indicated that a
+standing session is available.
 
 This is a review demo, not a production deployment. The production site follows
 the release workflow instead.
@@ -32,8 +32,9 @@ The two supported patterns satisfy that requirement differently:
 
 - A viewer-side SSH forward gives the browser a loopback URL. SSH protects the
   connection to the build host, so no browser certificate is needed.
-- Tailscale Serve obtains and renews the certificate for the gateway's tailnet
-  DNS name, terminates HTTPS, and proxies to a gateway loopback origin.
+- Tailscale Serve obtains and renews the certificate for the build host's
+  tailnet DNS name, terminates HTTPS, and proxies to the build-host loopback
+  origin.
 
 **Tailscale Serve is private to the tailnet.** The viewer must be authenticated
 to the tailnet, and tailnet policy must permit access. **Tailscale Funnel is
@@ -42,10 +43,10 @@ public Internet exposure and must not be used for review demos.** Do not run
 public ingress without explicit user approval.
 
 Serve is the repository-standard shared HTTPS terminator, not the only way to
-obtain HTTPS. A gateway operator could instead use `tailscale cert` with a
-custom TLS server, or a LAN operator could provide another certificate trusted
-by the viewer. Those alternatives add private-key handling, certificate
-renewal, and server configuration that Serve owns in this workflow.
+obtain HTTPS. A build-host operator could instead use `tailscale cert` with a
+custom TLS server, or provide another certificate trusted by the viewer. Those
+alternatives add private-key handling, certificate renewal, and server
+configuration that Serve owns in this workflow.
 
 ## Common prerequisites
 
@@ -54,7 +55,8 @@ The build host needs:
 - the exact branch in its own clean development worktree;
 - the repository-selected .NET SDK and WebAssembly workload;
 - Node.js at the version required by `prototypes/inspect-web/package.json`;
-- SSH access from the viewer or gateway, depending on the selected pattern.
+- SSH access from the viewer when using viewer-side forwarding; or
+- a user-provided standing Serve session on the build host when using Serve.
 
 Use these build-host variables:
 
@@ -62,8 +64,9 @@ Use these build-host variables:
 export DEMO_BUILD_ORIGIN_PORT=5198
 ```
 
-Choose a different port only when `5198` is already owned. Inspect the current
-listener instead of killing an unknown process.
+For viewer-side SSH, choose a different port only when `5198` is already owned.
+For Serve, use the build-host loopback origin port supplied with the session.
+Inspect the current listener instead of killing an unknown process.
 
 ## 1. Establish the exact candidate
 
@@ -176,8 +179,8 @@ claim direct-path routes such as `/credits` as validated through this host.
 ## Pattern A: viewer-side SSH forwarding
 
 Use this pattern by default. It requires the viewer to have SSH access to the
-build host but requires no gateway, tailnet, certificate, or network-facing
-application listener.
+build host but requires no tailnet, certificate, or network-facing application
+listener.
 
 On the viewer machine, choose an unused loopback port and start the forward:
 
@@ -221,86 +224,41 @@ The loopback URL belongs to the viewer machine. Do not replace it with the
 build host's LAN address or tailnet name; doing so loses the browser's loopback
 secure-context treatment.
 
-## Pattern B: Tailscale Serve through a stable gateway
+## Pattern B: Tailscale Serve on the build host
 
 Use this pattern when the user has indicated that a Tailscale Serve session is
-available. It has three hops:
+available on the build host:
 
 ```text
 viewer browser
   -> HTTPS over the private tailnet
-  -> Tailscale Serve on the gateway
-  -> gateway loopback port
-  -> SSH reverse tunnel
+  -> Tailscale Serve on the build host
   -> build-host loopback static server
 ```
 
 One Serve session can contain multiple path mappings and can be reconfigured
 after it starts. This runbook deliberately treats the user-provided mapping as
-fixed: one tailnet HTTPS URL and path proxies to one assigned gateway loopback
-port. Keep that mapping configured between web-development demos, but attach
-the reverse tunnel and origin only while a demo is active.
+fixed: one tailnet HTTPS URL and path proxies to one assigned build-host
+loopback port. Keep that mapping configured between web-development demos, but
+run the Vite origin only while a demo is active.
 
 The agent does not inspect or change the Serve session and needs no Tailscale
 operator access. Never reset, replace, or add mappings to the session. When the
 user has not indicated that a session is available, use viewer-side SSH
 forwarding instead.
 
-On the build host, set the environment-specific gateway values:
+Before starting Vite in step 3, set the values supplied with the session:
 
 ```bash
-export DEMO_GATEWAY_HOST="<gateway SSH host>"
-export DEMO_PUBLIC_HOST="<gateway tailnet DNS name>"
+export DEMO_PUBLIC_HOST="<build-host tailnet DNS name>"
 export DEMO_HTTPS_PORT="<assigned HTTPS port>"
-export DEMO_GATEWAY_ORIGIN_PORT="<assigned gateway loopback port>"
-export DEMO_BUILD_ORIGIN_PORT=5198
+export DEMO_BUILD_ORIGIN_PORT="<assigned build-host loopback port>"
 ```
 
-Use the values supplied with the available session. Do not discover alternative
-gateways or routes, and do not commit private network configuration to the
-repository.
-
-Before attaching the tunnel, confirm that no process already owns the assigned
-gateway loopback port:
-
-```bash
-ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
-  "ss -ltn | grep ':${DEMO_GATEWAY_ORIGIN_PORT} ' || true"
-```
-
-An occupied gateway origin may belong to another demo. Coordinate its teardown;
-do not kill an unknown process or run `tailscale serve reset`.
-
-Keep the reverse tunnel in a dedicated persistent terminal or tmux window:
-
-```bash
-ssh -N -T \
-  -o BatchMode=yes \
-  -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=30 \
-  -o ServerAliveCountMax=3 \
-  -R "127.0.0.1:${DEMO_GATEWAY_ORIGIN_PORT}:127.0.0.1:${DEMO_BUILD_ORIGIN_PORT}" \
-  "$DEMO_GATEWAY_HOST"
-```
-
-Verify the forwarded origin from the gateway:
-
-```bash
-ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
-  "curl -fsSI http://127.0.0.1:${DEMO_GATEWAY_ORIGIN_PORT}/"
-```
-
-Confirm the existing HTTPS mapping from the gateway without changing it:
-
-```bash
-ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
-  "curl -fsSI https://${DEMO_PUBLIC_HOST}:${DEMO_HTTPS_PORT}/"
-```
-
-The build host may be unable to reach the gateway's tailnet listener because of
-tailnet policy even while the gateway and viewer can. A timeout from the build
-host does not justify falling back to an insecure network URL. Check each hop
-separately and obtain the viewer-browser proof below.
+Do not discover alternative machines or routes, and do not commit private
+network configuration to the repository. Starting Vite on the assigned
+loopback port connects the existing Serve mapping directly; no SSH tunnel or
+other proxy process is involved.
 
 The browser URL is:
 
@@ -346,7 +304,7 @@ For a new head:
 1. Stop the build-host static server.
 2. Build and publish the new head completely.
 3. Restart the static server against the new `wwwroot`.
-4. Re-establish the selected tunnel.
+4. Re-establish the viewer-side tunnel when using SSH; leave Serve unchanged.
 5. Re-run the origin, end-to-end HTTP or HTTPS, and browser checks.
 6. Send a new URL with the new short head.
 
@@ -357,10 +315,9 @@ For viewer-side SSH forwarding:
 
 For Tailscale Serve:
 
-1. Stop the reverse tunnel by its terminal or exact PID.
-2. Stop the build-host static server by its terminal or exact PID.
-3. Verify the gateway origin no longer answers.
-4. Leave the shared Serve mapping in place unless its operator explicitly asks
+1. Stop the build-host static server by its terminal or exact PID.
+2. Verify the build-host loopback origin no longer answers.
+3. Leave the shared Serve mapping in place unless its operator explicitly asks
    for removal.
 
 Never leave a URL advertised after its tunnel or exact artifact is gone. Never
@@ -373,9 +330,8 @@ silently repoint an existing build-tagged URL to unrelated work.
 | Build-host origin fails | Publish or static server | Check `site_root`, process, and the required published files |
 | SSH exits immediately | Port ownership or authentication | Keep `ExitOnForwardFailure`; inspect the named port and SSH access |
 | Viewer HTTP works but browser reports insecure context | Wrong URL | Use viewer loopback, not the build host's LAN or tailnet address |
-| Gateway origin fails | Reverse tunnel | Check the tunnel terminal and both loopback ports |
-| Serve returns 502/503 | Serve cannot reach its origin | Restore the reverse tunnel; do not replace the Serve route |
-| Serve times out only on the build host | Tailnet policy | Validate on the gateway and an authorized viewer |
+| Serve returns 502/503 | Vite is absent or on the wrong loopback port | Start Vite on the session's assigned origin; do not change Serve |
+| Serve is unavailable to the viewer | Session or tailnet policy | Report the failure; do not discover another route or enable Funnel |
 | Vite reports a disallowed host | Missing exact Serve hostname | Restart with `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` set to the tailnet DNS name |
 | Fingerprinted loader or bundled assets are empty or missing | Wrong artifact or host | Re-publish and serve the complete `wwwroot` |
 | Page paints but controls remain inert | Wasm engine did not initialize | Inspect framework requests and browser console; HTTP 200 alone is not success |
