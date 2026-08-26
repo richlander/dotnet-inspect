@@ -327,6 +327,64 @@ public class RidPackageVerifierTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifyAsync_NonHttpSourceDoesNotPoisonHttpAbsence(
+        bool localSourceFirst)
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string localSource = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-rid-source-").FullName;
+        string packageId =
+            $"MixedSourcePackage.{Guid.NewGuid():N}.linux-x64";
+        string normalizedPackageId = packageId.ToLowerInvariant();
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            $"content.example.test/flat/{normalizedPackageId}/index.json",
+            """{"versions":[]}""");
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = packageId,
+                },
+            ],
+        };
+        string[] sources = localSourceFirst
+            ? [localSource, "https://feed.example.test/v3/index.json"]
+            : ["https://feed.example.test/v3/index.json", localSource];
+
+        try
+        {
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(handler),
+                result,
+                "1.0.0",
+                localDir: null,
+                logger: new VerboseLogger(enabled: false),
+                sourceOptions: new NuGetSourceOptions { Sources = sources });
+
+            Assert.False(
+                Assert.Single(result.RuntimeIdentifierPackages).Exists);
+            Assert.Contains(
+                handler.Requests,
+                request => request.AbsolutePath.EndsWith(
+                    $"/{normalizedPackageId}/index.json",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(localSource);
+        }
+    }
+
     [Fact]
     public async Task VerifyAsync_UnmappedRidPackagePropagatesMappingFailure()
     {

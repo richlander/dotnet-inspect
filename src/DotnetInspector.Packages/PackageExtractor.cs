@@ -1353,6 +1353,9 @@ public static class PackageExtractor
             sourceOptions,
             packageId))
         {
+            if (!IsHttpSource(source))
+                continue;
+
             PackageResourceUrlResult resource =
                 await GetNuspecUrlAsync(
                     client,
