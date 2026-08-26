@@ -1461,15 +1461,27 @@ public static class ApiOutputFormatter
     /// </summary>
     internal static List<ApiMember> ResolveBodyMethods(
         ApiType type,
-        IReadOnlySet<string> requestedSections)
+        IReadOnlySet<string> requestedSections,
+        ApiOptions? options = null)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
         var methods = type.Members
+            .Where(member =>
+                options is null
+                || ApiMemberSectionPipelines.IsImplicitCallerTarget(
+                    member,
+                    options))
             .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
             .ToList();
 
         if (methods.Count == 0
-            && type.Members is [{ } single]
+            && type.Members
+                .Where(member =>
+                    options is null
+                    || ApiMemberSectionPipelines.IsImplicitCallerTarget(
+                        member,
+                        options))
+                .ToList() is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
             methods = AccessorMethods(single, type)

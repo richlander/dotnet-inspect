@@ -8958,19 +8958,23 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("System.String.Empty", SectionNames.IL, "--tsv")]
+    [InlineData("System.String.Empty", SectionNames.IL, "--jsonl")]
+    [InlineData("System.IDisposable.Dispose", SectionNames.Calls, "--tsv")]
+    [InlineData("System.IDisposable.Dispose", SectionNames.Calls, "--jsonl")]
     public async Task Member_InapplicableBodySection_RowFormatReportsNoDataAfterAutoSelection(
+        string target,
+        string section,
         string format)
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.String.Empty", "--platform", "System.Runtime",
-            "-S", SectionNames.IL, format, "--tips", "q");
+            "member", target, "--platform", "System.Runtime",
+            "-S", section, format, "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(output);
         Assert.Contains(
-            $"section '{SectionNames.IL}' has no data",
+            $"section '{section}' has no data",
             error,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -13243,6 +13247,60 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Callers", output);
         Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), output);
+    }
+
+    [Fact]
+    public async Task Member_CallerProjectionWithoutSectionUsesImplicitCallers()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.Inner)}:1", "--bin", testDirectory,
+            "--columns", "Caller", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), output);
+    }
+
+    [Fact]
+    public async Task Member_NamedEffectiveDiscoveryDoesNotAcquireUnusedCallerScope()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-named-discovery-scope-{Guid.NewGuid():N}");
+        var unscoped = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-D", SectionNames.MethodGroups, "--json", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-D", SectionNames.MethodGroups, "--json",
+            "--bin", missingDirectory, "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.NotEmpty(scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_BareEffectiveDiscoveryRetainsCallerFallback()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            nameof(MemberCallGraphFixture.Inner), "-D", "--bin", fixtureDirectory,
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            row => row.GetProperty("name").GetString() == SectionNames.Callers);
     }
 
     [Fact]

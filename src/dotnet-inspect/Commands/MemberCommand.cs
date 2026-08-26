@@ -605,7 +605,10 @@ public static class MemberCommand
                 return writeExitCode;
 
             if ((effectiveOptions.Count || !effectiveOptions.JsonOutput)
-                && apiType.Members is [{ Kind: "field" }])
+                && (apiType.Members is [{ Kind: "field" }]
+                    || IsSelectedBodyEvidenceUnavailable(
+                        apiType,
+                        effectiveOptions)))
             {
                 ApiCommand.WarnEmptySelectedSections(
                     apiType,
@@ -886,9 +889,49 @@ public static class MemberCommand
     private static bool HasAuthoredSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
-           || options.Columns is { Length: > 0 }
-           || options.Fields is { Length: > 0 }
+           || options.Discover is { Length: > 0 }
            || options.BodyKindQuery.HasFilter;
+
+    private static bool IsSelectedBodyEvidenceUnavailable(
+        ApiType type,
+        MemberOptions options)
+    {
+        if (options.ExactIncludeSections is not { } exactSections)
+            return false;
+
+        var requestedBodySections = exactSections
+            .Where(BodyEvidenceSectionNames.Contains)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (requestedBodySections.Count == 0)
+            return false;
+
+        var filteredType = ApiCommand.BuildFilteredTypeForSections(
+            type,
+            options);
+        return ApiOutputFormatter.ResolveBodyMethods(
+            filteredType,
+            requestedBodySections,
+            options).Count == 0;
+    }
+
+    private static readonly HashSet<string> BodyEvidenceSectionNames =
+    [
+        SectionNames.Calls,
+        SectionNames.ExceptionRegions,
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.UnsafeOperations,
+        SectionNames.BodyShapes,
+        SectionNames.TopLeverage,
+        SectionNames.PerformanceTriage,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
+        SectionNames.IL,
+        SectionNames.Facts
+    ];
 
     private static readonly string[] SingleOverloadSectionNames =
     [

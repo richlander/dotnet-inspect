@@ -492,7 +492,8 @@ public static class ApiMemberSectionDescriptors
     /// body-less.
     /// </summary>
     internal static bool IsBodyBacked(ApiMember member) =>
-        IsMethodLike(member) || HasAccessorTokens(member);
+        !member.IsAbstract
+        && (IsMethodLike(member) || HasAccessorTokens(member));
 
     /// <summary>
     /// True when a property/event member records at least one accessor method token
@@ -552,7 +553,21 @@ public static class ApiMemberSectionPipelines
            && options.IncludeSections?.Contains(
                SectionNames.Callers,
                StringComparer.OrdinalIgnoreCase) == true
-           && type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+           && type.Members.Any(member =>
+               IsImplicitCallerTarget(member, options)
+               && ApiMemberSectionDescriptors.IsBodyBacked(member));
+
+    internal static bool IsImplicitCallerTarget(
+        ApiMember member,
+        ApiOptions options)
+        => options is not MemberOptions
+           {
+               CallerScopeSectionImplicitlySelected: true,
+               MemberFilter.Count: > 0
+           } memberOptions
+           || TypeMatcher.MatchesMemberFilter(
+               member.Name,
+               memberOptions.MemberFilter);
 }
 
 /// <summary>
