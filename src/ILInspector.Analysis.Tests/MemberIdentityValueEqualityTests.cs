@@ -1,11 +1,22 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Runtime;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
+[CollectionDefinition(
+    AllocationMeasurementCollection.Name,
+    DisableParallelization = true)]
+public sealed class AllocationMeasurementCollection
+{
+    public const string Name = "Allocation measurement";
+}
+
+[Collection(AllocationMeasurementCollection.Name)]
 public class MemberIdentityValueEqualityTests
 {
     [Fact]
@@ -86,6 +97,21 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(
             0,
             MeasureHashAllocations(leftGeneric));
+    }
+
+    [Fact]
+    public void AllocationMeasurement_RejectsAmortizedOperationAllocation()
+    {
+        int calls = 0;
+        long allocated = MeasureSteadyStateAllocations(
+            () =>
+            {
+                if (++calls % 2_000 == 0)
+                    Consume(new object());
+            },
+            static () => { });
+
+        Assert.True(allocated > 0);
     }
 
     [Fact]
@@ -591,32 +617,125 @@ public class MemberIdentityValueEqualityTests
         TypeRef right)
     {
         bool result = false;
-        for (int i = 0; i < 1_000; i++)
-            result ^= left.Equals(right);
-
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 1_000; i++)
-            result ^= left.Equals(right);
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        Consume(result);
-        return allocated;
+        return MeasureSteadyStateAllocations(
+            () => result ^= left.Equals(right),
+            () => Consume(result));
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     static long MeasureHashAllocations(TypeRef type)
     {
         int result = 0;
-        for (int i = 0; i < 1_000; i++)
-            result ^= type.GetHashCode();
+        return MeasureSteadyStateAllocations(
+            () => result ^= type.GetHashCode(),
+            () => Consume(result));
+    }
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 1_000; i++)
-            result ^= type.GetHashCode();
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        Consume(result);
-        return allocated;
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureSteadyStateAllocations(
+        Action operation,
+        Action consume)
+    {
+        const int WarmupIterations = 10_000;
+        const int MeasurementIterations = 10_000;
+        const int NoGcRegionBudget = 4 * 1024 * 1024;
+        const int MaximumAttempts = 3;
+
+        for (int i = 0; i < WarmupIterations; i++)
+            operation();
+
+        // A GC suspension can retire the current thread's allocation context
+        // and inflate its counter. Accept only a sample whose no-GC region held.
+        string failure = "No attempt was made.";
+        for (int attempt = 0;
+            attempt < MaximumAttempts;
+            attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            if (TryMeasureWithoutGc(
+                    operation,
+                    consume,
+                    MeasurementIterations,
+                    NoGcRegionBudget,
+                    out long allocated,
+                    out failure))
+            {
+                return allocated;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Unable to establish a stable no-GC allocation "
+                + $"measurement after {MaximumAttempts} attempts. "
+                + $"Last failure: {failure}");
+    }
+
+    static bool TryMeasureWithoutGc(
+        Action operation,
+        Action consume,
+        int iterations,
+        long noGcRegionBudget,
+        out long allocated,
+        out string failure)
+    {
+        allocated = 0;
+        failure = "";
+
+        try
+        {
+            if (!GC.TryStartNoGCRegion(noGcRegionBudget))
+            {
+                failure = "The runtime declined the no-GC region.";
+                return false;
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            failure = ex.Message;
+            return false;
+        }
+
+        ExceptionDispatchInfo? operationFailure = null;
+        try
+        {
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < iterations; i++)
+                operation();
+            allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+            consume();
+        }
+        catch (Exception ex)
+        {
+            operationFailure =
+                ExceptionDispatchInfo.Capture(ex);
+        }
+
+        bool regionHeld =
+            GCSettings.LatencyMode == GCLatencyMode.NoGCRegion;
+        string? endFailure = null;
+        if (regionHeld)
+        {
+            try
+            {
+                GC.EndNoGCRegion();
+            }
+            catch (InvalidOperationException ex)
+            {
+                regionHeld = false;
+                endFailure = ex.Message;
+            }
+        }
+
+        operationFailure?.Throw();
+        if (regionHeld)
+            return true;
+
+        failure = endFailure
+            ?? "The no-GC region ended during the measurement.";
+        return false;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
