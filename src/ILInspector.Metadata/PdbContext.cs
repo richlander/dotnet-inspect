@@ -426,6 +426,32 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
+    /// Prefetches the complete PE image and loads an embedded PDB up to
+    /// <paramref name="maxEmbeddedPdbBytes"/> without probing for an adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// Gate:
+    /// <c>PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// </remarks>
+    public static PdbContext OpenEmbeddedPdbOnlyPrefetched(
+        string assemblyPath,
+        int maxEmbeddedPdbBytes,
+        Action<string>? log = null,
+        PdbExpansionBudget? expansionBudget = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        return Open(
+            assemblyPath,
+            log,
+            PEStreamOptions.PrefetchEntireImage
+                | PEStreamOptions.LeaveOpen,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true,
+            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
+            expansionBudget: expansionBudget);
+    }
+
+    /// <summary>
     /// Opens descriptor-owned PE metadata without loading an embedded or
     /// adjacent PDB.
     /// </summary>
@@ -446,6 +472,36 @@ public class PdbContext : IDisposable
                 loadLocalPdb: false,
                 loadEmbeddedPdb: false,
                 expectedAssembly: expectedAssembly));
+    }
+
+    /// <summary>
+    /// Prefetches descriptor-owned PE content and loads an embedded PDB up to
+    /// <paramref name="maxEmbeddedPdbBytes"/> without probing for an adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// Gate:
+    /// <c>PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// </remarks>
+    public static PdbContext OpenEmbeddedPdbOnlyPrefetched(
+        ResolvedAssemblyReference assembly,
+        int maxEmbeddedPdbBytes,
+        Action<string>? log = null,
+        PdbExpansionBudget? expansionBudget = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage
+                | PEStreamOptions.LeaveOpen,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true,
+            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
+            expansionBudget: expansionBudget);
     }
 
     /// <summary>
@@ -470,10 +526,27 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
-    /// facet surface reads the same bytes this context read instead of reopening
-    /// the source. Internal because the reader is metadata-internal; borrowers go
-    /// through the session.
+    /// Runs one synchronous product-layer inspection against this context's
+    /// open reader without transferring ownership.
+    /// </summary>
+    /// <remarks>
+    /// The callback must not retain or dispose the reader. The reader remains
+    /// owned by this context. Gates:
+    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>
+    /// and <c>Metadata_FriendsOnlyTestAssemblies</c>.
+    /// </remarks>
+    public TResult InspectImage<TResult>(
+        Func<PEReader, TResult> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        EnsureAlive();
+        return inspect(_peReader);
+    }
+
+    /// <summary>
+    /// This context's open reader, lent to
+    /// <see cref="AssemblyInspectionSession.Borrow"/> so Metadata facets read
+    /// the same bytes without reopening the source.
     /// </summary>
     internal PEReader BorrowedPEReader
     {
