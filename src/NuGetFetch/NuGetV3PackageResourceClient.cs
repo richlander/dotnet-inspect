@@ -5,12 +5,12 @@ namespace NuGetFetch;
 
 /// <summary>
 /// Owns NuGet v3 <c>PackageBaseAddress</c> discovery and source-relative
-/// version and package requests.
+/// version, manifest, and package requests.
 /// </summary>
 /// <remarks>
 /// <c>CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress</c> gates
 /// service-index discovery without the legacy NuGet.org shortcut,
-/// <c>V3VersionAndPackageDoNotSendCredentialCrossOrigin</c> gates credential
+/// <c>V3VersionManifestAndPackageDoNotSendCredentialCrossOrigin</c> gates credential
 /// scope, and
 /// <c>DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources</c>
 /// gates the destination policy on both resource operations.
@@ -143,6 +143,104 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                     throw;
                 }
             }).ConfigureAwait(false);
+    }
+
+    internal async Task<ReadOnlyMemory<byte>> GetManifestAsync(
+        string packageId,
+        string version,
+        string serviceIndexUrl,
+        PackageSourceCredential? credential,
+        NuGetFetchOptions options,
+        NuGetOperationDeadline operation,
+        bool useNuGetOrgShortcut)
+    {
+        string baseAddress = await ResolveBaseAddressAsync(
+            serviceIndexUrl,
+            credential,
+            options,
+            operation,
+            useNuGetOrgShortcut).ConfigureAwait(false);
+        return await GetManifestFromBaseAddressAsync(
+            packageId,
+            version,
+            baseAddress,
+            serviceIndexUrl,
+            credential,
+            options,
+            operation).ConfigureAwait(false);
+    }
+
+    internal async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
+        string packageId,
+        string version,
+        string baseAddress,
+        NuGetFetchOptions options,
+        NuGetOperationDeadline operation) =>
+        await GetManifestFromBaseAddressAsync(
+            packageId,
+            version,
+            NormalizeBaseAddress(baseAddress),
+            serviceIndexUrl: null,
+            credential: null,
+            options,
+            operation).ConfigureAwait(false);
+
+    private async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
+        string packageId,
+        string version,
+        string baseAddress,
+        string? serviceIndexUrl,
+        PackageSourceCredential? credential,
+        NuGetFetchOptions options,
+        NuGetOperationDeadline operation)
+    {
+        string id = packageId.ToLowerInvariant();
+        string normalizedVersion = NormalizeVersion(version);
+        string url = AppendBaseAddressPath(
+            baseAddress,
+            $"{Uri.EscapeDataString(id)}/{Uri.EscapeDataString(normalizedVersion)}/"
+            + $"{Uri.EscapeDataString($"{id}.nuspec")}");
+        PackageSourceCredential? endpointCredential =
+            NuGetSourceRequest.CredentialForEndpoint(
+                serviceIndexUrl,
+                url,
+                credential);
+
+        return await NuGetHttpRetry.RunRequestAsync(
+            operation,
+            async requestToken =>
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
+                NuGetSourceRequest.ApplyCredential(
+                    request,
+                    endpointCredential);
+                using HttpResponseMessage response = await client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    requestToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    ReadManifestBytesAsync,
+                    options with
+                    {
+                        MaxMetadataResponseBytes =
+                            options.MaxManifestResponseBytes,
+                    },
+                    client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<ReadOnlyMemory<byte>> ReadManifestBytesAsync(
+        Stream manifest,
+        CancellationToken cancellationToken)
+    {
+        using var buffer = new MemoryStream();
+        await manifest.CopyToAsync(buffer, cancellationToken)
+            .ConfigureAwait(false);
+        return buffer.ToArray();
     }
 
     internal async Task<string?> GetPackageBaseAddressAsync(

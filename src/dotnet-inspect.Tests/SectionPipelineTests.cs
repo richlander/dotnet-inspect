@@ -1686,12 +1686,12 @@ public class SectionPipelineTests
         HashSet<InspectionQueryDefinition> perAssemblyQueries =
         [
             .. pipeline.DeclaredQueries.Where(
-                catalog.QueryRegistry.RegisteredQueries.Contains),
+                catalog.QueryCatalog.RegisteredQueries.Contains),
         ];
         HashSet<InspectionQueryDefinition> groupQueries =
         [
             .. pipeline.DeclaredQueries.Where(
-                catalog.GroupQueryRegistry.RegisteredQueries.Contains),
+                catalog.GroupQueryCatalog.RegisteredQueries.Contains),
         ];
         HashSet<InspectionQueryDefinition> commandQueries =
         [
@@ -1700,18 +1700,18 @@ public class SectionPipelineTests
         ];
         perAssemblyQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
-            catalog.QueryRegistry.ExpandRequired(perAssemblyQueries);
+            catalog.QueryCatalog.ExpandRequired(perAssemblyQueries);
         closure.UnionWith(
-            catalog.GroupQueryRegistry.ExpandRequired(groupQueries));
+            catalog.GroupQueryCatalog.ExpandRequired(groupQueries));
         HashSet<InspectionQueryDefinition> registered =
         [
-            .. catalog.QueryRegistry.RegisteredQueries,
-            .. catalog.GroupQueryRegistry.RegisteredQueries,
+            .. catalog.QueryCatalog.RegisteredQueries,
+            .. catalog.GroupQueryCatalog.RegisteredQueries,
         ];
 
         Assert.Empty(
-            catalog.QueryRegistry.RegisteredQueries.Intersect(
-                catalog.GroupQueryRegistry.RegisteredQueries));
+            catalog.QueryCatalog.RegisteredQueries.Intersect(
+                catalog.GroupQueryCatalog.RegisteredQueries));
         Assert.Equal(
             closure.OrderBy(q => q.Name, StringComparer.Ordinal),
             registered.OrderBy(q => q.Name, StringComparer.Ordinal));
@@ -1747,7 +1747,7 @@ public class SectionPipelineTests
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(
             [OptimizationOpportunitiesQuery.Definition],
-            catalog.QueryRegistry.OptionalDependenciesOf(
+            catalog.QueryCatalog.OptionalDependenciesOf(
                 BodyShapesQuery.Definition));
     }
 
@@ -3728,6 +3728,101 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void TypedQueryRegistry_CompileProducesImmutableCatalogSnapshot()
+    {
+        var first = new InspectionQuery<int>("first", InspectionCost.NetworkFree);
+        var later = new InspectionQuery<int>("later", InspectionCost.Moderated);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(first, _ => 1);
+
+        InspectionQueryCatalog<object?> catalog = registry.Compile();
+
+        Assert.Same(catalog, registry.Compile());
+        Assert.Equal([first], catalog.RegisteredQueries);
+
+        registry.Add(later, _ => 2);
+        InspectionQueryCatalog<object?> extended = registry.Compile();
+
+        Assert.NotSame(catalog, extended);
+        Assert.Equal([first], catalog.RegisteredQueries);
+        Assert.Equal([first, later], extended.RegisteredQueries);
+    }
+
+    [Fact]
+    public void TypedQueryCatalog_PrecomputesSingleQueryPlan()
+    {
+        var prerequisite = new InspectionQuery<int>(
+            "prerequisite",
+            InspectionCost.Moderated);
+        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
+        InspectionQueryCatalog<object?> catalog =
+            new InspectionQueryRegistry<object?>()
+                .Add(prerequisite, _ => 41)
+                .Add(
+                    query,
+                    (_, results) => results.Get(prerequisite) + 1,
+                    prerequisite)
+                .Compile();
+
+        InspectionQueryPlan<object?> plan = catalog.Plan(query);
+
+        Assert.Same(plan, catalog.Plan(query));
+        Assert.Equal([prerequisite, query], plan.Queries);
+        Assert.Equal(InspectionCost.Moderated, plan.Cost);
+        Assert.Equal(42, plan.Run(context: null).Get(query));
+    }
+
+    [Fact]
+    public void TypedQueryPlan_ReusesPlanWithoutSharingRunState()
+    {
+        var query = new InspectionQuery<string>(
+            "query",
+            InspectionCost.NetworkFree);
+        InspectionQueryPlan<string> plan =
+            new InspectionQueryRegistry<string>()
+                .Add(query, context => context)
+                .Compile()
+                .Plan(query);
+
+        InspectionQueryResults first = plan.Run("first");
+        InspectionQueryResults second = plan.Run("second");
+
+        Assert.NotSame(first, second);
+        Assert.Equal("first", first.Get(query));
+        Assert.Equal("second", second.Get(query));
+    }
+
+    [Fact]
+    public void LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing()
+    {
+        InspectionQueryCatalog<InspectionQueryContext> queryCatalog =
+            LibrarySections.QueryCatalog;
+        InspectionQueryCatalog<AssemblyContextGroup> groupQueryCatalog =
+            LibrarySections.GroupQueryCatalog;
+        InspectionQueryPlan<InspectionQueryContext> plan =
+            queryCatalog.Plan(BodyShapesQuery.Definition);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            if (!ReferenceEquals(queryCatalog, LibrarySections.QueryCatalog)
+                || !ReferenceEquals(
+                    groupQueryCatalog,
+                    LibrarySections.GroupQueryCatalog)
+                || !ReferenceEquals(
+                    plan,
+                    queryCatalog.Plan(BodyShapesQuery.Definition)))
+            {
+                throw new InvalidOperationException(
+                    "The library query catalog or its precomputed plan changed identity.");
+            }
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void QueryBackedSection_InheritsDependencyClosureCost()
     {
         var prerequisite = new InspectionQuery<int>(
@@ -3996,6 +4091,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public async Task TypedQueryRegistry_RunAsync_EmptyDemandPropagatesCancellation()
+    {
+        var registered = new InspectionQuery<int>(
+            "registered",
+            InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(registered, _ => 1);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => registry.RunAsync(
+                [],
+                context: null,
+                cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
     public async Task TypedQueryRegistry_RunAsync_RejectsUndeclaredResultDependencies()
     {
         var hidden = new InspectionQuery<int>("hidden", InspectionCost.Unbounded);
@@ -4214,7 +4327,7 @@ public class SectionPipelineTests
                 packageVersion: null,
                 httpClient,
                 queries: [query],
-                queryRegistry: registry));
+                queryCatalog: registry.Compile()));
     }
 
     [Fact]
@@ -4234,7 +4347,7 @@ public class SectionPipelineTests
                 packageVersion: null,
                 httpClient,
                 queries: [query],
-                queryRegistry: registry));
+                queryCatalog: registry.Compile()));
 
         Assert.Contains("query execution", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.IsType<IOException>(ex.InnerException);
@@ -4257,7 +4370,7 @@ public class SectionPipelineTests
                 packageVersion: null,
                 httpClient,
                 queries: [query],
-                queryRegistry: registry));
+                queryCatalog: registry.Compile()));
     }
 
     [Theory]
@@ -4293,7 +4406,7 @@ public class SectionPipelineTests
                     packageVersion: null,
                     httpClient,
                     queries: [query],
-                    queryRegistry: registry));
+                    queryCatalog: registry.Compile()));
 
         Assert.Same(queryFailure, exception.InnerException);
     }
@@ -4345,8 +4458,7 @@ public class SectionPipelineTests
                 Path.GetDirectoryName(assemblyPath)!,
             httpClient,
             signatureResult: null,
-            queries: [query],
-            queryRegistry: registry);
+            queryPlan: registry.Compile().Plan(query));
     }
 
     [Fact]
@@ -4364,7 +4476,7 @@ public class SectionPipelineTests
                 packageVersion: null,
                 httpClient,
                 queries: [query],
-                queryRegistry: LibrarySections.CreateQueryRegistry()));
+                queryCatalog: LibrarySections.QueryCatalog));
 
         Assert.Contains("unregistered", ex.Message, StringComparison.Ordinal);
     }
@@ -4492,13 +4604,13 @@ public class SectionPipelineTests
         SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
         Assert.Contains(
             AssemblyContextIntegrationsQuery.Definition,
-            catalog.GroupQueryRegistry.RegisteredQueries);
+            catalog.GroupQueryCatalog.RegisteredQueries);
         Assert.Contains(
             AssemblyContextIntegrationOpportunitiesQuery.Definition,
-            catalog.GroupQueryRegistry.RegisteredQueries);
+            catalog.GroupQueryCatalog.RegisteredQueries);
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
-            catalog.QueryRegistry.RegisteredQueries);
+            catalog.QueryCatalog.RegisteredQueries);
 
         foreach (string section in LibraryIntegrationCatalog.CategorySections)
         {
@@ -4528,11 +4640,11 @@ public class SectionPipelineTests
             pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
         Assert.Equal(
             [AssemblyContextIntegrationsQuery.Definition],
-            catalog.GroupQueryRegistry.RequirementsOf(
+            catalog.GroupQueryCatalog.RequirementsOf(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition));
         Assert.Equal(
             InspectionCost.Unbounded,
-            catalog.GroupQueryRegistry.CostOf(
+            catalog.GroupQueryCatalog.CostOf(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition));
     }
 
@@ -4951,7 +5063,7 @@ public class SectionPipelineTests
                     BodyShapesQuery.Definition,
                     OptimizationOpportunitiesQuery.Definition,
                 ],
-                queryRegistry: registry));
+                queryCatalog: registry.Compile()));
 
         Assert.IsType<BodyShapesResult.DependencyUnavailable>(
             inspection.BodyShapesQueryResult);

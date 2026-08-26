@@ -114,8 +114,8 @@ public class LibraryCommand
         var assemblyPath = options.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var queryRegistry = catalog.QueryRegistry;
-        var groupQueryRegistry = catalog.GroupQueryRegistry;
+        var queryCatalog = catalog.QueryCatalog;
+        var groupQueryCatalog = catalog.GroupQueryCatalog;
 
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
@@ -593,7 +593,7 @@ public class LibraryCommand
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
-                        groupQueryRegistry,
+                        groupQueryCatalog,
                         [
                             new AssemblyContextIntegrationsInput(
                                 resolvedPath!,
@@ -648,10 +648,12 @@ public class LibraryCommand
                     }
                 }
 
+                InspectionQueryPlan<InspectionQueryContext> queryPlan =
+                    queryCatalog.Plan(queries);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true,
-                    queries: queries,                     queryRegistry: queryRegistry,
+                    queryPlan: queryPlan,
                     assemblyReference: inspectionAssemblyReference,
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
@@ -731,7 +733,7 @@ public class LibraryCommand
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
-                        groupQueryRegistry,
+                        groupQueryCatalog,
                         inspectionPaths.Select(path =>
                             new AssemblyContextIntegrationsInput(
                                 path,
@@ -801,11 +803,13 @@ public class LibraryCommand
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
                 }
 
+                InspectionQueryPlan<InspectionQueryContext> queryPlan =
+                    queryCatalog.Plan(queries);
                 PackageInspectionCollection collection =
                     await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult,
-                    queries, queryRegistry, integrations,
+                    queryPlan, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace,
                     primaryAssemblyReference);
                 List<LibraryInspection> inspections =
@@ -927,7 +931,7 @@ public class LibraryCommand
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
-                        groupQueryRegistry,
+                        groupQueryCatalog,
                         [
                             new AssemblyContextIntegrationsInput(
                                 assemblyPath!,
@@ -978,9 +982,11 @@ public class LibraryCommand
                     }
                 }
 
+                InspectionQueryPlan<InspectionQueryContext> queryPlan =
+                    queryCatalog.Plan(queries);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
-                    queries: queries,                     queryRegistry: queryRegistry,
+                    queryPlan: queryPlan,
                     assemblyReference: inspectionAssemblyReference,
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
@@ -2864,8 +2870,7 @@ public class LibraryCommand
         List<string> assemblyPaths, LibraryOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
-        HashSet<InspectionQueryDefinition>? queries = null,
-        InspectionQueryRegistry<InspectionQueryContext>? queryRegistry = null,
+        InspectionQueryPlan<InspectionQueryContext>? queryPlan = null,
         AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null,
         ResolvedAssemblyReference? primaryAssemblyReference = null)
@@ -2921,8 +2926,7 @@ public class LibraryCommand
                     packageName,
                     version,
                     httpClient,
-                    queries: queries,
-                    queryRegistry: queryRegistry,
+                    queryPlan: queryPlan,
                     assemblyReference: assemblyReference,
                     integrationsEntry:
                         integrations?.EntryFor(targetPath),
