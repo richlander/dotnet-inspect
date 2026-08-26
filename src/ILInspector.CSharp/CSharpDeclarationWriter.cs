@@ -2116,6 +2116,14 @@ internal static class CSharpDeclarationWriter
     /// <see cref="CSharpFormatter.EscapeTypeKeywords"/>.
     /// </summary>
     internal static string EscapeTypeKeywords(string type)
+        => CSharpIdentifierCore.ContainRawComposedName(
+            EscapeTypeKeywordsUntreated(type));
+
+    /// <summary>
+    /// Escapes type-keyword identifiers without applying presentation
+    /// containment.
+    /// </summary>
+    internal static string EscapeTypeKeywordsUntreated(string type)
     {
         var builder = new StringBuilder(type.Length);
         for (int index = 0; index < type.Length;)
@@ -2142,14 +2150,7 @@ internal static class CSharpDeclarationWriter
             index = end;
         }
 
-        // A type string is composed from untrusted metadata names. Containment
-        // happens at this single display choke point rather than at the sites
-        // that spell parameters, return types, and base types, so a new caller
-        // cannot reopen issue #3319. This escaper is display-only — identity
-        // lives in the raw metadata names — and containment is a no-op on clean
-        // text.
-        return CSharpIdentifierCore.ContainRawComposedName(
-            builder.ToString());
+        return builder.ToString();
     }
 
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)

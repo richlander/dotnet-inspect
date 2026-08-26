@@ -252,11 +252,13 @@ public sealed class SemanticTypeOutputContainmentTests
             api,
             new ApiOptions());
 
+        Assert.NotNull(view.Name);
+        string name = view.Name;
         Assert.Equal(
             @"Fixture\u202E\^J## Forged",
-            view.Name);
-        Assert.DoesNotContain('\u202E', view.Name);
-        Assert.DoesNotContain('\n', view.Name);
+            name);
+        Assert.DoesNotContain('\u202E', name);
+        Assert.DoesNotContain('\n', name);
     }
 
     [Fact]

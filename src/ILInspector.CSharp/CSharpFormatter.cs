@@ -345,6 +345,21 @@ public sealed class CSharpFormatter
         => CSharpDeclarationWriter.EscapeTypeKeywords(type);
 
     /// <summary>
+    /// Escapes C# type-keyword identifiers without applying presentation
+    /// containment.
+    /// </summary>
+    /// <remarks>
+    /// Typed presentation boundaries use this method so containment retains
+    /// provenance from the untreated value. Other callers should use
+    /// <see cref="EscapeTypeKeywords"/>.
+    /// <c>EscapeTypeKeywordsUntreated_PreservesMetadataText</c> and
+    /// <c>ApiPresentationBuilders_PreserveConcernProvenance</c> gate the
+    /// untreated handoff.
+    /// </remarks>
+    public static string EscapeTypeKeywordsUntreated(string type)
+        => CSharpDeclarationWriter.EscapeTypeKeywordsUntreated(type);
+
+    /// <summary>
     /// Formats each constraint entry while preserving special-constraint syntax
     /// and containing entries that are raw metadata type names.
     /// </summary>

@@ -1353,6 +1353,17 @@ public sealed class CSharpFormatterTests
         => Assert.Equal(expected, CSharpFormatter.EscapeTypeKeywords(input));
 
     [Theory]
+    [InlineData("Ns.class", "Ns.@class")]
+    [InlineData(@"Ns.Lit\u202EType", @"Ns.Lit\u202EType")]
+    [InlineData("Ns.Lit\u202EType", "Ns.Lit\u202EType")]
+    public void EscapeTypeKeywordsUntreated_PreservesMetadataText(
+        string input,
+        string expected)
+        => Assert.Equal(
+            expected,
+            CSharpFormatter.EscapeTypeKeywordsUntreated(input));
+
+    [Theory]
     // Every CLR primitive full name aliases to its C# keyword, including the native
     // ints (nint/nuint) and decimal, matching the product decompiler's spelling.
     [InlineData("System.Boolean", "bool")]

@@ -11,9 +11,14 @@ internal static class ApiPresentationText
     public static CSharpPresentationText CSharpField(string value) =>
         CSharpPresentationText.Create(value);
 
-    public static CSharpPresentationText RawTypeField(string value) =>
-        CSharpPresentationText.Create(
-            CSharpFormatter.EscapeTypeKeywords(value));
+    public static CSharpPresentationText RawTypeField(string value)
+    {
+        string untreated =
+            CSharpFormatter.EscapeTypeKeywordsUntreated(value);
+        return CSharpPresentationText.FromContainedRawName(
+            CSharpFormatter.EscapeTypeKeywords(value),
+            untreated);
+    }
 
     public static InertString EncodedField(string value) =>
         InertString.FromEncoded(TextPolicy.Field, value);
@@ -47,7 +52,21 @@ public readonly struct CSharpPresentationText
     internal CSharpPresentationText WithPresentationText(string text)
         => new(text, Evidence);
 
+    internal static CSharpPresentationText FromContainedRawName(
+        string text,
+        string untreated)
+        => Create(
+            text,
+            new InertString(TextPolicy.Field, untreated));
+
     internal static CSharpPresentationText Create(string value)
+        => Create(
+            value,
+            new InertString(TextPolicy.Field, value));
+
+    private static CSharpPresentationText Create(
+        string value,
+        InertString evidence)
     {
         var builder = new StringBuilder(value.Length);
         ReadOnlySpan<char> remaining = value;
@@ -71,7 +90,7 @@ public readonly struct CSharpPresentationText
 
         return new CSharpPresentationText(
             builder.ToString(),
-            new InertString(TextPolicy.Field, value));
+            evidence);
     }
 
     private static void AppendCSharpEscape(
