@@ -568,6 +568,10 @@ public static class JsExportSurfaceBuilder
         ApiType context,
         ApiAssemblyIdentity assembly)
     {
+        var expectedReturnType = new ApiTypeReferenceIdentity(
+            assembly,
+            context.FullName,
+            context.DefinitionName);
         ApiMember[] candidates =
         [
             .. context.Members.Where(member =>
@@ -578,10 +582,8 @@ public static class JsExportSurfaceBuilder
                 && member.GetterToken is not null
                 && member.SignatureModel is { ParameterCount: 0 } signature
                 && signature.ReturnTypeReferences.Count == 1
-                && signature.ReturnTypeReferences[0].Assembly.Equals(
-                    assembly)
-                && signature.ReturnTypeReferences[0].FullName
-                    == context.FullName),
+                && signature.ReturnTypeReferences[0].Equals(
+                    expectedReturnType)),
         ];
         return candidates is [{ GetterToken: { } getterToken }]
             ? getterToken

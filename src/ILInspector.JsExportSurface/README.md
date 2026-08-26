@@ -57,9 +57,10 @@ unsupported when reached. A matching property must be an instance,
 parameterless, getter-only property; an indexed or otherwise user-shaped
 sibling is retained as reached failure evidence rather than inheriting the
 registration. The generated getter's receiver must also flow from the same
-context's authenticated `Default` property. A custom context instance
-can carry runtime `JsonSerializerOptions` that change the wire shape
-independently of source-generation metadata, so an unproven receiver fails.
+context's authenticated `Default` property, whose return carries the same
+structured definition identity as the context. A custom context instance can
+carry runtime `JsonSerializerOptions` that change the wire shape independently
+of source-generation metadata, so an unproven receiver fails.
 Two matching generated-root PropertyDefs with the same metadata identity also
 fail rather than letting declaration metadata select one while runtime code
 calls the other.
@@ -74,7 +75,8 @@ calls the other.
 `Build_RejectsDuplicatedRuntimeBindingTarget`,
 `Build_RejectsRuntimeWrapperFromDifferentModule`,
 `Build_RejectsRuntimeWrapperWithoutModuleIdentity`,
-`Build_RejectsRuntimeWrapperWithWrongAssemblyMarshalerArgument`,
+`Build_RejectsRuntimeWrapperWithNullModuleIdentity`,
+`Build_RejectsRuntimeWrapperWithUnauthenticatedMarshalerArgument`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
@@ -82,6 +84,7 @@ calls the other.
 `Build_ProjectsNestedRuntimeDeclaringTypePath`,
 `Build_RejectsIndexedGetterWithGeneratedRootName`,
 `Build_RejectsDuplicateGeneratedRootPropertyIdentity`,
+`Build_RejectsDefaultContextReturnWithCollidingStructuredIdentity`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.

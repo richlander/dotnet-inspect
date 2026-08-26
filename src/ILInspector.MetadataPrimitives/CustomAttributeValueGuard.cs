@@ -17,10 +17,14 @@ namespace ILInspector.Metadata;
 /// fixed arguments <b>and</b> each named argument's <c>FieldOrPropType</c>,
 /// name, and value — refusing decode when a declared count exceeds the
 /// remaining bytes or when boxed / SZArray nesting exceeds
-/// <see cref="MaxSerializedDepth"/>. Declared slots are charged through
-/// <c>beforeMaterialize</c> so a hostile count becomes typed truncation
-/// rather than a swallowed <c>OutOfMemoryException</c>. The walk uses an
-/// explicit heap work-stack, never the native stack, matching
+/// <see cref="MaxSerializedDepth"/>. Declared slots and materialized
+/// <c>SerString</c> payload bytes are charged through
+/// <c>beforeMaterialize</c> so hostile metadata becomes typed truncation
+/// rather than a swallowed <c>OutOfMemoryException</c>.
+/// <c>CustomAttributeValueGuardTests</c>'s
+/// <c>AssemblyQualifiedNamedEnum_SeesFollowingArrayCount</c> gate covers both
+/// charges. The walk uses an explicit heap work-stack, never the native stack,
+/// matching
 /// <see cref="SignatureBlobGuard"/>: the depth cap is a policy limit, not a
 /// stack-safety limit. Enum argument widths come from
 /// <see cref="EnumUnderlyingPrimitive"/> so the skip stays aligned with SRM's

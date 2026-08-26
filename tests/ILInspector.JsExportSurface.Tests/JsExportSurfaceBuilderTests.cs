@@ -714,7 +714,58 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Build_RejectsRuntimeWrapperWithWrongAssemblyMarshalerArgument()
+    public void Build_RejectsRuntimeWrapperWithNullModuleIdentity()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name
+                == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate candidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        export.RuntimeJsExportWrapperCandidates =
+        [
+            candidate with
+            {
+                ModuleVersionId = null,
+            },
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("System.Runtime", true)]
+    [InlineData(
+        "System.Runtime.InteropServices.JavaScript",
+        false)]
+    public void Build_RejectsRuntimeWrapperWithUnauthenticatedMarshalerArgument(
+        string marshalerAssembly,
+        bool trustedFrameworkAssembly)
     {
         string path =
             typeof(PopulateExports).Assembly.Location;
@@ -736,10 +787,10 @@ public sealed class JsExportSurfaceBuilderTests
                 export.RuntimeJsExportWrapperCandidates!);
         TypeRef wrongAssemblyArgument = TypeRef.Pointer(
             TypeRef.Definition(
-                "System.Runtime",
+                marshalerAssembly,
                 "System.Runtime.InteropServices.JavaScript",
                 "JSMarshalerArgument",
-                trustedFrameworkAssembly: true));
+                trustedFrameworkAssembly));
         ImmutableArray<DirectCall> wrongAssemblyCalls =
         [
             .. bodyIndex.DirectCalls.Select(call =>
@@ -1943,6 +1994,88 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Equal(
             "int[]",
             Assert.Single(surface.Functions).ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_RejectsDefaultContextReturnWithCollidingStructuredIdentity()
+    {
+        string path =
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ScalarContextOptionsFixtureExports));
+        ApiMember vectorSerializer = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(
+                    ScalarContextOptionsFixtureExports.SerializeVector));
+        foreach (ApiMember export in exports.Members.Where(
+            member => member.HasRuntimeJsExport
+                && member != vectorSerializer))
+        {
+            export.HasRuntimeJsExport = false;
+            export.RuntimeJsExportAttributeCount = 0;
+            export.HasMalformedRuntimeJsExportAttribute = false;
+        }
+
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(SupportedScalarContextOptions));
+        ApiMember defaultProperty = Assert.Single(
+            context.Members,
+            member => member.Name == "Default");
+        ApiSignature defaultSignature =
+            Assert.IsType<ApiSignature>(
+                defaultProperty.SignatureModel);
+        ApiTypeReferenceIdentity authenticReturn =
+            Assert.Single(defaultSignature.ReturnTypeReferences);
+        MetadataTypeDefinitionName authenticName =
+            Assert.IsType<MetadataTypeDefinitionName>(
+                authenticReturn.DefinitionName);
+        int namespaceSeparator =
+            authenticName.Namespace.LastIndexOf('.');
+        Assert.True(namespaceSeparator > 0);
+        MetadataTypeDefinitionName collision =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    authenticName.Namespace[..namespaceSeparator],
+                    [
+                        authenticName.Namespace[
+                            (namespaceSeparator + 1)..],
+                        .. authenticName.Segments,
+                    ]))
+                .Name;
+        Assert.NotEqual(authenticName, collision);
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+
+        Assert.Equal(
+            "int[]",
+            Assert.Single(
+                JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex).Functions)
+                .ReturnWireType);
+        defaultSignature.ReturnTypeReferences =
+        [
+            authenticReturn with
+            {
+                DefinitionName = collision,
+            },
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+        Assert.Contains(
+            "no authentic default-instance getter",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
