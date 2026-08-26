@@ -5,6 +5,7 @@ import {
   createNuGetPackageModel,
   createPackageAcquisition,
   createRuntimePackageModel,
+  mergeRuntimePackageSurface,
   runtimeAssemblyIsResident,
   type AppPackage,
   type PackageAcquisitionDependencies,
@@ -79,6 +80,7 @@ function packageSurface(
     }],
     totalMembers: 2,
     documents: [],
+    inspectionErrors: [],
     inspectionError: null,
     ...overrides,
   };
@@ -112,6 +114,26 @@ function runtimeSurface(
     }],
     totalMembers,
   });
+}
+
+function runtimeSurfaceWithInvalidAssemblyIds(
+  mode: "missing" | "empty" | "whitespace",
+): BrowserPackageSurface {
+  const result =
+    runtimeSurface("json", "System.Text.Json", "System.Text.Json.JsonDocument");
+  const selected = result.assemblies?.[0];
+  assert.ok(selected);
+  if (mode === "missing") {
+    Reflect.deleteProperty(result, "defaultAssemblyId");
+    Reflect.deleteProperty(selected, "id");
+  } else {
+    // A whitespace-only id is the case a length-only guard would accept: the
+    // descriptor would match itself and produce a model with a blank identity.
+    const blank = mode === "empty" ? "" : "   ";
+    result.defaultAssemblyId = blank;
+    selected.id = blank;
+  }
+  return result;
 }
 
 function acquisitionDependencies(
@@ -199,13 +221,106 @@ test("runtime assembly acquisition reports a missing selected descriptor", async
   ]);
 });
 
+// Adversarial review (GPT-5.6 Sol) found that routing this path through
+// `defaultAssembly` changed which descriptor gets projected: it used to take
+// `assemblies[0]` while reporting `defaultAssemblyId` as the identity, so a surface whose
+// declared default is not first produced a model that named one assembly and identified
+// another. The two agree for every surface the engine currently emits -- a runtime-pack
+// assembly load returns the one assembly it was asked for -- which is why nothing caught
+// it. Pin the selection so the disagreement cannot come back silently.
+test("runtime assembly acquisition projects the declared default, not the first", async () => {
+  const first = assembly("first", "First.Assembly");
+  const declared = assembly("second", "Second.Assembly");
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      defaultAssemblyId: declared.id,
+      assemblies: [first, declared],
+      types: [],
+    })),
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "Second.Assembly",
+    "netcore.app");
+
+  assert.equal(result.error, null);
+  assert.equal(result.packageModel?.assemblyId, "second");
+  assert.equal(result.packageModel?.assembly, "Second.Assembly");
+  assert.equal(
+    result.packageModel?.assemblyAsset,
+    "lib/net10.0/Second.Assembly.dll");
+});
+
+test("runtime models reject missing, empty, and whitespace selected assembly IDs", () => {
+  for (const mode of ["missing", "empty", "whitespace"] as const) {
+    assert.throws(
+      () => createRuntimePackageModel(
+        runtimeSurfaceWithInvalidAssemblyIds(mode)),
+      /platform query did not return its selected assembly descriptor/,
+      mode);
+  }
+});
+
+test("runtime surface merging validates identity before mutating the resident model", () => {
+  for (const mode of ["missing", "empty", "whitespace"] as const) {
+    const resident = createRuntimePackageModel(
+      runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+    const originalTypes = resident.types.length;
+    assert.throws(
+      () => mergeRuntimePackageSurface(
+        resident,
+        runtimeSurfaceWithInvalidAssemblyIds(mode)),
+      /platform query did not return its selected assembly identity/,
+      mode);
+    assert.equal(resident.types.length, originalTypes, mode);
+  }
+});
+
+test("runtime surface merging rejects an unmatched nonempty descriptor list", () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const originalTypes = resident.types.length;
+  const json = assembly("json", "System.Text.Json");
+  assert.throws(
+    () => mergeRuntimePackageSurface(resident, packageSurface({
+      package: "Microsoft.NETCore.App",
+      defaultAssemblyId: "missing",
+      assemblies: [json],
+      types: [typeSurface("System.Text.Json.JsonDocument", json.name)],
+    })),
+    /platform query returned no descriptor for missing/);
+  assert.equal(resident.types.length, originalTypes);
+});
+
+test("runtime surface merging rejects types without an assembly descriptor", () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const originalTypes = resident.types.length;
+  const originalMembers = resident.totalMembers;
+  const originalAccessibility = resident.accessibility[0]?.count;
+  assert.throws(
+    () => mergeRuntimePackageSurface(resident, packageSurface({
+      package: "Microsoft.NETCore.App",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
+    })),
+    /platform query returned no descriptor for missing/);
+  assert.equal(resident.types.length, originalTypes);
+  assert.equal(resident.totalMembers, originalMembers);
+  assert.equal(resident.accessibility[0]?.count, originalAccessibility);
+});
+
 // Adversarial review (Claude Opus 5) found that validating the selected descriptor
 // *before* the merge branch regressed a surface the engine really emits.
 // `InspectionEngine.cs` permits an empty `assemblies` list whenever extraction truncates,
 // and then falls back to `coordinate.DefaultAsset.Id` -- an id with no matching
-// descriptor. Such a surface still carries types, and `mergeRuntimePackageSurface` reads
-// types, assemblies, accessibility, and counts but never the descriptor. Rejecting it
-// pre-merge turned a partially-successful load into a total failure.
+// descriptor. The projection commits a participant's descriptor and types atomically, so
+// this shape carries neither, but its inspection notice is still partial evidence.
+// Rejecting it pre-merge turned that visible partial result into a total failure.
 //
 // The merge path accepts that descriptor-free truncated surface so it can preserve the
 // partial inspection evidence. The non-merging path still requires a descriptor. These
@@ -222,7 +337,17 @@ test("a truncated platform surface merges instead of failing the whole load", as
       // id that matches none of them.
       defaultAssemblyId: "missing",
       assemblies: [],
-      types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
+      types: [],
+      accessibility: [{
+        id: "public",
+        label: "Public",
+        order: 0,
+        isDefault: true,
+        count: 12,
+      }],
+      totalMembers: 0,
+      inspectionErrors: ["System.Text.Json: extraction truncated."],
+      inspectionError: "System.Text.Json: extraction truncated.",
     })),
     runtimePackage: () => resident,
     failRuntimeLoad: error =>
@@ -237,10 +362,164 @@ test("a truncated platform surface merges instead of failing the whole load", as
   assert.equal(result.error, null);
   assert.equal(result.packageModel, resident);
   assert.deepEqual(failures, []);
-  assert.ok(
-    resident.types.some(type => type.id === "System.Text.Json.JsonDocument"),
-    "the truncated surface's types were merged into the resident package");
+  assert.deepEqual(
+    resident.types.map(type => type.id),
+    ["System.Object"]);
+  assert.equal(resident.accessibility[0]?.count, 1);
+  assert.equal(
+    resident.inspectionError,
+    "System.Text.Json: extraction truncated.");
 });
+
+test("a truncated full-pack surface merges into a compatible resident", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface(
+      "aspnet",
+      "Microsoft.AspNetCore.Http.Abstractions",
+      "Microsoft.AspNetCore.Http.HttpContext",
+      2,
+      "aspnetcore.app"));
+  const failures: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [],
+      accessibility: [{
+        id: "public",
+        label: "Public",
+        order: 0,
+        isDefault: true,
+        count: 12,
+      }],
+      totalMembers: 0,
+      inspectionErrors: ["System.Private.CoreLib: extraction truncated."],
+      inspectionError: "System.Private.CoreLib: extraction truncated.",
+    })),
+    runtimePackage: () => resident,
+    failRuntimeLoad: error =>
+      failures.push(error instanceof Error ? error.message : String(error)),
+  }));
+
+  const result = await acquisition.loadRuntimePack("net10.0");
+
+  assert.equal(result.error, null);
+  assert.equal(result.packageModel, resident);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(
+    resident.types.map(type => type.id),
+    ["Microsoft.AspNetCore.Http.HttpContext"]);
+  assert.equal(resident.accessibility[0]?.count, 1);
+  assert.equal(resident.assemblyId, "aspnet");
+  assert.equal(
+    resident.inspectionError,
+    "System.Private.CoreLib: extraction truncated.");
+});
+
+test("repeating a partial surface merge does not inflate resident evidence", () => {
+  const residentSurface =
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
+  residentSurface.inspectionErrors = [
+    "System.Private.CoreLib: extraction truncated; "
+      + "0 assembly(ies) were not projected.",
+    "System.Text.Json: extraction truncated; "
+      + "0 assembly(ies) were not projected.",
+  ];
+  residentSurface.inspectionError = residentSurface.inspectionErrors.join("; ");
+  const resident = createRuntimePackageModel(residentSurface);
+  const partial = runtimeSurface(
+    "json",
+    "System.Text.Json",
+    "System.Text.Json.JsonDocument");
+  const partialNotice = residentSurface.inspectionErrors?.[1];
+  assert.ok(partialNotice);
+  partial.inspectionErrors = [partialNotice];
+  partial.inspectionError = partialNotice;
+
+  mergeRuntimePackageSurface(resident, partial);
+  mergeRuntimePackageSurface(resident, partial);
+
+  assert.deepEqual(
+    resident.types.map(type => type.id),
+    ["System.Object", "System.Text.Json.JsonDocument"]);
+  assert.equal(resident.totalMembers, 4);
+  assert.equal(resident.accessibility[0]?.count, 2);
+  assert.equal(
+    resident.inspectionError,
+    residentSurface.inspectionError);
+});
+
+// Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path
+// returned before any identity check, so a surface with an absent, empty, or
+// whitespace-only `defaultAssemblyId` succeeded -- and mutated the resident package --
+// whenever a same-framework runtime package happened to be resident. Claude Opus 5 agreed
+// on the fact and disagreed on the severity: `main` behaves identically, and the merged
+// model keeps the *resident's* valid identity, so no blank-identity model is produced.
+//
+// Both are right about what they measured, and the disagreement is really about which
+// check belongs where. A blank identity is never legitimate -- the field is declared
+// non-optional -- while an unmatched one is, because truncation makes the engine fall
+// back to an id matching no descriptor. So identity is now required on every path and a
+// matching descriptor only where one is read, which rejects these three inputs without
+// re-rejecting the truncated surface the test above pins.
+// `defaultAssemblyId` is declared non-optional, so `absent` cannot be expressed as an
+// override -- it is what the wire payload looks like when the engine violates that
+// contract, which is precisely the case the check exists for. Deleting the key from the
+// serialized form is the only faithful way to model it.
+for (const [mode, corrupt] of [
+  ["absent", (surface: Record<string, unknown>) => {
+    delete surface["defaultAssemblyId"];
+  }],
+  ["empty", (surface: Record<string, unknown>) => {
+    surface["defaultAssemblyId"] = "";
+  }],
+  ["whitespace", (surface: Record<string, unknown>) => {
+    surface["defaultAssemblyId"] = "   ";
+  }],
+] as const) {
+  test(`a resident merge rejects a surface whose assembly identity is ${mode}`, async () => {
+    const resident = createRuntimePackageModel(
+      runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+    const residentTypes = resident.types.length;
+    const failures: string[] = [];
+    const acquisition = createPackageAcquisition(acquisitionDependencies({
+      loadRuntimePackAssembly: async () => {
+        const surface: Record<string, unknown> = { ...packageSurface({
+          package: "Microsoft.NETCore.App",
+          activeFramework: "net10.0",
+          assemblies: [],
+          types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
+        }) };
+        corrupt(surface);
+        return JSON.stringify(surface);
+      },
+      runtimePackage: () => resident,
+      failRuntimeLoad: error =>
+        failures.push(error instanceof Error ? error.message : String(error)),
+    }));
+
+    const result = await acquisition.loadRuntimePackAssembly(
+      "net10.0",
+      "System.Text.Json",
+      "netcore.app");
+
+    assert.equal(result.packageModel, null);
+    assert.match(
+      result.error instanceof Error ? result.error.message : "",
+      /did not return its selected assembly identity/);
+    assert.deepEqual(failures, [
+      "The platform query did not return its selected assembly identity.",
+    ]);
+    // And it is rejected *before* the merge, so the resident package is untouched. A
+    // check that ran after the merge would report the failure and still have mutated it.
+    assert.equal(
+      resident.types.length,
+      residentTypes,
+      "a rejected surface must not have already been merged into the resident package");
+  });
+}
 
 test("a non-merging platform load still fails visibly without a descriptor", async () => {
   const failures: string[] = [];
@@ -382,7 +661,7 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
   assert.deepEqual(
     mergedModel.types.map(candidate => candidate.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
-  assert.equal(mergedModel.totalMembers, 5);
+  assert.equal(mergedModel.totalMembers, 4);
   // Main's added assertions, with this slice's checked-index guard on the one indexed
   // read among them.
   const publicAccessibility = mergedModel.accessibility[0];
@@ -746,6 +1025,38 @@ test("assembly-specific CoreLib acquisition promotes an ASP.NET-first model", as
   assert.equal(
     core.packageModel?.assemblyAsset,
     "lib/net10.0/System.Private.CoreLib.dll");
+});
+
+test("resident primary promotion uses the declared default descriptor", async () => {
+  const resident = createRuntimePackageModel(runtimeSurface(
+    "aspnet-http",
+    "Microsoft.AspNetCore.Http.Abstractions",
+    "Microsoft.AspNetCore.Http.IHeaderDictionary",
+    2,
+    "aspnetcore.app"));
+  const json = assembly("json", "System.Text.Json");
+  const corelib = assembly("corelib", "System.Private.CoreLib");
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePackAssembly: async () => JSON.stringify(packageSurface({
+      package: "Microsoft.NETCore.App",
+      activeFramework: "net10.0",
+      defaultAssemblyId: corelib.id,
+      assemblies: [json, corelib],
+      types: [],
+    })),
+    runtimePackage: () => resident,
+  }));
+
+  const result = await acquisition.loadRuntimePackAssembly(
+    "net10.0",
+    "System.Private.CoreLib.dll",
+    "netcore.app");
+
+  assert.equal(result.error, null);
+  assert.equal(result.packageModel, resident);
+  assert.equal(resident.assemblyId, corelib.id);
+  assert.equal(resident.assembly, corelib.name);
+  assert.equal(resident.assemblyAsset, corelib.asset);
 });
 
 test("resident runtime assemblies match the requested dll name", async () => {
