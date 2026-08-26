@@ -928,6 +928,8 @@ Research overlay bridge, and the application layer:
   `ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
   body-intrinsic scope parity, ordinary async-source suppression, and the
   top-level exception.
+  `ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint` gates the
+  metadata-only scope-admission boundary before top-level body authentication.
   `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
   gates ultimate-owner recommendation attribution with a resolvable two-hop
   compiled relationship in full, method, and type scopes.

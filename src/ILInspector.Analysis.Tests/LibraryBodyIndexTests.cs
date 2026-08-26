@@ -4709,15 +4709,21 @@ public class LibraryBodyIndexTests
                     && opportunity.Method == kickoff
                     && opportunity.EvidenceMethodToken
                         == moveNext.MetadataToken);
+            Assert.Contains(
+                methodScoped.OptimizationOpportunities,
+                opportunity => opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
             Assert.Null(
                 methodScoped.ResolveDeclaredMethod(moveNext));
             Assert.Contains(
                 scoped.GetAllocationOccurrences(),
                 pair => pair.Key == moveNext.MetadataToken);
-            Assert.DoesNotContain(
+            Assert.Contains(
                 scoped.OptimizationOpportunities,
-                opportunity => opportunity.Method.MetadataToken
-                    == moveNext.MetadataToken);
+                opportunity => opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
             Assert.DoesNotContain(
                 scoped.OptimizationOpportunities,
                 opportunity => opportunity.Shape
@@ -5367,6 +5373,7 @@ public class LibraryBodyIndexTests
                 moveNext,
                 identity,
                 typeSourceGenerated: true,
+                out _,
                 out AuthenticatedSourceOwner? owner);
 
         Assert.Equal(
@@ -5374,6 +5381,41 @@ public class LibraryBodyIndexTests
             resolution);
         Assert.True(
             owner?.IsAuthenticatedTopLevelEntryPoint);
+    }
+
+    [Fact]
+    public void
+        ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint()
+    {
+        string path =
+            FixtureCatalog.AnalysisTopLevelClassicAsync
+                .AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        CorHeader corHeader = Assert.IsType<CorHeader>(
+            peReader.PEHeaders.CorHeader);
+        MethodDefinitionHandle entryPoint =
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(
+                corHeader.EntryPointTokenOrRelativeVirtualAddress);
+        int indexed = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: handle =>
+            {
+                if (handle == entryPoint)
+                    indexed++;
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            methodScope: null,
+            typeScope: static _ => false));
+
+        Assert.Equal(0, indexed);
     }
 
     [Fact]

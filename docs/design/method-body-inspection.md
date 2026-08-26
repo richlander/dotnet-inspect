@@ -387,6 +387,8 @@ and
 `ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
 body-intrinsic scope parity, ordinary async-source suppression, and the
 authenticated top-level exception.
+`ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint` gates
+metadata-only scope admission before top-level body authentication.
 `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
 gates ultimate-owner recommendation attribution across full, method, and type
 scopes.

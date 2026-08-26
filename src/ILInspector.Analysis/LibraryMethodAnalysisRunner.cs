@@ -103,6 +103,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
+        out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner);
 
     bool DispatchCanTargetOverride(
@@ -282,6 +283,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
+            MethodIdentity? unresolvedOpportunityOwner = null;
+            AuthenticatedSourceOwner? immediateOwnerEvidence = null;
             AuthenticatedSourceOwner? ultimateOwnerEvidence = null;
             bool opportunityOwnershipResolved = true;
             try
@@ -324,6 +327,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 methodDefinition,
                                 caller,
                                 typeSourceGenerated,
+                                out immediateOwnerEvidence,
                                 out ultimateOwnerEvidence);
                     ultimateOwner =
                         ultimateOwnerEvidence?.Method;
@@ -334,6 +338,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 else if (ownerResolution
                     == DeclaredOwnerResolution.Unresolved)
                 {
+                    unresolvedOpportunityOwner =
+                        immediateOwnerEvidence?.Method;
                     result.DeclaredMethod = null;
                 }
                 opportunityOwnershipResolved =
@@ -459,7 +465,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            bool collectScopedOpportunities =
+            bool collectOwnershipDerivedOpportunities =
                 includeOpportunities
                 && (bodyTypeScope is null
                     || opportunityOwnershipResolved
@@ -467,10 +473,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                             || bodyTypeScope(
                                 opportunityDeclaredMethod
                                     .DeclaringType)));
+            bool collectBodyIntrinsicOpportunities =
+                includeOpportunities
+                && (bodyTypeScope is null
+                    || collectOwnershipDerivedOpportunities
+                    || unresolvedOpportunityOwner is { } unresolvedOwner
+                        && bodyTypeScope(
+                            unresolvedOwner.DeclaringType));
             result.ScopeExcluded =
                 includeOpportunities
                 && bodyTypeScope is not null
-                && !collectScopedOpportunities;
+                && !collectOwnershipDerivedOpportunities;
             try
             {
                 MethodCallAnalysis.Collect(
@@ -536,8 +549,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     || IsBlazorRenderMethod(caller);
                 result.Suppressed =
                     suppressOpportunities
-                    || !collectScopedOpportunities;
-                if (collectScopedOpportunities
+                    || !collectBodyIntrinsicOpportunities;
+                if (collectBodyIntrinsicOpportunities
                     && !suppressOpportunities)
                 {
                     result.Opportunities =
@@ -545,7 +558,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             allocationFacts,
                             methodAnalysisResolver);
                 }
-                else if (collectScopedOpportunities
+                else if (collectOwnershipDerivedOpportunities
                     && opportunityOwnershipResolved
                     && result.DeclaredSource is { } opportunitySourceOwner
                     && !sourceGenerated
@@ -574,7 +587,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 }
             }
 
-            if (collectScopedOpportunities
+            if (collectOwnershipDerivedOpportunities
                 && opportunityOwnershipResolved)
             {
                 MethodIdentity? asyncSource = null;

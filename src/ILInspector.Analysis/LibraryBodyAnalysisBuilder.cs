@@ -389,8 +389,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             MethodDefinition methodDefinition,
             MethodIdentity method,
             bool typeSourceGenerated,
+            out AuthenticatedSourceOwner? immediateOwner,
             out AuthenticatedSourceOwner? ultimateOwner)
     {
+        immediateOwner = null;
         if (_liftedSourceOwnerResolver.TryResolve(
                 methodHandle,
                 methodDefinition,
@@ -400,6 +402,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ownerTypeScope: null,
                 directlySelectedBody: false))
         {
+            immediateOwner = liftedOwner;
             return TryResolveUltimateLiftedOwner(
                 liftedOwner,
                 out AuthenticatedSourceOwner resolvedOwner)
@@ -432,9 +435,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (CompilerGeneratedNames
                 .IsLocalFunctionOrLambda(asyncSource.Name))
         {
+            AuthenticatedSourceOwner asyncSourceOwner =
+                CreateAuthenticatedSourceOwner(asyncSource);
+            immediateOwner = asyncSourceOwner;
             return TryResolveUltimateLiftedOwner(
-                CreateAuthenticatedSourceOwner(
-                    asyncSource),
+                asyncSourceOwner,
                 out AuthenticatedSourceOwner resolvedOwner)
                 ? SetResolvedOwner(
                     resolvedOwner,
@@ -443,9 +448,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     out ultimateOwner);
         }
 
-        ultimateOwner =
+        AuthenticatedSourceOwner sourceOwner =
             CreateAuthenticatedSourceOwner(
                 asyncSource);
+        immediateOwner = sourceOwner;
+        ultimateOwner = sourceOwner;
         return DeclaredOwnerResolution.Resolved;
     }
 
@@ -758,8 +765,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 if (!declaredSources.ContainsKey(token))
                 {
                     AuthenticatedSourceOwner sourceOwner =
-                        CreateAuthenticatedSourceOwner(
-                            source);
+                        _asyncSourceResolver
+                            .CreateAuthenticatedSourceOwner(
+                                source);
                     if (TryResolveUltimateLiftedOwner(
                             sourceOwner,
                             out AuthenticatedSourceOwner
@@ -816,7 +824,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         MethodIdentity source)
     {
         AuthenticatedSourceOwner sourceOwner =
-            CreateAuthenticatedSourceOwner(source);
+            _asyncSourceResolver
+                .CreateAuthenticatedSourceOwner(source);
         if (IsMalformedGeneratedLiftedOwner(sourceOwner))
             return false;
 
