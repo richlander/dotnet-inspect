@@ -143,12 +143,14 @@ Two resolution paths, chosen by scope:
   `MemberBodyCorrespondenceKey` from the independently resolved methods; a
   direct comparison instead first requires a ResearchQueries-issued
   `DirectMemberPairingDesignation` over the two live sources, then the
-  Queries-owned operation admits that grant into one direct participant pairing
-  before accepting a `DirectMemberComparisonInput` carrying each independently
-  resolved exact address and relationship role. Neither path
-  resolves by normalized canonical signature, `MemberAnchor` fingerprint,
-  `ResearchMemberIdentity`, display spelling, token equality, or occurrence.
-  Duplicate structural candidates remain typed ambiguity.
+  Queries-owned operation accepts a `DirectMemberComparisonInput`, admits the
+  slot, and seals its question from each independently resolved exact address
+  and relationship role. Only then does core Queries create the direct
+  participant pairing. ResearchQueries bijectively projects that query
+  population into Research-owned identities before Research plan expansion.
+  Neither path resolves by normalized canonical signature, `MemberAnchor`
+  fingerprint, `ResearchMemberIdentity`, display spelling, token equality, or
+  occurrence. Duplicate structural candidates remain typed ambiguity.
 
   API and metadata spellings still differ (`int` versus `System.Int32`,
   nullable and modifier display, and generic arity notation), but that is a
@@ -685,19 +687,21 @@ stack; it composes producer-owned evidence without replacing the producer's
 native coordinates. Interleave and body-subset overlays use the same-body
 **IL-offset** axis (`IrNode.SourceOffset` on C# statements, `.Offset` on IL
 instructions, `EvidenceOffsets` on Analysis facts). Implementation Diff does
-not: Queries first consumes the workspace-owned participant-role binding, so
+not: core Queries first consumes the workspace-owned participant-role binding.
+ResearchQueries then bijectively lowers it into a disjoint Research binding, so
 selection uses its exact selection participant and body resolution uses only
 its `SameSelection` or exact `Implementation` participant. `ReferenceOnly`
 becomes a retained unavailable target attempt without a Metadata call.
 Metadata then independently resolves each side-local method in that supplied
-body participant and projects one strict/correspondence key and body-presence
-result per resolved method. Queries, adapters, Metadata, and Research do not
-reconstruct the role mapping from package asset paths or provenance.
-Implementation Diff alone groups those projections inside a declared selection
-scope, decides correspondence/ambiguity, and creates work items. Research then
-joins complete mechanism ledgers by `BodyEvidenceSelectionScope.Id` and
-`BodyEvidenceWorkItemId`. Producer offsets remain native row evidence or
-display hints and never pair before/after bodies.
+Research body participant and projects one strict/correspondence key and
+body-presence result per resolved method. Queries, adapters, Metadata, and
+Research do not reconstruct the role mapping from package asset paths or
+provenance. Research groups those projections inside a declared Research
+selection scope, decides correspondence/ambiguity, creates work items, and
+joins complete mechanism ledgers by
+`ResearchBodyEvidenceSelectionScopeId` and
+`ResearchBodyEvidenceWorkItemId`. Producer offsets remain native row evidence
+or display hints and never pair before/after bodies.
 
 This is the substrate's three currencies — two of them *concepts*, one a *type*:
 

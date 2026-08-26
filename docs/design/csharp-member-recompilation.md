@@ -161,10 +161,12 @@ requests, not one physical target. Each donor independently mints its own
 only inside its donor participant. The round-trip request first asks
 `DirectImplementationComparisonOperation.DesignateMemberPair` for a
 `DirectMemberPairingDesignation` that authorizes only the two live donor
-sources and retains their MVIDs. `Execute` admits that grant, constructs the
-single-participant role manifests and direct pairing under its ledger, and then
-accepts `DirectMemberComparisonInput` with each Metadata-validated exact
-address and relationship role. Neither the common provenance,
+sources and retains their MVIDs. `Execute` admits that grant, charges and seals
+the direct question from the exact addresses/roles, and only then constructs
+the single-participant role manifests and direct pairing under its ledger.
+ResearchQueries then seals the query domain/correlation and projects that
+complete query population into disjoint Research-owned identities before
+Research plan expansion. Neither the common provenance,
 `ResearchMemberIdentity`, an inferred correspondence key, one donor's strict
 target, nor the exact addresses themselves pair the donors.
 The direct donor comparison applies the existing C# and IL diff contracts.
@@ -522,9 +524,12 @@ required preservation boundary.
 - Scope A/B fixtures change compiler options, references, replacements, body
   policy, normalization, and input identity one at a time and require a typed
   `Unavailable` context-mismatch result.
-- A direct-donor fixture proves the pairing designation retains only participant
-  bindings/MVIDs, the comparison input separately retains both exact
-  addresses/roles, and a wrong-participant address fails validation.
+- A direct-donor fixture proves the pairing designation retains only its
+  designation id, the two live sources, and both MVIDs; the comparison input
+  separately retains both exact addresses/roles. Before admission, the
+  designation must contain no participant, role binding, qualified input key,
+  role manifest, or pairing. A wrong-participant address still fails
+  validation after the operation-issued bindings exist.
 - A reference fixture supplies different binaries with the same assembly identity
   and requires their content-hash mismatch to make scope A/B unavailable.
 - C# and IL tests retain producer-native unavailable and failed results.

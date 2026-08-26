@@ -607,9 +607,11 @@ never participates in `LogicalSlot` or cross-version pairing identity.
 The adapter supplies acquired descriptors and typed provenance but cannot
 reconstruct role correspondence from `ref`, `lib`, `runtimes`, path, or package
 layout. The endpoint owner adds only the cross-version `LogicalSlot` after
-consuming the workspace-issued role binding. Implementation Diff, Metadata, and
-Research receive that sealed result and cannot mint a different same-side
-surface/implementation mapping.
+consuming the workspace-issued role binding. Core Queries and the
+Implementation Diff query receive that sealed result and cannot mint a
+different same-side surface/implementation mapping. Research never receives
+the core role manifest or binding: ResearchQueries later projects its facts
+into a disjoint Research-owned admission value and proves exact correspondence.
 
 A package endpoint may therefore realize multiple assemblies and TFM/RID
 groups; a project endpoint may realize direct outputs and package-owned
@@ -651,6 +653,13 @@ receipt sums to the complete realized-manifest union and complete retained
 outcome payload. Correct keys and aggregate sums cannot hide compensating
 endpoint-local undercharges or overcharges. It validates rather than
 double-charging entries or characters already retained by endpoint realization.
+A participant-pairing ambiguity/failure payload, candidate/affected map,
+reason, or diagnostic authored by the coordinator is a new retained copy. The
+coordinator must measure and charge that copy during the cataloged
+`ParticipantPairing` stage before retaining it; an endpoint receipt cannot
+prepay pairing-authored evidence. ResearchQueries likewise charges every later
+query domain/correlation copy during `PopulationSealing` and every later
+Research-owned admission/correspondence copy during `PopulationProjection`.
 A missing, extra, rekeyed, undercharged, or overcharged receipt returns one
 typed planning-budget failure without constructing qualified keys,
 candidate/affected payloads, `InputMap`, participant outcomes, or a partial
@@ -735,9 +744,11 @@ the sealed plan slots, seals its questions, and asks endpoint owners to realize
 the plan under its scoped endpoint facet. It passes that same facet plus the
 exact endpoint budget receipts to the acquisition-owned comparison coordinator,
 then receives and lowers the complete sealed slot-outcome set without
-reconstructing either provenance or roles. Healthy producer and Research paths
-receive only admitted opaque `ArtifactParticipantPairing.Id` values plus
-validated side-local role bindings.
+reconstructing either provenance or roles. The Implementation Diff query sees
+only admitted opaque `ArtifactParticipantPairing.Id` values plus validated
+side-local role bindings. Research sees only the disjoint Research-owned
+admission values that ResearchQueries later projects from that complete query
+population with an exact correspondence receipt.
 Terminal outcome payloads remain query/session failure evidence and reach
 presentation only through typed failure ledgers and diagnostics; producers
 never receive them. No downstream layer inspects package, project, platform,
@@ -808,22 +819,31 @@ manifest/binding, qualified input key, endpoint slot, outcome receipt,
 question, work item, path, handle, method token/address, or display identity.
 
 The Queries-owned direct operation first mints its ledger and charges its one
-slot. During its cataloged participant-pairing stage, it passes the
+slot. It then charges and seals the direct question from the designation id and
+the separately supplied exact addresses/roles; no direct participant, manifest,
+binding, qualified key, or pairing exists yet. During the subsequent cataloged
+participant-pairing stage, it passes the
 non-optional operation-stamped `IDirectParticipantPairingBudgetLease` to the
 core-Queries direct-pairing factory. The factory charges both participant
-inputs before materializing a direct participant, qualifying either key, or
-creating a role currency. It projects each designated source/MVID into one
-invocation-scoped `DirectSourceParticipant` keyed by designation id and side,
-so the participants and keys remain distinct even when both selections use one
-live source. For each side it mints a single-participant role manifest whose
-selection and implementation roles share that participant, so each direct
-binding has `Body = SameSelection`; the caller cannot substitute a terminal or
+inputs and every pairing-authored retained character before materializing a
+direct participant, qualifying either key, or creating a role currency. It
+projects each designated source/MVID into one invocation-scoped
+`DirectSourceParticipant` keyed by designation id and side, so the participants
+and keys remain distinct even when both selections use one live source. For
+each side it mints a single-participant role manifest whose selection and
+implementation roles share that participant, so each direct binding has
+`Body = SameSelection`; the caller cannot substitute a terminal or
 `ReferenceOnly` arm. It then constructs the one admitted
 `ArtifactParticipantPairing` and internal outcome. The pairing's id and
 `DirectMemberDesignation` authority are the exact
 `DirectMemberDesignationId` declared in core Queries, not a second identity.
-Research receives the operation-issued admitted pairing through its internal
-projection session and never constructs an acquisition currency.
+The factory returns that query currency only to ResearchQueries. During the
+next `PopulationSealing` stage, ResearchQueries seals the exact query
+domain/correlation for the pre-existing question. `PopulationProjection` then
+lowers that sealed query population into disjoint Research
+participant/binding/domain/designation values and seals an inert bijective
+correspondence receipt. Research receives only the Research-owned admission
+plan and never constructs or accepts an acquisition currency.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path
@@ -836,9 +856,10 @@ another member, widen into an assembly comparison, or authorize cross-side body
 correspondence. The exact before/after method addresses and relationship roles
 are supplied separately by the direct comparison input.
 
-`CompareMembers` separately validates its exact participant-scoped method
-addresses and per-side relationship roles against that designation. This convenience
-cannot feed an assembly-wide comparison or outlive either supplied source.
+The direct operation separately validates its exact participant-scoped method
+addresses and per-side relationship roles against the operation-issued
+bindings. It cannot feed an assembly-wide comparison or outlive either
+supplied source.
 
 ## Source adapters
 

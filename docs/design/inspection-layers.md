@@ -136,20 +136,39 @@ Research reconstruction. The host supplies a sealed endpoint plan and typed
 question inputs. One ResearchQueries operation mints the aggregate budget,
 charges endpoint slots, seals questions, and lends owner-local
 operation-stamped facets: the core-Queries endpoint lease to endpoint
-realization/pairing and the Research projection lease to its internal session.
-The owning subsystems reference neither ResearchQueries nor each other's
-contract. That operation then owns prerequisite producer preflight/projection,
-bounded authored Source input acquisition, dependent Source producer
-preflight/projection, completion, and cleanup. A separate synchronous
-ResearchQueries direct operation owns both the source-bounded direct
-designation factory and executor. Its designation retains only the two live
-Metadata sources and MVIDs. After minting the same concrete ledger and charging
-admission, the operation uses a core-Queries direct-pairing factory to create
-the role manifests, bindings, qualified keys, and admitted pairing before
-invoking its internal Research session. `ILInspector.Research` never references
-or constructs a Queries/workspace currency, and `match`, ReturnToSender, and
-round-trip callers cannot invoke Research comparison directly. The CLI receives
-only completed inert results.
+realization/pairing and the Research projection lease only after population
+projection. ResearchQueries is the legal composition point because it already
+references both core Queries and Research. It owns one typed, bijective
+`PopulationSealing` stage that exhaustively lowers pairing outcomes and
+questions into query domains/correlations, then one typed, bijective
+`PopulationProjection` that lowers the complete query endpoint/input/binding/
+domain/question/correlation/terminal population into disjoint Research-owned
+admission values and retains an inert correspondence receipt. Both stages
+charge their own retained entries and payload copies. No core-Queries currency
+crosses into Research.
+
+`ILInspector.Research` owns Research plan expansion, producer preflight and
+projection, bounded evidence completion, and `ResearchBodyEvidenceComparison`.
+It adds only `InternalsVisibleTo("DotnetInspector.ResearchQueries")`; the
+existing downward `ResearchQueries -> Research` reference remains the sole
+project edge. Research adds no reference to core Queries or ResearchQueries.
+ResearchQueries owns bounded authored Source input acquisition, query/Research
+correspondence validation, outer-result publication, and cleanup. Query-level
+`ImplementationDiffResult` and `ImplementationMemberDiffResult` therefore move
+to ResearchQueries; Research cannot construct either.
+
+A separate synchronous ResearchQueries direct operation owns both the
+source-bounded direct designation factory and executor. Its designation retains
+only the designation id, two live Metadata sources, and both MVIDs. After
+minting the concrete ledger and charging admission, the operation seals its
+direct question **before** using the core-Queries direct-pairing factory to
+create role manifests, bindings, qualified keys, and the admitted pairing. It
+then seals the query domain/correlation and performs the same query-to-Research
+population projection before invoking the internal Research session.
+`ILInspector.Research` never references, constructs, or accepts a
+Queries/workspace currency, and `match`, ReturnToSender, and round-trip callers
+cannot invoke Research comparison directly. The CLI receives only completed
+inert results or the direct operation's fixed-size failed evidence arm.
 
 `AssemblyContextSourceQuery` accepts one participant, an exact typed target,
 and explicit host capabilities for symbol and source acquisition. It opens the
