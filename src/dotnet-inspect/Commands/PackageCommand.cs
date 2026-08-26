@@ -542,16 +542,19 @@ public class PackageCommand
                         return 1;
                     }
 
+                    var visiblePattern =
+                        RowWindow.Apply(options.Rows, new[] { selected });
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
-                            1,
-                            out var patternProjectionExit))
+                            visiblePattern.Count,
+                            out var patternProjectionExit,
+                            ["Version"]))
                     {
                         return patternProjectionExit;
                     }
 
-                    WriteSingleVersion(selected, options);
+                    WriteVersions(visiblePattern, options);
                     return 0;
                 }
 
