@@ -92,6 +92,8 @@ signature occurrences account only for the normalized token they retain,
 including the token derived from a non-nil empty full key. Deterministic
 assembly-reference projection failures are cached as well, so repeated malformed
 rows cannot multiply work already charged to the operation.
+Direct exported-root implementations are range-validated before their flags or
+target kind can classify them as ordinary rejected evidence.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

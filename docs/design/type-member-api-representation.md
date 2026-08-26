@@ -101,9 +101,11 @@ competing or malformed evidence for that same namespace and root fails the
 correspondence operation, while unrelated rejected rows provide no
 authorization. The projection classifies a row from its direct implementation:
 nested rows have an `ExportedType` implementation and are skipped without
-repeatedly walking their parent chains. A row whose visibility claims it is
-nested but whose implementation is an assembly or file remains rejected root
-evidence. Forwarder names, assembly-reference identity, target type and method
+repeatedly walking their parent chains. Direct implementations are range-checked
+before flags or target kind can classify them as rejected evidence. A row whose
+visibility claims it is nested but whose implementation is an assembly or file
+remains rejected root evidence. Forwarder names, assembly-reference identity,
+target type and method
 names, and public-key material draw from the operation budget; budget exhaustion
 fails the operation. One assembly reference is charged and projected at most
 once per reader across signature and forwarder projection, each target method
@@ -111,7 +113,8 @@ name is compared at most once, and each target type name is compared at most
 once per expected source segment. Raw public-key material contributes only to
 that one-time operation charge; each signature occurrence accounts for the
 normalized token that correspondence actually retains, including a non-nil
-empty full-key blob whose SHA-1-derived token is non-empty.
+empty full-key blob whose SHA-1-derived token is non-empty. Deterministic
+projection failures are replayed without repeating completed charges.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -124,6 +127,7 @@ identity.
 `ResolveApiMember_CompetingForwarderForMatchedRootFails`,
 `ResolveApiMember_MalformedForwarderForMatchedRootFails`,
 `ResolveApiMember_OnlyMalformedForwarderForMatchedRootFails`,
+`ResolveApiMember_OutOfRangeDirectForwarderImplementationFails`,
 `ResolveApiMember_NestedCurrentTypeDefUsesForwardedRoot`,
 `ResolveApiMember_NestedCurrentTypeDefDoesNotUseLeafForwarder`,
 `ResolveApiMember_TargetForwardersAreChargedOncePerReader`,
@@ -133,6 +137,7 @@ identity.
 `ResolveApiMember_UnrelatedInvalidImplementationTagDoesNotFail`,
 `ResolveApiMember_InvalidImplementationTagForMatchedRootFails`,
 `ResolveApiMember_ReusedMalformedForwarderAssemblyReferenceIsProjectedOnce`,
+`ResolveApiMember_MalformedAssemblyReferenceStorageDoesNotRepeatCharges`,
 `ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains`,
 `ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget`,

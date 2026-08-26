@@ -77,6 +77,7 @@ public static class MetadataSafetyPolicy
     /// <c>ResolveApiMember_MethodExtensionAttributesRespectOperationBudget</c>,
     /// <c>ResolveApiMember_DistinctNonmatchingNamesFailWithinOperationBudget</c>,
     /// <c>ResolveApiMember_ReusedMalformedForwarderAssemblyReferenceIsProjectedOnce</c>,
+    /// <c>ResolveApiMember_MalformedAssemblyReferenceStorageDoesNotRepeatCharges</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>

@@ -803,6 +803,28 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Contains("malformed exported-root evidence", result.Failure);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_OutOfRangeDirectForwarderImplementationFails(
+        bool useFile)
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: false,
+                includeMalformedForwarder: true,
+                malformedForwarderMatchesRoot: true,
+                malformedForwarderHasForwarderFlag: useFile,
+                malformedForwarderUsesFile: useFile));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("malformed exported-root evidence", result.Failure);
+    }
+
     [Fact]
     public void ResolveApiMember_TargetForwardersAreChargedOncePerReader()
     {
@@ -882,6 +904,26 @@ public sealed class MethodCorrespondenceResolverTests
                 noiseForwarderCount: 9,
                 noisePublicKeyBytes: 512 * 1024,
                 noisePublicKeyIsToken: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_MalformedAssemblyReferenceStorageDoesNotRepeatCharges()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                noiseForwarderCount: 9,
+                noisePublicKeyBytes: 8,
+                noisePublicKeyIsToken: true,
+                noiseAssemblyNameLength: 512 * 1024,
+                invalidNoiseCultureHandle: true));
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
@@ -2642,8 +2684,12 @@ public sealed class MethodCorrespondenceResolverTests
             ForwarderTargetKind.PlatformCoreLibrary,
         int noisePublicKeyBytes = 0,
         bool noisePublicKeyIsToken = false,
+        int noiseAssemblyNameLength = 0,
+        bool invalidNoiseCultureHandle = false,
         bool includeInvalidImplementationTagForwarder = false,
         bool invalidImplementationTagMatchesRoot = false,
+        bool malformedForwarderHasForwarderFlag = true,
+        bool malformedForwarderUsesFile = false,
         string typeNamespace = "N")
     {
         var metadata =
@@ -2821,20 +2867,29 @@ public sealed class MethodCorrespondenceResolverTests
                 typeDefinitionId: 0);
         }
         EntityHandle noiseTarget = coreLibrary;
+        AssemblyReferenceHandle noiseAssemblyReference = default;
         if (noisePublicKeyBytes > 0)
         {
             var key = new byte[noisePublicKeyBytes];
             key[0] = 1;
-            noiseTarget =
+            noiseAssemblyReference =
                 metadata.AddAssemblyReference(
-                    metadata.GetOrAddString("Hostile"),
+                    metadata.GetOrAddString(
+                        noiseAssemblyNameLength > 0
+                            ? new string(
+                                'h',
+                                noiseAssemblyNameLength)
+                            : "Hostile"),
                     new Version(1, 0, 0, 0),
-                    default,
+                    invalidNoiseCultureHandle
+                        ? metadata.GetOrAddString("en-US")
+                        : default,
                     metadata.GetOrAddBlob(key),
                     noisePublicKeyIsToken
                         ? default
                         : AssemblyFlags.PublicKey,
                     default);
+            noiseTarget = noiseAssemblyReference;
         }
         for (int i = 0; i < noiseForwarderCount; i++)
         {
@@ -2848,9 +2903,17 @@ public sealed class MethodCorrespondenceResolverTests
         }
         if (includeMalformedForwarder)
         {
+            EntityHandle malformedTarget =
+                malformedForwarderUsesFile
+                    ? MetadataTokens.AssemblyFileHandle(
+                        metadata.GetRowCount(TableIndex.File) + 1)
+                    : MetadataTokens.AssemblyReferenceHandle(
+                        metadata.GetRowCount(TableIndex.AssemblyRef) + 1);
             metadata.AddExportedType(
                 TypeAttributes.Public
-                    | (TypeAttributes)0x00200000,
+                    | (malformedForwarderHasForwarderFlag
+                        ? (TypeAttributes)0x00200000
+                        : 0),
                 metadata.GetOrAddString(
                     malformedForwarderMatchesRoot
                         ? typeNamespace
@@ -2859,8 +2922,7 @@ public sealed class MethodCorrespondenceResolverTests
                     malformedForwarderMatchesRoot
                         ? forwardedRootName
                         : "Malformed"),
-                MetadataTokens.AssemblyReferenceHandle(
-                    metadata.GetRowCount(TableIndex.AssemblyRef) + 1),
+                malformedTarget,
                 typeDefinitionId: 0);
         }
         ExportedTypeHandle invalidImplementationTagForwarder = default;
@@ -2916,6 +2978,36 @@ public sealed class MethodCorrespondenceResolverTests
                 MetadataTokens.ParameterHandle(1));
         }
         byte[] image = Serialize(metadata);
+        if (invalidNoiseCultureHandle)
+        {
+            using var pe = new PEReader(new MemoryStream(image));
+            MetadataReader reader = pe.GetMetadataReader();
+            int stringIndexSize =
+                reader.GetHeapSize(HeapIndex.String) >= 0x10000
+                    ? 4
+                    : 2;
+            int blobIndexSize =
+                reader.GetHeapSize(HeapIndex.Blob) >= 0x10000
+                    ? 4
+                    : 2;
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.AssemblyRef);
+            int cultureOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.AssemblyRef)
+                + (MetadataTokens.GetRowNumber(
+                        noiseAssemblyReference) - 1)
+                    * rowSize
+                + 12
+                + blobIndexSize
+                + stringIndexSize;
+            image.AsSpan(
+                    cultureOffset,
+                    stringIndexSize)
+                .Fill(0xff);
+            if (stringIndexSize == 4)
+                image[cultureOffset + 3] = 0x7f;
+        }
         if (!invalidImplementationTagForwarder.IsNil)
         {
             using var pe = new PEReader(new MemoryStream(image));

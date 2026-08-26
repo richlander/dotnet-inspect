@@ -163,21 +163,40 @@ public static class ApiMemberIdentity
             {
                 if (added)
                 {
-                    System.Reflection.Metadata.AssemblyReference reference =
-                        reader.GetAssemblyReference(handle);
-                    charge(reader.GetBlobReader(reference.Name).Length);
-                    if (!reference.Culture.IsNil)
+                    int nameLength;
+                    int cultureLength;
+                    int keyLength;
+                    try
                     {
-                        charge(
-                            reader.GetBlobReader(
-                                reference.Culture).Length);
+                        System.Reflection.Metadata.AssemblyReference
+                            reference =
+                                reader.GetAssemblyReference(handle);
+                        nameLength =
+                            reader.GetBlobReader(reference.Name).Length;
+                        cultureLength =
+                            reference.Culture.IsNil
+                                ? 0
+                                : reader.GetBlobReader(
+                                    reference.Culture).Length;
+                        keyLength =
+                            reference.PublicKeyOrToken.IsNil
+                                ? 0
+                                : reader.GetBlobReader(
+                                    reference.PublicKeyOrToken).Length;
                     }
-                    if (!reference.PublicKeyOrToken.IsNil)
+                    catch (Exception ex) when (
+                        ex is BadImageFormatException
+                            or ArgumentOutOfRangeException)
                     {
-                        charge(
-                            reader.GetBlobReader(
-                                reference.PublicKeyOrToken).Length);
+                        failures[handle] =
+                            ExceptionDispatchInfo.Capture(ex);
+                        failureCached = true;
+                        throw;
                     }
+
+                    charge(nameLength);
+                    charge(cultureLength);
+                    charge(keyLength);
                     chargeCompleted = true;
                 }
 
@@ -2111,6 +2130,19 @@ public static class ApiMemberIdentity
                         }
                         continue;
                     }
+                    if (!IsValidDirectImplementation(
+                            reader,
+                            terminal))
+                    {
+                        if (TryReadRootIdentity(
+                                root,
+                                out var malformedRootIdentity))
+                        {
+                            forwardedRoots.RecordMalformed(
+                                malformedRootIdentity);
+                        }
+                        continue;
+                    }
                     if (terminal.Kind == HandleKind.ExportedType)
                         continue;
                     bool nestedVisibility =
@@ -2154,6 +2186,29 @@ public static class ApiMemberIdentity
                     _workBudget.Remaining > 0
                     && ex is BadImageFormatException
                         or ArgumentOutOfRangeException;
+
+                static bool IsValidDirectImplementation(
+                    MetadataReader reader,
+                    EntityHandle implementation)
+                {
+                    int row = MetadataTokens.GetRowNumber(
+                        implementation);
+                    if (row <= 0)
+                        return false;
+                    return implementation.Kind switch
+                    {
+                        HandleKind.AssemblyReference =>
+                            row <= reader.GetTableRowCount(
+                                TableIndex.AssemblyRef),
+                        HandleKind.AssemblyFile =>
+                            row <= reader.GetTableRowCount(
+                                TableIndex.File),
+                        HandleKind.ExportedType =>
+                            row <= reader.GetTableRowCount(
+                                TableIndex.ExportedType),
+                        _ => false,
+                    };
+                }
 
                 bool TryReadRootIdentity(
                     ExportedType root,
