@@ -52,6 +52,7 @@ T:DotnetInspector.Services.AssemblySetResolutionSession;Path-based assembly-set 
 T:DotnetInspector.Services.AssemblySetSurfaceBuilder;Path-based assembly-set projection belongs to product queries, not the browser host.
 T:DotnetInspector.Services.PlatformResolver;Installed-platform probing and path-based inspection belong to product workspace composition, not the browser host.
 T:DotnetInspector.Services.TfmSelector;Path-based package asset inspection belongs to product package selection, not the browser host.
+T:DotnetInspector.Queries.UnsafeEvidencePresenceQuery;Path- and PDB-context-based evidence inspection belongs behind product query composition, not the browser host.
 T:ILInspector.Research.ImplementationDiff;Path-based implementation comparison belongs to product queries, not the browser host.
 T:ILInspector.Research.ResearchDiff;Path-based research comparison belongs to product queries, not the browser host.
 T:ILInspector.Research.ResearchDiffInput;Path-based research input construction belongs to product queries, not the browser host.
