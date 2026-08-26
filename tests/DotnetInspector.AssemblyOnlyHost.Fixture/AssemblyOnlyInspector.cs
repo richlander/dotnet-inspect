@@ -7,7 +7,8 @@ namespace DotnetInspector.AssemblyOnlyHost.Fixture;
 
 public static class AssemblyOnlyInspector
 {
-    public static async ValueTask<string> ReadAssemblyNameAsync(
+    public static async ValueTask<string>
+        ReadAssemblyNameAfterDeletingSourceAsync(
         string assemblyPath,
         CancellationToken cancellationToken = default)
     {
@@ -31,6 +32,8 @@ public static class AssemblyOnlyInspector
                     failure => failure.Diagnostic.Summary));
             throw new InvalidDataException(detail);
         }
+
+        File.Delete(assemblyPath);
 
         ArtifactQueryAuthorization authorization =
             artifacts.CreateQueryAuthorization();

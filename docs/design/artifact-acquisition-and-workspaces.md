@@ -891,8 +891,9 @@ assignment separate from provenance.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
-passes the guarded published snapshot to Metadata without reopening its source
-path.
+deletes its temporary source after publication, then passes the guarded
+published snapshot to Metadata, so a source-path fallback cannot satisfy the
+gate.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata

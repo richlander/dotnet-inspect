@@ -20,12 +20,27 @@ public sealed class LayeringTests
     public async Task LocalOnlyHost_InspectsCallerSuppliedLocalAssembly()
     {
         string assemblyPath = typeof(AssemblyOnlyInspector).Assembly.Location;
-
-        Assert.Equal(
-            "DotnetInspector.AssemblyOnlyHost.Fixture",
-            await AssemblyOnlyInspector.ReadAssemblyNameAsync(
-                assemblyPath,
-                TestContext.Current.CancellationToken));
+        string temporaryDirectory =
+            Directory.CreateTempSubdirectory(
+                "dotnet-inspect-artifact-").FullName;
+        string temporaryAssembly = Path.Combine(
+            temporaryDirectory,
+            Path.GetFileName(assemblyPath));
+        File.Copy(assemblyPath, temporaryAssembly);
+        try
+        {
+            Assert.Equal(
+                "DotnetInspector.AssemblyOnlyHost.Fixture",
+                await AssemblyOnlyInspector
+                    .ReadAssemblyNameAfterDeletingSourceAsync(
+                        temporaryAssembly,
+                        TestContext.Current.CancellationToken));
+            Assert.False(File.Exists(temporaryAssembly));
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
     }
 
     [Fact]

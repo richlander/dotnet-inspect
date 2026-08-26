@@ -129,7 +129,7 @@ public sealed class ArtifactSetSessionTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var acquisitionLease = new TrackingLease();
+        var acquisitionLease = new ThrowingLease();
         var session = new ArtifactSetSession();
 
         Task acquisition = session.AddRequiredAcquisitionAsync(
@@ -152,9 +152,17 @@ public sealed class ArtifactSetSessionTests
         await session.DisposeAsync();
         release.SetResult();
 
-        await Assert.ThrowsAsync<ObjectDisposedException>(
+        ObjectDisposedException disposed =
+            await Assert.ThrowsAsync<ObjectDisposedException>(
             async () => await acquisition);
-        Assert.Equal(1, acquisitionLease.DisposeCount);
+        IReadOnlyList<Exception> attached =
+            Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
+                disposed.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+        Assert.IsType<IOException>(Assert.Single(attached));
+        Assert.Same(
+            Assert.Single(attached),
+            Assert.Single(session.CleanupFailures));
     }
 
     [Fact]
@@ -210,15 +218,20 @@ public sealed class ArtifactSetSessionTests
         await session.AddRequiredAcquisitionAsync(
             (scope, _) =>
             {
-                ArtifactContribution contribution = scope.Register(
+                ArtifactContribution gated = scope.Register(
                     new Provenance("gated"),
                     () => new GatedReadStream(
                         [1],
                         entered,
                         release));
+                ArtifactContribution unopened = scope.Register(
+                    new Provenance("unopened"),
+                    () => new MemoryStream(
+                        [2],
+                        writable: false));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
-                        [contribution],
+                        [gated, unopened],
                         ArtifactAcquisitionLeases.None));
             },
             cancellationToken: cancellationToken);

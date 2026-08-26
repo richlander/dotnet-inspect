@@ -251,9 +251,12 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             }
             catch (Exception ex)
             {
+                IReadOnlyList<Exception> cleanupFailures =
+                    new ReadOnlyCollection<Exception>([ex]);
+                RecordCleanupFailures(cleanupFailures);
                 disposed.Data[
                     "DotnetInspector.Artifacts.Workspaces.CleanupFailures"] =
-                    new ReadOnlyCollection<Exception>([ex]);
+                    cleanupFailures;
             }
         }
 
@@ -420,6 +423,13 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 or InvalidOperationException
                 or OverflowException)
         {
+            if (IsDisposed())
+            {
+                throw new ObjectDisposedException(
+                    nameof(ArtifactSetSession),
+                    "The artifact session was disposed during publication.");
+            }
+
             failures.Add(
                 Failure(
                     ArtifactSetAdmissionFailureKind.Failed,
