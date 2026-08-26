@@ -131,9 +131,11 @@ select subject and section/lens
 ```
 
 `--count` branches after filtering and before ordering or windows. It reports
-the full matched-row count, so it is mutually exclusive with `-n`, `--top`,
-`--rows`, `--head`, `--tail`, and `--lines`; no accepted limiter may be
-silently ignored.
+the full matched-row count within the declared input extent, so it is mutually
+exclusive with `-n`, `--top`, `--rows`, `--head`, `--tail`, and `--lines`; no
+accepted limiter may be silently ignored. For an exhaustive input that is the
+source cardinality. For an explicitly upstream-bounded input it is the complete
+count of the bounded candidate set, never an extrapolated corpus total.
 
 `--row` remains an exactly-one address and is mutually exclusive with item-mode
 `-n`/`--head`/`--tail`, `--top`, and `--rows`. It may combine with `--print`,
@@ -163,6 +165,14 @@ A semantic result limit is not automatically a work budget:
   finite item bound: `--row`, item-mode `-n`, `--top`, or a closed `--rows`
   range. Line-mode `-n`, `--where`, and an open-ended range do not bound that
   fan-out.
+- `package search` retains a fixed, one-page upstream extent of 20 rows when no
+  item count is supplied. Item-mode `-n N` requests N naturally ordered search
+  rows and may stop there; this is the ordinary streaming case, not a general
+  work-budget interpretation of `-n`. Because NuGet `totalHits` is not reliable
+  across supported feeds, bare search and its `--count` result disclose
+  `upstream-bounded` completion rather than claiming a corpus total. The count
+  remains a scalar on stdout; the bound and completion state are a
+  non-suppressible stderr note.
 - Expensive promoted-tier queries retain their own explicit candidate/work
   budget, such as the proposed package-query `--deepen` bound.
 
@@ -171,7 +181,9 @@ inputs. A result cap never upgrades a bounded search into an exhaustive claim.
 
 ## Ranking and `--top`
 
-`--top` is a validated composition, not a second general count flag:
+`--top` is a validated composition, not a second general count flag. Its N is
+a positive decimal integer; zero, negative, overflowed, and duplicate values
+reject:
 
 ```bash
 dotnet-inspect library My.dll -S "Performance Triage" \
@@ -279,6 +291,20 @@ requires a structured format or a separately designed directory export.
 Line windows reject exact `--out`; structured output written to a file may
 carry clipped content because it is not an exact-payload export.
 
+Print formats are exclusive and determine what `--out` means:
+
+| Mode | Cardinality | Destination and envelope |
+| --- | --- | --- |
+| Normal text | Batch | Framed stdout. |
+| `--bare` | Unary | Terminal-safe payload-only stdout; rejects structured formats and `--out`. |
+| Exact `--out` with no structured format | Unary | Payload-only file; rejects `--bare`. |
+| Plain `--json` | Unary | One result object on stdout or at `--out`. |
+| `--jsonl` / `--json-array` | Batch | Result objects on stdout or at `--out`. |
+
+`--json`, `--jsonl`, and `--json-array` reject one another. `--out` is only an
+exact-payload mode when no structured format is present; with a structured
+format it selects that format's destination.
+
 These unary modes do not invent a per-row envelope. After successful
 capability preflight, an acquisition failure under `--bare` emits no stdout,
 writes a diagnostic to stderr, and exits nonzero. Exact `--out` completes
@@ -288,10 +314,15 @@ emits a diagnostic, and exits nonzero. Successful `--bare` emits only the
 terminal-safe payload, while successful exact `--out` emits only the original
 bytes.
 
-The destination guarantees in this design cover validation, preflight, and
-acquisition before publication. They do not add crash-safe or disk-failure
-transaction semantics once an otherwise valid file write begins; that broader
-filesystem contract is outside #4677.
+All file modes preserve the destination through validation and preflight.
+Exact unary `--out` additionally completes acquisition before publication.
+After structured batch preflight, the writer may open the destination and
+publish complete result records incrementally; a per-row acquisition failure
+is written as its typed result, remaining rows continue, and the final exit is
+nonzero. That batch file may therefore replace an existing destination even
+when one or more rows fail. No mode adds crash-safe or disk-failure transaction
+semantics once an otherwise valid write begins; that broader filesystem
+contract is outside #4677.
 
 Plain `--json` also remains unary and preserves its one-object contract.
 Multi-item structured print requires `--jsonl` or `--json-array`; accepting
@@ -352,7 +383,8 @@ aliases without a deprecation period:
 - numeric and nonnumeric `-m`;
 - numeric values on the surviving long `--type` and `--member` selectors;
 - count values on `--versions` and `--versions-with-feed`;
-- package-search `--take`;
+- package-search `--take`; search retains its fixed 20-row upstream default and
+  item-mode `-n N` requests N naturally ordered rows;
 - count-form `--rows N` and `--rows N --tail`;
 - implicit line mode on `-n`.
 
@@ -362,7 +394,10 @@ that consumes one payload body adds `--bare`; guidance that consumes multiple
 results uses the framed form or a structured batch format. This audit is part of
 the same atomic implementation change as the retired syntax migration. Every
 command that exposes `--print` must also register `--bare`; `library` is the
-known released gap that the implementation closes.
+known released gap that the implementation closes. Every print-capable command
+must also register `--out`; `library`, `type`, and `member` are the known
+released gaps. Registration is not enough: each route must propagate both
+options to its print writer.
 
 Surviving-spelling compositions also change. Current `--count --rows N..M`
 returns the size of the window, while current `--count --top N` succeeds after
@@ -371,6 +406,18 @@ or line window. This preserves the existing requirement that a count describe
 the payload it accompanies and prevents a successful ignored limiter. Existing
 count/window tests migrate to `CountRejectsItemAndLineWindows`, with explicit
 negative fixtures for both `--rows` and `--top`.
+
+Current `--top N` is also accepted and silently ignored outside Performance
+Triage even though the option is registered on `library`, `type`, and `member`.
+The target rejects it on a sequence-default section unless explicit
+`--order-by` supplies a ranking. This is a surviving-spelling behavior change,
+not merely new validation for Performance Triage.
+
+Retiring `--take` does not make remote search exhaustive. Bare
+`package search` and `package search --count` retain the fixed 20-row upstream
+extent and disclose that bound. `package search ... -n N` replaces the
+user-directed result-count use of `--take`; `--count` remains incompatible with
+`-n` and counts the fixed bounded candidate set.
 
 The replacement for count-valued `--versions-with-feed N` also changes the
 counted noun. For a bare package, the retired spelling keeps the newest N
@@ -409,11 +456,11 @@ The implementation must provide named Release gates for these target properties:
 | `AbsoluteRangesIntersectWithoutRenumbering` | `--rows` range intersections retain stable row addresses across item limits and rankings. |
 | `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--head`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
 | `First_And_Last_ResolveToDisplayedEndpoints` | Gap-producing `--value`, `--urls`, and `--paths` projections resolve `first` and `last` to the first and last projected rows without renumbering their stable addresses; normal framed and structured `--print` retains every selected row as a success or failure. |
-| `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality after filters and before ordering or windows, including zero matches and every declared row set or inspection contributing to an aggregate count. |
+| `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality within the declared input extent after filters and before ordering or windows, including zero matches, aggregate inspections, an exhaustive source, and an upstream-bounded candidate source without extrapolating a corpus total. |
 | `CountRejectsItemAndLineWindows` | `--count` rejects every result/line window or direction, with explicit negative fixtures for `--head`, current windowed `--rows` counting, and silently ignored `--top`. |
 | `DirectionBindsOnlyToActiveCount` | `--head` and `--tail` require and modify one active item or line `-n` window, reject together or bare, and never modify an absolute range or ranking. Positive fixtures cover `-n N --tail --rows A..B` and `--rows A..B --print -n N --lines --tail`; negative fixtures cover a range with bare `--head` or `--tail`. |
 | `UniversalLimitShorthandIsArityAware` | Separate and inline `-n`, bare `-N`, zero, duplicate counts, the `--` terminator, required-value, optional-value, and value-less options prove that only one positive count option is recognized; numeric long `--type`/`--member` values remain selector values and reject. |
-| `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default, rejects item-mode `-n`/`--head`/`--tail`, renders "top N by ..." only for `--top`, renders "first N"/"last N" for plain `-n`, and suppresses those human notes in structured and quiet output. |
+| `TopRequiresRankingOrder` | `--top` takes one positive decimal value, requires explicit order or a schema-declared ranking default, rejects item-mode `-n`/`--head`/`--tail`, renders "top N by ..." only for `--top`, renders "first N"/"last N" for plain `-n`, and suppresses those human notes in structured and quiet output. Zero, negative, overflow, duplicate, and sequence-default `library -S References --top N` fixtures prevent a nonpositive or ignored value from becoming unbounded. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
 | `MultiPrintRequiresOneRowSet` | `--print` rejects selections spanning multiple declared row sets before capability checks, acquisition, stdout, or destination mutation. |
 | `NonPrintableRowSetsRejectOnce` | A selected row set with no printable capability emits one preflight diagnostic without payload acquisition or stdout and leaves an absent destination absent and an existing destination byte-for-byte unchanged. |
@@ -431,10 +478,12 @@ The implementation must provide named Release gates for these target properties:
 | `ExactPayloadOutRejectsLineWindows` | Exact `--out` rejects line windows before acquisition or destination mutation; structured file output may carry clipped content. |
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `UnaryPrintFailuresAreVisible` | A unary acquisition failure under `--bare` or exact `--out` emits no payload/stdout, reports a diagnostic, exits nonzero, and for exact `--out` preserves an absent or existing destination because acquisition precedes publication. |
+| `PrintModeCombinationsAreUnambiguous` | `--bare`, exact `--out`, plain JSON, JSONL, and JSON-array accept only the cardinalities and combinations in the format matrix; structured `--out` remains structured while ambiguous format pairs reject before acquisition or destination mutation. |
+| `StructuredBatchOutRetainsFailures` | After successful preflight, structured batch `--out` writes one complete result per selected row, retains typed acquisition failures, continues later rows, and exits nonzero; it does not claim exact-unary acquisition-before-publication semantics. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
-| `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
+| `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. Bare `package search` and its scalar `--count` use a fixed 20-row provider extent, emit a non-suppressible upstream-bound note, and never claim source exhaustion; `-n N` requests N rows without reviving `--take`. |
 | `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy source proves bare newest-first and both caller-directed range Vectors preserve their declared addresses; both literal endpoints are validated before any limited range result; missing far endpoints reject in both directions; first-N, last-N, and absolute ranges exhaust or stop only when provider order can determine the requested rows; and report line windows do not shorten metadata enumeration. |
 | `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N `(version, feed)` rows in the containing Vector's direction rather than N distinct versions with unbounded feed-row expansion; both range directions retain that order, and equal-version fixtures use labels ordered opposite their canonical producer keys to prove the exact key-ordered cutoff under reversed source declarations. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including numeric long `--type`/`--member`, value-bearing `--versions`/`--versions-with-feed`, and count-form `--rows`, while affected replacement routes execute successfully. |
-| `PrintCommandsExposeUnaryBare` | A registry-derived fixture enumerates every command exposing `--print`, asserts that the same command parses `--bare`, and includes `library` so the gate is non-vacuous against the released mismatch. |
-| `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter; representative maintained invocations for each print-capable command parse through the real command tree. |
+| `PrintCommandsWireUnaryModes` | A registry-derived fixture enumerates every command exposing `--print`, asserts that it also parses `--bare` and `--out`, and executes a printable fixture through each route. It verifies payload-only bare output, exact destination output, and multi-row bare rejection, and includes `library`, `type`, and `member` so removing option propagation fails the gate. |
+| `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body, `--out` for unary exact payload export, and framed text or a structured batch format when row identity and boundaries matter; representative maintained invocations for each print-capable command execute through the real command tree. |

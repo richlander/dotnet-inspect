@@ -473,6 +473,13 @@ longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
 unchanged.
 
+Every command that exposes `--print` also exposes and wires unary `--bare` and
+`--out`; this makes the payload-only and exact-destination paths properties of
+the projection rather than accidents of its parent command. Structured
+multi-item `--out` is a different mode: after atomic preflight it may publish
+complete result records incrementally, including typed row failures, as
+specified by [Item and line limits](item-and-line-limits.md).
+
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the framed, encoded
 document to stdout and the `# Info` table to stderr.

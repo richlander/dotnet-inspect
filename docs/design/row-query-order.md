@@ -93,9 +93,11 @@ through `--schema`.
 ### Top
 
 `--top N` means "rank the filtered rows by the effective order, then take the
-first N." It requires an explicit `--order-by` unless the section declares that
-its default order is a ranking order. Alphabetical, insertion, and upstream
-listing order are stable sequences, not ranking defaults.
+first N." N is one positive decimal integer; zero, negative, overflowed, and
+duplicate values reject rather than removing the bound. It requires an
+explicit `--order-by` unless the section declares that its default order is a
+ranking order. Alphabetical, insertion, and upstream listing order are stable
+sequences, not ranking defaults.
 
 `--top` is mutually exclusive with item-mode `-n`, either item-mode direction,
 and `--count`. It may combine with `-n N --lines` and either line-mode
