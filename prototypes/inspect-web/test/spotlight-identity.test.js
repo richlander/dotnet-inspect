@@ -44,7 +44,9 @@ import {
   memberRequestKey,
   memberSectionDefinitions,
   memberSectionIdsFor,
+  mergeInspectionErrorEntries,
   mergeInspectionErrors,
+  renderInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -626,12 +628,32 @@ test("platform inspection notices survive cumulative surface loads", () => {
       "First: omitted 1 metadata row.",
       "First: omitted 1 metadata row."),
     "First: omitted 1 metadata row.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: truncated; 0 assemblies were not projected.",
+      "Second: omitted 2 metadata rows."),
+    "First: truncated; 0 assemblies were not projected.; "
+      + "Second: omitted 2 metadata rows.");
+  const entries = mergeInspectionErrorEntries(
+    [
+      "First: truncated; 0 assemblies were not projected.",
+      "Second: truncated; 0 assemblies were not projected.",
+    ],
+    ["Second: truncated; 0 assemblies were not projected."]);
+  assert.deepEqual(entries, [
+    "First: truncated; 0 assemblies were not projected.",
+    "Second: truncated; 0 assemblies were not projected.",
+  ]);
+  assert.equal(
+    renderInspectionErrors(entries),
+    "First: truncated; 0 assemblies were not projected.; "
+      + "Second: truncated; 0 assemblies were not projected.");
   assert.match(
     packageAcquisitionSource,
-    /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);
+    /existing\.inspectionErrors\s*=\s*mergeInspectionErrorEntries\(/);
   assert.match(
     packageAcquisitionSource,
-    /inspectionError:\s*result\.inspectionError\s*\|\|\s*""/);
+    /inspectionError:\s*renderInspectionErrors\(inspectionErrors\)/);
 });
 
 test("typed Spotlight owns search presentation and hosts commands", () => {
@@ -971,7 +993,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
-    /onDismissPackageNotice: \(\) => \{[\s\S]*currentPackage\(\)\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
   assert.match(
     workbenchActions,
     /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
