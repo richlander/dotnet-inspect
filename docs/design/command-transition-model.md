@@ -219,10 +219,12 @@ caller's endpoint direction, so `A` is row 1, `B` is the last row, and
 `--at #N|first|last` and result windows address that same order. Resolving
 either Vector uses registry/cache metadata and acquires zero package payloads.
 The merged metadata provider is ascending and therefore oldest-first.
-Selection may stop early only when provider order can determine the requested
-declared rows; a reversed declared order must be materialized through the
-applicable endpoint before selection. Once selected, the normal output-shape
-rules apply:
+Both literal range endpoints must be found before any range result is returned;
+an item limit cannot turn a missing far endpoint into a valid prefix.
+Thereafter, selection may stop early only when provider order can determine the
+requested declared rows; a reversed declared order must be materialized through
+the applicable endpoint before selection. Once selected, the normal
+output-shape rules apply:
 
 | Gesture | Shape effect | Acquisition effect |
 | --- | --- | --- |

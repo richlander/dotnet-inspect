@@ -315,6 +315,7 @@ aliases without a deprecation period:
 
 - numeric and nonnumeric `-t`;
 - numeric and nonnumeric `-m`;
+- numeric values on the surviving long `--type` and `--member` selectors;
 - count values on `--versions` and `--versions-with-feed`;
 - package-search `--take`;
 - count-form `--rows N` and `--rows N --tail`;
@@ -335,15 +336,18 @@ count/window tests migrate to `CountRejectsItemAndLineWindows`, with explicit
 negative fixtures for both `--rows` and `--top`.
 
 The replacement for count-valued `--versions-with-feed N` also changes the
-counted noun. The retired spelling keeps the newest N distinct versions and all
-feed rows for each; target `--versions-with-feed -n N` keeps the first N
-newest-first `(version, feed)` rows. This is the universal declared-row rule:
-cross-feed duplication is a visible result, not a hidden expansion outside the
-item limit.
+counted noun. For a bare package, the retired spelling keeps the newest N
+distinct versions and all feed rows for each; target
+`--versions-with-feed -n N` keeps the first N `(version, feed)` rows. A package
+range uses its caller-directed Vector for both forms. This is the universal
+declared-row rule: cross-feed duplication is a visible result, not a hidden
+expansion outside the item limit.
 
 Long `--type` and `--member` selectors remain where the command needs them;
-positional member syntax remains. `--versions` and `--versions-with-feed`
-become value-less lens selectors and compose with `-n`.
+their numeric count interpretation does not. A bare integer value on either
+long selector rejects instead of becoming a literal type/member-name filter.
+Positional member syntax remains. `--versions` and `--versions-with-feed` become
+value-less lens selectors and compose with `-n`.
 
 Numbers that are not result counts remain distinct: `--row` addresses one row,
 `--index` addresses one overload, `--depth` controls traversal, and timeout or
@@ -389,7 +393,7 @@ The implementation must provide named Release gates for these target properties:
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
 | `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
-| `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy source proves bare newest-first and both caller-directed range Vectors preserve their declared addresses; first-N, last-N, and absolute ranges exhaust or stop only when provider order can determine the requested rows, and report line windows do not shorten metadata enumeration. |
-| `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N newest-first `(version, feed)` rows rather than N distinct versions with unbounded feed-row expansion; reversed source declaration order produces the same cutoff rows because equal-version ties use canonical producer identity. |
-| `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including value-bearing `--versions`/`--versions-with-feed` and count-form `--rows`, while affected replacement routes execute successfully. |
+| `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy source proves bare newest-first and both caller-directed range Vectors preserve their declared addresses; both literal endpoints are validated before any limited range result; missing far endpoints reject in both directions; first-N, last-N, and absolute ranges exhaust or stop only when provider order can determine the requested rows; and report line windows do not shorten metadata enumeration. |
+| `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N `(version, feed)` rows in the containing Vector's direction rather than N distinct versions with unbounded feed-row expansion; both range directions retain that order, and equal-version fixtures use labels ordered opposite their canonical producer keys to prove the exact key-ordered cutoff under reversed source declarations. |
+| `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including numeric long `--type`/`--member`, value-bearing `--versions`/`--versions-with-feed`, and count-form `--rows`, while affected replacement routes execute successfully. |
 | `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter. |
