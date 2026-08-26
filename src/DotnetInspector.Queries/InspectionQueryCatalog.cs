@@ -230,6 +230,7 @@ public sealed class InspectionQueryCatalog<TContext>
         Action<InspectionQueryDefinition, TimeSpan>? recordExecution,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var results = new InspectionQueryResults();
         foreach (InspectionQueryPlan<TContext>.Entry entry in entries)
         {

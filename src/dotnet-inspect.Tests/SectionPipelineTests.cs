@@ -4085,6 +4085,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public async Task TypedQueryRegistry_RunAsync_EmptyDemandPropagatesCancellation()
+    {
+        var registered = new InspectionQuery<int>(
+            "registered",
+            InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(registered, _ => 1);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => registry.RunAsync(
+                [],
+                context: null,
+                cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
     public async Task TypedQueryRegistry_RunAsync_RejectsUndeclaredResultDependencies()
     {
         var hidden = new InspectionQuery<int>("hidden", InspectionCost.Unbounded);
