@@ -610,6 +610,7 @@ public class ApiCommand
     private static bool HasAuthoredMemberSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
+           || options.SelectDefault
            || options.Discover is { Length: > 0 }
            || options.BodyKindQuery.HasFilter;
 
