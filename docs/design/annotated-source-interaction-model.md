@@ -94,28 +94,40 @@ testing. The product capability catalog, not browser string matching, owns the
 invocation-like set. Its initial entries are `InvocationExpression`,
 `IndirectInvocationExpression`, and `ObjectCreationExpression`. When multiple
 invocation-like nodes contain the activation point, the tightest wins:
-smallest containing span, then smallest total node extent, then lowest
-product-issued node id. Enclosing invocation-like nodes and nested generic
-nodes remain selectable through explicit structural controls. Outside an
-invocation-like node, source activation uses the same ordering over all
-addressable nodes.
+smallest span containing the activation point, then smallest total node
+extent, then lowest product-issued node id. Total node extent is the sum of
+the lengths of all its spans, not the length of their bounding range.
+Enclosing invocation-like nodes and nested generic nodes remain selectable
+through explicit structural controls. Outside an invocation-like node, source
+activation uses the same ordering over all addressable nodes.
 
-The Research query layer owns selection resolution.
-`AnnotatedMemberDocumentQuery`, and any assembly-context projection of the same
-contract, must emit a closed selection result bound to the annotated
-document's product-issued node or fact id:
+Research owns semantic target resolution; the workspace query layer owns
+acquisition, residency, and identity validation.
+`AnnotatedMemberDocumentQuery`, and any assembly-context projection of the
+same contract, binds the semantic result to the annotated document's
+product-issued node or fact id. The workspace layer then emits one closed
+selection result for the browser:
 
-- one actionable `MemberAnchor`, with separate Member and Source capabilities;
-- unresolved;
-- ambiguous;
-- aggregate; or
-- unavailable, with a reason.
+- **Actionable** carries one or both typed capabilities. **Member** carries an
+  acquisition-qualified `InspectionGraphMemberIdentity.AcquiredApi`.
+  **Source** carries that identity plus an exact
+  `AssemblyMemberSourceRequest`, including its physical MethodDef token. A
+  missing capability carries a typed reason.
+- **Unresolved** means no product-issued call occurrence or member target
+  joined to the primary selection.
+- **Ambiguous** means one occurrence resolved to more than one candidate.
+- **Aggregate** means the primary selection deliberately represents multiple
+  distinct occurrences, so it has no single destination.
+- **Unavailable** means exactly one semantic target was resolved but
+  acquisition, residency, identity-skew validation, or policy rejection
+  prevented every destination capability. It carries the typed reason.
 
 The browser transports that result and must not derive it from display text,
-IL offsets, node kinds, or candidate ordering. Destination actions appear only
-for the corresponding capability on the one actionable result. Every other
-result appears as inert explanatory metadata, not an invented target or a
-disabled success-shaped action.
+IL offsets, node kinds, candidate ordering, or ambient assembly guesses.
+Destination actions appear only for the capabilities carried by
+**Actionable**. Every missing capability and non-actionable result appears as
+inert explanatory metadata, not an invented target or a disabled
+success-shaped action.
 
 Finding detail is likewise product-issued and bound to the selected fact id.
 The fact's descriptor, category, conditionality, detail, origin, and targets
@@ -215,10 +227,20 @@ workspace entry:
 
 ### Default, All, and Clear
 
-The effective annotation set is the set of product-issued annotation instances
-available in the current document: Finding ids, structural-candidate ids, and
-capture ids. A layer contributes its available instances; the layer name is
-not itself a member of the set.
+The available annotation universe contains the product-issued instances that
+can be drawn in the current document:
+
+- anchored body Finding ids with at least one
+  `AnnotatedSourceTarget`;
+- structural-candidate ids; and
+- capture ids.
+
+Unanchored and member-header Findings remain available as inspector detail but
+are not annotation instances and never participate in Default, All, Clear, or
+Custom. A layer contributes its available instances; the layer name is not
+itself a member of the universe. The default annotation set is the
+catalog-selected subset of that universe. The active, or effective, annotation
+set is the current subset selected for display.
 
 The full explorer exposes three annotation-set commands:
 
@@ -230,14 +252,14 @@ The full explorer exposes three annotation-set commands:
 - **Clear** removes active annotations, selection, and Finding detail. It does
   not hide the source or reset presentation preferences.
 
-The reported annotation state is derived from the effective instance set, not
-the last command. **Default** wins when the set equals the default instance
-set. Otherwise, **All** applies when it equals every available instance,
-**Clear** applies when it is empty, and **Custom** applies to every other set.
-Toggling one default Finding off therefore produces **Custom** even though the
-Finding layer remains available. This precedence handles documents whose
-Default, All, or empty sets overlap. C#/IL and offset controls remain
-orthogonal to these commands and states.
+The reported annotation state is derived from the active instance set, not the
+last command. **Default** wins when the active set equals the default set.
+Otherwise, **All** applies when it equals the available universe, **Clear**
+applies when it is empty, and **Custom** applies to every other set. Toggling
+one default Finding off therefore produces **Custom** even though the Finding
+layer remains available. This precedence handles documents whose Default, All,
+or empty sets overlap. C#/IL and offset controls remain orthogonal to these
+commands and states.
 
 ## Navigation and durable state
 
@@ -329,11 +351,14 @@ typed identities:
 - source span.
 
 `AnnotatedSourceFact.Id` is local to one annotated document, and the current
-annotated projection does not carry `FindingKey`. Before Facts integration,
-Research must project the same product-issued `FindingSubject.Key` and
-`FindingKey.IdentityKey`, or an equivalent typed instance key, into both
-projections. Document-local ids, descriptors, offsets, and rendered-field
-tuples are not cross-projection identity.
+annotated projection does not carry a cross-projection instance key. Before
+Facts integration, the product must add a producer-issued typed
+`FindingInstanceKey` that is injective within each emitted Finding census and
+carry it unchanged into both projections. `FindingSubject.Key` identifies the
+subject and `FindingKey.IdentityKey` identifies a correspondence candidate;
+neither, alone or together, identifies one Finding instance. Document-local
+ids, descriptors, offsets, ordinals, and rendered-field tuples are likewise
+not cross-projection identity.
 
 When that identity and Facts become available in the browser, selecting a Fact
 can open Annotated Source with that Finding primary and active, and an
@@ -358,7 +383,7 @@ accepted as a named follow-up.
 | --- | --- | --- |
 | Embedded reader | A hand-off card hides all annotated source | Signature, C#, default Finding annotation chips, transient Finding detail, and a prominent **Explore** action |
 | Chip vocabulary | Some pill-shaped labels are inert; actions use several unrelated verbs | Every chip is actionable and every action follows the click matrix |
-| Invocation navigation | Explicit **Member**/**Source** exists only after selection | Research emits the closed selection result; explicit destinations require its one actionable typed target |
+| Invocation navigation | Explicit **Member**/**Source** exists only after selection | Research and workspace resolution emit the closed, acquisition-qualified selection result |
 | Finding primary state | Evidence and annotation arrays can imply selection indirectly | Finding activation establishes one explicit primary Finding and useful detail; toggles do not |
 | Initial presentation | C# and all anchored facts start active; structural CodeLens also starts on | Findings start on; structure, captures, IL, and coordinates start off |
 | Annotation commands | One **clear** action combines several state changes | Separate **Default**, **All**, and **Clear** commands with derived-state precedence |
@@ -369,6 +394,7 @@ accepted as a named follow-up.
 | Facts | The browser Facts query is visibly unsupported and annotated facts carry only document-local ids | Add a product-issued shared Finding instance key before bidirectional projection |
 | Allocations | Presence and provenance in the experience are not proven | Product-issued presence and syntax-only absence are compiler-fixture gated |
 | Signature | Annotated Source begins at the body | Reuse `BrowserMemberSurface.Signature` as the display declaration |
+| Real-browser conformance | Tests use Node and a fake DOM; no CI-integrated browser runner exists | Add a CI-integrated real-browser harness for pointer, keyboard, history, focus, and drag-selection gates |
 
 ## Validation contract
 
@@ -379,9 +405,11 @@ The interaction model requires:
 - embedded-reader tests proving Finding detail is available while
   source-node selection and destination actions are absent;
 - invocation hit tests proving the cataloged invocation-like kinds, the
-  tightest-node tie-break, and precedence over nested generic nodes;
-- destination-action tests for one actionable typed target, plus unresolved,
-  ambiguous, and aggregate close negatives;
+  tightest-node tie-break, discontinuous-span total extent, and precedence over
+  nested generic nodes;
+- destination-action tests for Member-only, Source-only, and combined
+  actionable capabilities, plus unresolved, ambiguous, aggregate, and
+  unavailable-with-reason close negatives;
 - Finding-detail tests proving unavailable optional evidence produces useful
   detail and an inert explanatory label rather than an inert chip or empty
   peek;
