@@ -147,6 +147,11 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   the user may authorize auto-merge for the intended final head; the agent may
   ask. If the head moves after arming, disarm, review the new head, and ask
   again.
+- **"CI is ready":** the user's statement that CI has no failures and the PR is
+  mergeable. Trust it without re-checking and move to the next task, such as
+  dispatching the next round's reviewers.
+- **Authorizing the next round before CI completes:** the agent does not need
+  to check CI status first; proceed with the authorized round.
 
 ## Before changing files
 
@@ -823,6 +828,14 @@ Before requesting another block, answer:
 5. **If design work was skipped last block, why skip it again?** The prior
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
+
+At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
+
+1. **Would a design doc better define the design space?** Foundational APIs
+   weigh heavily toward yes.
+2. **Can hardening move to followups?** State whether deferring remaining
+   hardening to followup work would unlock this PR's value for other agent
+   work sooner.
 
 State the proposed remedy and end with one recommendation: approve the next
 implementation block, switch to a docs-only design PR, or stop. If consecutive
