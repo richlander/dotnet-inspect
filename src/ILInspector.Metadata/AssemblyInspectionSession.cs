@@ -133,6 +133,30 @@ public sealed class AssemblyInspectionSession : IDisposable
             includeAll,
             typesOnly);
 
+    /// <summary>
+    /// Reads a TypeDef's instance-field primitive after the durable address
+    /// matches this image. Used by TypeResolution so enum-width consumers never
+    /// borrow a <c>MetadataReader</c>.
+    /// </summary>
+    internal bool TryGetEnumUnderlyingType(
+        MetadataTypeDefinitionAddress address,
+        out System.Reflection.Metadata.PrimitiveTypeCode code)
+    {
+        _image.EnsureAlive();
+        code = default;
+        System.Reflection.Metadata.MetadataReader reader =
+            _image.GetMetadataReader();
+        if (!address.TryResolve(
+                reader,
+                out System.Reflection.Metadata.TypeDefinitionHandle handle))
+        {
+            return false;
+        }
+
+        code = EnumUnderlyingPrimitive.FromDefinition(reader, handle);
+        return true;
+    }
+
     /// <summary>The API surface at one explicit extraction scope.</summary>
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);

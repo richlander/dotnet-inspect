@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
@@ -878,6 +879,43 @@ public sealed class TypeResolutionContext : IDisposable
 
                 return _catalog.Acquisition
                     .RetainAssemblyReference(candidate);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads the defining image's instance-field primitive for a type already
+    /// resolved in this generation. Returns <see langword="false"/> when the
+    /// definition is from another catalog or generation, or the retained
+    /// session cannot be opened. Does not expose a <see cref="MetadataReader"/>.
+    /// Gated by <c>TypeResolutionEnumWidthTests</c>.
+    /// </summary>
+    public bool TryGetEnumUnderlyingType(
+        ResolvedTypeDefinition definition,
+        out PrimitiveTypeCode code)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        code = default;
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                if (definition.Key.Catalog != Catalog
+                    || !ReferenceEquals(definition.Key.Generation, Generation))
+                {
+                    return false;
+                }
+
+                CandidateSessionResult session =
+                    _catalog.Acquisition.OpenSession(definition.Assembly);
+                if (session is not CandidateSessionResult.Ready ready)
+                    return false;
+
+                return ready.Session.TryGetEnumUnderlyingType(
+                    definition.Address,
+                    out code);
             }
         }
     }

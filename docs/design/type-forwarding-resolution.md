@@ -28,6 +28,15 @@ before transport. It does not probe the host filesystem.
 `PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing` gates
 this consumer boundary.
 
+Custom-attribute enum width can consume the same frozen generation through
+`TypeResolutionEnumWidth`: planned serialized names become structured
+requests, `Resolve` locates an already-retained defining image, and
+`TypeResolutionContext.TryGetEnumUnderlyingType` reads `value__` without
+exposing a reader. Unplanned or unbound names stay `Int32`. Product extract
+does not yet collect CA enum names into a generation; that remains residual
+on [#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
+`TypeResolutionEnumWidthTests` gates the adapter.
+
 ## The problem
 
 Type forwarding is one metadata relationship:
