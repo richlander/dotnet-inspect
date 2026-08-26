@@ -132,7 +132,8 @@ public static class CSharpMemberLayout
             sb.Append(LayOutHead(pad, head, $" => {valueLine}", " =>", disableOneLinerWrapping)).Append('\n');
         }
 
-        string continuationPad = new(' ', wrapExpressionBodyArrow ? indent + 4 : indent);
+        bool arrowIsOnFollowingLine = wrapExpressionBodyArrow || ContainsLineComment(head);
+        string continuationPad = new(' ', arrowIsOnFollowingLine ? indent + 4 : indent);
         for (int i = 1; i < expressionLines.Count; i++)
         {
             string line = expressionLines[i];
@@ -165,14 +166,25 @@ public static class CSharpMemberLayout
     /// over-width parameter list wraps one parameter per continuation line when it
     /// can be located unambiguously. <paramref name="renderTail"/> is the member
     /// terminator, expression body, or empty block tail; with constraints it follows
-    /// the final clause. Falls back to the inline single line when one-liner wrapping
-    /// is disabled or a line comment makes line breaks semantically significant.
-    /// Block-comment contents are ignored while locating clauses. Whitespace only:
-    /// every transformed form is token-identical.
+    /// the final clause. A line comment prevents reshaping the head, but any live
+    /// <paramref name="renderTail"/> moves to an indented following line rather than
+    /// becoming comment text; an empty block tail leaves existing block layout
+    /// unchanged. Block-comment contents are ignored while locating clauses.
+    /// Whitespace only: every transformed form is token-identical;
+    /// <c>Append_LineCommentTails_CompileAndPreserveTokens</c> gates the
+    /// line-comment boundary.
     /// </summary>
     static string LayOutHead(string pad, string head, string renderTail, string decisionSuffix, bool disableOneLinerWrapping)
     {
-        if (disableOneLinerWrapping || ContainsLineComment(head))
+        if (ContainsLineComment(head))
+        {
+            string renderedHead = pad + head;
+            return renderTail.Length == 0
+                ? renderedHead
+                : renderedHead + '\n' + pad + "    " + renderTail.TrimStart();
+        }
+
+        if (disableOneLinerWrapping)
             return pad + head + renderTail;
 
         if (SplitConstraintClauses(head) is { Count: > 1 } parts)

@@ -1,4 +1,7 @@
 using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace CSharpText.Tests;
 
@@ -344,6 +347,105 @@ public sealed class CSharpMemberLayoutTests
                 "public void Log<T>() // mentions where U : class",
                 "Log();\nLog();",
                 indent: 4));
+
+    [Fact]
+    public void Append_LineComment_NullBody_PutsSemicolonOnFollowingLine()
+        => Assert.Equal(
+            "    public void M<T>() // note\n"
+            + "        ;\n",
+            Render(
+                "public void M<T>() // note",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_BlockComment_NullBody_KeepsSemicolonInline()
+        => Assert.Equal(
+            "    public void M<T>() /* note */;\n",
+            Render(
+                "public void M<T>() /* note */",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_LineComment_ExpressionBody_PutsTailOnFollowingLine()
+        => Assert.Equal(
+            "    public int E<T>() // note\n"
+            + "        => 42;\n",
+            Render(
+                "public int E<T>() // note",
+                "return 42;",
+                indent: 4));
+
+    [Fact]
+    public void Append_LineComment_MultilineExpressionBody_UsesFollowingLineIndentation()
+        => Assert.Equal(
+            "    public int E<T>() // note\n"
+            + "        => shape switch\n"
+            + "        {\n"
+            + "            Dot d => d.Radius,\n"
+            + "            _ => -1,\n"
+            + "        };\n",
+            Render(
+                "public int E<T>() // note",
+                SwitchReturnBody,
+                indent: 4,
+                bodyIsSingleExpressionBody: true));
+
+    [Fact]
+    public void Append_BlockComment_ExpressionBody_KeepsTailInline()
+        => Assert.Equal(
+            "    public int E<T>() /* note */ => 42;\n",
+            Render(
+                "public int E<T>() /* note */",
+                "return 42;",
+                indent: 4));
+
+    [Fact]
+    public void Append_LineCommentTails_CompileAndPreserveTokens()
+    {
+        string semicolonMember = Render(
+            "public void M<T>() // note",
+            body: null,
+            indent: 4);
+        string expressionMember = Render(
+            "public int E<T>() // note",
+            "return 42;",
+            indent: 4);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var tree = CSharpSyntaxTree.ParseText(
+            "public interface C\n{\n"
+            + semicolonMember
+            + expressionMember
+            + "}\n",
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: cancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "LineCommentTailLayout",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        Assert.DoesNotContain(
+            compilation.GetDiagnostics(cancellationToken),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+        MethodDeclarationSyntax[] methods =
+            [.. tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>()];
+        Assert.Equal(2, methods.Length);
+        Assert.Equal(
+            ["public", "void", "M", "<", "T", ">", "(", ")", ";"],
+            methods[0].DescendantTokens().Select(token => token.Text));
+        Assert.Equal(
+            ["public", "int", "E", "<", "T", ">", "(", ")", "=>", "42", ";"],
+            methods[1].DescendantTokens().Select(token => token.Text));
+        Assert.All(
+            methods,
+            method => Assert.Contains(
+                method.DescendantTrivia(),
+                trivia => trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                    && trivia.ToString() == "// note"));
+    }
 
     [Fact]
     public void LayOutDeclarationHead_WhereInsideLineComment_DoesNotBecomeLiveConstraint()
