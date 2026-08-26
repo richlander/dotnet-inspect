@@ -10,6 +10,7 @@ import {
   parseWorkspaceRoute,
   resolveWorkspaceMemberFilters,
   resolveWorkspaceMemberOverload,
+  resolveWorkspaceMemberSection,
   resolveWorkspaceRoute,
   shouldInterceptLinkClick,
   workspaceViewSignature,
@@ -347,6 +348,15 @@ test("member share context reports unavailable filters and overloads", () => {
   assert.deepEqual(
     resolveWorkspaceMemberOverload(null, 1),
     { overload: null, rejected: false });
+  assert.deepEqual(
+    resolveWorkspaceMemberSection("facts", ["overview", "source"]),
+    { section: "overview", rejected: true });
+  assert.deepEqual(
+    resolveWorkspaceMemberSection("source", ["overview", "source"]),
+    { section: "source", rejected: false });
+  assert.deepEqual(
+    resolveWorkspaceMemberSection(null, ["overview"]),
+    { section: "overview", rejected: false });
 });
 
 test("workspace route preflight defers packet decoding", () => {

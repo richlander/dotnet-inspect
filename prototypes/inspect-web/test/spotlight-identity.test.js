@@ -268,6 +268,14 @@ function documentSelectorArguments(root, source) {
     });
 }
 
+function memberExpressionsOn(root, objectName) {
+  return syntaxNodes(
+    root,
+    node => node.type === "MemberExpression"
+      && node.object?.type === "Identifier"
+      && node.object.name === objectName);
+}
+
 function callbackProperty(actions, name) {
   const property = onlySyntaxNode(
     actions.properties.filter(
@@ -833,6 +841,7 @@ test("typed package view owns package navigation bindings", () => {
   const dependencyPatch =
     appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
+  const dependencyPatchSyntax = functionDeclaration("patchDependenciesGroup");
   const actionSource = name =>
     binding.match(
       new RegExp(`  ${name}: [\\s\\S]*?(?=\\n  on[A-Z])`))?.[0]
@@ -864,6 +873,29 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     dependencyPatch,
     /patchDependencyGroupChips\(document, selectedGroupIndex\);[\s\S]*listSection\.outerHTML = dependencyListSectionHtml[\s\S]*bindPackageDependencyListEvents\(\);[\s\S]*renderDependencyGraph\(\)/);
+  const dependencyPatchDocumentMembers =
+    memberExpressionsOn(dependencyPatchSyntax, "document");
+  assert.equal(
+    dependencyPatchDocumentMembers.length,
+    1,
+    "the dependency patch must not recover package-view DOM ownership through selector aliases");
+  assert.equal(
+    sourceText(dependencyPatchDocumentMembers[0]),
+    "document.querySelector",
+    "the dependency patch's only direct DOM read is its section replacement target");
+  assert.equal(
+    syntaxNodes(
+      dependencyPatchSyntax,
+      node => node.type === "Identifier" && node.name === "document").length,
+    2,
+    "the dependency patch may reference document only for its section target and typed patch");
+  const indirectSelectorProbe = parseSync(
+    "package-view-indirect-selector-probe.ts",
+    'const method = "querySelectorAll"; document[method](selector);').program;
+  assert.equal(
+    memberExpressionsOn(indirectSelectorProbe, "document").length,
+    1,
+    "computed selector methods must remain visible to wrapper ownership checks");
   assert.match(
     binding,
     /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
@@ -2214,6 +2246,9 @@ test("shared member views retain scope and filter state", () => {
     /function decodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction resolveView/)?.[0] ?? "";
   const deepLink = appSource.match(
     /function applyDeepLink\([\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
+  const pendingGraphRestore = appSource.match(
+    /async function restorePendingGraphMember\(\)[\s\S]*?\n}\n\nasync function drillPlatformNode/)?.[0]
+    ?? "";
   assert.match(encoder, /packet\.b = 1/);
   assert.match(encoder, /packet\.q = state\.memberTextFilter/);
   assert.match(encoder, /packet\.k = state\.memberKindFilter/);
@@ -2239,10 +2274,13 @@ test("shared member views retain scope and filter state", () => {
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
     deepLink,
-    /resolveWorkspaceMemberFilters\(deep,[\s\S]*const rejectedContextFields = \[\.\.\.restoredFilters\.rejectedFields\][\s\S]*resolveWorkspaceMemberOverload\([\s\S]*if \(restoredSelection\.rejected\) rejectedContextFields\.push\("overload"\)[\s\S]*appendQueryNotice/);
+    /resolveWorkspaceMemberFilters\(deep,[\s\S]*traits: availableMemberTraits\(type\)[\s\S]*const rejectedContextFields = \[\.\.\.restoredFilters\.rejectedFields\][\s\S]*deep\.overload !== localGraphSelection\.overloadIndex[\s\S]*resolveWorkspaceMemberOverload\([\s\S]*if \(restoredSelection\.rejected\) rejectedContextFields\.push\("overload"\)[\s\S]*appendRejectedLinkFields\(rejectedContextFields\)/);
   assert.match(
     deepLink,
-    /state\.memberSection = "overview";[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody\)\.includes\(deep\.section\)[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
+    /resolveWorkspaceMemberSection\([\s\S]*localGraphSelection\.group[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*resolveWorkspaceMemberSection\([\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
+  assert.match(
+    pendingGraphRestore,
+    /pending\.overload !== selection\.overloadIndex[\s\S]*resolveWorkspaceMemberSection\([\s\S]*memberSectionIdsFor\([\s\S]*appendRejectedLinkFields\(rejectedFields\)/);
   assert.match(
     deepLink,
     /const overloadIndex = deep\.overload \?\? null;[\s\S]*Number\.isInteger\(overloadIndex\)/);

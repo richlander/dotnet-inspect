@@ -86,6 +86,7 @@ import {
   createWorkspaceLocationPersistence,
   resolveWorkspaceMemberFilters,
   resolveWorkspaceMemberOverload,
+  resolveWorkspaceMemberSection,
   workspaceViewSignature,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
@@ -508,7 +509,7 @@ interface PendingGraphMemberDeepLink {
   type: string;
   member: string;
   overload: number | null;
-  section: string | null;
+  section: MemberSection | null;
   target: GraphMemberShareIdentity;
 }
 
@@ -5893,6 +5894,13 @@ function syncUrl() {
 // type/member/overload/section still exist.
 type DeepLink = WorkspaceDeepLink;
 
+function appendRejectedLinkFields(fields: readonly string[]) {
+  if (!fields.length) return;
+  appendQueryNotice(
+    `Part of this link could not be applied and was ignored: ${
+      [...new Set(fields)].join(", ")}.`);
+}
+
 function applyDeepLink(deep: DeepLink | null | undefined) {
   const pkg = state.package;
   if (!pkg) return;
@@ -5975,7 +5983,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     const restoredFilters = resolveWorkspaceMemberFilters(deep, {
       kinds: memberKinds(type),
       accessibilities: memberAccessibilities(type),
-      traits: MEMBER_TRAITS.map(([property]) => property),
+      traits: availableMemberTraits(type).map(([property]) => property),
     });
     const rejectedContextFields = [...restoredFilters.rejectedFields];
     state.memberTextFilter = deep.memberTextFilter || "";
@@ -6014,14 +6022,20 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       retainGraphOnlyBodyTarget(
         localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
         deep.graphTarget);
-      state.memberSection = deep.section
-        && isMemberSection(deep.section)
-        && memberSectionIdsFor(
+      if (deep.overload != null
+        && deep.overload !== localGraphSelection.overloadIndex) {
+        rejectedContextFields.push("overload");
+      }
+      const restoredSection = resolveWorkspaceMemberSection(
+        deep.section,
+        memberSectionIdsFor(
           localGraphSelection.group,
           state.package?.isRuntimePack,
-          true).includes(deep.section)
-        ? deep.section
-        : "overview";
+          true));
+      state.memberSection = restoredSection.section;
+      if (restoredSection.rejected) {
+        rejectedContextFields.push("member section");
+      }
     } else if (disposition === "graph"
       && deep.member
       && deep.graphTarget) {
@@ -6033,9 +6047,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
           && overloadIndex >= 0
           ? overloadIndex
           : null;
-      state.memberSection = deep.section && isMemberSection(deep.section)
-        ? deep.section
-        : "overview";
+      state.memberSection = "overview";
       state.selectedBodyTarget = deep.graphTarget;
       state.pendingGraphMemberDeepLink = {
         packageKey: packageIdentityKey(pkg),
@@ -6063,23 +6075,21 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         deep.bodyTarget,
         group,
         restoredOverload);
-      if (deep.section
-        && isMemberSection(deep.section)
-        && memberSectionIdsFor(
+      const restoredSection = resolveWorkspaceMemberSection(
+        deep.section,
+        memberSectionIdsFor(
           group,
           state.package?.isRuntimePack,
-          hasSelectedBody).includes(deep.section)) {
-        state.memberSection = deep.section;
+          hasSelectedBody));
+      state.memberSection = restoredSection.section;
+      if (restoredSection.rejected) {
+        rejectedContextFields.push("member section");
       }
       if (hasSelectedBody) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
     }
-    if (rejectedContextFields.length) {
-      appendQueryNotice(
-        `Part of this link could not be applied and was ignored: ${
-          rejectedContextFields.join(", ")}.`);
-    }
+    appendRejectedLinkFields(rejectedContextFields);
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
 }
@@ -7475,16 +7485,24 @@ async function restorePendingGraphMember() {
     state.graphMemberNavigationTitle = "";
     state.selectedMemberKey = selection.group.key;
     state.selectedOverloadIndex = selection.overloadIndex;
-    state.memberSection = pending.section
-      && isMemberSection(pending.section)
-      && memberSectionIdsFor(
+    const rejectedFields: string[] = [];
+    if (pending.overload != null
+      && pending.overload !== selection.overloadIndex) {
+      rejectedFields.push("overload");
+    }
+    const restoredSection = resolveWorkspaceMemberSection(
+      pending.section,
+      memberSectionIdsFor(
         selection.group,
         state.package?.isRuntimePack,
-      true).includes(pending.section)
-      ? pending.section
-      : "overview";
+        true));
+    state.memberSection = restoredSection.section;
+    if (restoredSection.rejected) {
+      rejectedFields.push("member section");
+    }
     state.selectedBodyTarget = pending.target;
     normalizeCurrentNavEntry();
+    appendRejectedLinkFields(rejectedFields);
     render();
     observeAsync(loadSelectionData(), "Loading restored graph member data");
   } catch (error) {

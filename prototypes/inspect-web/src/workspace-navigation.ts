@@ -328,6 +328,18 @@ export function resolveWorkspaceMemberOverload(
     : { overload: null, rejected: true };
 }
 
+export function resolveWorkspaceMemberSection(
+  section: MemberSection | null | undefined,
+  availableSections: readonly MemberSection[],
+): { section: MemberSection; rejected: boolean } {
+  if (section == null || section === "overview") {
+    return { section: "overview", rejected: false };
+  }
+  return availableSections.includes(section)
+    ? { section, rejected: false }
+    : { section: "overview", rejected: true };
+}
+
 export interface WorkspaceUrlState {
   package: string;
   tabs: WorkspaceTab[];
