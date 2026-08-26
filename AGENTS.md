@@ -224,62 +224,6 @@ current product behavior and tests over design history. When current sources
 disagree, stop and resolve which owner is authoritative rather than silently
 choosing one.
 
-## Design scope and composition
-
-Default every design effort to one component architecture and its immediate
-typed boundaries. Put the normative input, output, identity, authority,
-lifetime, and failure contracts in that component's owning document. A
-composition document may name sequencing and handoffs, but must reference those
-contracts rather than restating participating components' internal inventories
-or policies.
-
-When another component needs prerequisite work, file or record that residual
-and handle it as an independently reviewable effort or stack slice. Do not
-expand the current design merely to make the whole end-to-end system appear
-closed. The preference for fewer coherent PRs does not justify combining
-independently owned component designs.
-
-A **broad design** normatively specifies multiple independently owned
-components or sweeps an end-to-end lifecycle such as acquisition, analysis,
-publication, and presentation. Do not start one or broaden a focused effort
-into one unless the user explicitly requests or approves that scope. A large
-issue, cross-cutting motivation, general request to redesign a subsystem, or
-reviewer suggestion is not approval. Before requesting approval, present the
-component map, explain why focused designs cannot close independently, and name
-the intended claims and non-claims.
-
-### Recovering from an over-broad design
-
-If you discover that current work violates this guidance, stop broadening,
-repairing, or reviewing the design in place. The first step is to discuss the
-violation with the user before changing the design further. Name the components
-whose ownership has been combined, explain the closure or review evidence that
-exposed the problem, and propose a focused replacement: component-sized efforts
-in priority order, their immediate boundaries, dependencies and parallel work,
-and the claims and non-claims of each.
-
-After that discussion, preserve significant design problems found in other
-components as focused issues rather than dropping them or absorbing them into
-the current design. Each issue names the owning component, concrete evidence
-and consequence, why the problem is outside the current claim, and any boundary
-or sequencing dependency. Filing the issue preserves the finding; it does not
-approve a solution or expand the current effort.
-
-Recommend whether to split or abandon the current design and how to preserve its
-useful analysis as non-normative source material. Then ask the user to choose
-the direction; do not silently narrow the work or infer approval to continue
-broadly. Until that decision, do not dispatch another review round or describe
-the design as ready. If the user chooses the focused path, move each normative
-contract to its owning document and proceed through independently reviewable
-efforts. If the user explicitly approves a broad exception instead, record the
-approved scope and preserve every other requirement in this section.
-
-Review focused designs against the component architecture and its boundaries.
-If repeated review keeps discovering new component-internal contracts or
-manually synchronized cross-component inventories, stop and recommend splitting
-or abandoning the design. Adding more prose, stages, gates, or receipts to a
-sweeping document is not evidence that it closes.
-
 Keep user-facing product skills and repository-maintainer skills separate:
 
 - `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
@@ -324,6 +268,83 @@ when reproducing or validating a source-only fix, or when checking output that
 the production release does not yet contain. Do not cite the production tool as
 evidence for worktree behavior, and do not pay the source-build startup cost for
 routine development queries that the production tool can answer.
+
+## Design scope and composition
+
+Default every design effort to exactly one architectural owner and name its
+owning document. For this rule, a component is an independently owned
+architecture unit whose authority was already stated in
+[the overview](docs/overview.md) or an existing focused owning document before
+the effort began. The effort may not create an umbrella owner to evade the
+broad-design gate. A project boundary alone neither creates nor erases a
+component boundary. Every focused issue and PR names the owner and owning
+document.
+
+A focused design may specify its owner's immediate typed input and output
+obligations. It may reference an adjacent component's owner-issued types and
+state the preconditions it consumes and the results it returns, but it must not
+redefine that component's construction, validation, identity, lifetime, or
+failure semantics. If closing the claim requires normative changes in two
+owners, use two focused efforts and connect them with a thin composition map.
+
+A composition document may name sequencing and typed handoffs, but must
+reference owner contracts rather than restating participating components'
+internal inventories or policies. When another component needs prerequisite
+work, file or record that residual and handle it as an independently reviewable
+effort or stack slice. Do not expand the current design merely to make the whole
+end-to-end system appear closed. The preference for fewer coherent PRs does not
+justify combining independently owned component designs.
+
+A **broad design** normatively specifies multiple independently owned
+components or sweeps an end-to-end lifecycle such as acquisition, analysis,
+publication, and presentation. Do not start one or broaden a focused effort
+into one unless the user explicitly requests or approves that scope. A large
+issue, cross-cutting motivation, general request to redesign a subsystem, or
+reviewer suggestion is not approval. Before requesting approval, present the
+component map, explain why focused designs cannot close independently, and name
+the intended claims and non-claims.
+
+### Reviewing focused designs
+
+Review a focused design against its named owner, owning document, immediate
+typed boundaries, and declared non-claims. If repeated review keeps discovering
+new component-internal contracts or manually synchronized cross-component
+inventories, stop and apply the scope-violation recovery transition. Adding
+more prose, stages, gates, or receipts to a sweeping document is not evidence
+that it closes.
+
+### Recovering from an over-broad design
+
+If you discover that current work violates this guidance, stop broadening,
+repairing, or reviewing the design in place and apply the
+[scope-violation recovery transition](#recovery-transitions). Keep a locked
+candidate unchanged while discussing the violation with the user. Name the
+components whose ownership has been combined, explain the closure or review
+evidence that exposed the problem, and propose component-sized replacements in
+priority order, including their owners, owning documents, immediate boundaries,
+dependencies and parallel work, claims, and non-claims.
+
+After that discussion, preserve significant design problems found in other
+components as focused issues rather than dropping them or absorbing them into
+the current design. Each issue names the owning component and document,
+concrete evidence and consequence, why the problem is outside the current
+claim, and any boundary or sequencing dependency. Filing the issue preserves
+the finding; it does not approve a solution or expand the current effort.
+
+Present three explicit outcomes, recommend one, and ask the user to choose:
+
+- **Split into focused successors.** Supersede the broad candidate and re-derive
+  each successor's normative contract in its owning document; do not copy or
+  mechanically move an unclosed contract. Close the broad effort, or replace it
+  with one named focused successor when the user explicitly chooses that use.
+- **Abandon.** Supersede and close the current effort without committing to
+  successors. Preserve useful analysis only as explicitly non-normative source
+  material and retain any already-filed focused issues as independent records.
+- **Approve a broad exception.** Record the user-approved scope and preserve
+  every other requirement in this section.
+
+Do not silently narrow the work or infer approval to continue broadly. Until the
+decision, do not dispatch another review or describe the design as ready.
 
 ## Repository-wide engineering constraints
 
@@ -646,6 +667,14 @@ least one reviewer returned a finding.
 - **Conflict:** supersede the attempt, integrate and resolve, push immediately,
   and restart the same round without waiting for CI. The six-round boundary
   still applies.
+- **Scope violation:** keep the locked head unchanged while the user chooses
+  split, abandonment, or an explicitly approved broad exception. Split or
+  abandonment supersedes the attempt without spending the round; reconcile
+  returned findings publicly, then close the broad effort or replace it with a
+  user-selected focused successor. A replacement head follows the
+  author-change transition at the same round. A broad exception may resume the
+  unchanged attempt after its scope is recorded; any required head change
+  follows the author-change transition.
 - **Failure requiring an author change:** supersede the attempt, push the fix,
   satisfy the failed-gate row, and restart the same round.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
