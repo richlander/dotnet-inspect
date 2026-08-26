@@ -44,7 +44,9 @@ T:ILInspector.Metadata.ResourceScanner;Resource inspection belongs to product qu
 T:ILInspector.Metadata.TypeHierarchyScanner;Type-hierarchy inspection belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.TypeDependencyScanner;Path-based type dependency inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.MemberSearch;Path-based member inspection belongs to product queries, not the browser host.
+T:ILInspector.Metadata.Corpus;Corpus search opens assembly paths carried by CorpusMember and belongs to product queries, not the browser host.
 T:DotnetInspector.Services.PdbAcquisitionService;PDB acquisition belongs to the source query that owns its metadata context, not the browser host.
+T:DotnetInspector.Services.PackageContentAudit;Package content audit opens assembly paths for SourceLink inspection and belongs to product queries, not the browser host.
 T:DotnetInspector.Services.AssemblyDependencyResolver;Path-based dependency resolution and descriptor creation belong to product workspace composition, not the browser host.
 T:DotnetInspector.Services.AssemblySetResolutionSession;Path-based assembly-set inspection belongs to product queries, not the browser host.
 T:DotnetInspector.Services.AssemblySetSurfaceBuilder;Path-based assembly-set projection belongs to product queries, not the browser host.

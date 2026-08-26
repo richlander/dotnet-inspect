@@ -74,6 +74,7 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Decompiler.CSharpBodyDiff", banned);
         Assert.Contains("T:ILInspector.Decompiler.CSharpFindings", banned);
         Assert.Contains("T:ILInspector.Metadata.MemberSearch", banned);
+        Assert.Contains("T:ILInspector.Metadata.Corpus", banned);
         Assert.Contains("T:ILInspector.Research.ImplementationDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiffInput", banned);
@@ -89,6 +90,7 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains("T:DotnetInspector.Services.PlatformResolver", banned);
         Assert.Contains("T:DotnetInspector.Services.TfmSelector", banned);
+        Assert.Contains("T:DotnetInspector.Services.PackageContentAudit", banned);
         Assert.Contains(
             "T:ILInspector.Analysis.CallerScopeReachabilityPlan",
             banned);
@@ -316,7 +318,6 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.GitHubUrlResolver",
             "DotnetInspector.Services.LocalRepoSourceAcquisition",
             "DotnetInspector.Services.NuspecParser",
-            "DotnetInspector.Services.PackageContentAudit",
             "DotnetInspector.Services.PdbSourceAcquisition",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
@@ -363,6 +364,56 @@ public sealed class BrowserEngineLayeringTests
             approved,
             banned,
             "Path-method owner");
+    }
+
+    [Fact]
+    public void EveryPublicAssemblyPathCarrierIsBannedOrApprovedData()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        string[] approvedOwners =
+        [
+            "DotnetInspector.Services.AssemblyDependencyResolutionOptions",
+            "ILInspector.Decompiler.Pipeline.IrFunction",
+            "ILInspector.Metadata.ApiDiffInspectionFailure",
+            "ILInspector.Metadata.ApiSurfaceInspectionFailure",
+            "ILInspector.Metadata.ApiSurfaceInspectionSubject",
+            "ILInspector.Metadata.ApiType",
+            "ILInspector.Metadata.CorpusMember",
+        ];
+        HashSet<string> approved =
+            approvedOwners.ToHashSet(StringComparer.Ordinal);
+        Type[] owners =
+        [
+            .. ProductAssemblies
+                .SelectMany(assembly => assembly.GetExportedTypes())
+                .Distinct()
+                .Where(type =>
+                    type.GetProperties(
+                            BindingFlags.Public
+                            | BindingFlags.Instance
+                            | BindingFlags.Static
+                            | BindingFlags.DeclaredOnly)
+                        .Any(property =>
+                            property.SetMethod is not null
+                            && property.Name.Contains(
+                                "assemblypath",
+                                StringComparison.OrdinalIgnoreCase))
+                    || type.GetFields(
+                            BindingFlags.Public
+                            | BindingFlags.Instance
+                            | BindingFlags.Static
+                            | BindingFlags.DeclaredOnly)
+                        .Any(field => field.Name.Contains(
+                            "assemblypath",
+                            StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(type => type.FullName, StringComparer.Ordinal),
+        ];
+
+        AssertGuardedOwners(
+            owners,
+            approved,
+            banned,
+            "Assembly-path carrier");
     }
 
     [Fact]
