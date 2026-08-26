@@ -429,6 +429,9 @@ jobs:
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
 
+      - name: Run artifact contract tests
+        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
 
@@ -599,6 +602,10 @@ jobs:
       - name: Run CSharpText tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/CSharpText.Tests -c Release
+
+      - name: Run artifact contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
       # Covers #3496 and #3509. Both classes involved (StringSwitchRaisingTests,
       # CorpusSensorComparisonTests) are in the fast subset, so the slow gates
