@@ -57,7 +57,11 @@ internal static class LibraryMetadataService
                 : queries;
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
-            var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(requiredQueries);
+            var bodyAnalysisFeatures =
+                SelectBodyAnalysisFeatures(requiredQueries);
+            bool needsPrefetchedImage =
+                bodyAnalysisFeatures
+                    != Analysis.LibraryBodyAnalysisFeatures.None;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
@@ -81,29 +85,37 @@ internal static class LibraryMetadataService
                     maxMappings: 16 * 1024);
             using var service = discoveryOnly
                 ? assemblyReference is not null
-                    ? SourceLinkService.OpenEmbeddedPdbOnly(
-                        assemblyReference,
-                        discoveryReadLimits,
-                        logger.Log)
-                    : SourceLinkService.OpenEmbeddedPdbOnly(
-                        path,
-                        discoveryReadLimits,
-                        logger.Log)
+                    ? needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                assemblyReference,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            assemblyReference,
+                            discoveryReadLimits,
+                            logger.Log)
+                    : needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                path,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            path,
+                            discoveryReadLimits,
+                            logger.Log)
                 : assemblyReference is not null
-                    ? bodyAnalysisFeatures
-                        == Analysis.LibraryBodyAnalysisFeatures.None
+                    ? !needsPrefetchedImage
                         ? SourceLinkService.Open(
                             assemblyReference,
                             logger.Log)
                         : SourceLinkService.OpenPrefetched(
                             assemblyReference,
                             logger.Log)
-                    : bodyAnalysisFeatures
-                        == Analysis.LibraryBodyAnalysisFeatures.None
-                            ? SourceLinkService.Open(path, logger.Log)
-                            : SourceLinkService.OpenPrefetched(
-                                path,
-                                logger.Log);
+                    : !needsPrefetchedImage
+                        ? SourceLinkService.Open(path, logger.Log)
+                        : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
             bool projectOptimizationOpportunities =
                 options.IncludeSections is null
@@ -2138,6 +2150,15 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                UnsafeEvidencePresenceQuery.Definition,
+                out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
+        {
+            ApplyUnsafeEvidencePresenceResult(
+                inspection,
+                unsafeEvidencePresence);
+        }
+
+        if (results.TryGet(
                 UnsafeEvidenceQuery.Definition,
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
@@ -2741,6 +2762,30 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown unsafe-evidence result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyUnsafeEvidencePresenceResult(
+        LibraryInspection inspection,
+        UnsafeEvidencePresenceResult result)
+    {
+        switch (result)
+        {
+            case UnsafeEvidencePresenceResult.Available available:
+                inspection.UnsafeEvidencePresent =
+                    available.HasEvidence;
+                inspection.UnsafeEvidencePresenceError = null;
+                break;
+
+            case UnsafeEvidencePresenceResult.Failed failed:
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    failed.Error;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe-evidence-presence result '{result.GetType().Name}'.");
         }
     }
 
