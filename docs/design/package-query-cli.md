@@ -327,10 +327,11 @@ the CLI's named facets as canonical for the browser's facet rail.
 2. **Sections migration — done, via #4551, but not as its own slice.**
    `find --package-prefix` rendering already routes through the shared
    Sections registry (`PackageProfileSections`,
-   `SectionPipeline<PackageProfileView>`), so `-S`/`--where`/`--count`/
-   `--rows` work the same way they do for `library`/`member`/`package`
-   without a second bespoke implementation. What did not land: retiring
-   `-t`-as-package-limit for the settled `-n` contract. See
+   `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
+   same way they do for `library`/`member`/`package`, without a second
+   bespoke implementation. What did not land alongside it: retiring
+   `-t`-as-package-limit for the settled `-n` contract, and `-S`/`--where`
+   remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 3. **Retire `-t` for `-n` on `find --package-prefix`**, closing the gap step
    2 left open, and **wire nuspec-tier `--where`** onto package-profile rows,
