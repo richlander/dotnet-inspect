@@ -4906,6 +4906,21 @@ static class FidelityCheck
                 reader.GetString(
                     reader.GetGenericParameter(parameterHandle).Name));
         }
+        foreach (var qualifiedName in declaration.DescendantNodes()
+            .OfType<QualifiedNameSyntax>())
+        {
+            NameSyntax root = qualifiedName.Left;
+            while (root is QualifiedNameSyntax nested)
+                root = nested.Left;
+            if (root is SimpleNameSyntax simpleRoot
+                && HasNestedOrBaseInterfaceIdentifierCollision(
+                    reader,
+                    bodyType,
+                    simpleRoot.Identifier.ValueText))
+            {
+                return true;
+            }
+        }
         var identifiers = declaration.DescendantNodes()
             .OfType<SimpleNameSyntax>()
             .Where(name =>

@@ -96,6 +96,11 @@ public class FidelityCheckGeneratedFilterTests
                 public sealed class T { }
                 public sealed class Timer { }
                 public sealed class Widget { }
+
+                public class Outer
+                {
+                    public sealed class Inner { }
+                }
             }
 
             namespace SignatureCollision
@@ -105,6 +110,7 @@ public class FidelityCheckGeneratedFilterTests
                 public interface IBody { object M(); }
                 public interface IGeneric { void M<T>(Models.T value); }
                 public interface INested { void M(Models.Widget value); }
+                public interface IQualifiedNested { object Create(); }
                 public interface ITypeGeneric { void M(Models.T value); }
 
                 public class BaseWithNested
@@ -139,6 +145,17 @@ public class FidelityCheckGeneratedFilterTests
                     void INested.M(Models.Widget value) { }
                 }
 
+                public sealed class QualifiedNested : IQualifiedNested
+                {
+                    public class Outer
+                    {
+                        public sealed class Inner { }
+                    }
+
+                    object IQualifiedNested.Create()
+                        => new Models.Outer.Inner();
+                }
+
                 public sealed class TypeGeneric<T> : ITypeGeneric
                 {
                     void ITypeGeneric.M(Models.T value) { }
@@ -160,6 +177,7 @@ public class FidelityCheckGeneratedFilterTests
                 ("C", "SignatureCollision.I.M", false),
                 ("Generic", "SignatureCollision.IGeneric.M", false),
                 ("Nested", "SignatureCollision.INested.M", false),
+                ("QualifiedNested", "SignatureCollision.IQualifiedNested.Create", false),
                 ("TypeGeneric`1", "SignatureCollision.ITypeGeneric.M", false)
             })
             {
@@ -198,11 +216,15 @@ public class FidelityCheckGeneratedFilterTests
                     or "SignatureCollision.C"
                     or "SignatureCollision.Generic"
                     or "SignatureCollision.Nested"
+                    or "SignatureCollision.QualifiedNested"
                     or "SignatureCollision.TypeGeneric`1",
                 candidate => candidate.Method.EndsWith(
                     "Clone",
                     StringComparison.Ordinal)
-                    || candidate.Method.EndsWith(".M", StringComparison.Ordinal));
+                    || candidate.Method.EndsWith(".M", StringComparison.Ordinal)
+                    || candidate.Method.EndsWith(
+                        ".Create",
+                        StringComparison.Ordinal));
             var batchResults = FidelityCheck.Evaluate(
                 assemblyPath,
                 typeName => typeName is "Contracts.SameNamespace"
@@ -213,6 +235,7 @@ public class FidelityCheckGeneratedFilterTests
                     or "SignatureCollision.C"
                     or "SignatureCollision.Generic"
                     or "SignatureCollision.Nested"
+                    or "SignatureCollision.QualifiedNested"
                     or "SignatureCollision.TypeGeneric`1");
             foreach (var results in new[] { targetedResults, batchResults })
             {
@@ -231,6 +254,7 @@ public class FidelityCheckGeneratedFilterTests
                     "SignatureCollision.C",
                     "SignatureCollision.Generic",
                     "SignatureCollision.Nested",
+                    "SignatureCollision.QualifiedNested",
                     "SignatureCollision.TypeGeneric`1"
                 })
                 {
@@ -242,6 +266,9 @@ public class FidelityCheckGeneratedFilterTests
                                     StringComparison.Ordinal)
                                 || result.Method.EndsWith(
                                     ".M",
+                                    StringComparison.Ordinal)
+                                || result.Method.EndsWith(
+                                    ".Create",
                                     StringComparison.Ordinal)))
                         .UsedProductWholeMember);
                 }
