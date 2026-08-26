@@ -160,7 +160,7 @@ pairs instead:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.allocation
 ```
 
@@ -174,7 +174,7 @@ observation:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.call-site
 ```
 
@@ -188,7 +188,7 @@ disappeared:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.unsafety
 ```
 

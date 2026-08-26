@@ -363,6 +363,7 @@ public static class MemberOptionsParser
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
+            Format = outputFormat,
             MarkdownExplicitlySet =
                 parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),

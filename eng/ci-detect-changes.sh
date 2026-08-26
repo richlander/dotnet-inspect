@@ -330,6 +330,9 @@ while IFS= read -r -d '' file; do
     # thing keeping this file honest against the pre-merge preset, so
     # editing the file must run the lane that validates it.
     eng/decompiler-gate-expected-classes.txt) CODE=true ;;
+    # Markdown under the browser prototype is documentation, not a browser
+    # build input. Keep non-Markdown fixtures and configuration gated.
+    prototypes/inspect-web/*.md) ;;
     prototypes/inspect-web/*) WEB=true ;;
     prototypes/annotated-source-viewer/*) WEB=true ;;
     *.props|*.targets|*.sln|*.slnx) CODE=true; WEB=true ;;

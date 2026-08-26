@@ -200,6 +200,31 @@ internal sealed class BrowserInspectionScope : IDisposable
         return Implementation.FindParticipant(implementation.Participant);
     }
 
+    public BrowserWorkspaceParticipant? TryGetSurfaceParticipant(
+        BrowserWorkspaceParticipant implementationParticipant)
+    {
+        ArgumentNullException.ThrowIfNull(implementationParticipant);
+        if (SurfaceParticipants.Contains(implementationParticipant))
+            return implementationParticipant;
+        if (!ImplementationParticipants.Contains(implementationParticipant))
+        {
+            throw new ArgumentException(
+                "The participant does not belong to the implementation workspace role.",
+                nameof(implementationParticipant));
+        }
+
+        return SurfaceParticipants.SingleOrDefault(surface =>
+            surface.Coordinate.Key.Equals(
+                implementationParticipant.Coordinate.Key,
+                StringComparison.Ordinal)
+            && surface.Coordinate.Selection
+                .FindImplementationAsset(surface.Asset)
+                ?.Path.Equals(
+                    implementationParticipant.Asset.Path,
+                    StringComparison.Ordinal)
+                is true);
+    }
+
     public void Dispose()
     {
         Exception? roleFailure = null;

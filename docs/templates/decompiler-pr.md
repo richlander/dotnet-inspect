@@ -36,16 +36,17 @@ makes this a before→after comparison, not a snapshot of only the raised output
 a snapshot cannot reveal a regression that leaves the After invalid or
 behavior-changing.
 
-Acquire each code block from `dotnet-inspect` rather than paraphrasing or
-hand-transcribing, so every render in the PR is verbatim product output for the
-same `{Type} {MethodSelector} {scope}`:
+Acquire each code block and diff from `dotnet-inspect` rather than paraphrasing
+or hand-transcribing, so every render in the PR is verbatim product output for
+the same `{Type} {MethodSelector} {scope}`:
 
-- PDB source reference: `-S "PDB Source"` (Portable-PDB-selected,
-  checksum-verified C# acquired locally or through SourceLink). Its checksum
-  proves agreement with the Portable PDB declaration, not independent build
-  provenance. When no matching C# is available (no usable PDB, no local or
-  SourceLink source, or a non-C# source language), fall back to the raw `IL`
-  section (`-S "IL"`), which remains authoritative for the compiled behavior.
+- PDB Source → After: `-S "Source Diff"` at the PR head. This lens compares
+  Portable-PDB-selected, checksum-matching C# acquired locally or through
+  SourceLink with the candidate decompilation. Its checksum proves agreement
+  with the Portable PDB declaration, not independent build provenance. Normal
+  output is reviewer-sized; use `-v:d` when it reports a partial presentation.
+  When no matching C# is available, retain the generated unavailable result and
+  use raw `IL` as the authoritative compiled-body evidence.
 - Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
 - After: `-S "Decompiled Source"` at this PR's head (the post-change output).
 - Applied Taste: `-S "Applied Taste"` at the same commit as each render, to
@@ -54,10 +55,12 @@ same `{Type} {MethodSelector} {scope}`:
 Only Fully raised is authored by hand — it is the intended endpoint, not a
 current render.
 
-dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "PDB Source"
+dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Source Diff"
 
-Keep PDB source reference immediately before Before. Omit that section only
-when neither C# source nor IL is obtainable, and say so explicitly.
+Keep the generated PDB Source → After lens beside Before → After. It supplies
+the PDB source reference as part of the diff, so do not duplicate that code
+block. If PDB source is unavailable, retain the generated unavailable result
+rather than deleting the lens; Before → After and raw IL remain usable.
 
 Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
@@ -109,10 +112,10 @@ output. "The tests pass" is not a lowering or ownership proof.
 | Decline boundary | {near misses that remain flat and their tests} |
 | Falsifier | {evidence that would make the raise unsound} |
 
-### Structural review
+### Two-lens review
 
 <!--
-For a changed rendered body, first acquire both exact revisions with:
+For a changed rendered body, acquire both exact revisions with:
 
 dotnet-inspect member {Type} {MethodSelector} {scope} \
   -S "Annotated Source Document"
@@ -123,13 +126,27 @@ artifact directly from those exact revisions:
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/before.json /tmp/after.json
 
-Paste the output verbatim. Its complete Before/After blocks and rich structural
+Then acquire the independent SourceLink-backed lens from the PR head:
+
+dotnet-inspect member {Type} {MethodSelector} {scope} \
+  -S "Source Diff" --bare > /tmp/source-diff.txt
+
+Paste both outputs verbatim under their respective headings. The structural
+artifact's complete Before/After blocks and rich structural
 diff derive from one product-issued `CSharpStructuralDiffDocument` bound to
 physical-method and IL-origin provenance; do not manually place carets or
 reconstruct rows. Node ids remain document-local. Equal ids, coordinates,
 selected text, labels, and display order never establish correspondence.
 Fidelity and retained IL notes are independent evidence, not claims inferred
 from the C# transition.
+
+The Source Diff is PDB Source → After text convergence, not structural
+correspondence. Its comments name the PDB-selected document and checksum
+agreement, including whether CR/LF normalization was required, without claiming
+independent build provenance. If its normal projection reports `Partial`,
+either retain that explicit limit or rerun with `-v:d` for complete line
+evidence. Record compile-back status beside it as an independent oracle; do not
+infer fidelity from textual similarity.
 
 If the generated review reports `Partial`, explicitly determine whether the
 claimed changed structure has a unique matched row. Incidental matched rows do
@@ -148,7 +165,24 @@ standalone Before and After sections below, but retain their validity,
 correctness, fidelity, taste, and commit verdicts.
 -->
 
+#### Before → After: structural raise delta
+
 Structural review status: {generated artifact / Not generated — unsupported or ambiguous product correspondence: detail}
+
+{paste generated structural review}
+
+#### PDB Source → After: source convergence
+
+Source convergence status: {Different / Identical / PDB Source unavailable}
+
+```diff
+{paste the generated Source Diff}
+```
+
+- PDB source: {document location from the generated diff}
+- Integrity: {portable-PDB checksum agreement from the generated diff}
+- Source correspondence: {Different / Identical / Unavailable}
+- Compile-back status: {independent After compile-back result / not currently checkable}
 
 ### Benchmark target
 
@@ -170,20 +204,6 @@ dotnet-inspect command:
 
 ```bash
 dotnet-inspect member {Type} {MethodSelector} {scope} -S "Decompiled Source"
-```
-
-### PDB source reference
-
-<!--
-Expected for every raise PR. Acquire with dotnet-inspect: prefer C# via
-`-S "PDB Source"`; fall back to the raw IL section (`-S "IL"`) when no
-checksum-matching C# is available locally or through SourceLink. Omit only
-after checking and finding neither C# source nor IL is obtainable — say so
-explicitly rather than silently deleting this section.
--->
-
-```csharp
-// PDB-mapped source reference; checksum-matched, not independently proven build provenance
 ```
 
 ### Before
