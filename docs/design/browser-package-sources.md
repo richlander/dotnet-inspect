@@ -668,12 +668,18 @@ When several signed transport aliases represent one producer, alias failover
 shares one operation ceiling rather than multiplying it by the alias count.
 The same ceiling remains attached to a returned payload stream. A payload that
 arrives after the shared deadline but before handoff is disposed by the route
-before the timeout result is returned.
+before the timeout result is returned. Failure during that cleanup remains
+secondary: caller cancellation keeps its token and retains cleanup evidence in
+the inner exception chain, while route expiry remains a typed timeout whose
+safe message records the cleanup failure.
 `PackagePayloadAcquisitionTests.SignedSourceAliasesShareOneOperationDeadline`
 and
 `SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate those
 properties, and `SignedSourceAliasDeadlineDisposesLatePayload` gates the late
 handoff race.
+`SignedSourceAliasDeadlineCleanupFailurePreservesTimeout` and
+`SignedSourceAliasCallerCancellationOutranksCleanupFailure` gate the failure
+precedence.
 
 Gallery version enumeration joins the complete flat-container list with the
 SemVer2 registration index. Inline pages are consumed in place. External page

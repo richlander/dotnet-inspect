@@ -373,6 +373,7 @@ public class PackageCommand
 
             var (versionQueryName, versionQueryPinned) = PackageExtractor.ParsePackageReference(packageArgs[0]);
             string normalizedName = versionQueryName.ToLowerInvariant();
+            string? versionQueryPattern = null;
             if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
             {
                 versionQueryPinned = null;
@@ -380,6 +381,7 @@ public class PackageCommand
             }
             if (versionQueryPinned?.IndexOf('*') >= 0)
             {
+                versionQueryPattern = versionQueryPinned;
                 versionQueryPinned = null;
             }
             if (PackageCoordinateResolver.Validate(
@@ -462,6 +464,172 @@ public class PackageCommand
                 else
                     CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
+            }
+
+            if (versionQueryPattern is not null)
+            {
+                bool MatchesPattern(string version) =>
+                    version.StartsWith(
+                        versionQueryPattern.Replace(
+                            "*",
+                            string.Empty,
+                            StringComparison.Ordinal),
+                        StringComparison.OrdinalIgnoreCase);
+
+                if (options.Limit == 1
+                    && !options.IncludeUnlisted
+                    && !options.ListVersionsWithFeed)
+                {
+                    string? selected =
+                        await PackageExtractor.ResolveVersionPatternAsync(
+                            context.HttpClient,
+                            normalizedName,
+                            versionQueryPattern,
+                            NuGetSourceResolver.ResolveSourcesForPackage(
+                                options.SourceOptions,
+                                normalizedName),
+                            logger.Log);
+                    if (selected is null)
+                    {
+                        WriteVersionLookupFailure(
+                            normalizedName,
+                            $"No listed version of package '{normalizedName}' "
+                            + $"matches '{versionQueryPattern}'.");
+                        return 1;
+                    }
+
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            1,
+                            out var patternProjectionExit))
+                    {
+                        return patternProjectionExit;
+                    }
+
+                    WriteSingleVersion(selected, options);
+                    return 0;
+                }
+
+                if (options.ListVersionsWithFeed)
+                {
+                    List<PackageVersionSourceInfo>? allRows =
+                        await PackageExtractor.GetVersionListingsWithSourceAsync(
+                            context.HttpClient,
+                            normalizedName,
+                            options.IncludePrerelease,
+                            options.IncludeUnlisted,
+                            limit: null,
+                            logger.Log,
+                            options.SourceOptions);
+                    if (allRows is null)
+                    {
+                        WriteVersionLookupFailure(
+                            normalizedName,
+                            $"Package '{packageArgs[0]}' not found.");
+                        return 1;
+                    }
+
+                    List<PackageVersionSourceInfo> matchingRows =
+                        allRows.Where(row => MatchesPattern(row.Version))
+                            .ToList();
+                    if (options.Limit is { } patternLimit)
+                    {
+                        HashSet<string> retainedVersions =
+                            matchingRows.Select(row => row.Version)
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .Take(patternLimit)
+                                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        matchingRows =
+                            matchingRows.Where(
+                                    row => retainedVersions.Contains(
+                                        row.Version))
+                                .ToList();
+                    }
+
+                    if (matchingRows.Count == 0)
+                    {
+                        WriteVersionLookupFailure(
+                            normalizedName,
+                            $"No version of package '{normalizedName}' "
+                            + $"matches '{versionQueryPattern}'.");
+                        return 1;
+                    }
+
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions-with-feed",
+                            matchingRows.Count,
+                            out var patternFeedExit))
+                    {
+                        return patternFeedExit;
+                    }
+
+                    OutputFormatter.WriteVersionFeedTable(
+                        matchingRows,
+                        options,
+                        Console.Out);
+                    return 0;
+                }
+
+                List<PackageVersionInfo>? allListings =
+                    await PackageExtractor.GetVersionListingsAsync(
+                        context.HttpClient,
+                        normalizedName,
+                        options.IncludePrerelease,
+                        options.IncludeUnlisted,
+                        limit: null,
+                        logger.Log,
+                        options.SourceOptions);
+                if (allListings is null)
+                {
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    return 1;
+                }
+
+                List<PackageVersionInfo> matchingListings =
+                    allListings.Where(
+                            listing => MatchesPattern(listing.Version))
+                        .Take(options.Limit ?? int.MaxValue)
+                        .ToList();
+                if (matchingListings.Count == 0)
+                {
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"No version of package '{normalizedName}' "
+                        + $"matches '{versionQueryPattern}'.");
+                    return 1;
+                }
+
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        matchingListings.Count,
+                        out var patternListingExit))
+                {
+                    return patternListingExit;
+                }
+
+                if (options.IncludeUnlisted)
+                {
+                    OutputFormatter.WriteVersionListings(
+                        matchingListings,
+                        options,
+                        Console.Out);
+                }
+                else
+                {
+                    OutputFormatter.WriteStringList(
+                        matchingListings.Select(listing => listing.Version),
+                        "Version",
+                        "Version",
+                        options.Tsv,
+                        options.Jsonl,
+                        Console.Out);
+                }
+                return 0;
             }
 
             if (options.Limit == 1 && options.ForceLatest)

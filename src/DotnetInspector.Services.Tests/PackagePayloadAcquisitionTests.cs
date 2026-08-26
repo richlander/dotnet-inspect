@@ -2556,6 +2556,67 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task SignedSourceAliasDeadlineCleanupFailurePreservesTimeout()
+    {
+        var transport =
+            new ServiceIndexHandler.LatePayloadSourceClient(
+                TimeSpan.FromMilliseconds(100),
+                throwOnDispose: true);
+        using var sourceClient =
+            new FailoverPackageSourceClient(
+                [transport],
+                TimeSpan.FromMilliseconds(20));
+
+        PackageSourceFailure failure = Assert.IsType<
+            PackageSourceOperationResult<PackageSourcePayload>.Failed>(
+                await sourceClient.GetPackageAsync(
+                    PackageId,
+                    Version,
+                    TestContext.Current.CancellationToken))
+            .Failure;
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Contains(
+            "cleanup",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.True(transport.StreamDisposed);
+    }
+
+    [Fact]
+    public async Task SignedSourceAliasCallerCancellationOutranksCleanupFailure()
+    {
+        var transport =
+            new ServiceIndexHandler.LatePayloadSourceClient(
+                TimeSpan.FromMilliseconds(100),
+                throwOnDispose: true);
+        using var sourceClient =
+            new FailoverPackageSourceClient(
+                [transport],
+                TimeSpan.FromSeconds(1));
+        using var callerCancellation =
+            new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => sourceClient.GetPackageAsync(
+                    PackageId,
+                    Version,
+                    callerCancellation.Token));
+
+        Assert.Equal(
+            callerCancellation.Token,
+            exception.CancellationToken);
+        AggregateException cleanupAggregate =
+            Assert.IsType<AggregateException>(
+                exception.InnerException);
+        Assert.Contains(
+            cleanupAggregate.InnerExceptions,
+            inner => inner is InvalidOperationException);
+        Assert.True(transport.StreamDisposed);
+    }
+
+    [Fact]
     public async Task PackageStreamTimeoutRemainsATypedSourceFailure()
     {
         using var source =
@@ -3720,10 +3781,13 @@ public sealed class PackagePayloadAcquisitionTests
             }
         }
 
-        internal sealed class LatePayloadSourceClient(TimeSpan delay)
+        internal sealed class LatePayloadSourceClient(
+            TimeSpan delay,
+            bool throwOnDispose = false)
             : IPackageSourceClient
         {
-            private readonly DisposeTrackingStream _stream = new();
+            private readonly DisposeTrackingStream _stream =
+                new(throwOnDispose);
 
             public bool PayloadProduced { get; private set; }
             public bool StreamDisposed => _stream.IsDisposed;
@@ -3781,13 +3845,19 @@ public sealed class PackagePayloadAcquisitionTests
             }
         }
 
-        private sealed class DisposeTrackingStream : MemoryStream
+        private sealed class DisposeTrackingStream(bool throwOnDispose)
+            : MemoryStream
         {
             internal bool IsDisposed { get; private set; }
 
             protected override void Dispose(bool disposing)
             {
                 IsDisposed = true;
+                if (disposing && throwOnDispose)
+                {
+                    throw new InvalidOperationException(
+                        "Synthetic payload cleanup failure.");
+                }
                 base.Dispose(disposing);
             }
         }

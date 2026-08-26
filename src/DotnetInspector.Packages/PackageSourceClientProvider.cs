@@ -287,6 +287,7 @@ internal sealed class FailoverPackageSourceClient
     {
         CancellationTokenSource? routeCancellation =
             CreateRouteCancellation(cancellationToken);
+        Exception? rejectedPayloadCleanupFailure = null;
         try
         {
             PackageSourceOperationResult<PackageSourcePayload>.Failed?
@@ -304,8 +305,15 @@ internal sealed class FailoverPackageSourceClient
                         is PackageSourceOperationResult<PackageSourcePayload>
                             .Succeeded lateSuccess)
                     {
-                        await lateSuccess.Value.Content.DisposeAsync()
-                            .ConfigureAwait(false);
+                        try
+                        {
+                            await lateSuccess.Value.Content.DisposeAsync()
+                                .ConfigureAwait(false);
+                        }
+                        catch (Exception exception)
+                        {
+                            rejectedPayloadCleanupFailure = exception;
+                        }
                     }
 
                     routeCancellation.Token.ThrowIfCancellationRequested();
@@ -343,9 +351,15 @@ internal sealed class FailoverPackageSourceClient
         catch (OperationCanceledException exception)
             when (cancellationToken.IsCancellationRequested)
         {
+            Exception inner = rejectedPayloadCleanupFailure is null
+                ? exception
+                : new AggregateException(
+                    "Cleanup of a payload rejected after cancellation failed.",
+                    exception,
+                    rejectedPayloadCleanupFailure);
             throw new OperationCanceledException(
                 "NuGet operation was canceled by the caller.",
-                exception,
+                inner,
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -353,7 +367,8 @@ internal sealed class FailoverPackageSourceClient
         {
             return TimeoutFailure<PackageSourcePayload>(
                 capability,
-                coordinate);
+                coordinate,
+                rejectedPayloadCleanupFailure is not null);
         }
         finally
         {
@@ -373,7 +388,8 @@ internal sealed class FailoverPackageSourceClient
 
     private PackageSourceOperationResult<T> TimeoutFailure<T>(
         PackageSourceCapabilities capability,
-        PackageSourceCoordinate? coordinate = null) =>
+        PackageSourceCoordinate? coordinate = null,
+        bool cleanupFailed = false) =>
         new PackageSourceOperationResult<T>.Failed(
             new PackageSourceFailure(
                 Identity,
@@ -381,7 +397,10 @@ internal sealed class FailoverPackageSourceClient
                 capability,
                 coordinate,
                 PackageSourceFailureKind.Timeout,
-                "The package source operation exceeded its configured deadline."));
+                "The package source operation exceeded its configured deadline."
+                + (cleanupFailed
+                    ? " Cleanup of a payload rejected after the deadline also failed."
+                    : string.Empty)));
 
     private sealed class RouteDeadlineStream(
         Stream inner,

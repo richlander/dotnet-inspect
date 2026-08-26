@@ -171,7 +171,11 @@ All transports in that route share one operation deadline; trying another
 alias does not reset the ceiling, and a successful package stream retains the
 same route deadline until the caller disposes it. If a transport returns a
 successful payload after that deadline has expired, the route owns and
-disposes the unreturned stream before projecting the typed timeout.
+disposes the unreturned stream before projecting the typed timeout. Cleanup
+failure does not replace caller-cancellation precedence or timeout
+classification: caller cancellation retains the failure in its inner
+exception chain, while the content-free typed timeout records that cleanup
+also failed.
 `PackagePayloadAcquisitionTests.SignedSourceAliases_FailOverWithinOneProducer`
 and
 `SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer` gate
@@ -180,6 +184,9 @@ failover.
 `SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate the route-wide
 deadline, and `SignedSourceAliasDeadlineDisposesLatePayload` gates disposal at
 the handoff race.
+`SignedSourceAliasDeadlineCleanupFailurePreservesTimeout` and
+`SignedSourceAliasCallerCancellationOutranksCleanupFailure` gate cleanup
+failure classification.
 
 ## Resolving active and eligible sources
 

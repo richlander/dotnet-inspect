@@ -108,7 +108,8 @@ identity and malformed pins fail before source discovery. A timeout while
 consuming a returned package stream remains a typed source timeout rather than
 being reported as payload-policy rejection. A successful payload returned by a
 transport after the route deadline is disposed before that timeout is
-projected.
+projected. Cleanup failure cannot replace route-timeout or caller-cancellation
+classification.
 Package-ID validation precedes wildcard and range discovery as well as exact
 acquisition, so every selector shape returns the same clean coordinate
 diagnostic without opening a source client.
@@ -121,6 +122,8 @@ absence and authentication failures are not retried.
 `PackageExtractorOfflineTests.ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate`,
 `PackageVersionTests.ExactPin_InvalidPackageId_ReturnsCleanDiagnostic`,
 `PackageVersionTests.Versions_NonCanonicalPinUsesCanonicalCoordinate`,
+`PackageVersionTests.Versions_WildcardSelectorUsesVersionListing`,
+`PackageVersionTests.Versions_WildcardSelectorFiltersBeforeLimit`,
 `PackageVersionTests.Versions_InvalidPinReturnsCoordinateDiagnostic`,
 `PackageVersionTests.Versions_RangeInvalidPackageIdReturnsCleanDiagnostic`,
 `PackageVersionVectorTests.ResolveAsync_InvalidPackageIdFailsBeforeSourceRequest`,
@@ -131,6 +134,8 @@ absence and authentication failures are not retried.
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_PartialListingFailsClosed`,
 `PackagePayloadAcquisitionTests.PackageStreamTimeoutRemainsATypedSourceFailure`,
 `PackagePayloadAcquisitionTests.SignedSourceAliasDeadlineDisposesLatePayload`,
+`PackagePayloadAcquisitionTests.SignedSourceAliasDeadlineCleanupFailurePreservesTimeout`,
+`PackagePayloadAcquisitionTests.SignedSourceAliasCallerCancellationOutranksCleanupFailure`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
 and
 `PackageSourceClientTests.V3SourceNormalizationRemovesAtMostOneTrailingSlash`,
@@ -313,8 +318,11 @@ the nuget.org gallery:
   returned unfiltered.
 - **Selectors do not become coordinates.** A concrete
   `Name@Version --versions` may use its canonical exact-version shortcut, but
-  `Name@3.0.* --versions` remains a general version-listing request. The
-  wildcard is not submitted to exact-coordinate validation.
+  `Name@3.0.* --versions` remains a version-listing request constrained to
+  matching `3.0.*` candidates. With a limit of one it uses authoritative
+  wildcard resolution and returns the latest matching listed version; larger
+  listings apply the selector before their limit. The wildcard is not
+  submitted to exact-coordinate validation.
 - **Explicit access is preserved.** A pinned concrete `Name@Version` never
   enumerates, so a known unlisted version still resolves and loads — matching
   NuGet's own behavior of restoring a known unlisted version. `Name@latest`,

@@ -159,7 +159,27 @@ public class PackageVersionTests
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
 
         Assert.Equal(0, exit);
-        Assert.NotEmpty(output.Trim());
+        Assert.Matches(@"^8\.", output.Trim());
+        Assert.DoesNotContain("exact version", error);
+    }
+
+    [Fact]
+    public async Task Versions_WildcardSelectorFiltersBeforeLimit()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "System.Text.Json@8.*", "--versions", "3"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        string[] versions = output.Trim()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(3, versions.Length);
+        Assert.All(
+            versions,
+            version => Assert.StartsWith("8.", version));
         Assert.DoesNotContain("exact version", error);
     }
 
