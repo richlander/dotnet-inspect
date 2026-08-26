@@ -293,37 +293,56 @@ public sealed class WorkspaceStateCommandTests
             File.Exists(executable),
             $"Expected the built CLI at {executable}.");
 
-        string command =
-            $"chcp 437>nul & \"{executable}\" workspace-state decode "
-            + $"\"{UnicodeVector}\" | \"{executable}\" workspace-state encode -";
+        string scriptPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-workspace-{Guid.NewGuid():N}.cmd");
+        string script =
+            """
+            @echo off
+            chcp 437 >nul || exit /b 91
+            "%~1" workspace-state decode "%~2" | "%~1" workspace-state encode -
+            """;
+        await File.WriteAllTextAsync(
+            scriptPath,
+            script,
+            Encoding.ASCII,
+            TestContext.Current.CancellationToken);
+
         var startInfo = new ProcessStartInfo("cmd.exe")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true,
         };
         startInfo.ArgumentList.Add("/d");
-        startInfo.ArgumentList.Add("/s");
         startInfo.ArgumentList.Add("/c");
-        startInfo.ArgumentList.Add(command);
+        startInfo.ArgumentList.Add(scriptPath);
+        startInfo.ArgumentList.Add(executable);
+        startInfo.ArgumentList.Add(UnicodeVector);
 
-        using Process process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not start cmd.exe.");
-        CancellationToken cancellationToken =
-            TestContext.Current.CancellationToken;
-        Task<string> output = process.StandardOutput.ReadToEndAsync(
-            cancellationToken);
-        Task<string> error = process.StandardError.ReadToEndAsync(
-            cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        string outputText = await output;
-        string errorText = await error;
-        Assert.True(
-            process.ExitCode == 0,
-            $"Pipeline exited {process.ExitCode}. stderr: {errorText}");
-        Assert.Empty(errorText);
-        Assert.Equal(UnicodeVector, outputText.TrimEnd());
+        try
+        {
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Could not start cmd.exe.");
+            CancellationToken cancellationToken =
+                TestContext.Current.CancellationToken;
+            Task<string> output = process.StandardOutput.ReadToEndAsync(
+                cancellationToken);
+            Task<string> error = process.StandardError.ReadToEndAsync(
+                cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            string outputText = await output;
+            string errorText = await error;
+            Assert.True(
+                process.ExitCode == 0,
+                $"Pipeline exited {process.ExitCode}. stderr: {errorText}");
+            Assert.Empty(errorText);
+            Assert.Equal(UnicodeVector, outputText.TrimEnd());
+        }
+        finally
+        {
+            File.Delete(scriptPath);
+        }
     }
 
     [Fact]

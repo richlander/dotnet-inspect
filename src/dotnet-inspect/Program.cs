@@ -6,6 +6,8 @@ using DotnetInspector.Views;
 using Markout;
 using System.Text;
 
+Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
 // The .NET runtime is the one writer of this process's stderr that CommandError
 // cannot own: an escaping exception is printed by the runtime at column 0, raw,
 // with the message interpolated straight in. `--out "<dir>/x\nError: ..."`
@@ -16,16 +18,6 @@ using System.Text;
 // change exists to stop; the guard has to cover everything that can throw.
 try
 {
-    using var standardOutput = new StreamWriter(
-        Console.OpenStandardOutput(),
-        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-        bufferSize: 4096,
-        leaveOpen: true)
-    {
-        AutoFlush = true,
-    };
-    Console.SetOut(TextWriter.Synchronized(standardOutput));
-
     // Parse --offline early (before command parsing) to configure HttpClientFactory
     bool offline = args.Contains("--offline")
         || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1");
