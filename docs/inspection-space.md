@@ -54,12 +54,20 @@ completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors
 and declared dependency groups. A network-free `PackageManifestFactsQuery`
 validates each bounded manifest and projects one immutable fact model that both
-package-profile and package-content dependency queries consume. The
-query-bound `Packages` section owns package/dependency row expansion, schema,
-projection, and visible failure or truncation rows; the CLI owns acquisition
-authorization and format selection. The profile does not acquire package
-archives or assemblies, and hosts may present each L1 match incrementally
-before any later package drill-in.
+package-profile and package-content dependency queries consume. In addition to
+the 1 MiB transport and 512 KiB decoded-document bounds, that projection admits
+at most 32,768 UTF-16 code units per scalar value, 128 package types, 1,024
+dependency groups, and 4,096 dependencies; a violation is an invalid-manifest
+failure rather than a partial fact set. The query-bound `Packages` section owns
+package/dependency row
+expansion, schema, projection, and visible failure or truncation rows. It
+applies an explicit row window before constructing rows and shares contained
+package-level cells across dependency rows. The CLI registry materializes the
+event stream once within query execution, while the public L1 streaming API
+remains available to incremental hosts. The CLI owns acquisition authorization
+and format selection. The profile does not acquire package archives or
+assemblies, and hosts may present each L1 match incrementally before any later
+package drill-in.
 
 The Integration graph now accepts finite explicit-subject induced-set requests
 over one realized context group. Workspace scope still decides which

@@ -38,11 +38,13 @@ public static class PackageProfileSections
     private static InspectionQueryRegistry<PackageProfileQueryContext>
         CreateQueryRegistry() =>
         new InspectionQueryRegistry<PackageProfileQueryContext>()
-            .Add(
+            .AddAsync(
                 PackageProfileQuery.Definition,
-                static context => PackageProfileQuery.ExecuteAsync(
+                static (context, cancellationToken) =>
+                    PackageProfileQuery.ExecuteToArrayAsync(
                     context.Source,
-                    context.Request));
+                    context.Request,
+                    cancellationToken));
 
     private static SectionPipeline<PackageProfileView> CreatePipeline(
         Func<InspectionQueryDefinition, InspectionCost> queryCost) =>
@@ -59,19 +61,21 @@ public static class PackageProfileSections
 
     public static PackageProfileView CreateDocument(
         string prefix,
-        IReadOnlyList<PackageProfileEvent> events)
+        IReadOnlyList<PackageProfileEvent> events,
+        RowWindow? rowWindow = null)
     {
-        var rows = new List<PackageProfileRow>();
         PackageProfileSummary? summary = null;
+        int totalRows = 0;
         foreach (PackageProfileEvent profileEvent in events)
         {
             switch (profileEvent)
             {
                 case PackageProfileEvent.Match match:
-                    AddMatchRows(rows, match.Value);
+                    totalRows = checked(
+                        totalRows + MatchRowCount(match.Value));
                     break;
-                case PackageProfileEvent.Failure failure:
-                    rows.Add(FailureRow(failure.Value));
+                case PackageProfileEvent.Failure:
+                    totalRows = checked(totalRows + 1);
                     break;
                 case PackageProfileEvent.Completed completed:
                     summary = completed.Value;
@@ -80,26 +84,62 @@ public static class PackageProfileSections
         }
 
         if (summary?.Truncated == true)
+            totalRows = checked(totalRows + 1);
+
+        (int keepStart, int keepEnd) = rowWindow is { IsUnlimited: false }
+            ? rowWindow.Value.Resolve(totalRows)
+            : (0, totalRows);
+        var rows = new List<PackageProfileRow>(keepEnd - keepStart);
+        int rowIndex = 0;
+        foreach (PackageProfileEvent profileEvent in events)
         {
-            rows.Add(new PackageProfileRow(
-                package: "",
-                dependency: "",
-                version: "",
-                owners: "",
-                targetFramework: "",
-                dependencyVersion: "",
-                authors: "",
-                verified: "",
-                downloads: "",
-                source: summary.Producer.Value,
-                status: "truncated",
-                error: TruncationMessage(summary)));
+            if (rowIndex >= keepEnd)
+                break;
+
+            switch (profileEvent)
+            {
+                case PackageProfileEvent.Match match:
+                    AddMatchRows(
+                        rows,
+                        match.Value,
+                        ref rowIndex,
+                        keepStart,
+                        keepEnd);
+                    break;
+                case PackageProfileEvent.Failure failure:
+                    if (rowIndex >= keepStart)
+                        rows.Add(FailureRow(failure.Value));
+                    rowIndex++;
+                    break;
+            }
+        }
+
+        if (summary?.Truncated == true && rowIndex < keepEnd)
+        {
+            if (rowIndex >= keepStart)
+            {
+                rows.Add(new PackageProfileRow(
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    EmptyCell,
+                    Cell(summary.Producer.Value),
+                    TruncatedCell,
+                    Cell(TruncationMessage(summary))));
+            }
+
+            rowIndex++;
         }
 
         return new PackageProfileView(
             new InertString(TextPolicy.Prose, $"Find packages: {prefix}"),
             new InertString(TextPolicy.Prose, prefix),
-            rows.Count == 0
+            totalRows == 0
                 ? new InertString(
                     TextPolicy.Prose,
                     "No packages found.")
@@ -108,17 +148,13 @@ public static class PackageProfileSections
             Packages = summary?.Matches ?? 0,
             Failures = summary?.Failures ?? 0,
             Truncated = summary?.Truncated ?? false,
-            Results = rows.Count == 0 ? null : rows,
+            Results = totalRows == 0 ? null : rows,
         };
     }
 
     public static int CountRows(
-        PackageProfileView view,
-        RowWindow? rows) =>
-        RowWindow.Apply(
-            rows,
-            (IReadOnlyList<PackageProfileRow>?)view.Results
-                ?? []).Count;
+        PackageProfileView view) =>
+        view.Results?.Count ?? 0;
 
     public sealed class PackageRows : ISectionDescriptor<PackageProfileView>
     {
@@ -134,11 +170,38 @@ public static class PackageProfileSections
 
     private static void AddMatchRows(
         List<PackageProfileRow> rows,
-        PackageProfileMatch match)
+        PackageProfileMatch match,
+        ref int rowIndex,
+        int keepStart,
+        int keepEnd)
     {
+        int matchRowCount = MatchRowCount(match);
+        if (rowIndex + matchRowCount <= keepStart
+            || rowIndex >= keepEnd)
+        {
+            rowIndex += matchRowCount;
+            return;
+        }
+
+        var packageCells = new PackageCells(
+            Cell(match.PackageId),
+            Cell(match.Version),
+            Cell(string.Join(", ", match.Owners)),
+            Cell(match.Manifest.Authors ?? ""),
+            match.Verified ? YesCell : NoCell,
+            Cell(match.TotalDownloads.ToString(CultureInfo.InvariantCulture)),
+            Cell(match.Producer.Value));
+
         if (match.Manifest.DependencyGroups.IsEmpty)
         {
-            rows.Add(MatchRow(match, targetFramework: "", dependency: null));
+            AddMatchRow(
+                rows,
+                packageCells,
+                EmptyCell,
+                dependency: null,
+                ref rowIndex,
+                keepStart,
+                keepEnd);
             return;
         }
 
@@ -147,57 +210,129 @@ public static class PackageProfileSections
         {
             if (group.Dependencies.IsEmpty)
             {
-                rows.Add(MatchRow(
-                    match,
-                    group.TargetFramework,
-                    dependency: null));
+                AddMatchRow(
+                    rows,
+                    packageCells,
+                    Cell(group.TargetFramework),
+                    dependency: null,
+                    ref rowIndex,
+                    keepStart,
+                    keepEnd);
                 continue;
             }
 
+            int groupRows = group.Dependencies.Length;
+            if (rowIndex + groupRows <= keepStart)
+            {
+                rowIndex += groupRows;
+                continue;
+            }
+            if (rowIndex >= keepEnd)
+                return;
+
+            InertString targetFramework = Cell(group.TargetFramework);
             foreach (DeclaredPackageDependency dependency
                 in group.Dependencies)
             {
-                rows.Add(MatchRow(
-                    match,
-                    group.TargetFramework,
-                    dependency));
+                AddMatchRow(
+                    rows,
+                    packageCells,
+                    targetFramework,
+                    dependency,
+                    ref rowIndex,
+                    keepStart,
+                    keepEnd);
+                if (rowIndex >= keepEnd)
+                    return;
             }
         }
     }
 
-    private static PackageProfileRow MatchRow(
-        PackageProfileMatch match,
-        string targetFramework,
-        DeclaredPackageDependency? dependency) =>
-        new(
-            match.PackageId,
-            dependency?.Id ?? "",
-            match.Version,
-            string.Join(", ", match.Owners),
-            targetFramework,
-            dependency?.VersionRange ?? "",
-            match.Manifest.Authors ?? "",
-            match.Verified ? "yes" : "no",
-            match.TotalDownloads.ToString(CultureInfo.InvariantCulture),
-            match.Producer.Value,
-            "matched",
-            "");
+    private static void AddMatchRow(
+        List<PackageProfileRow> rows,
+        PackageCells package,
+        InertString targetFramework,
+        DeclaredPackageDependency? dependency,
+        ref int rowIndex,
+        int keepStart,
+        int keepEnd)
+    {
+        if (rowIndex >= keepStart && rowIndex < keepEnd)
+        {
+            rows.Add(new PackageProfileRow(
+                package.Package,
+                dependency is null ? EmptyCell : Cell(dependency.Id),
+                package.Version,
+                package.Owners,
+                targetFramework,
+                dependency is null
+                    ? EmptyCell
+                    : Cell(dependency.VersionRange),
+                package.Authors,
+                package.Verified,
+                package.Downloads,
+                package.Source,
+                MatchedCell,
+                EmptyCell));
+        }
+
+        rowIndex++;
+    }
 
     private static PackageProfileRow FailureRow(
         PackageProfileFailure failure) =>
         new(
-            failure.PackageId ?? "",
-            dependency: "",
-            failure.Version ?? "",
-            owners: "",
-            targetFramework: "",
-            dependencyVersion: "",
-            authors: "",
-            verified: "",
-            downloads: "",
-            failure.Producer.Value,
-            failure.Kind.ToString(),
-            failure.Message);
+            Cell(failure.PackageId ?? ""),
+            EmptyCell,
+            Cell(failure.Version ?? ""),
+            EmptyCell,
+            EmptyCell,
+            EmptyCell,
+            EmptyCell,
+            EmptyCell,
+            EmptyCell,
+            Cell(failure.Producer.Value),
+            Cell(failure.Kind.ToString()),
+            Cell(failure.Message));
+
+    private static int MatchRowCount(PackageProfileMatch match)
+    {
+        if (match.Manifest.DependencyGroups.IsEmpty)
+            return 1;
+
+        int count = 0;
+        foreach (DeclaredPackageDependencyGroup group
+            in match.Manifest.DependencyGroups)
+        {
+            count = checked(
+                count + Math.Max(1, group.Dependencies.Length));
+        }
+
+        return count;
+    }
+
+    private static InertString Cell(string value) =>
+        new(TextPolicy.Field, value);
+
+    private static readonly InertString EmptyCell =
+        Cell("");
+    private static readonly InertString MatchedCell =
+        Cell("matched");
+    private static readonly InertString TruncatedCell =
+        Cell("truncated");
+    private static readonly InertString YesCell =
+        Cell("yes");
+    private static readonly InertString NoCell =
+        Cell("no");
+
+    private readonly record struct PackageCells(
+        InertString Package,
+        InertString Version,
+        InertString Owners,
+        InertString Authors,
+        InertString Verified,
+        InertString Downloads,
+        InertString Source);
 
     private static string TruncationMessage(
         PackageProfileSummary summary) =>

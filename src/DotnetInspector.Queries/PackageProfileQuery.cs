@@ -96,9 +96,30 @@ public static class PackageProfileQuery
         && prefix.AsSpan().Trim().Length == prefix.Length
         && !prefix.Any(char.IsControl);
 
-    public static InspectionQuery<IAsyncEnumerable<PackageProfileEvent>>
+    public static InspectionQuery<ImmutableArray<PackageProfileEvent>>
         Definition { get; } =
             new("Package profile", InspectionCost.Unbounded);
+
+    /// <summary>
+    /// Executes and materializes one profile for registry consumers.
+    /// </summary>
+    public static async ValueTask<ImmutableArray<PackageProfileEvent>>
+        ExecuteToArrayAsync(
+            IPackageSourceClient source,
+            PackagePrefixProfileRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        var events = ImmutableArray.CreateBuilder<PackageProfileEvent>();
+        await foreach (PackageProfileEvent profileEvent in ExecuteAsync(
+            source,
+            request,
+            cancellationToken).ConfigureAwait(false))
+        {
+            events.Add(profileEvent);
+        }
+
+        return events.ToImmutable();
+    }
 
     public static async IAsyncEnumerable<PackageProfileEvent> ExecuteAsync(
         IPackageSourceClient source,

@@ -54,6 +54,10 @@ public static class PackageManifestFactsQuery
 {
     public const int MaxManifestBytes = 1024 * 1024;
     public const int MaxManifestCharacters = 512 * 1024;
+    public const int MaxScalarCharacters = 32 * 1024;
+    public const int MaxPackageTypes = 128;
+    public const int MaxDependencyGroups = 1024;
+    public const int MaxDependencies = 4096;
 
     public static InspectionQuery<PackageManifestFactsResult> Definition
         { get; } =
@@ -80,6 +84,7 @@ public static class PackageManifestFactsQuery
                 buffer,
                 MaxManifestCharacters);
             ValidateIdentity(nuspec, expectedCoordinate);
+            ValidateScalarFacts(nuspec);
 
             ImmutableArray<DeclaredPackageDependencyGroup> dependencyGroups =
                 ProjectDependencyGroups(nuspec.DependencyGroups);
@@ -129,17 +134,31 @@ public static class PackageManifestFactsQuery
     {
         if (groups is null)
             return [];
+        if (groups.Count > MaxDependencyGroups)
+        {
+            throw new InvalidDataException(
+                "The package manifest contains too many dependency groups.");
+        }
 
         var builder =
             ImmutableArray.CreateBuilder<DeclaredPackageDependencyGroup>(
                 groups.Count);
+        int dependencyCount = 0;
         foreach (DependencyGroup group in groups)
         {
+            ValidateScalar(group.TargetFramework);
             var dependencies =
                 ImmutableArray.CreateBuilder<DeclaredPackageDependency>(
                     group.Dependencies.Count);
             foreach (PackageDependency dependency in group.Dependencies)
             {
+                dependencyCount++;
+                if (dependencyCount > MaxDependencies)
+                {
+                    throw new InvalidDataException(
+                        "The package manifest contains too many dependencies.");
+                }
+
                 if (!PackageCoordinateResolver.IsCanonicalPackageId(
                         dependency.Id))
                 {
@@ -147,6 +166,8 @@ public static class PackageManifestFactsQuery
                         "The package manifest contains an invalid dependency id.");
                 }
 
+                ValidateScalar(dependency.Id);
+                ValidateScalar(dependency.Version);
                 PackageDependencyVersionRange.Validate(dependency.Version);
                 dependencies.Add(
                     new DeclaredPackageDependency(
@@ -162,6 +183,37 @@ public static class PackageManifestFactsQuery
         }
 
         return builder.MoveToImmutable();
+    }
+
+    private static void ValidateScalarFacts(NuspecData nuspec)
+    {
+        ValidateScalar(nuspec.ManifestVersion);
+        ValidateScalar(nuspec.Authors);
+        ValidateScalar(nuspec.Repository);
+        ValidateScalar(nuspec.RepositoryType);
+        ValidateScalar(nuspec.RepositoryCommit);
+        ValidateScalar(nuspec.License);
+        ValidateScalar(nuspec.LicenseUrl);
+        ValidateScalar(nuspec.ReadmeFile);
+        ValidateScalar(nuspec.Description?.ToString());
+
+        if (nuspec.PackageTypes is { Count: > MaxPackageTypes })
+        {
+            throw new InvalidDataException(
+                "The package manifest contains too many package types.");
+        }
+
+        foreach (string packageType in nuspec.PackageTypes ?? [])
+            ValidateScalar(packageType);
+    }
+
+    private static void ValidateScalar(string? value)
+    {
+        if (value is { Length: > MaxScalarCharacters })
+        {
+            throw new InvalidDataException(
+                "The package manifest contains a scalar value that exceeds the configured limit.");
+        }
     }
 
     private static bool VersionsEqual(

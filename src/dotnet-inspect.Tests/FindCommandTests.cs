@@ -356,25 +356,27 @@ public class FindCommandTests
     [Fact]
     public void PackageProfileSection_KeepsFailuresAndTruncationVisible()
     {
+        PackageProfileEvent[] events =
+        [
+            new PackageProfileEvent.Failure(
+                new PackageProfileFailure(
+                    "Contoso.Broken",
+                    "1.0.0",
+                    PackageSourceIdentity.NuGetOrg,
+                    PackageProfileFailureKind.InvalidManifest,
+                    "The manifest was invalid.")),
+            new PackageProfileEvent.Completed(
+                new PackageProfileSummary(
+                    "Contoso.",
+                    PackageSourceIdentity.NuGetOrg,
+                    Candidates: 1,
+                    Matches: 0,
+                    Failures: 1,
+                    PackageSearchTruncationReason.SourcePageLimit)),
+        ];
         PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
-            [
-                new PackageProfileEvent.Failure(
-                    new PackageProfileFailure(
-                        "Contoso.Broken",
-                        "1.0.0",
-                        PackageSourceIdentity.NuGetOrg,
-                        PackageProfileFailureKind.InvalidManifest,
-                        "The manifest was invalid.")),
-                new PackageProfileEvent.Completed(
-                    new PackageProfileSummary(
-                        "Contoso.",
-                        PackageSourceIdentity.NuGetOrg,
-                        Candidates: 1,
-                        Matches: 0,
-                        Failures: 1,
-                        PackageSearchTruncationReason.SourcePageLimit)),
-            ]);
+            events);
 
         Assert.Equal(2, view.Results!.Count);
         Assert.Equal("InvalidManifest", view.Results[0].Status);
@@ -386,16 +388,253 @@ public class FindCommandTests
         Assert.Equal(
             PackageSourceIdentity.NuGetOrg.Value,
             view.Results[1].Source);
-        Assert.Equal(
-            2,
-            PackageProfileSections.CountRows(
-                view,
-                rows: null));
+        Assert.Equal(2, PackageProfileSections.CountRows(view));
         Assert.Equal(
             1,
             PackageProfileSections.CountRows(
-                view,
-                RowWindow.Head(1)));
+                PackageProfileSections.CreateDocument(
+                    "Contoso.",
+                    events,
+                    RowWindow.Head(1))));
+        PackageProfileView tail = PackageProfileSections.CreateDocument(
+            "Contoso.",
+            events,
+            RowWindow.Tail(1));
+        Assert.Equal(
+            "truncated",
+            Assert.Single(tail.Results!).Status);
+    }
+
+    [Fact]
+    public async Task PackageProfileRegistry_MaterializesSourceExecutionOnce()
+    {
+        var source = new CountingPackageSource();
+        PackageProfileSectionCatalog catalog =
+            PackageProfileSections.CreateCatalog();
+        HashSet<InspectionQueryDefinition> requested =
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Normal,
+                [PackageProfileSections.Packages]);
+
+        InspectionQueryResults results =
+            await catalog.QueryRegistry.RunAsync(
+                requested,
+                new PackageProfileQueryContext(
+                    source,
+                    new PackagePrefixProfileRequest("Contoso.")),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, source.SearchRequests);
+        ImmutableArray<PackageProfileEvent> first =
+            results.Get(PackageProfileQuery.Definition);
+        ImmutableArray<PackageProfileEvent> second =
+            results.Get(PackageProfileQuery.Definition);
+        Assert.Equal(first, second);
+        Assert.Equal(1, source.SearchRequests);
+        Assert.IsType<PackageProfileEvent.Failure>(first[0]);
+        Assert.IsType<PackageProfileEvent.Completed>(first[1]);
+    }
+
+    [Fact]
+    public void PackageProfileSection_ReusesContainedPackageCells()
+    {
+        const int dependencyCount = 1000;
+        string authors = new('\u202e', 25_000);
+        PackageProfileEvent[] events =
+        [
+            new PackageProfileEvent.Match(
+                new PackageProfileMatch(
+                    "Contoso.Package",
+                    "1.0.0",
+                    ["Contoso"],
+                    42,
+                    true,
+                    PackageSourceIdentity.NuGetOrg,
+                    ManifestFacts(
+                        "Contoso.Package",
+                        "1.0.0",
+                        authors,
+                        [
+                            new DeclaredPackageDependencyGroup(
+                                "net8.0",
+                                [
+                                    .. Enumerable.Range(
+                                        0,
+                                        dependencyCount)
+                                        .Select(i =>
+                                            new DeclaredPackageDependency(
+                                                $"Dependency.{i}",
+                                                "1.0.0")),
+                                ]),
+                        ]))),
+        ];
+
+        _ = PackageProfileSections.CreateDocument(
+            "Warmup.",
+            events,
+            RowWindow.Head(1));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        PackageProfileView view =
+            PackageProfileSections.CreateDocument("Contoso.", events);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(dependencyCount, view.Results!.Count);
+        Assert.Same(view.Results[0].Authors, view.Results[^1].Authors);
+        Assert.True(
+            allocated < 5_000_000,
+            $"Expected shared package cells; allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void PackageProfileSection_AppliesRowWindowBeforeProjection()
+    {
+        const int dependencyCount = 1000;
+        PackageProfileEvent[] events =
+        [
+            new PackageProfileEvent.Match(
+                new PackageProfileMatch(
+                    "Contoso.Package",
+                    "1.0.0",
+                    ["Contoso"],
+                    42,
+                    true,
+                    PackageSourceIdentity.NuGetOrg,
+                    ManifestFacts(
+                        "Contoso.Package",
+                        "1.0.0",
+                        new string('\u202e', 25_000),
+                        [
+                            new DeclaredPackageDependencyGroup(
+                                "net8.0",
+                                [
+                                    .. Enumerable.Range(
+                                        0,
+                                        dependencyCount)
+                                        .Select(i =>
+                                            new DeclaredPackageDependency(
+                                                $"Dependency.{i}",
+                                                "1.0.0")),
+                                ]),
+                        ]))),
+        ];
+
+        _ = PackageProfileSections.CreateDocument(
+            "Warmup.",
+            events,
+            RowWindow.Head(1));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        PackageProfileView view =
+            PackageProfileSections.CreateDocument(
+                "Contoso.",
+                events,
+                RowWindow.Head(5));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(5, view.Results!.Count);
+        Assert.Equal("Dependency.0", view.Results[0].Dependency);
+        Assert.Equal("Dependency.4", view.Results[^1].Dependency);
+        Assert.True(
+            allocated < 2_000_000,
+            $"Expected windowed projection; allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void PackageProfileSection_WindowedRowsMatchEveryFormat()
+    {
+        PackageProfileView view = PackageProfileSections.CreateDocument(
+            "Contoso.",
+            [
+                new PackageProfileEvent.Match(
+                    new PackageProfileMatch(
+                        "Contoso.Package",
+                        "1.0.0",
+                        ["Contoso"],
+                        42,
+                        true,
+                        PackageSourceIdentity.NuGetOrg,
+                        ManifestFacts(
+                            "Contoso.Package",
+                            "1.0.0",
+                            "Contoso",
+                            [
+                                new DeclaredPackageDependencyGroup(
+                                    "net8.0",
+                                    [
+                                        new DeclaredPackageDependency(
+                                            "Dependency.Zero",
+                                            "1.0.0"),
+                                        new DeclaredPackageDependency(
+                                            "Dependency.One",
+                                            "1.0.0"),
+                                        new DeclaredPackageDependency(
+                                            "Dependency.Two",
+                                            "1.0.0"),
+                                    ]),
+                            ]))),
+            ],
+            RowWindow.Head(2));
+
+        string markdown = MarkoutSerializer.Serialize(
+            view,
+            SearchViewContext.Default);
+        string tsv = RenderPackageProfileTable(
+            view,
+            tsv: true,
+            showHeader: true);
+        string json = OutputFormatter.RenderProjectedJson(
+            columns: null,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions));
+
+        foreach (string output in new[] { markdown, tsv, json })
+        {
+            Assert.Contains("Dependency.Zero", output);
+            Assert.Contains("Dependency.One", output);
+            Assert.DoesNotContain("Dependency.Two", output);
+        }
+    }
+
+    [Fact]
+    public void PackageProfileSection_EmptyWindowIsNotAnEmptyProfile()
+    {
+        PackageProfileView view = PackageProfileSections.CreateDocument(
+            "Contoso.",
+            [
+                new PackageProfileEvent.Match(
+                    new PackageProfileMatch(
+                        "Contoso.Package",
+                        "1.0.0",
+                        ["Contoso"],
+                        42,
+                        true,
+                        PackageSourceIdentity.NuGetOrg,
+                        ManifestFacts(
+                            "Contoso.Package",
+                            "1.0.0",
+                            "Contoso",
+                            []))),
+            ],
+            RowWindow.Range(10, end: null));
+
+        Assert.NotNull(view.Results);
+        Assert.Empty(view.Results);
+        Assert.Null(view.Description);
+        string markdown = MarkoutSerializer.Serialize(
+            view,
+            SearchViewContext.Default);
+        Assert.Equal(
+            "# Find packages: Contoso.",
+            markdown.ReplaceLineEndings("\n").TrimEnd());
+        Assert.DoesNotContain("No packages found.", markdown);
     }
 
     [Theory]
@@ -564,6 +803,78 @@ public class FindCommandTests
                     new MarkoutWriterOptions(),
                     tsv,
                     jsonl)));
+
+    private sealed class CountingPackageSource : IPackageSourceClient
+    {
+        public int SearchRequests { get; private set; }
+        public PackageSourceIdentity Identity =>
+            PackageSourceIdentity.NuGetOrg;
+        public PackageSourceKind Kind =>
+            PackageSourceKind.NuGetGallery;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Search;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SearchRequests++;
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageSearchResult>>(
+                    new PackageSourceOperationResult<PackageSearchResult>
+                        .Failed(
+                            new PackageSourceFailure(
+                                Identity,
+                                Kind,
+                                PackageSourceCapabilities.Search,
+                                Coordinate: null,
+                                PackageSourceFailureKind.Transport,
+                                "Expected test failure.")));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
 }
 
 /// <summary>

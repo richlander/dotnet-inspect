@@ -159,19 +159,48 @@ public sealed class PackageProfileRow
         string source,
         string status,
         string error)
+        : this(
+            Contain(package),
+            Contain(dependency),
+            Contain(version),
+            Contain(owners),
+            Contain(targetFramework),
+            Contain(dependencyVersion),
+            Contain(authors),
+            Contain(verified),
+            Contain(downloads),
+            Contain(source),
+            Contain(status),
+            Contain(error))
     {
-        PackageText = Contain(package);
-        DependencyText = Contain(dependency);
-        VersionText = Contain(version);
-        OwnersText = Contain(owners);
-        TargetFrameworkText = Contain(targetFramework);
-        DependencyVersionText = Contain(dependencyVersion);
-        AuthorsText = Contain(authors);
-        VerifiedText = Contain(verified);
-        DownloadsText = Contain(downloads);
-        SourceText = Contain(source);
-        StatusText = Contain(status);
-        ErrorText = Contain(error);
+    }
+
+    internal PackageProfileRow(
+        InertString package,
+        InertString dependency,
+        InertString version,
+        InertString owners,
+        InertString targetFramework,
+        InertString dependencyVersion,
+        InertString authors,
+        InertString verified,
+        InertString downloads,
+        InertString source,
+        InertString status,
+        InertString error)
+    {
+        PackageText = package;
+        DependencyText = dependency;
+        VersionText = version;
+        OwnersText = owners;
+        TargetFrameworkText = targetFramework;
+        DependencyVersionText = dependencyVersion;
+        AuthorsText = authors;
+        VerifiedText = verified;
+        DownloadsText = downloads;
+        SourceText = source;
+        StatusText = status;
+        ErrorText = error;
     }
 
     [MarkoutIgnore] public InertString PackageText { get; }

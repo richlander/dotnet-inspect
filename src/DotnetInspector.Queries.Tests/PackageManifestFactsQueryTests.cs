@@ -130,6 +130,213 @@ public sealed class PackageManifestFactsQueryTests
         Assert.IsType<InvalidDataException>(failure.Error);
     }
 
+    [Fact]
+    public void Execute_RejectsOversizedScalarFact()
+    {
+        string authors = new(
+            'a',
+            PackageManifestFactsQuery.MaxScalarCharacters + 1);
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <authors>{{authors}}</authors>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Contains(
+            "scalar value",
+            failure.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_RejectsExcessiveDependencyCardinality()
+    {
+        var dependencies = new StringBuilder();
+        for (int i = 0;
+            i <= PackageManifestFactsQuery.MaxDependencies;
+            i++)
+        {
+            dependencies.Append(
+                $"""<dependency id="Dependency.{i}" version="1.0.0" />""");
+        }
+
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <dependencies>{{dependencies}}</dependencies>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Contains(
+            "too many dependencies",
+            failure.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_RejectsExcessiveDependencyGroupCardinality()
+    {
+        var groups = new StringBuilder();
+        for (int i = 0;
+            i <= PackageManifestFactsQuery.MaxDependencyGroups;
+            i++)
+        {
+            groups.Append(
+                $"""<group targetFramework="net{i}" />""");
+        }
+
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <dependencies>{{groups}}</dependencies>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Contains(
+            "too many dependency groups",
+            failure.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_RejectsExcessivePackageTypeCardinality()
+    {
+        var packageTypes = new StringBuilder();
+        for (int i = 0;
+            i <= PackageManifestFactsQuery.MaxPackageTypes;
+            i++)
+        {
+            packageTypes.Append(
+                $"""<packageType name="Type{i}" />""");
+        }
+
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <packageTypes>{{packageTypes}}</packageTypes>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Contains(
+            "too many package types",
+            failure.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_AcceptsScalarAndCollectionLimits()
+    {
+        var dependencies = new StringBuilder();
+        for (int i = 0;
+            i < PackageManifestFactsQuery.MaxDependencies;
+            i++)
+        {
+            dependencies.Append(
+                $"""<dependency id="Dependency.{i}" version="1.0.0" />""");
+        }
+
+        var dependencyGroups = new StringBuilder()
+            .Append("""<group targetFramework="net8.0">""")
+            .Append(dependencies)
+            .Append("</group>");
+        for (int i = 1;
+            i < PackageManifestFactsQuery.MaxDependencyGroups;
+            i++)
+        {
+            dependencyGroups.Append(
+                $"""<group targetFramework="net{i}" />""");
+        }
+
+        var packageTypes = new StringBuilder();
+        for (int i = 0;
+            i < PackageManifestFactsQuery.MaxPackageTypes;
+            i++)
+        {
+            packageTypes.Append(
+                $"""<packageType name="Type{i}" />""");
+        }
+
+        string authors = new(
+            'a',
+            PackageManifestFactsQuery.MaxScalarCharacters);
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.Execute(
+                Encoding.UTF8.GetBytes(
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>Example.Package</id>
+                        <version>1.0.0</version>
+                        <authors>{{authors}}</authors>
+                        <packageTypes>{{packageTypes}}</packageTypes>
+                        <dependencies>{{dependencyGroups}}</dependencies>
+                      </metadata>
+                    </package>
+                    """),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFactsQuery.MaxScalarCharacters,
+            facts.Authors!.Length);
+        Assert.Equal(
+            PackageManifestFactsQuery.MaxPackageTypes,
+            facts.PackageTypes.Length);
+        Assert.Equal(
+            PackageManifestFactsQuery.MaxDependencyGroups,
+            facts.DependencyGroups.Length);
+        Assert.Equal(
+            PackageManifestFactsQuery.MaxDependencies,
+            facts.DependencyGroups.Sum(group =>
+                group.Dependencies.Length));
+    }
+
     private static PackageManifestFacts Available(
         PackageManifestFactsResult result) =>
         Assert.IsType<PackageManifestFactsResult.Available>(result).Value;

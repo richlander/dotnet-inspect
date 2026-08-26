@@ -202,17 +202,11 @@ public class FindCommand
                 Verbosity.Normal,
                 includeSections);
         InspectionQueryResults queryResults =
-            catalog.QueryRegistry.Run(
+            await catalog.QueryRegistry.RunAsync(
                 requestedQueries,
-                new PackageProfileQueryContext(source, request));
-        IAsyncEnumerable<PackageProfileEvent> profileEvents =
-            queryResults.Get(PackageProfileQuery.Definition);
-        var events = new List<PackageProfileEvent>();
-        await foreach (PackageProfileEvent profileEvent
-            in profileEvents.WithCancellation(cancellationToken))
-        {
-            events.Add(profileEvent);
-        }
+                new PackageProfileQueryContext(source, request),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        var events = queryResults.Get(PackageProfileQuery.Definition);
 
         PackageProfileSummary summary = events
             .OfType<PackageProfileEvent.Completed>()
@@ -220,7 +214,8 @@ public class FindCommand
             .Value;
         var view = PackageProfileSections.CreateDocument(
             request.Prefix,
-            events);
+            events,
+            options.Rows);
         WritePackageProfileOutput(view, options);
 
         foreach (PackageProfileEvent.Failure failure
@@ -259,9 +254,7 @@ public class FindCommand
         if (options.Count)
         {
             CountOutput.WriteCount(
-                PackageProfileSections.CountRows(
-                    view,
-                    options.Rows));
+                PackageProfileSections.CountRows(view));
         }
         else if (options.JsonOutput)
         {
@@ -280,7 +273,7 @@ public class FindCommand
                         writerOptions);
                 },
                 !options.CompactJson,
-                options.Rows);
+                maxRows: null);
         }
         else if (options.Tabular)
         {
@@ -301,13 +294,13 @@ public class FindCommand
                         SearchViewContext.Default,
                         writerOptions);
                 },
-                options.Rows);
+                maxRows: null);
         }
         else
         {
             OutputFormatter.WriteWindowedMarkdown(
                 Console.Out,
-                options.Rows,
+                rows: null,
                 writerOptions =>
                 {
                     writerOptions.IncludeSections = includeSections;
