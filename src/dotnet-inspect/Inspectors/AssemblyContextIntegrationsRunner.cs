@@ -57,16 +57,16 @@ internal static class AssemblyContextIntegrationsRunner
 {
     internal static AssemblyContextIntegrationsBatch? RunIfRequested(
         HashSet<InspectionQueryDefinition>? requestedQueries,
-        InspectionQueryRegistry<AssemblyContextGroup> queryRegistry,
+        InspectionQueryCatalog<AssemblyContextGroup> queryCatalog,
         IEnumerable<AssemblyContextIntegrationsInput> inputs,
         InspectionTrace? trace = null,
         AssemblyContextGroupOptions? groupOptions = null)
     {
-        ArgumentNullException.ThrowIfNull(queryRegistry);
+        ArgumentNullException.ThrowIfNull(queryCatalog);
         HashSet<InspectionQueryDefinition> requested = requestedQueries?
             .Where(
                 query =>
-                    queryRegistry.RegisteredQueries.Contains(query))
+                    queryCatalog.RegisteredQueries.Contains(query))
             .ToHashSet() ?? [];
         if (requested.Count == 0)
         {
@@ -116,13 +116,12 @@ internal static class AssemblyContextIntegrationsRunner
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(participants, groupOptions);
-        HashSet<InspectionQueryDefinition> closure =
-            queryRegistry.ExpandRequired(requested);
-        trace?.RecordQueryClosure(closure);
+        InspectionQueryPlan<AssemblyContextGroup> plan =
+            queryCatalog.Plan(requested);
+        trace?.RecordQueryClosure(plan.Queries);
         Action<InspectionQueryDefinition, TimeSpan>? recordExecution =
             trace is null ? null : trace.RecordQueryExecution;
-        InspectionQueryResults queryResults = queryRegistry.Run(
-            requested,
+        InspectionQueryResults queryResults = plan.Run(
             group,
             recordExecution);
         AssemblyContextIntegrationsResult integrationsResult = queryResults.Get(

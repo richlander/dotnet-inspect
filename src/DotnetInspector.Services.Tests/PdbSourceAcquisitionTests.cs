@@ -171,6 +171,32 @@ public class PdbSourceAcquisitionTests
     }
 
     [Fact]
+    public async Task FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence()
+    {
+        byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));
+        byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
+        var handler = new QueueHandler(actual);
+        using var client = new HttpClient(handler);
+        var fetcher = new SourceFetcher(
+            client,
+            new InMemorySourceContentStore());
+
+        VerifiedSourceTextResult result =
+            await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+                fetcher,
+                $"https://example.test/{Guid.NewGuid():N}/Sample.cs",
+                "SHA256",
+                SHA256.HashData(expected),
+                TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Text);
+        Assert.Null(result.Failure);
+        Assert.Equal(
+            SourceChecksumVerification.LineEndingNormalized,
+            result.ChecksumVerification);
+    }
+
+    [Fact]
     public void FromContent_MissingChecksumIsAbsentEvidence()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
