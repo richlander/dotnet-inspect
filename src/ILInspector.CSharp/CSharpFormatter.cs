@@ -332,6 +332,17 @@ public sealed class CSharpFormatter
     }
 
     /// <summary>
+    /// Contains raw metadata spans in compatibility signature text while
+    /// preserving rendered C# string and character literals.
+    /// </summary>
+    public static string ContainCompatibilitySignature(string signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+        return CSharpDeclarationWriter.ContainCompatibilitySignature(
+            signature);
+    }
+
+    /// <summary>
     /// Rewrites CLR primitive full names (e.g. <c>System.Int32</c>, <c>System.IntPtr</c>)
     /// to their C# keyword spelling (<c>int</c>, <c>nint</c>) wherever they appear as a
     /// complete type-name segment inside a type string — including nested in generics,

@@ -1787,7 +1787,7 @@ internal static class CSharpDeclarationWriter
             ? constraint
             : EscapeTypeKeywords(constraint);
 
-    static string ContainCompatibilitySignature(string signature)
+    internal static string ContainCompatibilitySignature(string signature)
     {
         var builder = new StringBuilder(signature.Length);
         int chunkStart = 0;
