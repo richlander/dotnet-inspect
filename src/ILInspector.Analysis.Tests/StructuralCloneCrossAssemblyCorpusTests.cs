@@ -47,10 +47,55 @@ public class StructuralCloneCrossAssemblyCorpusTests
                 candidate.Method.Address.ModuleVersionId));
 
         string text = StructuralCloneCrossAssemblyCorpus.Format(report);
-        Assert.Contains("7/7 queries", text);
-        Assert.Contains("precision=42.85%", text);
-        Assert.Contains("labeled-recall=85.71%", text);
-        Assert.Contains("known-misses=1", text);
+        Assert.Contains(
+            "Query selection: 7 query entries in the loaded ledger; "
+                + "each selects a method in the query artifact",
+            text);
+        Assert.Contains(
+            "Submitted candidate population: all methods in the "
+                + "ledger-declared right-side type; RetrieveSimilar ranks "
+                + "only methods with completed body analysis and a "
+                + "query-compatible signature",
+            text);
+        Assert.Contains("Expectations met: 7/7 queries", text);
+        Assert.Contains(
+            "Results within declared review depth: 14/14 requested",
+            text);
+        Assert.Contains(
+            "Precision over labeled results within reviewed depth: "
+                + "42.85%",
+            text);
+        Assert.Contains(
+            "Recall at reviewed depth over declared peers: "
+                + "85.71% (6/7)",
+            text);
+        Assert.Contains(
+            "Declared peers not recovered within reviewed depth: 1",
+            text);
+        Assert.Contains(
+            "EXPECTATIONS MET: stable-body"
+                + Environment.NewLine
+                + "  Query method: Stable",
+            text);
+        Assert.Contains(
+            "Candidate methods submitted: 36; completed body analysis: "
+                + "32; ranked candidates: 6; "
+                + "retrieval returned candidates: 6",
+            text);
+        Assert.Contains(
+            "Precision over labeled results at depth: 50.00%; "
+                + "recall@2 over declared peers: 100.00% (1/1)",
+            text);
+        Assert.Contains(
+            "structural-score=10000/10000 Stable [relevant peer]",
+            text);
+        Assert.Contains(
+            "SemanticCallStringLiteralNearMiss "
+                + "[semantic lookalike (behavior differs)]",
+            text);
+        Assert.Contains(
+            "Assign [hard negative (unrelated lookalike)]",
+            text);
         Assert.Contains(
             "allocation-regression-miss",
             text);
@@ -98,9 +143,67 @@ public class StructuralCloneCrossAssemblyCorpusTests
             static candidate => candidate.Relevance is null);
         Assert.Null(query.PrecisionBasisPoints);
         Assert.Null(report.PrecisionBasisPoints);
+        string text = StructuralCloneCrossAssemblyCorpus.Format(report);
         Assert.Contains(
-            "Unreviewed",
-            StructuralCloneCrossAssemblyCorpus.Format(report));
+            "unreviewed (relevance unknown)",
+            text);
+        Assert.Contains(
+            "Results within declared review depth: 15/15 requested",
+            text);
+        Assert.DoesNotContain("Reviewed results:", text);
+        Assert.Contains(
+            "Review depth: 3; results within depth: 3; "
+                + "relevant peers: 1/3",
+            text);
+        Assert.Contains(
+            "INCOMPLETE REVIEW: results within top-K are incomplete "
+                + "or include unknown relevance",
+            text);
+    }
+
+    [Fact]
+    public void Run_DescribesUnrankedRelevantPeerAsNotRecovered()
+    {
+        StructuralCloneCrossAssemblyCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCrossAssemblyQuery stable =
+            corpus.Queries.Single(static query =>
+                query.Id == "stable-body");
+        StructuralCloneCrossAssemblyLabel typeToken =
+            corpus.Queries.Single(static query =>
+                    query.Id == "type-token-shapes")
+                .Labels.Single(static label =>
+                    label.Relevance
+                        == StructuralCloneReviewRelevance.Relevant);
+        StructuralCloneCrossAssemblyCorpusReport report =
+            StructuralCloneCrossAssemblyCorpus.Run(
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                FixtureCatalog.DiffPair.NewAssemblyPath(),
+                corpus with
+                {
+                    Queries =
+                    [
+                        stable with
+                        {
+                            Labels =
+                            [
+                                typeToken with { ScoresAbove = [] },
+                            ],
+                        },
+                    ],
+                });
+
+        StructuralCloneCrossAssemblyQueryResult query =
+            Assert.Single(report.Queries);
+        Assert.Null(Assert.Single(query.Labels).Rank);
+        Assert.Equal(1, report.KnownMisses);
+        string text = StructuralCloneCrossAssemblyCorpus.Format(report);
+        Assert.Contains(
+            "Query selection: 1 query entry in the loaded ledger; "
+                + "each selects a method in the query artifact",
+            text);
+        Assert.Contains(
+            "Declared peers not recovered within reviewed depth: 1",
+            text);
     }
 
     [Fact]
@@ -136,6 +239,20 @@ public class StructuralCloneCrossAssemblyCorpusTests
                             == StructuralCloneRetrievalBlockerKind
                                 .MethodLimit);
             });
+        string text = StructuralCloneCrossAssemblyCorpus.Format(report);
+        Assert.Contains(
+            "Recall at reviewed depth over declared peers: n/a"
+                + Environment.NewLine,
+            text);
+        Assert.DoesNotContain(
+            "over declared peers: n/a (",
+            text);
+        Assert.Contains(
+            "Declared peers not recovered within reviewed depth: n/a",
+            text);
+        Assert.DoesNotContain(
+            "Declared peers not recovered within reviewed depth: 0",
+            text);
     }
 
     [Fact]
