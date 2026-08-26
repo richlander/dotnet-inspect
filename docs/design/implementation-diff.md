@@ -274,6 +274,13 @@ BodyEvidenceSelectionCorrelationManifest
   Entries                 exact correlation id ->
                          question + non-empty query-domain-key set
 
+BodyEvidenceSealedPopulation (internal)
+  Operation              exact owning operation id
+  Questions               exact sealed query question set
+  ParticipantDomains     exact owner-bound live query domain set
+  ParticipantReceipts    exact inert query domain-receipt set
+  Correlations            exact sealed query correlation manifest
+
 BodyEvidencePopulationProjectionReceipt
   Operation              exact owning operation id
   EndpointSlots          exact core slot-id -> Research endpoint-id bijection
@@ -301,6 +308,8 @@ BodyEvidencePlanReceipt
   Correlations            exact immutable query correlation manifest
   PopulationProjection   exact inert projection correspondence receipt
   Research               exact ResearchBodyEvidencePlanReceipt
+  Construction           fixed-size Publication wrapper over precharged,
+                         already immutable collections
 ```
 
 `ILInspector.Research` owns a disjoint set of non-convertible identities and
@@ -371,6 +380,7 @@ ResearchBodyEvidenceAdmissionPlan (internal)
   Operation              exact owning operation id
   Questions               exact projected Research question set
   ParticipantDomains     exact projected Research domain set
+  ParticipantReceipts    exact projected inert Research domain-receipt set
   Correlations            exact projected Research correlation set
   CorrespondenceToken    operation-stamped, projection-only validation token
 
@@ -379,6 +389,13 @@ ResearchBodyEvidenceSelectionScope
   Correlation            exact Research correlation id
   Domain                 exact Research domain id
   Before/After           for admitted domains only:
+                         Selected(request ids) | Absent(proof) | Failed
+
+ResearchBodyEvidenceSelectionScopeReceipt
+  Id                     exact Research selection-scope id
+  Correlation            exact Research correlation id
+  Domain                 exact Research domain id
+  Before/After           for admitted domains only, exact inert
                          Selected(request ids) | Absent(proof) | Failed
 
 ResearchBodyEvidenceTargetRequest
@@ -427,8 +444,9 @@ ResearchBodyEvidenceComparisonSession (internal)
                          synchronous/asynchronous projections
   Project/ProjectAsync    total per-work-item callbacks that lower and charge
                          before retaining each disposition
-  CompleteResearch        one atomic Research-only validation after every
-                         inert ledger exists
+  CompleteResearch        one atomic zero-copy Research validation/sealing
+                         after every charged inert receipt, ledger, snapshot,
+                         change, and presentation entry exists
 
 ResearchBodyEvidenceParticipantBinding
   Id                     exact Research binding id
@@ -463,6 +481,8 @@ ResearchBodyEvidencePlanReceipt
   Correlations            exact immutable Research correlation set
   SelectionScopes         complete immutable Research scope receipt set
   WorkItemSet             opaque immutable validated Research set identity
+  Construction           fixed-size ResearchCompletion wrapper over
+                         precharged, already immutable collections
 ```
 
 Research owns mechanisms and evidence; ResearchQueries owns operation
@@ -506,6 +526,8 @@ BodyEvidenceMechanismLedger<T>
 BodyEvidencePresentationMap
   Entries                 exactly one inert participant/member label group per
                          Research work-item id
+  Construction           precharged entries freeze in place before
+                         ResearchCompletion; completion performs no copy
 
 BodyEvidencePlanBudgetLeaseSet
   Operation               exact owning operation id
@@ -615,24 +637,30 @@ group, or carries a callback/lease. The retained authority identity records
 origin only; it cannot reconstitute a logical-slot or direct-designation grant.
 
 The internal `BodyEvidenceParticipantDomain` may retain a live admitted pairing
-only while the query lease is current. Query completion lowers every internal
-query domain to a distinct `BodyEvidenceParticipantDomainReceipt`. An admitted
-receipt snapshots each non-absent side into one
-`BodyEvidenceParticipantBinding`; a terminal participant-pairing receipt
-snapshots every candidate/affected input into its exact input-keyed binding
-summary. Endpoint failure and absence proofs must already be inert. Lowering
-rejects a missing, extra, substituted, wrong-side, or live-backed snapshot.
+only while the query lease is current. `PopulationSealing` lowers every
+internal query domain to a distinct
+`BodyEvidenceParticipantDomainReceipt` before sealing the
+`BodyEvidenceSealedPopulation`. An admitted receipt snapshots each non-absent
+side into one `BodyEvidenceParticipantBinding`; a terminal participant-pairing
+receipt snapshots every candidate/affected input into its exact input-keyed
+binding summary. Endpoint failure and absence proofs must already be inert.
+Lowering charges every new receipt entry and character before retention, and
+rejects a missing, extra, substituted, wrong-side, or live-backed snapshot. The
+sealed query receipt set is carried unchanged through projection and
+publication.
 
 `PopulationProjection` is the sole bridge from that query population into
-Research. `DotnetInspector.ResearchQueries` consumes the complete sealed query
-question/domain/correlation population and invokes internal Research factories
-to mint a `ResearchBodyEvidenceAdmissionPlan`. It copies each live admitted
-binding into a Research-owned live binding, copies each admitted absent arm
-into a Research-owned inert absence proof, preserves the exact admitted pairing
-kind, and copies each terminal outcome into a Research-owned inert terminal
-value. It does so only after charging one population-projection entry for every
-Research admission value/correspondence-map entry and every retained
-request/receipt character in that new copy. It cannot pass through an
+Research. `DotnetInspector.ResearchQueries` consumes the complete
+`BodyEvidenceSealedPopulation` and invokes internal Research factories to mint
+a `ResearchBodyEvidenceAdmissionPlan`. It copies each live admitted binding
+into a Research-owned live binding, copies each admitted absent arm into a
+Research-owned inert absence proof, preserves the exact admitted pairing kind,
+and copies each terminal outcome into a Research-owned inert terminal value.
+It simultaneously lowers each Research live domain into its distinct inert
+`ResearchBodyEvidenceParticipantDomainReceipt`. It does so only after charging
+every Research admission value, inert receipt entry, correspondence-map entry,
+and retained request/receipt character in each new copy. It cannot pass through
+an
 `ArtifactParticipantPairing`, `ArtifactParticipantInputKey`,
 `AssemblyParticipantRoleManifest.Id`, `EndpointSlotFailure`, or
 `DirectMemberDesignationId`.
@@ -729,8 +757,9 @@ The query plan, Research admission plan/session, manifest entries, live
 pairings and Research bindings, callbacks, participant objects, and
 producer-native objects remain internal. Research completes one inert
 `ResearchBodyEvidenceComparison`; it cannot publish a query result. Query
-completion in ResearchQueries validates that Research receipt against the
-population-projection receipt and atomically publishes the outer
+publication in ResearchQueries validates the already sealed query receipt and
+Research receipt against the population-projection receipt, then atomically
+publishes the outer
 `ImplementationDiffResult`. The result retains the query receipt, correspondence
 receipt, complete Research scope outcomes and ledgers, inert native payload
 snapshots, and the total presentation map.
@@ -796,7 +825,8 @@ to remain in the question population.
 
 During the same `PopulationSealing` stage, ResearchQueries seals one
 `BodyEvidenceSelectionCorrelationManifest` from the complete declared
-question set and the sealed participant-domain set. A correlation retains its
+question set and the sealed participant-domain set, and lowers every query
+domain to its charged inert receipt. A correlation retains its
 exact question, including its immutable selection request, rather than
 restating its selector, intent, or endpoint scope. Its non-empty domain map must
 equal every sealed participant domain whose originating slot is in that
@@ -809,10 +839,11 @@ authoritative declaration. The query-sealed questions must be its exact
 budgeted immutable copy. The product does not attempt to recover an input the
 host never declared.
 
-ResearchQueries then performs `PopulationProjection` over the complete sealed
-question/domain/correlation population. The resulting
+ResearchQueries then performs `PopulationProjection` over the complete
+`BodyEvidenceSealedPopulation`. The resulting
 `ResearchBodyEvidenceAdmissionPlan` has exactly one Research question, domain,
-and correlation for every query-side antecedent and no other values. Its
+domain, inert domain receipt, and correlation for every query-side antecedent
+and no other values. Its
 operation-stamped correspondence token permits the Research session to accept
 that plan once; it exposes no core id, pairing, role manifest/binding, endpoint
 failure, or direct designation. A missing, extra, duplicated, wrong-side,
@@ -839,6 +870,18 @@ side:
 - `Failed` carries the selection, inventory, or participant diagnostic that
   prevented the side from proving either selected targets or absence.
 
+During `PlanExpansion`, Research charges the live scope population before
+selection. After every scope outcome and the complete work-item population are
+known, it derives all inert
+`ResearchBodyEvidenceSelectionScopeReceipt` values and base
+`BodyEvidencePresentationMap` entries without retaining them, atomically
+charges their complete entry and character counts, and only then retains them.
+Each base presentation entry contains only the participant/member labels known
+from the sealed plan. Prerequisite and dependent projection may retain
+catalog-declared inert presentation details in their typed snapshot or
+disposition entries only after separately charging those entries and
+characters; neither completion nor publication copies those values.
+
 The query and Research plans each require one correlation for every question
 and one question for every correlation. Research scopes are separately
 bijective with the projected `(Research correlation id, Research domain id)`
@@ -857,11 +900,13 @@ all-failed endpoint population is therefore a valid non-empty Research
 population whose scopes all retain participant failures, not a reason to omit
 the query.
 
-At completion, ResearchQueries separately lowers the live query domain set to
-its inert receipt and validates its key/payload equality. Research completes
-the Research receipt with every scope's Research domain id/outcome arm and, for
-admitted scopes, both side outcomes. `BodyEvidencePlanReceipt` composes those
-receipts only through the inert population-projection maps. The admitted core
+At completion, Research validates and seals a fixed-size
+`ResearchBodyEvidencePlanReceipt` wrapper over the already charged immutable
+question, participant-domain-receipt, correlation, scope-receipt, and work-item
+sets. At publication, ResearchQueries validates the query/Research key and
+payload equality and seals a fixed-size `BodyEvidencePlanReceipt` wrapper over
+the already charged query, correspondence, and Research values. Neither stage
+copies an entry, string, byte payload, or presentation value. The admitted core
 pairing object, live query role manifests/bindings, live Research bindings, and
 live terminal candidate entries enter neither completed receipt. The query
 receipt intentionally retains only the inert pairing id, binding snapshots, and
@@ -1253,19 +1298,19 @@ The catalog entries are:
 | Stage | Applies to | Owner by operation kind | Budget authority by operation kind | Authorized dimensions by operation kind |
 | --- | --- | --- | --- | --- |
 | `Admission` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | endpoint slots and retained request/coordinate characters |
-| `QuestionSealing` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | declared questions, selection-request entries, and retained request characters |
+| `QuestionSealing` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | declared questions, selection-request entries, retained result entries, and retained request characters |
 | `EndpointRealization` | Planned | planned: endpoint owner | planned: endpoint facet | qualified participant inputs and retained request/receipt characters |
 | `ParticipantPairing` | Both | planned: acquisition coordinator; direct: core-Queries direct-pairing factory | planned: endpoint facet; direct: direct-pairing facet | planned: retained request/receipt characters; direct: qualified participant inputs and retained request/receipt characters |
-| `PopulationSealing` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | query participant domains, query correlation-domain entries, and retained request/receipt characters |
-| `PopulationProjection` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | population-projection entries and retained request/receipt characters for every Research-owned admission/receipt copy |
-| `PlanExpansion` | Both | planned/direct: Research | planned/direct: projection facet | correlation-scope entries, target requests/attempts, work items, ledger dispositions, and retained request/receipt characters |
+| `PopulationSealing` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | query participant domains, query correlation-domain entries, retained result entries, and retained request/receipt characters |
+| `PopulationProjection` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | population-projection entries, retained result entries, and retained request/receipt characters for every Research-owned admission/receipt copy |
+| `PlanExpansion` | Both | planned/direct: Research | planned/direct: projection facet | correlation-scope entries, target requests/attempts, work items, ledger dispositions, retained result entries, retained request/receipt characters, and retained presentation characters for base work-item labels |
 | `PrerequisiteProducerPreflight` | Both | planned/direct: Research | planned/direct: projection facet | producer input units and producer work units |
-| `PrerequisiteProjection` | Both | planned/direct: Research | planned/direct: projection facet | live producer scratch, retained snapshot bytes, and retained presentation characters |
+| `PrerequisiteProjection` | Both | planned/direct: Research | planned/direct: projection facet | live producer scratch, retained result entries, retained snapshot bytes, and retained presentation characters |
 | `DependentInputAcquisition` | Planned | planned: Source acquisition owner | planned: authored-source facet | every authored-source budget dimension |
 | `DependentProducerPreflight` | Planned | planned: Research | planned: projection facet | producer input units and producer work units |
-| `DependentProjection` | Planned | planned: Research | planned: projection facet | live producer scratch, retained snapshot bytes, and retained presentation characters |
-| `ResearchCompletion` | Both | planned/direct: Research | planned/direct: projection facet | Research receipt/ledger validation only |
-| `Publication` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | query/Research correspondence validation and atomic provisional outer-result sealing; no external escape |
+| `DependentProjection` | Planned | planned: Research | planned: projection facet | live producer scratch, retained result entries, retained snapshot bytes, and retained presentation characters |
+| `ResearchCompletion` | Both | planned/direct: Research | planned/direct: projection facet | none; validates already charged Research receipts/ledgers/presentation and seals a fixed-size wrapper only |
+| `Publication` | Both | planned/direct: ResearchQueries | planned/direct: concrete ledger | none; validates already charged query/Research correspondence and seals a fixed-size provisional outer-result wrapper only; no external escape |
 | `Cleanup` | Both | planned/direct: ResearchQueries | planned/direct: none | none |
 
 The concrete plan ledger backs the endpoint, direct-pairing, and projection
@@ -1283,16 +1328,17 @@ authority.
 | Qualified participant inputs | 4,096 | Exact planned manifest union or two direct designation inputs |
 | Declared questions | 1,024 | Every pre-acquisition selection question |
 | Selection-request entries | 65,536 | Every explicit selector, enumerative filter operand, or direct address/role entry |
-| Query participant domains | 16,384 | Every admitted, endpoint-absent, or failed query-domain identity sealed from the slot outcomes |
+| Query participant domains | 16,384 | Every admitted, endpoint-absent, or failed logical query domain |
 | Query correlation-domain entries | 16,384 | Every required query `(correlation, participant domain)` pair |
 | Population-projection entries | 131,072 | Every projected endpoint, participant input, participant/binding pair, domain, question, correlation, direct designation, or terminal-evidence value together with its correspondence-map entry |
-| Correlation-scope entries | 16,384 | Every required `(correlation, participant domain)` pair |
+| Correlation-scope entries | 16,384 | Every required live Research `(correlation, participant domain)` scope |
 | Target requests and attempts | 65,536 | One charge when each request/attempt identity is minted |
 | Work items | 65,536 | Every healthy, absent, ambiguous, or failed work-item identity |
 | Ledger dispositions | 262,144 | Requested mechanism/work-item product, preflighted before projection |
 | Producer input units | 4,194,304 | Complete catalog-declared admitted-input population for each phase, including bounded Source snapshots |
 | Producer work units | 64,000,000 | Catalog-declared conservative operations; ordered matching charges checked matrix cells |
 | Live producer scratch bytes | 256 MiB | Scoped conservative reservation held through native-result release |
+| Retained result entries | 524,288 | Every root or nested immutable query, correspondence, Research receipt, native-snapshot, or presentation entry that may survive into a completed result; fixed-size sealing wrappers are excluded |
 | Retained request/receipt characters | 8,388,608 | Every selector, filter, structural identity, opaque id, proof, and diagnostic string copied into plan input, endpoint outcome, or receipt |
 | Retained snapshot bytes | 256 MiB | Immutable native byte/value arrays plus checked UTF-16 string storage |
 | Retained presentation characters | 8,388,608 | Every inert label, detail, and diagnostic character retained by the result |
@@ -1316,8 +1362,9 @@ the ledger before sealing questions or requesting endpoint realization. It
 first preflights and charges the plan's exact endpoint-slot count and every
 query-owned copy of its variable request/coordinate identity; failure starts no
 acquisition. Question-set sealing then requires the lease and incrementally
-charges the question, every selection-request entry, and every variable-sized
-selector/filter/identity payload before copying it into the immutable request.
+charges the question, every retained-result and selection-request entry, and
+every variable-sized selector/filter/identity payload before copying it into
+the immutable request.
 A single explicit question that matches nothing is therefore still bounded.
 
 Every endpoint realizer receives the non-optional endpoint facet. As the
@@ -1342,22 +1389,30 @@ candidate/affected maps, ambiguity/failure payloads, reasons, and diagnostics
 are new retained copies: the coordinator measures and charges those characters
 at `ParticipantPairing` before retaining them.
 
-`PopulationSealing` first derives the exact query-domain and query
-correlation-domain populations without retaining them. It atomically charges
-those complete counts, then charges each query-owned variable payload before
-sealing the domains and correlation manifest. `PopulationProjection` derives
-the complete endpoint/input/participant-binding/domain/question/correlation/
-designation/terminal correspondence-key set, atomically charges its exact
-population-projection-entry count, and then separately measures and charges
-every Research-owned request/receipt character before retaining the Research
-admission values and correspondence maps. Neither owner may treat an earlier
-charge as a reservation for its later copy.
+`PopulationSealing` first derives the exact live query-domain, inert
+query-domain-receipt, and query correlation-domain populations without
+retaining them. It atomically charges the complete logical-domain,
+correlation-domain, and retained-result-entry counts, then charges each
+query-owned variable payload before sealing the
+`BodyEvidenceSealedPopulation`.
+`PopulationProjection` derives the complete Research
+endpoint/input/participant-binding/domain/domain-receipt/question/correlation/
+designation/terminal population and correspondence-key set, atomically charges
+the complete projection and retained-result-entry counts, and then separately
+measures and charges every Research-owned request/receipt character before
+retaining the Research admission values, inert domain receipts, and
+correspondence maps.
+Neither owner may treat an earlier charge as a reservation for its later copy.
 
 Later known counts are preflighted before their next phase. Research charges
-correlation scopes before selection, then each request, attempt, work item,
-ledger disposition, and selection/resolution diagnostic before retaining it
-during `PlanExpansion`. Pairing-owned and population-projection-owned
-diagnostic copies do not prepay this Research-owned retention. Each
+each live correlation scope before selection, then each request, attempt, work
+item, ledger disposition, and selection/resolution diagnostic before retaining
+it during `PlanExpansion`. Once scope outcomes and the work-item set are
+complete, Research derives the scope-receipt and base-presentation populations
+without retaining them, atomically charges their retained-result entries and
+every retained character, and only then commits those values. Pairing-owned and
+population-projection-owned diagnostic copies do not prepay this Research-
+owned retention. Each
 prerequisite mechanism catalog entry maps its producer's already bounded input
 facts to checked `InputUnits`, `WorkUnits`, and `PeakScratchBytes`. The session
 seals the complete prerequisite work plan and atomically charges its input/work
@@ -1379,17 +1434,17 @@ product and scratch includes the complete matrix and producer-owned arrays. A
 catalog entry without a finite conservative estimator cannot run.
 
 Each projection phase acquires its entry's live-scratch reservation before its
-callback. Each producer result is then typed-lowered, measured, and charged
-before its inert disposition enters a ledger; the native object and scratch
-reservation are released before another callback runs. Presentation characters
-reserve and charge before retention. Source evidence that survives its own
+callback. Each producer result is then typed-lowered and measured; its retained
+result entries, snapshot bytes, and presentation characters are charged before
+its inert disposition enters a ledger. The native object and scratch
+reservation are released before another callback runs. Source evidence that
+survives its own
 acquisition budget also charges this final-result budget before ledger
 retention. Checked arithmetic rejects overflow. A charge that would exceed the
 limit stops the planned query as
 `ImplementationComparisonQueryOutcome.Failed(Planning | PopulationSealing |
-PopulationProjection | Projection | ResearchCompletion | Publication,
-PlanBudgetExceeded)` with dimension, limit, observed/requested charge, and no
-partial plan or completed result. It never
+PopulationProjection | Projection, PlanBudgetExceeded)` with dimension, limit,
+observed/requested charge, and no partial plan or completed result. It never
 truncates an inventory, shortens a correlation, drops a work item/disposition,
 or publishes a partially retained receipt. Staged inert dispositions from a
 failed planned projection are discarded; no native result remains accumulated
@@ -1416,7 +1471,8 @@ ledger in `DotnetInspector.ResearchQueries` and executes this exact order:
    `ArtifactParticipantPairing`. The pairing id and
    `DirectMemberDesignation` authority are exactly the designation id.
 4. `PopulationSealing` exhaustively lowers the admitted pairing into the exact
-   query domain and correlation required by the already sealed question.
+   query domain, inert domain receipt, and correlation required by the already
+   sealed question.
 5. `PopulationProjection` exhaustively lowers the sealed query question,
    domain, correlation, and admitted pairing into Research-owned question,
    participant, binding, domain, correlation, terminal, and
@@ -1575,15 +1631,16 @@ stops before the aggregate cap is exceeded. No retry, manually issued redirect
 follow-up, cache materialization, or decoded string bypasses accounting.
 Successful per-member acquisition retains one bounded checksum-verified raw
 Source-input snapshot with checked text length and line census. It performs no
-Finding inspection or comparison. After every eligible acquisition reaches a
-terminal input outcome, the query validates exact outcome-set equality with the
-eligible population. Acquisition failures receive typed Source dispositions
-without producer callbacks. The query derives the exact Source producer
-population from the successful input-outcome subset, seals and cumulatively
-charges its complete dependent work plan, and checks every peak before invoking
-the first Source producer. An acquisition failure therefore cannot disappear,
-become producer absence, or let another eligible item start comparison before
-the complete dependent input and preflight boundaries.
+Finding inspection or comparison. After every eligible acquisition reaches a terminal input outcome, the query
+validates exact outcome-set equality with the eligible population. Acquisition
+failures receive typed Source dispositions without producer callbacks.
+ResearchQueries derives the exact Source producer population from the
+successful input-outcome subset, then lends the operation-stamped projection
+facet and bounded input snapshots to the Research session. That session seals
+and cumulatively charges the complete dependent work plan and checks every peak
+before invoking the first Source producer. An acquisition failure therefore
+cannot disappear, become producer absence, or let another eligible item start
+comparison before the complete dependent input and preflight boundaries.
 
 Source dispositions are staged until the entire mechanism succeeds. If any
 aggregate dimension is exhausted, the query cancels and drains owned Source
@@ -1602,12 +1659,20 @@ items appear successful or failed.
 `ResearchCompletion` and `Publication` are distinct one-shot transitions.
 Research completion fails unless every declared mechanism has one complete,
 disjoint ledger over the exact Research work-item set. Projection or Research
-completion afterward fails visibly. It builds one provisional inert
-`ResearchBodyEvidencePlanReceipt` and `BodyEvidencePresentationMap` keyed by
-Research work-item id. Each presentation entry has inert participant and member
-labels sufficient to distinguish two equal member subjects in different
+completion afterward fails visibly. It validates the already charged inert
+participant-domain and scope receipts, ledgers, native snapshots, changes, and
+total `BodyEvidencePresentationMap`, then seals one fixed-size provisional
+`ResearchBodyEvidencePlanReceipt` wrapper without copying a variable payload.
+Each presentation entry was created under `PlanExpansion` and the applicable
+producer-projection stages and has inert participant and member labels
+sufficient to distinguish two equal member subjects in different
 TFM/RID/assembly participants. Labels contain no address, target, participant
 proof, or correspondence key from which evidence could be reselected.
+The owning stages populate operation-local bounded builders only after their
+entry and payload charges succeed. Research completion freezes those builders
+in place, revokes mutation, and transfers their exact backing collections into
+the fixed-size receipt/comparison wrappers; it does not enumerate them into new
+arrays, maps, strings, or DTOs. Failure discards the builders.
 
 Research completion accepts and retains only Research-owned identities,
 snapshots, ledgers, and catalog-declared native DTOs. It has no query receipt,
@@ -1660,7 +1725,9 @@ complete inert query receipt, the
 Only then may ResearchQueries compose one `BodyEvidencePlanReceipt` and issue
 `ImplementationDiffResult` or the completed arm of
 `ImplementationMemberDiffResult`. This composition is typed correspondence,
-not display joining or reconstruction. `ImplementationDiffResult`,
+not display joining, reconstruction, or variable-payload copying. Publication
+seals only fixed-size wrappers over the exact immutable collections already
+constructed and charged by their owning stages. `ImplementationDiffResult`,
 `ImplementationMemberDiffResult`, `ImplementationDiffMember`, and their
 internal constructors move from `ILInspector.Research` to
 `DotnetInspector.ResearchQueries`. Research exposes no outer-result factory,
@@ -1691,8 +1758,11 @@ result and publishes only the outer `Failed` arm.
 Planned public result types are sealed non-records with internal
 ResearchQueries constructors and get-only immutable collections.
 `ImplementationDiffResult.WorkItems` is keyed by
-`ResearchBodyEvidenceWorkItemId` and joins that id's Research presentation
-entry, mechanism dispositions, and native snapshots.
+`ResearchBodyEvidenceWorkItemId` and is a non-materializing read-only view over
+that id's already charged Research presentation entry, mechanism dispositions,
+and native snapshots. Enumeration may create an ephemeral item view but cannot
+retain another list, map, string, or payload copy; all query-owned labels needed
+by the view already exist in the inert plan and correspondence receipts.
 `ImplementationMemberDiffResult` retains separate before/after subjects rather
 than inventing one shared member identity for an arbitrary designated pair. Its
 `Completed` arm has the same non-forgeable query/Research correspondence and a
@@ -2148,7 +2218,7 @@ not invoke or reconstruct the C# and IL producers independently.
 | `PackageAssemblyContextRoles` nullable surface lookup | Extend this product-owned same-side role authority to issue one sealed `AssemblyParticipantRoleManifest` directly from its complete role sets and exact correspondence input, with `SameSelection`, `Implementation`, or typed `ReferenceOnly` bindings before cross-version pairing; the nullable compatibility lookup is not a comparison input |
 | `AssemblyResolutionProvenance` pattern matching in Research | Query-owned opaque `ArtifactParticipantPairing.Id` plus side-local binding, then one ResearchQueries-owned bijective `PopulationProjection` into disjoint Research participant/binding/domain identities; Research receives no core-Queries currency |
 | Package/project/directory occurrence index | Logical participant slots; duplicate slots fail ambiguous |
-| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | Typed pre-acquisition question inputs declared by the host, charged and sealed only by ResearchQueries into query questions with exact selection request and endpoint scope. Pairing emits complete core slot outcomes; `PopulationSealing` seals query-owned admitted/absent/terminal domains and correlations; `PopulationProjection` bijectively lowers that complete population into a Research-owned admission plan. Research independently expands Research scopes, requests, attempts, and work items. The outer receipt retains query, correspondence, and Research receipts without a live pairing or cross-layer currency |
+| `ResearchDiffOptions.TypeFilters` / `MemberTargetIdentities` | Typed pre-acquisition question inputs declared by the host, charged and sealed only by ResearchQueries into query questions with exact selection request and endpoint scope. Pairing emits complete core slot outcomes; `PopulationSealing` seals query-owned admitted/absent/terminal domains, inert domain receipts, and correlations; `PopulationProjection` bijectively lowers that complete population into a Research-owned admission plan and inert Research domain receipts. Research independently expands Research scopes, scope receipts, requests, attempts, work items, and base presentation entries. The outer receipt retains query, correspondence, and Research receipts without a live pairing or cross-layer currency |
 | `CSharpBodyDiff` raw-key/occurrence index | Scope-local participant pairing plus `MemberBodyCorrespondenceKey` and role |
 | Correspondence collision rejected or selected by occurrence | `CorrespondenceAmbiguousKey` retaining every colliding side-local attempt, plus per-attempt counterpart-unavailable work items |
 | Scope-free `CorrespondedKey` and cross-scope aliases | Scope-local corresponded keys, collision buckets, aliases, and taint; independent scopes remain independent proof domains |
@@ -2167,7 +2237,7 @@ not invoke or reconstruct the C# and IL producers independently.
 | `ImplementationDiffMechanism` / `AllAvailable` | Retire in favor of the closed mechanism catalog; no context-free host-owned mechanism set |
 | Public `ImplementationDiffResult` / `ImplementationDiffMember` constructors, `SourceComparison` init, and record copying | Move query-level result ownership to ResearchQueries; sealed non-record results have internal constructors, get-only immutable state, and no post-completion enrichment |
 | `ImplementationDiffResult.Members` and planned `ResearchComparison.BySubject()` | Work-item-keyed result projection and the producer/session `ResearchBodyEvidenceChange` union; any producer-subject view retains its Research work-item id |
-| `ImplementationDiff.CompareMembers` handle-only pairing and shared `ImplementationMemberDiffResult.Subject` | ResearchQueries-owned `DirectImplementationComparisonOperation.DesignateMemberPair` plus `Execute`; the designation retains only two live sources/MVIDs. `Execute` admits the slot, seals the question, then creates the direct pairing, role manifests/bindings, and side-qualified keys. `PopulationSealing` seals the query domain/correlation before `PopulationProjection` lowers that query population into Research-owned identities and Research plan expansion begins. Completed evidence retains separate subjects and non-empty ledgers; any pre-work-item or budget failure returns the fixed-size failed evidence arm, never fabricated dispositions |
+| `ImplementationDiff.CompareMembers` handle-only pairing and shared `ImplementationMemberDiffResult.Subject` | ResearchQueries-owned `DirectImplementationComparisonOperation.DesignateMemberPair` plus `Execute`; the designation retains only two live sources/MVIDs. `Execute` admits the slot, seals the question, then creates the direct pairing, role manifests/bindings, and side-qualified keys. `PopulationSealing` seals the query domain/correlation and inert domain receipt before `PopulationProjection` lowers that query population into Research-owned identities and Research plan expansion begins. Completed evidence retains separate subjects and non-empty ledgers; any pre-work-item or budget failure returns the fixed-size failed evidence arm, never fabricated dispositions |
 | `MatchCommand.BuildImplementationDiffView` direct result construction and unconditional zero exit | Invocation-scoped direct designation passed to the Queries-owned direct operation plus a formatter overload for its product-issued `ImplementationMemberDiffResult`; retained direct failure returns nonzero |
 | Direct `IsExact`/empty-row inference | Exhaustive `Completed \| Failed` evidence handling followed by `Exact \| Different \| NotApplicable \| Unavailable` reduction only for completed non-empty ledgers; failed evidence is always unavailable, all-absent completed results retain reasons, and neither masquerades as exact or changed |
 | ReturnToSender and round-trip `CompareMembers` calls | Product-issued direct designations passed through the Queries-owned direct operation over original/emitted or emitted/emitted sources; differing assembly identities remain valid, failed ledgers map to context-failed/unavailable, and all-absent ledgers map to typed not-applicable rather than semantic difference |
@@ -2177,7 +2247,7 @@ not invoke or reconstruct the C# and IL producers independently.
 | CLI API-only failure exit | Include assembly and direct result `HasFailures` in every selected output path |
 | Query/cleanup failure without result currency | `ImplementationComparisonQueryOutcome.Failed` with primary and cleanup diagnostics, no partial result, typed output, and nonzero exit |
 | Ad hoc planned/direct lifecycle sequencing | Catalog-declared operation stages with exact per-kind order, including `PopulationSealing`, `PopulationProjection`, distinct `ResearchCompletion`, and query `Publication`, plus exact owner, facet, authorized-dimension, implementation-registration, and boundary-fixture set equality |
-| Unbounded endpoint, planning, producer, and retained-result work | Queries-owned `BodyEvidencePlanBudgetLedger` minted before endpoint-slot/question/endpoint realization, shared by planned and direct operations, and used for pairing-, query-population-sealing-, population-projection-, plan-expansion-, producer-input/work/scratch-, and native-lowering charges; planned exhaustion returns one typed outer failure, while direct exhaustion discards staged ledgers and returns fixed-size failed evidence |
+| Unbounded endpoint, planning, producer, and retained-result work | Queries-owned `BodyEvidencePlanBudgetLedger` minted before endpoint-slot/question/endpoint realization, shared by planned and direct operations, and used for pairing-, query-population-sealing-, population-projection-, plan-expansion-, retained-result-entry-, producer-input/work/scratch-, and native-lowering charges; planned exhaustion returns one typed outer failure, while direct exhaustion discards staged ledgers and returns fixed-size failed evidence |
 | `ILInspector.Research` reaching into core Queries currencies or owning query results | Keep the one-way `ResearchQueries -> Research` project edge, add `InternalsVisibleTo("DotnetInspector.ResearchQueries")` in Research, prohibit any upward Research project reference, expose internal Research admission/session factories only to ResearchQueries, and move outer query results to ResearchQueries |
 | Unified-line-only CLI rows | Ledger-first same-schema evidence/diagnostic records; after native filtering, every producer/session `Compared(Different)` with no visible line gets its own typed fallback, while presentation-safe failed partial evidence may accompany but never replace its diagnostic; semantic row windows count evidence but never count or suppress mandatory ledger/query diagnostics |
 | Unqualified `options.Columns` / `options.Fields` forwarding | `ImplementationDiffSectionDescriptor.IntegrityColumns` drives both schema declaration and the effective Markout projection: user projection narrows ordinary evidence, while a row population with mandatory diagnostics retains the discriminator, failure identity/context, reason, and evidence columns in every table-derived structured mode |
@@ -2199,8 +2269,8 @@ The target lifecycle is unverified until these gates exist:
 | Mechanism dependency totality | Research + Queries with empty selection, Source-only selection, C#-only change, IL-only change, both exact, proven one-sided change, failed/ambiguous counterpart, native comparison unavailable, Finding inspection/cross-validation failure, and presentation-filter mutations | An empty set or Source without a requested local mechanism is accepted; a known required dependency is absent; Source omits a requested local prerequisite; a failed prerequisite, counterpart, correspondence, native comparison, Finding inspection, or cross-validation performs I/O; a proven one-sided change becomes `NotEligible`; no-change performs I/O; or presentation affects eligibility |
 | Synchronous mechanism ownership | Research API, Queries-owned direct-operation, and harness tests over `ResearchChangeMechanism` and `ImplementationDiffMechanism` | Either default/context-free `AllAvailable` includes a host mechanism; synchronous `Compare` accepts/ignores Source, ReturnToSender, or unknown flags; a retired assembly/direct overload remains; a caller bypasses `DirectImplementationComparisonOperation` to invoke a Research producer; or a host runner does not declare its complete set |
 | Operation lifetime | Queries + CLI with revoked authorization, borrowed sessions, direct designation expiry, Research-completion/publication validation failure, success-plus-cleanup failure, primary-plus-cleanup failure, cancellation with successful/failing cleanup, post-disposal full-result enumeration, and single-threaded awaited reentrancy | Admission/question sealing/endpoint realization/participant pairing/population sealing/population projection/Research plan expansion/projection/Research completion/publication escape one current planned lease; a direct operation escapes one current direct lease or its designation/source lifetime; the assembly/package CLI opens a reader/session around Research; direct `match`, ReturnToSender, or round-trip use invokes Research without the Queries-owned operation; a borrowed session is disposed; an owned lease or scratch reservation leaks on success, failure, or cancellation; a completed result reaches disposed participant/group/source/reader state or cannot enumerate every query/correspondence/Research receipt, ledger, native snapshot, change, and presentation value after cleanup; a failed query lacks the typed outer arm or exposes a partial/completed result; cleanup replaces a non-cancellation primary failure or loses its diagnostic; successful cancellation cleanup returns an outcome instead of propagating cancellation; failed cancellation cleanup does not supersede cancellation with `Failed(Cleanup)` and every typed cleanup diagnostic; `ImplementationDiffResult.HasFailures` absorbs query failure; or Browser/Wasm requires threads/blocking |
-| Operation-stage inventory | Catalog-derived source-architecture/set-equality tests + planned/direct order and stage-removal non-vacuity mutations | The descriptor catalog, planned pipeline, direct pipeline, owner registrations, lease-facet adapters, allowed `(operation kind, stage, dimension)` edge set, budget methods, or boundary-fixture sets differ; a planned stage is omitted/duplicated/reordered; direct omits a stage other than endpoint realization or the catalog-declared planned-only dependent stages; a stage lacks its exact per-kind owner, budget authority, or dimension set; a dimension is authorized by no stage for an applicable operation kind or a stage charges a dimension absent from that exact kind/stage edge; a host/harness registers a stage; direct participant pairing precedes question sealing; query domains/correlations are sealed outside `PopulationSealing`; population projection does not occur after population sealing and before Research plan expansion; Research owns query population sealing/publication or ResearchQueries owns Research completion; removing endpoint realization, direct admission/question sealing/participant pairing, population sealing, population projection, plan expansion, either producer preflight/projection boundary, dependent input acquisition, Research completion, publication, or cleanup remains green; or stage metadata is inferred from display text/reflection rather than the closed typed catalog |
-| Planned population budget | Queries + endpoint-realizer + acquisition-coordinator + population-sealing + population-projection + Research boundary tests at one below/equal/one above every default, count multiplication, integer overflow, direct/planned, native/Browser, and raised-limit authorization | The budget ledger is minted after endpoint-slot preflight, question sealing, endpoint realization, or participant pairing; a crossing stage can run without its owner-local operation-stamped facet; endpoint/direct-pairing/projection facets name different operation ids, expose foreign dimensions, or are backed by different ledgers; endpoint slots are not charged before acquisition; a host seals immutable questions; a question input is copied before its entry/variable payload charge; an endpoint materializes a role binding, manifest entry, outcome payload, or query-owned variable copy before reservation; a pairing owner retains pairing-authored candidate/affected/failure payload or diagnostic characters without a `ParticipantPairing` charge; a direct factory materializes a role manifest, binding, qualified key, pairing, or outcome before its two participant inputs are charged; any endpoint receipt differs from its own endpoint's realized manifest count or independently measured retained outcome characters, aggregate receipt sums differ from the exact realized union/payload sum, or compensating endpoint-local errors pass; a realized union is qualified or partitioned before those equalities are validated; population sealing retains a query domain, correlation-domain entry, or variable payload without its complete count/character charge; population projection retains any Research admission value/correspondence-map entry or variable payload without its own entry/character charge, or treats an earlier query charge as prepayment; Research plan expansion retains a selection/resolution diagnostic without its own charge; any endpoint-slot/input/question/selection-request/query-domain/query-correlation/projection entry/request-or-receipt character/correlation-scope/target-request/attempt/work-item/disposition/snapshot/presentation path bypasses the same ledger; a zero-match question retains uncharged selectors/filter operands; planned/direct operations mint different concrete ledger types or Research/callers can mint, replenish, or substitute one; a host raises a default without `BodyEvidencePlanBudgetOverrideCapability`; an exhaustive selector, Source override, per-artifact limit, or `InspectionCost` is accepted as that grant; overflow wraps; exhaustion truncates a census, correlation, endpoint outcome, correspondence map, Research plan, ledger, snapshot, or output; a partial manifest/pairing/plan/result escapes; a direct failure before work-item creation fabricates a ledger disposition or completed empty population instead of the fixed-size failed arm; or failure omits phase/dimension/limit/charge |
+| Operation-stage inventory | Catalog-derived source-architecture/set-equality tests + planned/direct order and stage-removal non-vacuity mutations | The descriptor catalog, planned pipeline, direct pipeline, owner registrations, lease-facet adapters, allowed `(operation kind, stage, dimension)` edge set, budget methods, or boundary-fixture sets differ; a planned stage is omitted/duplicated/reordered; direct omits a stage other than endpoint realization or the catalog-declared planned-only dependent stages; a stage lacks its exact per-kind owner, budget authority, or dimension set; a dimension is authorized by no stage for an applicable operation kind or a stage charges a dimension absent from that exact kind/stage edge; a host/harness registers a stage; direct participant pairing precedes question sealing; query domains/correlations/receipts are sealed outside `PopulationSealing`; Research domain receipts are retained outside `PopulationProjection`; Research scope receipts or base presentation entries are retained outside `PlanExpansion`; population projection does not occur after population sealing and before Research plan expansion; Research owns query population sealing/publication or ResearchQueries owns Research completion; Research completion or publication charges or copies a variable entry, string, byte payload, or presentation value instead of validating and fixed-size sealing the already charged immutable collections; removing endpoint realization, direct admission/question sealing/participant pairing, population sealing, population projection, plan expansion, either producer preflight/projection boundary, dependent input acquisition, Research completion, publication, or cleanup remains green; or stage metadata is inferred from display text/reflection rather than the closed typed catalog |
+| Planned population budget | Queries + endpoint-realizer + acquisition-coordinator + population-sealing + population-projection + Research plan-expansion/completion + query-publication boundary tests at one below/equal/one above every default, count multiplication, integer overflow, direct/planned, native/Browser, and raised-limit authorization | The budget ledger is minted after endpoint-slot preflight, question sealing, endpoint realization, or participant pairing; a crossing stage can run without its owner-local operation-stamped facet; endpoint/direct-pairing/projection facets name different operation ids, expose foreign dimensions, or are backed by different ledgers; endpoint slots are not charged before acquisition; a host seals immutable questions; a question input is copied before its entry/variable payload charge; an endpoint materializes a role binding, manifest entry, outcome payload, or query-owned variable copy before reservation; a pairing owner retains pairing-authored candidate/affected/failure payload or diagnostic characters without a `ParticipantPairing` charge; a direct factory materializes a role manifest, binding, qualified key, pairing, or outcome before its two participant inputs are charged; any endpoint receipt differs from its own endpoint's realized manifest count or independently measured retained outcome characters, aggregate receipt sums differ from the exact realized union/payload sum, or compensating endpoint-local errors pass; a realized union is qualified or partitioned before those equalities are validated; population sealing retains a live query domain, inert domain receipt, correlation-domain entry, or variable payload without its complete multiplied count/character charge; population projection retains any Research admission value, inert domain receipt, correspondence-map entry, or variable payload without its own entry/character charge, or treats an earlier query charge as prepayment; Research plan expansion retains a live scope, inert scope receipt, request, attempt, work item, ledger, base presentation entry, diagnostic, or variable payload without its own charge; a producer projection retains a snapshot or presentation detail before its own charge; Research completion or query publication copies a variable payload instead of zero-copy sealing already charged immutable values; any endpoint-slot/input/question/selection-request/query-domain/query-domain-receipt/query-correlation/projection entry/request-or-receipt character/correlation-scope/scope-receipt/target-request/attempt/work-item/disposition/snapshot/presentation path bypasses the same ledger; a zero-match question retains uncharged selectors/filter operands; planned/direct operations mint different concrete ledger types or Research/callers can mint, replenish, or substitute one; a host raises a default without `BodyEvidencePlanBudgetOverrideCapability`; an exhaustive selector, Source override, per-artifact limit, or `InspectionCost` is accepted as that grant; overflow wraps; exhaustion truncates a census, correlation, endpoint outcome, correspondence map, Research plan, ledger, snapshot, or output; a partial manifest/pairing/plan/result escapes; a direct failure before work-item creation fabricates a ledger disposition or completed empty population instead of the fixed-size failed arm; or failure omits phase/dimension/limit/charge |
 | Producer work budget | Mechanism-catalog phase/estimator set equality + planned/direct exact-boundary fixtures + IL/Finding/Source ordered-match canaries + cancellation/failure allocation instrumentation | A mechanism lacks one compile-time typed phase or conservative estimator; the complete `(work item, mechanism)` estimate-key set for either phase differs from that phase's exact producer-eligible population; prerequisite aggregate input/work totals and every peak are not preflighted before the first prerequisite callback; dependent eligibility/input acquisition does not follow complete prerequisite ledgers; Source acquisition invokes `TextFindings.Inspect`, constructs comparison keys, or compares before dependent preflight; dependent aggregate input/work totals and every peak are not preflighted before the first dependent callback; an estimator decodes/canonicalizes/decompiles/inspects Findings/diffs or uses unadmitted content; input/work/scratch arithmetic wraps; ordered matching omits its full checked cell product, matrix, or producer-owned arrays; a producer starts without the current operation-stamped projection facet or before its live-scratch reservation succeeds; ordinary concurrent scratch contention becomes exhaustion instead of bounded waiting; actual catalog-declared scratch can exceed its reservation; failure/cancellation leaks live scratch, replenishes cumulative work, or starts another callback before native-result release; a snapshot charge substitutes for producer-work preflight; an unestimable producer runs; planned exhaustion returns partial success; direct exhaustion does not discard staged ledgers and return `ImplementationMemberDiffEvidence.Failed`; a failed direct arm carries a work item, ledger, native snapshot, or artifact text; scheduling changes which items are successful; or estimator/lowering code introduces reflection, trim warnings, or a Browser/Wasm-incompatible dependency |
 | Authored-source budget | Queries boundary tests at one below/equal/one above every default, cached/uncached, retry/redirect, embedded/external PDB, shared documents, native/Browser transport-visible operations, varied scheduling, and raised-limit authorization | Any query-time PDB/source path lacks the same non-optional ledger lease; any operation/byte/decoded-text/retention/concurrency path bypasses accounting; a host raises a default without an invocation-scoped `AuthoredSourceBudgetOverrideCapability`; static `InspectionCost` is accepted as that grant; per-item/redirect limits replace the aggregate; exhaustion publishes any eligible success or scheduling changes an eligible item's disposition kind; or failure omits dimension/limit/charge |
 | Direct-member pairing authority | ResearchQueries operation, core-Queries direct-pairing factory, `match --implementation`, ReturnToSender, and round-trip exact-address tests with equal/different assembly names, unequal correspondence keys/roles, same path/different MVID, same token/different module, wrong-side direct keys, pre-work-item failures, and designation lifetime expiry | A public `ImplementationDiff.CompareMembers` remains or accepts raw sources/handles; a caller bypasses the Queries-owned direct operation; Research or a caller mints a core designation; the pre-operation designation contains a direct/workspace participant, role manifest/binding, qualified input key, or `ArtifactParticipantPairing`; the operation creates the direct participant/pairing before ledger admission or question sealing, or mints a pairing id different from the designation id; the participant pairing/designation carries a physical method address instead of receiving it only through `DirectMemberComparisonInput`; direct lowering lacks its own charged slot, pre-pairing sealed question, query population-sealing domain/correlation, population-projection correspondence, Research scope, or non-empty completed work item; the core designation or pairing enters a Research model; a designated pair requires assembly/key/role equality or invents one shared subject; cannot lower to one Research-owned designated-pair key; an endpoint path can mint that key; a direct input key's side disagrees with its binding arm; pairing derives from path, occurrence, display, token, or reader equality; it outlives a source; the completed direct result retains a live designation grant, live participant/pairing/binding, source, or lease, or loses the inert designation/binding snapshots required by its correspondence receipt; the failed arm fabricates a work-item/ledger disposition or contains artifact text; feeds assembly-wide comparison; or bypasses address/role validation |

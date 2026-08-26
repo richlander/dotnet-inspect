@@ -164,9 +164,10 @@ only inside its donor participant. The round-trip request first asks
 sources and retains their MVIDs. `Execute` admits that grant, charges and seals
 the direct question from the exact addresses/roles, and only then constructs
 the single-participant role manifests and direct pairing under its ledger.
-ResearchQueries then seals the query domain/correlation and projects that
-complete query population into disjoint Research-owned identities before
-Research plan expansion. Neither the common provenance,
+ResearchQueries then seals the query domain/correlation and that domain's inert
+receipt, then projects the complete query population into disjoint
+Research-owned identities before Research plan expansion. Neither the common
+provenance,
 `ResearchMemberIdentity`, an inferred correspondence key, one donor's strict
 target, nor the exact addresses themselves pair the donors.
 The direct donor comparison applies the existing C# and IL diff contracts.
@@ -315,7 +316,7 @@ public sealed record RoundTripMethodReplacement(
     CSharpBlockBody Body);
 
 public sealed record RoundTripRequest(
-    ArtifactIdentity Artifact,
+    RoundTripArtifactIdentity Artifact,
     ModuleIdentity Module,
     IReadOnlyList<MemberAnchor> Targets,
     RoundTripScope Scope,
@@ -323,7 +324,16 @@ public sealed record RoundTripRequest(
     IReadOnlyList<RoundTripMethodReplacement> Replacements);
 ```
 
-`ArtifactIdentity` identifies the exact input bytes and acquisition provenance.
+The tools-owned `RoundTripArtifactIdentity` identifies the exact input bytes by
+digest and retains round-trip acquisition provenance. It is deliberately not
+`DotnetInspector.Artifacts.ArtifactIdentity`, whose authority is opaque,
+generation-scoped, and neither a digest nor a provenance record. The first
+contract keeps the existing round-trip identity until round-trip becomes a
+workspace consumer. That later migration must atomically adopt the artifact
+owner's registration, guarded content access, and separately owner-issued
+digest evidence; it must not reinterpret a generation identity as durable
+content evidence.
+
 `ModuleIdentity` includes module name and MVID so a member anchor is never
 interpreted without its physical metadata scope. Display text is not identity.
 For the first contract, supplied C# is a `CSharpBlockBody` addressed to one
@@ -524,6 +534,9 @@ required preservation boundary.
 - Scope A/B fixtures change compiler options, references, replacements, body
   policy, normalization, and input identity one at a time and require a typed
   `Unavailable` context-mismatch result.
+- Contract-closure tests pin `RoundTripRequest.Artifact` to the tools-owned
+  `RoundTripArtifactIdentity` and reject substituting the generation-scoped
+  `DotnetInspector.Artifacts.ArtifactIdentity` for digest/provenance evidence.
 - A direct-donor fixture proves the pairing designation retains only its
   designation id, the two live sources, and both MVIDs; the comparison input
   separately retains both exact addresses/roles. Before admission, the

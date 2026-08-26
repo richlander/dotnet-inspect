@@ -658,8 +658,9 @@ reason, or diagnostic authored by the coordinator is a new retained copy. The
 coordinator must measure and charge that copy during the cataloged
 `ParticipantPairing` stage before retaining it; an endpoint receipt cannot
 prepay pairing-authored evidence. ResearchQueries likewise charges every later
-query domain/correlation copy during `PopulationSealing` and every later
-Research-owned admission/correspondence copy during `PopulationProjection`.
+live query domain, inert query receipt, and correlation copy during
+`PopulationSealing`, and every later Research-owned admission, inert domain
+receipt, and correspondence copy during `PopulationProjection`.
 A missing, extra, rekeyed, undercharged, or overcharged receipt returns one
 typed planning-budget failure without constructing qualified keys,
 candidate/affected payloads, `InputMap`, participant outcomes, or a partial
@@ -839,11 +840,11 @@ implementation roles share that participant, so each direct binding has
 `DirectMemberDesignationId` declared in core Queries, not a second identity.
 The factory returns that query currency only to ResearchQueries. During the
 next `PopulationSealing` stage, ResearchQueries seals the exact query
-domain/correlation for the pre-existing question. `PopulationProjection` then
-lowers that sealed query population into disjoint Research
-participant/binding/domain/designation values and seals an inert bijective
-correspondence receipt. Research receives only the Research-owned admission
-plan and never constructs or accepts an acquisition currency.
+domain/correlation and inert domain receipt for the pre-existing question.
+`PopulationProjection` then lowers that sealed query population into disjoint
+Research participant/binding/domain/designation values and seals an inert
+bijective correspondence receipt. Research receives only the Research-owned
+admission plan and never constructs or accepts an acquisition currency.
 
 This explicit designation is a comparison-scope grant, not a claim that the
 participants are versions of the same assembly. It is the only pairing path

@@ -153,8 +153,9 @@ text length and line census. It does not invoke `TextFindings.Inspect`,
 construct Finding keys, or compare old/new bodies. After every local
 prerequisite ledger is complete, ResearchQueries derives the exact
 Source-eligible population, acquires those bounded inputs under the
-authored-source lease, and preflights the complete Source producer work/scratch
-plan.
+authored-source lease, and lends the operation-stamped projection facet to the
+Research session. That session seals and atomically charges the complete Source
+producer work/scratch plan before the first callback.
 Only the later dependent Source producer callback constructs Findings and
 compares them under its operation-stamped projection reservation. The
 `Producer work budget` gate in

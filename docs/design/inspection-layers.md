@@ -170,8 +170,9 @@ only the designation id, two live Metadata sources, and both MVIDs. After
 minting the concrete ledger and charging admission, the operation seals its
 direct question **before** using the core-Queries direct-pairing factory to
 create role manifests, bindings, qualified keys, and the admitted pairing. It
-then seals the query domain/correlation and performs the same query-to-Research
-population projection before invoking the internal Research session.
+then seals the query domain/correlation and inert domain receipt and performs
+the same query-to-Research population projection before invoking the internal
+Research session.
 `ILInspector.Research` never references, constructs, or accepts a
 Queries/workspace currency, and `match`, ReturnToSender, and round-trip callers
 cannot invoke Research comparison directly. The CLI receives only completed
