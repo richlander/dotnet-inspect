@@ -780,11 +780,15 @@ internal static class DetectionTestSuite
             "merge_group",
             "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
             outputs);
-        if (mergeGroupWebDependency["code"] != "true" ||
-            mergeGroupWebDependency["web"] != "true")
+        if (mergeGroupWebDependency.Count != webDependency.Count ||
+            mergeGroupWebDependency.Any(item =>
+                !webDependency.TryGetValue(
+                    item.Key,
+                    out string? expected) ||
+                item.Value != expected))
         {
             throw new InvalidOperationException(
-                "Merge-group web dependency did not select code and web: " +
+                "Merge-group web dependency did not match PR routing: " +
                 FormatValues(mergeGroupWebDependency));
         }
 
