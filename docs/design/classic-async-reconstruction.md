@@ -238,7 +238,8 @@ PreparationStage         Raised | Lowered
 ClassicAsyncStageState
   Unavailable(ImportInternalError)
   NotReached              stage failed before the classic pass
-  DecisionFailed          pass ran but produced no valid decision
+  DecisionFailed(Diagnostics)
+                          pass ran but produced no valid decision
   Decided(Decision, StageApplication, Outcome)
 
 PreparedStageBody.Render(PrinterOptions)
@@ -255,6 +256,8 @@ PassContext.ClassicAsyncDirective
   PhysicalNoCompanion    successful seam-free projection; kickoff stays raw
   Unavailable(ImportInternalError)
                          pass deliberately produces no classic outcome
+  PlanningFailed(Diagnostics)
+                         pass preserves failure and produces no classic outcome
 
 ForeignFunctionPipelineResult
   Prepared(IrFunction)
@@ -548,8 +551,8 @@ outcome, stable consumed-region identities, and a
 or stage-shaped body instances. This planning step runs before either requested
 stage and is independent of request order. A planning failure is retained as
 `ClassicAsyncPlanningResult.Failed`; requested stages become
-`DecisionFailed` with that diagnostic and do not run a success-shaped
-unplanned pipeline.
+`DecisionFailed(Diagnostics)` with that diagnostic and do not run a
+success-shaped unplanned pipeline.
 
 Raised and Lowered then run their existing full pass orders over separate
 pristine-import clones. At `ClassicAsyncReconstructionPass`, each receives
@@ -574,10 +577,12 @@ the same terminal no-decision case.
 
 Each stage freezes its own `ClassicAsyncStageState`: `Unavailable` for that
 import-health exemption, `NotReached` if it failed before the pass,
-`DecisionFailed` if plan validation or stage-local materialization failed, and
-`Decided` once the supplied plan produced and applied an application. Every
-`Decided` value references `Planning.Planned.Decision` plus only its own detached
-`ClassicAsyncStageApplication`; an unavailable projection has neither.
+`DecisionFailed(Diagnostics)` if planning, plan validation, or stage-local
+materialization failed, and `Decided` once the supplied plan produced and
+applied an application. Every `Decided` value references
+`Planning.Planned.Decision` plus only its own detached
+`ClassicAsyncStageApplication`; an unavailable or failed projection has
+neither.
 Neither consumers nor `DecompilerResult` infer an earlier failed stage's
 outcome from a different stage.
 `PreparedStageBody.Render` is the sole source-body emission seam. It
@@ -732,7 +737,11 @@ returns the parent context as a non-stepping optimization. Before the classic
 pass runs, every top-level or foreign pipeline resolves `None` to a fresh
 `Supplied(Decision)` when a companion-import seam exists and planning succeeds,
 to `PhysicalNoCompanion` when the seam is null, or to
-`Unavailable(ImportInternalError)` when planning fails. It returns
+`Unavailable(ImportInternalError)` only when the frozen import observation
+already contains DEC0001. `ClassicAsyncPlanningResult.Failed(Diagnostics)`
+becomes `PlanningFailed(Diagnostics)` and then stage-local
+`DecisionFailed(Diagnostics)` without running an unplanned success path. It
+returns
 `ForeignFunctionPipelineResult`, so expected classification decode/conflict
 failure, body absence, null import, and recursion decline cannot collapse to
 one null body. `CrossMethodPipelineScope.Run`, lambda and local-function
@@ -919,8 +928,9 @@ projection:
   user-body call/allocation facts from `MoveNext`, while same-valued offsets in
   the kickoff cannot claim them.
   `AnnotatedSourceDocument` increments its schema and carries an
-  evidence-method table (address plus body fingerprint) and address-qualified
-  node origins. Its top-level `Source` remains the declaration host.
+  evidence-method table (address plus `PhysicalBodyFingerprint`) and
+  address-qualified node origins. Its top-level `Source` remains the
+  declaration host.
   Single-method documents may retain the existing compact local-range
   encoding, but readers normalize both encodings to `AddressedIlOrigin`;
   cross-method documents never imply that a bare offset belongs to the
@@ -929,9 +939,10 @@ projection:
   referenced by node, annotation, fact, target, IL-line, and printed-range origins;
   every reference must resolve to its table entry, and every entry must be
   used by `Source` or an origin. Product
-  construction additionally validates each fingerprint and instruction
-  boundary against the acquired physical body; strict deserialization validates
-  the closed serialized graph without claiming external reacquisition.
+  construction additionally validates each physical fingerprint and
+  instruction boundary against the acquired physical body; strict
+  deserialization validates the closed serialized graph without claiming
+  external reacquisition.
   Omitting a `MoveNext` entry is therefore invalid rather than a way to regain
   single-method status.
 - `AnnotationStage.Raised` consumes `Raised`.
@@ -1018,13 +1029,14 @@ and returns:
 ```text
 PhysicalCSharpBodyPreparationResult
   Ready(PhysicalCSharpBodyPreparation)
-  Absent(Bodyless)
-  Failed(Diagnostics)
+  Absent(Bodyless, DecompilationFidelity.IlOnly)
+  Failed(Diagnostics, DecompilationFidelity.Failed)
 
 PhysicalCSharpBodyPreparation
   Address
-  BodyFingerprint
-  Materialize()          Prepared(PhysicalCSharpBodyDocument) | Failed(Diagnostics)
+  ComparisonFingerprint
+  Materialize()          Prepared(PhysicalCSharpBodyDocument)
+                       | Failed(Diagnostics, DecompilationFidelity.Failed)
 ```
 
 Only successful lazy materialization carries:
@@ -1032,36 +1044,75 @@ Only successful lazy materialization carries:
 ```text
 PhysicalCSharpBodyDocument
   Address
-  BodyFingerprint
+  ComparisonFingerprint
+  PhysicalBodyFingerprint
   Lines
   AnnotatedSourceDocument
   PhysicalProjectionProof
+
+PhysicalProjectionProof
+  Directive              PhysicalNoCompanion
+  Fidelity               DecompilationFidelity
+  ClassicAsyncOutcome?   null for kickoff; exact local support acknowledgment only
 ```
 
 Its constructor is not public; only that factory can mint the wrapper after
-validating its exact address, body fingerprint, local-origin document, and
-physical-projection provenance. `CompareMembers`, `CompareAssemblies` /
-`CompareMethodIndexes`, and `CSharpBodyDiff.Canonicalize` (as called by
-`CSharpFindings.Inspect`) all consume that total result; only two `Prepared`
-documents enter the line-comparison core. Method indexes carry identity and
-selection facts only. `Decompile` owns body-presence detection and cheap raw
-body fingerprint calculation/validation before returning `Ready`; malformed
-bodies and fingerprint failures cannot escape the total result. Pair
-comparison must short-circuit two `Ready` values with equal fingerprints
-without calling `Materialize`. Unequal bodies materialize lazily, and only that
-phase imports, renders, and builds the document.
+validating its exact address, both fingerprint currencies, local-origin
+document, fidelity, local classic outcome, and physical-projection provenance.
+`CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` /
+`CSharpBodyDiff.CompareMethodIndexes`, and `CSharpBodyDiff.Canonicalize` (as
+called by `CSharpFindings.Inspect`) all consume that total result. Method
+indexes carry identity and selection facts only.
+
+The two fingerprints are different currencies and are never substituted:
+
+- `ComparisonFingerprint` is the existing token-resolved render-equivalence
+  key. It covers method and implementation attributes, resolved signature and
+  local-signature identities, max stack, init-locals state, decoded
+  instructions, resolved user strings and entity operands, and exception
+  regions. Only line-diff operations whose result does not expose per-side
+  line inspections may use equality to return no diff without calling
+  `Materialize`.
+- `PhysicalBodyFingerprint` is the exact attributes, signature bytes, and
+  physical method-body bytes hash used by `AnnotatedSourceDocument.Source`,
+  the evidence-method table, and same-body `IssueCorrespondence`. It never
+  proves render equivalence across artifacts and never drives the
+  no-materialization shortcut.
+
+`Decompile` owns body-presence detection and calculation/validation of
+`ComparisonFingerprint` before returning `Ready`; malformed bodies and
+comparison-fingerprint failures cannot escape the total result. A line-diff
+pair must short-circuit two `Ready` values with equal
+`ComparisonFingerprint` without calling `Materialize`.
+`PhysicalBodyFingerprint` is still `Decompile`-owned but is computed lazily
+inside `Materialize`, before document construction, so a skipped whole-assembly
+pair pays no unused raw-body hash. Unequal line-diff bodies materialize lazily,
+and only that phase computes the physical fingerprint, imports, renders, and
+builds the document.
+
+`CSharpFindings.Inspect` always materializes its one successful preparation.
+`CSharpFindings.Compare` materializes both successful preparations even when
+their comparison fingerprints are equal because
+`FindingComparison.Complete` exposes both inspections, atoms, matches, and
+pairs. It must not fabricate an empty complete census. Two prepared documents
+then enter the existing finding matcher. The same rule applies to
+`CSharpFindings.CompareAssemblies` and `CSharpFindings.CompareMethodIndexes`.
 `Absent`, preparation `Failed`, and materialization `Failed` retain the
 existing typed `CSharpDiffFailureRow` / Finding failure behavior rather than
-throwing or fabricating a document.
+throwing or fabricating a document. Their fidelity carriers remain
+`DecompilationFidelity.IlOnly` for `Absent` and
+`DecompilationFidelity.Failed` for either failure phase, preserving every
+existing `CSharpDiffRow.Fidelity` value.
 Implementation Diff therefore reaches every line or retained-Finding
 comparison only through this chokepoint without changing its Research-layer
 call shape.
 
 `IssueCorrespondence(AnnotatedSourceDocument, ...)` remains the existing
 same-physical-body review operation. It is not an old/new Implementation Diff
-correspondence: equal MVID, MethodDef token, and body fingerprint remain
-mandatory. Admission additionally requires each document's evidence-method
-table to contain exactly one address/fingerprint pair equal to its `Source`;
+correspondence: equal MVID, MethodDef token, and `PhysicalBodyFingerprint`
+remain mandatory. Admission additionally requires each document's
+evidence-method table to contain exactly one address/physical-fingerprint pair
+equal to its `Source`;
 issuance returns
 `CSharpNodeCorrespondenceIssueResult.Issued(CSharpNodeCorrespondenceResult)`
 only after those checks, otherwise
@@ -1505,7 +1556,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep address, classification, relationship, `Bodyless`, import, stage, and render states distinct, and normalize bodyless CLI/Research failure to DEC0002. Plan one exact-host `ClassicAsyncDecision` on a private canonical clone, then materialize separate applications in the unchanged Raised and Lowered pipelines; keep support acknowledgment local, exact, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Carry per-node, per-IL-line, and per-fact address-qualified Research origins while keeping physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Address, bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and Research-layer Implementation Diff lifecycle remain unchanged; the Decompiler physical chokepoint mints its wrapper internally, and no comparison operation/result enters reconstruction. |
+| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep address, classification, relationship, `Bodyless`, import, stage, and render states distinct, and normalize bodyless CLI/Research failure to DEC0002. Plan one exact-host `ClassicAsyncDecision` on a private canonical clone, then materialize separate applications in the unchanged Raised and Lowered pipelines; keep support acknowledgment local, exact, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Carry per-node, per-IL-line, and per-fact address-qualified Research origins while keeping physical C# evidence seam-free. Keep token-resolved comparison fingerprints separate from exact physical provenance and preserve Findings censuses. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Address, bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and Research-layer Implementation Diff lifecycle remain unchanged; the Decompiler physical chokepoint mints its wrapper internally, and no comparison operation/result enters reconstruction. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, broader state-dispatch descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
@@ -1620,7 +1671,7 @@ Decompiler-owned relationship resolver while waiting for them.
 | Public typed-body and whole-type carriers | Decompiler `MemberBodyProductionResult` and internal `DecompiledBodyProjection` |
 | Research source presentation | Research over Decompiler-prepared clones |
 | Address-qualified body evidence, IL lines, and fact mapping | Decompiler `AddressedIlOrigin` / `SourceLine` / `BoundSourceLine` + Research `ResearchFactContext` |
-| Physical C# async behavior | Decompiler `CSharpBodyDiff` and `PhysicalCSharpBodyDocument` over independently selected exact MethodDefs |
+| Physical C# async behavior, fingerprint domains, fidelity, and local acknowledgment | Decompiler `CSharpBodyDiff`, `PhysicalCSharpBodyPreparation`, and `PhysicalCSharpBodyDocument` over independently selected exact MethodDefs |
 | Optional cross-version endpoint, participant, correspondence, work-item, mechanism, population, budget, completion, and result lifecycle | Independent [Implementation Diff](implementation-diff.md) consumer |
 | CLI presentation | CLI |
 
@@ -1652,8 +1703,8 @@ gate ordinary reconstruction.
 | Pipeline-order preservation | Existing accepted classic fixtures + `ForeachStatementPass` array/string/rectangular fixtures | Planning or materialization changes an existing accepted classic result; `ForLoopPass` no longer feeds `ForeachStatementPass`; Raised loses a `foreach`; either outer stage changes order before the classic pass; or either reconstruction sequence differs from its named parent list minus the requesting/materialization exclusions |
 | Exact classic companion identity | Metadata index + Decompiler thin adapter/pass | Decompiler scans structural relationships, kickoff IR disagrees with the returned type without decline, name/order selects `MoveNext`, or a typed relationship failure reconstructs |
 | Support-method identity and preservation | Decompiler importer/pass/projector + seam-free physical C# | Exact support mapping or builder identity is guessed; support and kickoff disposition types mix; acknowledgment edits body/locals; stage applications differ on acknowledgment; or classic/iterator/custom-builder support logic is lost |
-| Physical no-companion lifecycle | `CompareMembers`, `CompareAssemblies`, and `CSharpFindings.Inspect` classic kickoff/support fixtures | A healthy seam-free kickoff is not `Ready`, its materialized document differs from its existing physical bytes, it acquires a classic outcome, or it becomes planning failure; or an exact support host loses its local no-edit acknowledgment |
-| Stage-local classic state | Decompiler projector failure matrix | A healthy stage lacks `Decided`; DEC0001 gains a decision; planning failure runs an unplanned stage or loses its diagnostic; a pre-pass failure borrows another stage's outcome; or a post-classic failure loses its own outcome |
+| Physical no-companion lifecycle | `CompareMembers`, `CompareAssemblies`, and `CSharpFindings.Inspect` classic kickoff/support fixtures | A healthy seam-free kickoff is not `Ready`, its materialized document differs from its existing physical bytes, or its proof lacks `PhysicalNoCompanion`, fidelity, or the expected null kickoff outcome; an exact support host loses its local no-edit acknowledgment in the proof; or either host becomes planning failure |
+| Stage-local classic state | Decompiler projector failure matrix | A healthy stage lacks `Decided`; DEC0001 gains a decision; planning failure maps to `Unavailable`, runs an unplanned stage, or loses its diagnostic; a pre-pass failure borrows another stage's outcome; or a post-classic failure loses its own outcome |
 | Snapshot clone isolation | Decompiler snapshot/render | Mutating one render changes another stage/render or any frozen sidecar |
 | Foreign-function decision scope | Decompiler local/lambda/iterator fixtures | A parent directive reaches a foreign pipeline, nested identity resolves as the outer host, or a nested function fails to decide independently |
 | Foreign-function pipeline architecture | Product pass-run inventory | A separately imported function runs passes outside `PassContext.RunForeignFunctionPipeline` |
@@ -1663,13 +1714,15 @@ gate ordinary reconstruction.
 | Raised/Lowered Research contract | Catalog-derived byte-divergent style specimens in both request orders | Lowered observes a divergent option or loses IL; Raised changes output without a typed decision; either result depends on request order; or altitude is caller-relabelled |
 | Addressed provenance transport | Decompiler node/annotation/anchor/`SourceLine`/`BoundSourceLine` + Research fact identity/row + `PrintedBodyMap` | Any cross-method node, annotation, anchor, IL line, bound line, fact identity, row, or serialized origin loses its method address; the evidence-method table is not the exact used-address set; an origin references a missing/wrong-fingerprint entry; the offset-only compatibility projection is used for a cross-method value; or validation checks an offset against the wrong body's instruction boundaries |
 | Reconstructed Research evidence | Research call/allocation and interleaved-IL fixtures whose user operations exist only in `MoveNext` + structured-output round trip | A reconstructed kickoff queries facts or IL only by its declaration token; loses the `MoveNextAddress`; reanchors companion offsets to the kickoff; `FactsByOffset` survives; equal offsets with distinct opcodes/facts cross-associate; an unmatched evidence method falls back to a nearby/final line instead of typed failure; or the evidence-method table/addressed origins are lost in structured output |
-| Same-body structural admission | Strict document round trip + `IssueCorrespondence` physical-provenance fixtures + non-vacuity rejection test | Construction/deserialization accepts a missing or unused evidence-method entry; either valid document's table is not a singleton equal to `Source`; source address/fingerprint differs across documents; a reconstructed kickoff reaches node matching; or unsupported evidence is presented as trusted correspondence |
+| Same-body structural admission | Strict document round trip + `IssueCorrespondence` physical-provenance fixtures + non-vacuity rejection test | Construction/deserialization accepts a missing or unused evidence-method entry; either valid document's table is not a singleton equal to `Source`; source address/physical fingerprint differs across documents; a reconstructed kickoff reaches node matching; or unsupported evidence is presented as trusted correspondence |
 | Honesty marker and fidelity cause | Five CLI code views + public typed body + whole-type + Fidelity Causes | A declined classic body lacks its unsupported marker or DEC0004 |
 | Non-narrow preservation | CLI + typed/whole-type over extra call/store fixtures | Any original statement disappears |
 | Declaration modifier by stage-local state | CLI + typed/whole-member/type | Declined classic retains `async`, reconstructed classic omits it, runtime async loses it, or post-classic failure changes the retained decision's modifier |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape | Lifecycle states collapse, failures acquire success-shaped outcomes, or inspection accounting changes |
 | Exact legacy raise population | Existing accepted fixtures + close negatives | Slice 0 widens accepted reconstruction or a new eligibility path escapes set equality |
-| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures + source-architecture inventory + equal-body render-count spy | `CompareMembers`, `CompareAssemblies` / `CompareMethodIndexes`, or `CSharpBodyDiff.Canonicalize` via `CSharpFindings.Inspect` bypasses the total `Decompile` chokepoint; body detection/fingerprinting happens upstream; an equal-fingerprint pair materializes either body; `Absent` or either `Failed` phase fabricates a document or loses its typed failure row; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
+| Physical fingerprint separation | Existing `CompareAssemblies_TokenTargetChangeIsNotSkippedByFastPath` + token-renumbering equality fixture + physical-provenance fingerprint tests | A raw physical fingerprint drives a render-equivalence skip; comparison fingerprinting fails to resolve a string, entity, signature, local, or exception-region dependency; token renumbering alone forces line-diff rendering; a changed token target is skipped; or a comparison fingerprint enters `Source`, the evidence-method table, or same-body admission |
+| Findings census preservation | Equal-comparison-fingerprint `CSharpFindings.Compare` / assembly / method-index fixtures with non-empty bodies | Either successful side is not materialized and inspected; `OldAtoms`, `NewAtoms`, matches, or pairs are fabricated empty; either side's atoms differ from standalone `Inspect`; or the comparison is not complete |
+| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures + source-architecture inventory + equal-comparison-fingerprint line-diff render-count spy | `CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` / `CompareMethodIndexes`, or `CSharpBodyDiff.Canonicalize` via `CSharpFindings.Inspect` bypasses the total `Decompile` chokepoint; body detection or either fingerprint happens outside it; a skipped line-diff pair computes the physical fingerprint or materializes either body; Findings suppresses required materialization; `Absent` or either `Failed` phase fabricates a document, loses its typed failure row, or changes its existing fidelity; physical proof loses fidelity or local acknowledgment; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
 | `DecompilerResult` value semantics | Decompiler tests | Outcome, kickoff decline disposition, support-only disposition, or support acknowledgment is omitted from equality/hash/`with` behavior |
 | Corpus A/B | `CorpusSensor` / `IrImporter.ImportAssembly` | Product and corpus policy differ, support methods are hollowed, or fidelity/coverage changes are unrecorded |
 
