@@ -13628,7 +13628,7 @@ public partial class CommandExecutionTests
     {
         var result = await RunAppAsync(
             "member", typeof(MemberBodylessEvidenceFixture).FullName!,
-            "--library", TestAssemblyPath,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
             nameof(MemberBodylessEvidenceFixture.Mixed),
             "--unsafe", "-S", SectionNames.Signature, "--tips", "q");
 
@@ -13651,7 +13651,7 @@ public partial class CommandExecutionTests
     {
         var result = await RunAppAsync(
             "member", typeof(MemberBodylessEvidenceFixture).FullName!,
-            "--library", TestAssemblyPath, memberName,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location, memberName,
             "-S", SectionNames.CustomAttributes, "--tips", "q");
 
         Assert.Equal(0, result.Exit);
@@ -13684,7 +13684,7 @@ public partial class CommandExecutionTests
     {
         var result = await RunAppAsync(
             "member", typeof(MemberBodylessEvidenceFixture).FullName!,
-            "--library", TestAssemblyPath, memberName,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location, memberName,
             "-S", section, "--tips", "q");
 
         Assert.Equal(0, result.Exit);
