@@ -255,6 +255,11 @@ normal session output. Then open a separate prompt containing only the concise
 decision question and answer labels. Do not repeat the report or its evidence
 inside the prompt.
 
+Before emitting the report or opening its approval prompt, synchronize the PR's
+`ready-to-merge` and `carry-forward` labels with
+[Keep PR readiness labels current](../AGENTS.md#keep-pr-readiness-labels-current).
+The labels describe the state the report records; they must not lag behind it.
+
 The same report may also be posted on the PR; the public reconciliation may
 include more detail when the findings or fixes warrant it.
 
@@ -266,19 +271,23 @@ path applies and when it does not. This is the procedure once it does.
 
 1. **Detect movement.** Compare the candidate's recorded base tip with the live
    tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
-   PR, not the live branch tip.
+   PR, not the live branch tip. Replace `ready-to-merge` with `carry-forward`
+   before beginning the analysis.
 2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
    read the exact landed range.
 3. **Report, then ask.** As normal session output, report which commits touch
    files this change touches, which relied-on behavior they alter, and any
    conflict a textual merge would resolve silently but wrongly. Say plainly
-   when nothing interacts. After that output is visible, open a separate prompt
-   that asks only whether to carry the clean reviews forward to the named tip.
+   when nothing interacts. Remove `carry-forward` before reporting an outcome
+   where the path is unavailable. After that output is visible, open a separate
+   prompt that asks only whether to carry the clean reviews forward to the named
+   tip.
 4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
-   it authorizes carry-forward, integrate that exact analyzed tip by SHA, not a
-   moving branch ref, and re-run the claimed validation and current-head CI.
-   Every other outcome — declined, interacting, or that re-run failing — returns
-   to the rule for its terminal action, which this document does not restate.
+   it authorizes carry-forward, remove `carry-forward`, integrate that exact
+   analyzed tip by SHA, not a moving branch ref, and re-run the claimed
+   validation and current-head CI. Remove `carry-forward` when the user declines.
+   Every other outcome — interacting or that re-run failing — returns to the
+   rule for its terminal action, which this document does not restate.
 
 For an approved carry-forward, record the reviewed head, the old and approved
 new tips, the non-interaction analysis, and the user's decision on the PR.
