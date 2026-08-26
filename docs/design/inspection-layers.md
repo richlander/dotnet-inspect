@@ -64,7 +64,13 @@ body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
 Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, and group-scoped PDB-mapped-or-decompiled type/member source. The
+slices, group-scoped PDB-mapped-or-decompiled type/member source, immutable
+package-manifest facts, and bounded package-prefix profiles. Package dependency
+selection and package-prefix profiles consume the same validated manifest-facts
+query. The profile's L2 `Packages` section owns package/dependency row grain,
+schema, projection, and visible failure or truncation evidence; `find` retains
+only request binding, acquisition authorization, diagnostics, and format
+selection. The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired

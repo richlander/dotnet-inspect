@@ -2024,6 +2024,14 @@ public sealed class PackageCoordinateResolverTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
             string packageId,
             CancellationToken cancellationToken = default)
@@ -2047,6 +2055,13 @@ public sealed class PackageCoordinateResolverTests
                             candidates,
                             authoritative)));
         }
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
             string packageId,

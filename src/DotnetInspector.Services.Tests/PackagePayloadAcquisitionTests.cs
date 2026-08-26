@@ -3622,9 +3622,24 @@ public sealed class PackagePayloadAcquisitionTests
                 CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchByPrefixAsync(
+                    string prefix,
+                    int take = 100,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
             public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
                 string packageId,
                 CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageSourceManifest>>
+                GetManifestAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
             public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
@@ -3678,6 +3693,14 @@ public sealed class PackagePayloadAcquisitionTests
                     CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchByPrefixAsync(
+                    string prefix,
+                    int take = 100,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
             public async Task<
                 PackageSourceOperationResult<PackageVersionResult>>
                 GetVersionsAsync(
@@ -3696,6 +3719,13 @@ public sealed class PackagePayloadAcquisitionTests
                             PackageSourceFailureKind.Transport,
                             "transport failed"));
             }
+
+            public Task<PackageSourceOperationResult<PackageSourceManifest>>
+                GetManifestAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
 
             public Task<PackageSourceOperationResult<PackageSourcePayload>>
                 GetPackageAsync(
@@ -3740,9 +3770,24 @@ public sealed class PackagePayloadAcquisitionTests
                     CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchByPrefixAsync(
+                    string prefix,
+                    int take = 100,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
             public Task<PackageSourceOperationResult<PackageVersionResult>>
                 GetVersionsAsync(
                     string packageId,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageSourceManifest>>
+                GetManifestAsync(
+                    string packageId,
+                    string version,
                     CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
@@ -3808,9 +3853,24 @@ public sealed class PackagePayloadAcquisitionTests
                     CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchByPrefixAsync(
+                    string prefix,
+                    int take = 100,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
             public Task<PackageSourceOperationResult<PackageVersionResult>>
                 GetVersionsAsync(
                     string packageId,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageSourceManifest>>
+                GetManifestAsync(
+                    string packageId,
+                    string version,
                     CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException();
 
@@ -4293,9 +4353,24 @@ public sealed class PackagePayloadAcquisitionTests
                 CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<PackageSourceOperationResult<PackageVersionResult>>
             GetVersionsAsync(
                 string packageId,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
                 CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

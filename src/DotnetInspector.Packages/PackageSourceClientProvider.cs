@@ -189,6 +189,21 @@ internal sealed class FailoverPackageSourceClient
             PackageSourceCapabilities.Search,
             cancellationToken);
 
+    public Task<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default) =>
+        ExecuteAsync(
+            (transport, routeToken) => transport.SearchByPrefixAsync(
+                prefix,
+                take,
+                prerelease,
+                routeToken),
+            PackageSourceCapabilities.Search,
+            cancellationToken);
+
     public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default) =>
@@ -198,6 +213,25 @@ internal sealed class FailoverPackageSourceClient
                 routeToken),
             PackageSourceCapabilities.VersionEnumeration,
             cancellationToken);
+
+    public Task<PackageSourceOperationResult<PackageSourceManifest>>
+        GetManifestAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return ExecuteAsync(
+            (transport, routeToken) => transport.GetManifestAsync(
+                coordinate.PackageId,
+                coordinate.Version,
+                routeToken),
+            PackageSourceCapabilities.Manifest,
+            cancellationToken,
+            coordinate,
+            stopOnNotFound: true);
+    }
 
     public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
@@ -235,7 +269,9 @@ internal sealed class FailoverPackageSourceClient
         Func<IPackageSourceClient, CancellationToken,
             Task<PackageSourceOperationResult<T>>> operation,
         PackageSourceCapabilities capability,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PackageSourceCoordinate? coordinate = null,
+        bool stopOnNotFound = false)
     {
         using CancellationTokenSource routeCancellation =
             CreateRouteCancellation(cancellationToken);
@@ -258,6 +294,12 @@ internal sealed class FailoverPackageSourceClient
 
                 lastFailure =
                     (PackageSourceOperationResult<T>.Failed)result;
+                if (stopOnNotFound
+                    && lastFailure.Failure.Kind
+                        == PackageSourceFailureKind.NotFound)
+                {
+                    return lastFailure;
+                }
             }
         }
         catch (OperationCanceledException exception)
@@ -271,7 +313,7 @@ internal sealed class FailoverPackageSourceClient
         catch (OperationCanceledException)
             when (routeCancellation.IsCancellationRequested)
         {
-            return TimeoutFailure<T>(capability);
+            return TimeoutFailure<T>(capability, coordinate);
         }
 
         return lastFailure!;

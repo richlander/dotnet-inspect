@@ -156,6 +156,42 @@ public class NuGetClient(HttpClient client)
         }
     }
 
+    internal async Task<ReadOnlyMemory<byte>> GetManifestAsync(
+        string packageId,
+        string version,
+        string? sourceUrl = null,
+        PackageSourceCredential? credential = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var operation = CreateOperation(cancellationToken);
+        return await _packageResources.GetManifestAsync(
+            packageId,
+            version,
+            sourceUrl ?? NuGetOrgServiceIndex,
+            credential,
+            _options,
+            operation,
+            useNuGetOrgShortcut: true,
+            retryTransientRequests: false).ConfigureAwait(false);
+    }
+
+    internal async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
+        string packageId,
+        string version,
+        string baseAddress,
+        CancellationToken cancellationToken = default,
+        bool retryTransientRequests = false)
+    {
+        using var operation = CreateOperation(cancellationToken);
+        return await _packageResources.GetManifestFromBaseAddressAsync(
+            packageId,
+            version,
+            baseAddress,
+            _options,
+            operation,
+            retryTransientRequests).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Downloads a package to a file.
     /// </summary>

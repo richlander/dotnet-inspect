@@ -94,11 +94,46 @@ public sealed record PackageSearchMatch(
     SearchResult Metadata,
     PackageCandidateObservation Candidate);
 
+/// <summary>Why a source-scoped package search is incomplete.</summary>
+public enum PackageSearchTruncationReason
+{
+    None,
+    RequestedLimit,
+    SourcePageLimit,
+    ClientPageLimit,
+}
+
 /// <summary>
 /// Typed result of one source-scoped package search.
 /// </summary>
-public sealed record PackageSearchResult(
-    IReadOnlyList<PackageSearchMatch> Matches);
+public sealed record PackageSearchResult
+{
+    public PackageSearchResult(
+        IReadOnlyList<PackageSearchMatch> matches,
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        Matches = matches;
+        TruncationReason = truncationReason;
+    }
+
+    public PackageSearchResult(
+        IReadOnlyList<PackageSearchMatch> matches,
+        bool truncated)
+        : this(
+            matches,
+            truncated
+                ? PackageSearchTruncationReason.RequestedLimit
+                : PackageSearchTruncationReason.None)
+    {
+    }
+
+    public IReadOnlyList<PackageSearchMatch> Matches { get; }
+    public PackageSearchTruncationReason TruncationReason { get; }
+    public bool Truncated =>
+        TruncationReason != PackageSearchTruncationReason.None;
+}
 
 /// <summary>
 /// Typed result of one source-scoped version enumeration.
@@ -165,7 +200,9 @@ internal static class PackageSourceProjection
     public static PackageSearchResult ProjectSearch(
         IReadOnlyList<SearchResult> results,
         PackageSourceIdentity producer,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None)
     {
         var matches = new PackageSearchMatch[results.Count];
         for (int i = 0; i < results.Count; i++)
@@ -184,9 +221,18 @@ internal static class PackageSourceProjection
         }
 
         operation.ThrowIfExpired();
-        return new PackageSearchResult(matches);
+        return new PackageSearchResult(matches, truncationReason);
     }
 }
+
+/// <summary>
+/// One bounded package manifest fetched directly from a package source.
+/// </summary>
+public sealed record PackageSourceManifest(
+    PackageSourceCoordinate Coordinate,
+    PackageSourceIdentity Producer,
+    PackageSourceKind TransportKind,
+    ReadOnlyMemory<byte> Content);
 
 /// <summary>The kind of payload returned by a package source.</summary>
 public enum PackageSourcePayloadKind
@@ -358,7 +404,8 @@ internal static class PackageSourceOperation
                 StatusCode: HttpStatusCode.NotFound,
             } when coordinate is not null
                     && capability is
-                        PackageSourceCapabilities.PackagePayload
+                        PackageSourceCapabilities.Manifest
+                        or PackageSourceCapabilities.PackagePayload
                         or PackageSourceCapabilities.SymbolPayload =>
                 PackageSourceFailureKind.NotFound,
             HttpRequestException
