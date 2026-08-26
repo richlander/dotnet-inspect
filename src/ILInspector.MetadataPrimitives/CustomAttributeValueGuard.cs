@@ -17,10 +17,14 @@ namespace ILInspector.Metadata;
 /// fixed arguments <b>and</b> each named argument's <c>FieldOrPropType</c>,
 /// name, and value — refusing decode when a declared count exceeds the
 /// remaining bytes or when boxed / SZArray nesting exceeds
-/// <see cref="MaxSerializedDepth"/>. Declared slots are charged through
-/// <c>beforeMaterialize</c> so a hostile count becomes typed truncation
-/// rather than a swallowed <c>OutOfMemoryException</c>. The walk uses an
-/// explicit heap work-stack, never the native stack, matching
+/// <see cref="MaxSerializedDepth"/>. Declared slots and materialized
+/// <c>SerString</c> payload bytes are charged through
+/// <c>beforeMaterialize</c> so hostile metadata becomes typed truncation
+/// rather than a swallowed <c>OutOfMemoryException</c>.
+/// <c>CustomAttributeValueGuardTests</c>'s
+/// <c>AssemblyQualifiedNamedEnum_SeesFollowingArrayCount</c> gate covers both
+/// charges. The walk uses an explicit heap work-stack, never the native stack,
+/// matching
 /// <see cref="SignatureBlobGuard"/>: the depth cap is a policy limit, not a
 /// stack-safety limit. Enum argument widths come from
 /// <see cref="EnumUnderlyingPrimitive"/> so the skip stays aligned with SRM's
@@ -257,7 +261,9 @@ public static class CustomAttributeValueGuard
                     => SkipBytes(ref _value, 4),
                 ElementTypeI8 or ElementTypeU8 or ElementTypeR8
                     => SkipBytes(ref _value, 8),
-                ElementTypeString => SkipSerString(ref _value),
+                ElementTypeString => SkipSerString(
+                    ref _value,
+                    _beforeMaterialize),
                 ElementTypeObject => ProcessBoxed(depth),
                 ElementTypeSzArray => ProcessSzArray(depth),
                 ElementTypeClass or ElementTypeValueType => SkipNamedType(
@@ -350,13 +356,16 @@ public static class CustomAttributeValueGuard
             Result type = ReadFieldOrPropType(
                 ref _value,
                 depth,
+                _beforeMaterialize,
                 out byte leaf,
                 out int arrayDepth,
                 out string? enumName);
             if (type != Result.Safe)
                 return type;
 
-            Result name = SkipSerString(ref _value);
+            Result name = SkipSerString(
+                ref _value,
+                _beforeMaterialize);
             if (name != Result.Safe)
                 return name;
 
@@ -407,7 +416,9 @@ public static class CustomAttributeValueGuard
                     => SkipBytes(ref _value, 4),
                 ElementTypeI8 or ElementTypeU8 or ElementTypeR8
                     => SkipBytes(ref _value, 8),
-                ElementTypeString or SerializedType => SkipSerString(ref _value),
+                ElementTypeString or SerializedType => SkipSerString(
+                    ref _value,
+                    _beforeMaterialize),
                 ElementTypeObject or SerializedBoxed => ProcessBoxed(depth),
                 SerializedEnum => SkipBytes(
                     ref _value,
@@ -474,13 +485,18 @@ public static class CustomAttributeValueGuard
                     return SkipBytes(ref _value, 8);
                 case ElementTypeString:
                 case SerializedType:
-                    return SkipSerString(ref _value);
+                    return SkipSerString(
+                        ref _value,
+                        _beforeMaterialize);
                 case SerializedBoxed:
                     _work.Push(WorkItem.Boxed(depth + 1));
                     return Result.Safe;
                 case SerializedEnum:
                 {
-                    Result name = TryReadSerString(ref _value, out string? enumName);
+                    Result name = TryReadSerString(
+                        ref _value,
+                        _beforeMaterialize,
+                        out string? enumName);
                     return name != Result.Safe
                         ? name
                         : SkipBytes(
@@ -503,6 +519,7 @@ public static class CustomAttributeValueGuard
                     Result type = ReadFieldOrPropType(
                         ref _value,
                         depth + 1,
+                        _beforeMaterialize,
                         out byte leaf,
                         out int arrayDepth,
                         out string? enumName);
@@ -599,7 +616,9 @@ public static class CustomAttributeValueGuard
         // TypeRef {ns="", name="System.Type"} and nested System+Type, both
         // of which SRM consumes as a SerString.
         if (IsSrmSystemType(reader, handle))
-            return SkipSerString(ref value);
+            return SkipSerString(
+                ref value,
+                beforeMaterialize);
         return SkipBytes(
             ref value,
             EnumUnderlyingPrimitive.ByteSize(
@@ -609,6 +628,7 @@ public static class CustomAttributeValueGuard
     static Result ReadFieldOrPropType(
         ref BlobReader value,
         int depth,
+        Action<int>? beforeMaterialize,
         out byte leaf,
         out int arrayDepth,
         out string? enumName)
@@ -632,7 +652,10 @@ public static class CustomAttributeValueGuard
 
             leaf = code;
             if (code == SerializedEnum)
-                return TryReadSerString(ref value, out enumName);
+                return TryReadSerString(
+                    ref value,
+                    beforeMaterialize,
+                    out enumName);
             return code is ElementTypeBoolean or ElementTypeChar
                 or ElementTypeI1 or ElementTypeU1
                 or ElementTypeI2 or ElementTypeU2
@@ -706,22 +729,53 @@ public static class CustomAttributeValueGuard
             : EnumUnderlyingPrimitive.FromSerializedName(reader, normalized);
     }
 
-    static Result SkipSerString(ref BlobReader blob)
-        => TryReadSerString(ref blob, out _);
+    static Result SkipSerString(
+        ref BlobReader blob,
+        Action<int>? beforeMaterialize)
+    {
+        Result result = TryReadSerStringLength(
+            ref blob,
+            out int? length);
+        if (result != Result.Safe || length is not { } value)
+            return result;
 
-    static Result TryReadSerString(ref BlobReader blob, out string? text)
+        beforeMaterialize?.Invoke(value);
+        blob.Offset += value;
+        return Result.Safe;
+    }
+
+    static Result TryReadSerString(
+        ref BlobReader blob,
+        Action<int>? beforeMaterialize,
+        out string? text)
     {
         text = null;
+        Result result = TryReadSerStringLength(
+            ref blob,
+            out int? length);
+        if (result != Result.Safe || length is not { } value)
+            return result;
+
+        beforeMaterialize?.Invoke(value);
+        text = blob.ReadUTF8(value);
+        return Result.Safe;
+    }
+
+    static Result TryReadSerStringLength(
+        ref BlobReader blob,
+        out int? length)
+    {
+        length = null;
         if (blob.RemainingBytes < 1)
             return Result.Truncated;
         int offset = blob.Offset;
         if (blob.ReadByte() == 0xFF)
             return Result.Safe;
         blob.Offset = offset;
-        int length = blob.ReadCompressedInteger();
-        if (blob.RemainingBytes < length)
+        int value = blob.ReadCompressedInteger();
+        if (blob.RemainingBytes < value)
             return Result.Truncated;
-        text = blob.ReadUTF8(length);
+        length = value;
         return Result.Safe;
     }
 

@@ -327,7 +327,6 @@ public sealed class ApiSurfaceExtractorBoundsTests
             ApiSurfaceExtractor.CountRetainedText(withReceiver)
                 - ApiSurfaceExtractor.CountRetainedText(withoutReceiver));
     }
-
     [Fact]
     public void ExplicitInterfaceProvenanceContributesItsRetainedText()
     {
@@ -385,6 +384,178 @@ public sealed class ApiSurfaceExtractorBoundsTests
             ApiSurfaceExtractor.CountRetainedText(withProvenance)
                 - ApiSurfaceExtractor.CountRetainedText(
                     withoutProvenance));
+    }
+
+    [Fact]
+    public void JsonPropertyNameFactsContributeTheirRetainedText()
+    {
+        const string propertyName = "wire_name";
+        var withoutNames = new ApiMember();
+        var withNames = new ApiMember
+        {
+            JsonPropertyName = propertyName,
+        };
+        var withoutFilteredName = new ApiType();
+        var withFilteredName = new ApiType
+        {
+            FilteredJsonPropertyNameFacts =
+            [
+                new(
+                    FilteredJsonPropertyNameKind.AutoPropertyBackingField,
+                    "Value",
+                    0x04000001,
+                    ["backing_wire_name"]),
+            ],
+        };
+
+        Assert.Equal(
+            propertyName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withNames)
+                - ApiSurfaceExtractor.CountRetainedText(withoutNames));
+        Assert.Equal(
+            "Value".Length + "backing_wire_name".Length,
+            ApiSurfaceExtractor.CountRetainedText(withFilteredName)
+                - ApiSurfaceExtractor.CountRetainedText(withoutFilteredName));
+    }
+
+    [Fact]
+    public void JsonSerializablePropertyNameContributesItsRetainedText()
+    {
+        const string propertyName = "RegisteredCustomPayload";
+        var withoutName = new ApiType
+        {
+                JsonSerializableRoots =
+                [
+                    new(ElementType: null, IsArray: false),
+                ],
+        };
+        var withName = new ApiType
+        {
+                JsonSerializableRoots =
+                [
+                    new(
+                        ElementType: null,
+                        IsArray: false,
+                        TypeInfoPropertyName: propertyName),
+                ],
+        };
+
+        Assert.Equal(
+                propertyName.Length,
+                ApiSurfaceExtractor.CountRetainedText(withName)
+                    - ApiSurfaceExtractor.CountRetainedText(withoutName));
+    }
+
+    [Fact]
+    public void GetterAccessibilityContributesItsRetainedText()
+    {
+        const string accessibility = "private";
+        var withoutAccessibility = new ApiMember();
+        var withAccessibility = new ApiMember
+        {
+            GetterAccessibility = accessibility,
+        };
+
+        Assert.Equal(
+            accessibility.Length,
+            ApiSurfaceExtractor.CountRetainedText(withAccessibility)
+                - ApiSurfaceExtractor.CountRetainedText(withoutAccessibility));
+    }
+
+    [Fact]
+    public void SetterAccessibilityContributesItsRetainedText()
+    {
+        const string accessibility = "private";
+        var withoutAccessibility = new ApiMember();
+        var withAccessibility = new ApiMember
+        {
+            SetterAccessibility = accessibility,
+        };
+
+        Assert.Equal(
+            accessibility.Length,
+            ApiSurfaceExtractor.CountRetainedText(withAccessibility)
+                - ApiSurfaceExtractor.CountRetainedText(withoutAccessibility));
+    }
+
+    [Fact]
+    public void BaseTypeReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string culture = "en-US";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ReallyLongBaseType";
+        const string typeNamespace = "Dependency";
+        const string typeName = "ReallyLongBaseType";
+        MetadataTypeDefinitionName definitionName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeNamespace,
+                [typeName])).Name;
+        var withoutReference = new ApiType();
+        var withReference = new ApiType
+        {
+            BaseTypeReference = new(
+                new ApiAssemblyIdentity(
+                    assemblyName,
+                    new Version(1, 2, 3, 4),
+                    culture,
+                    token),
+                fullName,
+                definitionName),
+        };
+
+        Assert.Equal(
+            assemblyName.Length
+                + culture.Length
+                + token.Length
+                + fullName.Length
+                + typeNamespace.Length
+                + typeName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
+    }
+
+    [Fact]
+    public void ParameterTypeReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ParameterType";
+        var withoutReference = new ApiMember
+        {
+            SignatureModel = new ApiSignature
+            {
+                Parameters = [new ApiParameter()],
+            },
+        };
+        var withReference = new ApiMember
+        {
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        TypeReferences =
+                        [
+                            new(
+                                new ApiAssemblyIdentity(
+                                    assemblyName,
+                                    new Version(1, 2, 3, 4),
+                                    culture: null,
+                                    publicKeyToken: token),
+                                fullName),
+                        ],
+                    },
+                ],
+            },
+        };
+
+        Assert.Equal(
+            assemblyName.Length + token.Length + fullName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
     }
 
     [Fact]
