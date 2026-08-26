@@ -90,7 +90,7 @@ display columns from JSON property names.
 | `--json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
 | `--json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
 | `--json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
-| `--json --fields ...` | Lowered | Apply field-set projection through the section model. |
+| `--json --fields ...` | Lowered | Apply the selected section's declared field/annotation projection. |
 | `--json --columns ...` | Lowered | Apply table-column projection through the section model. |
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
 | Lowered JSON plus `--rows` | Lowered | Window data rows before JSON serialization. |
@@ -218,7 +218,11 @@ or removes one column. Bare arrays or scalar values remain the domain of
 explicit payload projections, not an automatic consequence of `--columns X`.
 
 Empty selected content keeps its container: an empty table is `[]`, an empty
-field set is `{}`, and an empty list or tree is `[]`.
+field set is `{}`, and an empty unlabeled list or tree is `[]`. An empty
+labeled-array section is `{}`. If an applicable labeled array has no values
+after filtering or windowing, its key remains present with `[]`; this preserves
+the array's identity and sibling boundary. A label disappears only when section
+selection or projection makes that array inapplicable before lowering.
 
 The distinct empty outcomes are:
 
@@ -301,12 +305,28 @@ For each selected section:
 3. preserve requested-name order for names that resolve; and
 4. lower the section with only its resolved projection.
 
-The two projection families remain distinct:
+The two projection families remain distinct by default:
 
-- `--fields` filters named entries in field-set sections. It does not reinterpret
-  table columns.
+- `--fields` selects the named field/annotation vocabulary declared by the
+  section. It filters entries in field-set sections. For graph/tree sections it
+  selects cue annotations that the product adapter incorporates into the
+  lowered node labels or badges before Markout serialization. It does not
+  generally reinterpret table columns.
 - `--columns` filters columns in table sections. It does not reinterpret a
   field set as a synthetic `Field`/`Value` table.
+
+Lowered tree JSON carries graph cue annotations in the resulting `text` or
+`badge` values, exactly as the display adapter produced them. It does not
+reconstruct native annotation properties from those strings. A graph lowering
+that cannot deliver the selected cues through a structured tree/graph callback
+is unrepresentable and fails visibly rather than emitting the unannotated
+graph.
+
+`vocabulary` is one explicit shipped compatibility exception. That command
+accepts `--fields` as an alias for table-column projection, so
+`vocabulary --fields Section` and `--columns Section` retain equivalent rows
+and diagnostics. The alias is resolved by the command before the generic
+section plan and must not spread to other table commands.
 
 Across multiple compatible sections, a requested name is valid when it resolves
 in at least one selected section. A compatible section with no resolved names
@@ -456,12 +476,18 @@ an explicit migration. Adding a root field or section is
 compatibility-significant because both share the root namespace and must remain
 collision-free.
 
+Shipped route semantics are compatibility-significant as well.
+`vocabulary --fields` remains a table-column alias; conforming other commands
+to the default field/column distinction must not remove or generalize that
+exception accidentally.
+
 ## Adoption sequence
 
 Adopt one coherent command family at a time.
 
 1. **Harden the shared path.** Add dialect routing, section-scoped projection,
    lens precedence, labeled-array preservation, pinned machine-key plans,
+   graph-field parity, the pinned `vocabulary --fields` alias,
    representability preflight, transactional stdout, and integration with the
    final #4677 limit contract around the existing `find`/`vocabulary`
    formatter. Move or expose projection decisions at the L2 boundary.
@@ -509,8 +535,10 @@ implemented:
 | `ProjectedJsonRoutingAuditTests` | Every projection-capable command either honors an accepted lens/payload, emits lowered JSON, or rejects visibly; no route succeeds after dropping the projection. |
 | `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
-| `ProjectedJsonLabeledArrayTests` | Labeled-array keys and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
-| `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections resolve independently and preserve requested ordering. |
+| `ProjectedJsonLabeledArrayTests` | Labeled-array keys, empty applicable labels, section object type, and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
+| `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections resolve by each section's declared field/column semantics and preserve requested ordering. |
+| `ProjectedJsonGraphFieldTests` | Requested graph/tree cue fields change lowered `text`/`badge` content exactly as in the display view; unrequested cues stay absent and unsupported graph lowerings fail visibly. |
+| `ProjectedJsonLegacyAliasTests` | Shipped `vocabulary --fields` and equivalent `--columns` requests retain decoded row and diagnostic parity without enabling that alias for other table commands. |
 | `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
@@ -532,6 +560,8 @@ JSON.
   or `--rows`; silently dropped typed modifiers remain defects.
 - No compatibility waiver for commands that currently drop
   `--fields`/`--columns`; their migration must be explicit.
+- No general field-to-column alias; the shipped `vocabulary` exception is
+  command-owned and gated.
 - No decision about the `-n` item domain, `--rows` interaction, `--lines`
   grammar, or migration; issue #4677 owns those contracts.
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
