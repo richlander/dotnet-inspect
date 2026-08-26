@@ -480,7 +480,9 @@ public class PdbContext : IDisposable
     /// </summary>
     /// <remarks>
     /// Gate:
-    /// <c>PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// <c>PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>
+    /// and
+    /// <c>PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration</c>.
     /// </remarks>
     public static PdbContext OpenEmbeddedPdbOnlyPrefetched(
         ResolvedAssemblyReference assembly,
@@ -490,18 +492,21 @@ public class PdbContext : IDisposable
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.PrefetchEntireImage
-                | PEStreamOptions.LeaveOpen,
-            assembly.LastWriteTimeUtc,
-            loadLocalPdb: false,
-            loadEmbeddedPdb: true,
-            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
-            expansionBudget: expansionBudget);
+        return OpenValidated(
+            assembly,
+            (stream, expectedAssembly) => Open(
+                stream,
+                assembly.Path,
+                assembly.Identity.Name,
+                log,
+                PEStreamOptions.PrefetchEntireImage
+                    | PEStreamOptions.LeaveOpen,
+                assembly.LastWriteTimeUtc,
+                loadLocalPdb: false,
+                loadEmbeddedPdb: true,
+                maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
+                expansionBudget: expansionBudget,
+                expectedAssembly: expectedAssembly));
     }
 
     /// <summary>

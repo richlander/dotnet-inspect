@@ -691,8 +691,13 @@ public sealed class ResolvedAssemblyReference
     /// <remarks>
     /// `DescriptorContentIdentityTests` gates descriptor-backed decompiler
     /// opens; `InspectionAcquisitionPlanTests.WithContentSnapshot_*` and
-    /// `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate immutable
-    /// snapshots.
+    /// `InspectionAcquisitionPlanTests.ModuleContentSnapshot_*` gate
+    /// descriptor snapshots; and
+    /// `SnapshotOpen_RejectsDifferentRegisteredModuleGeneration` plus
+    /// `RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration` gate
+    /// retained-image acquisition; and
+    /// `PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration`
+    /// gates prefetched embedded-PDB acquisition.
     /// </remarks>
     public void ValidateOpenedMetadata(MetadataReader metadata)
     {

@@ -517,6 +517,8 @@ public class MethodBodyInspectionSessionTests
                 {
                     public static Shared.Value Target(
                         Shared.Value value) => value;
+                    public static External.Base Other(
+                        External.Base value) => value;
                 }
             }
             """,
@@ -536,9 +538,11 @@ public class MethodBodyInspectionSessionTests
             {
                 public static class Widget
                 {
-                    public static int Other() => 0;
+                    public static int Before() => 0;
                     public static Shared.Value Target(
                         Shared.Value value) => value;
+                    public static External.Base Other(
+                        External.Base value) => value;
                 }
             }
             """,
@@ -564,7 +568,8 @@ public class MethodBodyInspectionSessionTests
                     .Types,
                 type => type.Members.Any(
                     member => member.Name == "Target"))
-                .Members);
+                .Members,
+            member => member.Name == "Target");
 
         IReadOnlyDictionary<int, int> correspondence =
             ApiBodyMemberCorrespondence.Resolve(

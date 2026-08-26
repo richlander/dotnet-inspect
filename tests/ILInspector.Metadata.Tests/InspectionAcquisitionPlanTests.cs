@@ -458,6 +458,165 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration()
+    {
+        byte[] first = BuildSimpleAssembly(
+            "SameIdentity",
+            "First",
+            Guid.NewGuid());
+        byte[] second = BuildSimpleAssembly(
+            "SameIdentity",
+            "Second",
+            Guid.NewGuid());
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(first),
+                path: null,
+                () => new MemoryStream(first, writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        using (AssemblyInspectionSession.Open(descriptor))
+        {
+        }
+        ResolvedAssemblyReference replacement = descriptor.WithOpenRead(
+            () => new MemoryStream(second, writable: false),
+            lastWriteTimeUtc: null);
+
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => PdbContext.OpenEmbeddedPdbOnlyPrefetched(
+                    replacement,
+                    maxEmbeddedPdbBytes: 1024));
+
+        Assert.Contains(
+            "acquisition registration MVID",
+            exception.Message);
+    }
+
+    [Fact]
+    public void SnapshotOpen_RejectsDifferentRegisteredModuleGeneration()
+    {
+        byte[] first = BuildSimpleAssembly(
+            "SameIdentity",
+            "First",
+            Guid.NewGuid());
+        byte[] second = BuildSimpleAssembly(
+            "SameIdentity",
+            "Second",
+            Guid.NewGuid());
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(first),
+                path: null,
+                () => new MemoryStream(first, writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        using (AssemblyInspectionSession.Open(descriptor))
+        {
+        }
+        ResolvedAssemblyReference replacement = descriptor.WithOpenRead(
+            () => new MemoryStream(second, writable: false),
+            lastWriteTimeUtc: null);
+
+        var rejected = Assert.IsType<AssemblyImageSnapshotResult.Rejected>(
+            AssemblyImageSnapshot.Open(
+                replacement,
+                tryReserveBytes: _ => true,
+                releaseBytes: _ => { }));
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+        Assert.Contains(
+            "acquisition registration MVID",
+            rejected.Failure.Detail);
+    }
+
+    [Fact]
+    public void RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration()
+    {
+        byte[] first = BuildSimpleAssembly(
+            "SameIdentity",
+            "First",
+            Guid.NewGuid());
+        byte[] second = BuildSimpleAssembly(
+            "SameIdentity",
+            "Second",
+            Guid.NewGuid());
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(first),
+                path: null,
+                () => new MemoryStream(first, writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        using (AssemblyInspectionSession.Open(descriptor))
+        {
+        }
+
+        var rejected = Assert.IsType<AssemblyImageSnapshotResult.Rejected>(
+            AssemblyImageSnapshot.FromRetainedContent(
+                descriptor,
+                second.ToImmutableArray()));
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+        Assert.Contains(
+            "acquisition registration MVID",
+            rejected.Failure.Detail);
+    }
+
+    [Fact]
+    public void ResolveCorrespondingMethods_NonmatchingNamesStayWithinWorkBudget()
+    {
+        byte[] sourceImage = BuildMethodNameBudgetAssembly(
+            additionalMethodCount: 0);
+        byte[] targetImage = BuildMethodNameBudgetAssembly(
+            additionalMethodCount:
+                MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                    / 1024
+                + 128);
+        ResolvedAssemblyReference source =
+            Assert.IsType<ResolvedAssemblyReference>(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        sourceImage,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        ResolvedAssemblyReference target =
+            Assert.IsType<ResolvedAssemblyReference>(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        targetImage,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        using AssemblyInspectionSession sourceSession =
+            AssemblyInspectionSession.Open(source);
+        using AssemblyInspectionSession targetSession =
+            AssemblyInspectionSession.Open(target);
+        int sourceToken = Assert.Single(
+            sourceSession.MethodBodies.EnumerateMethods(),
+            method => method.Name == "Target").MetadataToken;
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => sourceSession.MethodBodies
+                    .ResolveCorrespondingMethods(
+                        [sourceToken],
+                        targetSession.MethodBodies));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - allocatedBefore;
+
+        Assert.Contains(
+            "cumulative work budget",
+            exception.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Name prefilter allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void ModuleContentSnapshot_PreservesRegistrationAndAcquisition()
     {
         byte[] image = BuildModuleImage();
@@ -1652,6 +1811,71 @@ public class InspectionAcquisitionPlanTests
                 MetadataTokens.FieldDefinitionHandle(1),
             methodList:
                 MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodNameBudgetAssembly(
+        int additionalMethodCount)
+    {
+        const int nameLength = 1024;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    "MethodNameBudget.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MethodNameBudget"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Widget"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        BlobHandle signature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            signature,
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        string prefix = new('N', nameLength - 8);
+        for (int i = 0; i < additionalMethodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    prefix
+                    + i.ToString(
+                        "D8",
+                        System.Globalization.CultureInfo.InvariantCulture)),
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata);
     }
 

@@ -259,15 +259,15 @@ public sealed class MethodBodySource : IOperandNameResolver
                 "The source method table exceeds the correspondence safety limit.");
         }
 
-        StructuralSignatureWorkBudget? sourceWorkBudget =
-            sourceNominalTypeIdentity is null
-                ? null
-                : new StructuralSignatureWorkBudget();
+        var sourceWorkBudget = new StructuralSignatureWorkBudget();
         var sourceSignatures = sourceNominalTypeIdentity is null
-            ? new StructuralSignatureBuilder(_reader)
+            ? new StructuralSignatureBuilder(
+                _reader,
+                typeNameOverrides: null,
+                sourceWorkBudget)
             : new StructuralSignatureBuilder(
                 _reader,
-                sourceWorkBudget!,
+                sourceWorkBudget,
                 new NominalTypeIdentityAdapter(
                     sourceNominalTypeIdentity));
         var sourceFilterSignatures =
@@ -275,7 +275,7 @@ public sealed class MethodBodySource : IOperandNameResolver
                 ? sourceSignatures
                 : new StructuralSignatureBuilder(
                     _reader,
-                    sourceWorkBudget!,
+                    sourceWorkBudget,
                     new NominalTypeIdentityAdapter(
                         MetadataNameIdentity));
         var requested = new Dictionary<StructuralMethodKey, List<int>>();
@@ -315,6 +315,9 @@ public sealed class MethodBodySource : IOperandNameResolver
 
         var sourceMatchCounts = requested.Keys
             .ToDictionary(key => key, _ => 0);
+        HashSet<string> requestedMethodNames = requested.Keys
+            .Select(key => key.Component.LocalKey.MethodName)
+            .ToHashSet(StringComparer.Ordinal);
         var sourceDeclaringTypes =
             new Dictionary<TypeDefinitionHandle, bool>();
         foreach (MethodDefinitionHandle sourceHandle
@@ -337,9 +340,20 @@ public sealed class MethodBodySource : IOperandNameResolver
             }
             if (!declaringTypeMatches)
                 continue;
+            if (!TryReadRequestedMethodName(
+                    _reader,
+                    sourceMethod.Name,
+                    requestedMethodNames,
+                    sourceWorkBudget,
+                    out string? sourceMethodName))
+            {
+                continue;
+            }
 
             StructuralMethodKey key =
-                sourceSignatures.BuildMethodKey(sourceMethod);
+                sourceSignatures.BuildMethodKeyWithPrechargedName(
+                    sourceMethod,
+                    sourceMethodName);
             if (sourceMatchCounts.TryGetValue(key, out int count))
                 sourceMatchCounts[key] = checked(count + 1);
         }
@@ -351,15 +365,15 @@ public sealed class MethodBodySource : IOperandNameResolver
                 || sourceMatchCounts[entry.Key] != 1)
             .SelectMany(entry => entry.Value)
             .ToHashSet();
-        StructuralSignatureWorkBudget? targetWorkBudget =
-            targetNominalTypeIdentity is null
-                ? null
-                : new StructuralSignatureWorkBudget();
+        var targetWorkBudget = new StructuralSignatureWorkBudget();
         var targetSignatures = targetNominalTypeIdentity is null
-            ? new StructuralSignatureBuilder(target._reader)
+            ? new StructuralSignatureBuilder(
+                target._reader,
+                typeNameOverrides: null,
+                targetWorkBudget)
             : new StructuralSignatureBuilder(
                 target._reader,
-                targetWorkBudget!,
+                targetWorkBudget,
                 new NominalTypeIdentityAdapter(
                     targetNominalTypeIdentity));
         var targetFilterSignatures =
@@ -367,7 +381,7 @@ public sealed class MethodBodySource : IOperandNameResolver
                 ? targetSignatures
                 : new StructuralSignatureBuilder(
                     target._reader,
-                    targetWorkBudget!,
+                    targetWorkBudget,
                     new NominalTypeIdentityAdapter(
                         MetadataNameIdentity));
         var matchingDeclaringTypes =
@@ -392,9 +406,20 @@ public sealed class MethodBodySource : IOperandNameResolver
             }
             if (!declaringTypeMatches)
                 continue;
+            if (!TryReadRequestedMethodName(
+                    target._reader,
+                    targetMethod.Name,
+                    requestedMethodNames,
+                    targetWorkBudget,
+                    out string? targetMethodName))
+            {
+                continue;
+            }
 
             StructuralMethodKey key =
-                targetSignatures.BuildMethodKey(targetMethod);
+                targetSignatures.BuildMethodKeyWithPrechargedName(
+                    targetMethod,
+                    targetMethodName);
             if (!requested.TryGetValue(key, out List<int>? sourceTokens))
                 continue;
             if (sourceTokens.Count != 1
@@ -416,6 +441,20 @@ public sealed class MethodBodySource : IOperandNameResolver
         foreach (int sourceToken in ambiguous)
             resolved.Remove(sourceToken);
         return resolved;
+    }
+
+    static bool TryReadRequestedMethodName(
+        MetadataReader reader,
+        StringHandle handle,
+        IReadOnlySet<string> requestedMethodNames,
+        StructuralSignatureWorkBudget workBudget,
+        out string methodName)
+    {
+        workBudget.Charge(reader.GetBlobReader(handle).Length);
+        methodName = MetadataSafetyPolicy.ReadStructuralString(
+            reader,
+            handle);
+        return requestedMethodNames.Contains(methodName);
     }
 
     static string MetadataNameIdentity(

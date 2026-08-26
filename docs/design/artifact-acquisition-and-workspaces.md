@@ -165,8 +165,11 @@ verified open. Every later open, including a content snapshot, must carry the
 same MVID. Registration equality permits direct token reuse only after both
 descriptors have passed that validation. It does not permit a path replacement
 or same-identity content swap to reinterpret a token RID.
-`InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`
-gates this bind-once rule.
+`InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`,
+`SnapshotOpen_RejectsDifferentRegisteredModuleGeneration`, and
+`RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration`, and
+`PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration` gate
+this bind-once rule across descriptor, retained-image, and prefetched PDB paths.
 
 Metadata tokens are acquisition-local addresses and never establish
 correspondence between registrations. When an API member selected from a

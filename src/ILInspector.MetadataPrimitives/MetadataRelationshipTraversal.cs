@@ -13,9 +13,13 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureChars = 1024 * 1024;
 
     /// <summary>
-    /// Maximum encoded characters produced across one structural-signature
-    /// builder's lifetime. Gated by
-    /// <c>BuildMethodKey_CumulativeWorkBudgetFailsBeforeRepeatingDecode</c>.
+    /// Maximum structural-signature work across one shared builder budget.
+    /// Correspondence scans share it across exact and filter builders, and
+    /// charge metadata names by UTF-8 storage length, which conservatively
+    /// bounds decoded characters. Gated by
+    /// <c>BuildMethodKey_CumulativeWorkBudgetFailsBeforeRepeatingDecode</c>
+    /// and
+    /// <c>ResolveCorrespondingMethods_NonmatchingNamesStayWithinWorkBudget</c>.
     /// </summary>
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 

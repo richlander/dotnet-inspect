@@ -526,6 +526,26 @@ public sealed class StructuralSignatureBuilder
     internal StructuralMethodKey BuildMethodKey(
         MethodDefinition method,
         string? methodName = null)
+        => BuildMethodKeyCore(
+            method,
+            methodName,
+            methodNameWorkPrecharged: false);
+
+    internal StructuralMethodKey BuildMethodKeyWithPrechargedName(
+        MethodDefinition method,
+        string methodName)
+    {
+        ArgumentNullException.ThrowIfNull(methodName);
+        return BuildMethodKeyCore(
+            method,
+            methodName,
+            methodNameWorkPrecharged: true);
+    }
+
+    StructuralMethodKey BuildMethodKeyCore(
+        MethodDefinition method,
+        string? methodName,
+        bool methodNameWorkPrecharged)
         => StructuralSignatureKey.Build(_reader, () =>
         {
             _workBudget.EnsureAvailable();
@@ -534,7 +554,8 @@ public sealed class StructuralSignatureBuilder
                     ?? MetadataSafetyPolicy.ReadStructuralString(
                         _reader,
                         method.Name);
-            _workBudget.Charge(resolvedMethodName.Length);
+            if (!methodNameWorkPrecharged)
+                _workBudget.Charge(resolvedMethodName.Length);
             string genericParameters =
                 StructuralSignatureKey.EncodeGenericParameters(
                 _reader,

@@ -146,19 +146,20 @@ public sealed class AssemblyImageSnapshot
                 }
 
                 MetadataReader reader = peReader.GetMetadataReader();
-                AssemblyReferenceIdentity identity =
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(
-                        reader);
-                if (!IdentityMatches(assembly.Identity, identity))
+                try
+                {
+                    assembly.ValidateOpenedMetadata(reader);
+                }
+                catch (BadImageFormatException ex)
                 {
                     return Reject(
                         CandidateOpenFailureKind.InvalidImage,
-                        "The opened image identity does not match its descriptor.");
+                        ex.Message);
                 }
 
                 snapshot = new AssemblyImageSnapshot(
                     content,
-                    identity,
+                    assembly.Identity,
                     reader.GetGuid(
                         reader.GetModuleDefinition().Mvid),
                     assembly.Registration,
@@ -240,19 +241,21 @@ public sealed class AssemblyImageSnapshot
             }
 
             MetadataReader reader = peReader.GetMetadataReader();
-            AssemblyReferenceIdentity identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (!IdentityMatches(assembly.Identity, identity))
+            try
+            {
+                assembly.ValidateOpenedMetadata(reader);
+            }
+            catch (BadImageFormatException ex)
             {
                 return Reject(
                     CandidateOpenFailureKind.InvalidImage,
-                    "The retained image identity does not match its descriptor.");
+                    ex.Message);
             }
 
             return new AssemblyImageSnapshotResult.Ready(
                 new AssemblyImageSnapshot(
                     content,
-                    identity,
+                    assembly.Identity,
                     reader.GetGuid(reader.GetModuleDefinition().Mvid),
                     assembly.Registration,
                     lastWriteTimeUtc ?? assembly.LastWriteTimeUtc));
