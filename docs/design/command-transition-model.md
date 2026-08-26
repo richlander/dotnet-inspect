@@ -219,8 +219,8 @@ package payloads. Once selected, the normal output-shape rules apply:
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
 | `-n N` / `--tail` | Select the first/last N rows in the version Vector. | May stop natural-order metadata enumeration early; acquires zero package payloads by itself. |
 | `--rows N..M` | Select an absolute range of stable version rows. | May stop at a closed upper bound; acquires zero package payloads by itself. |
-| `--print` | Resolve every selected row's declared printable payload. | May fetch each declared payload at its already evaluated address; must not add or evaluate another source address. |
-| `-n N --lines` | Window each selected printable text payload after acquisition. | None. A line limit does not authorize partial acquisition. |
+| `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
+| `-n N --lines` | Reject: the version Vector has no printable text payload. | None. A line limit cannot create a payload. |
 
 Shape reducers do not revise operation arity. In particular:
 
@@ -229,20 +229,6 @@ Shape reducers do not revise operation arity. In particular:
   payloads";
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
-- `--print` attempts every selected row and may therefore fetch more than one
-  declared payload, but it still cannot evaluate a version address that the
-  operation did not already select; a row without a declared payload produces
-  a visible failure;
-- a row source whose printable payload may require separate network acquisition
-  rejects unbounded multi-row `--print`; `--row`, item-mode `-n`, `--top`, or a
-  closed `--rows` range must bound the authorized fetch set;
-- `-n N` and `--rows N..M` select rows before `--print`, while
-  `--row N|first|last` remains the exactly-one address;
-- `-n N --lines` runs after selected payload acquisition and applies per
-  payload, so it does not reduce the authorized fetch set;
-- after print-capability preflight, any selected heterogeneous non-printable or
-  failed payload remains a visible failure row, successful siblings continue,
-  and the overall exit is nonzero;
 - a version row set declares no printable capability, so `--print` rejects it
   once during preflight rather than producing one failure per version. It must
   not silently transition from version-address rows to package artifact

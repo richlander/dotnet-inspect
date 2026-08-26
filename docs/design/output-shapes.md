@@ -112,8 +112,9 @@ of the ladder families contributes in one of four ways:
 
 `library --package ... --tfm all` selects multiple independent inspections. Its
 full output therefore requires a document format: Markdown or JSON.
-Single-table, stream, plain-text, tree, and unary projection output fail closed
-rather than selecting one inspection or emitting multiple unframed payloads.
+Single-table, stream, plain-text, tree, unary projection, and single-row-set
+`--print` output fail closed rather than selecting one inspection or combining
+independent row sets.
 `--count` remains valid because it aggregates across the selected inspections.
 
 Shape cardinality is evaluated after both section and subject selection.
@@ -449,6 +450,10 @@ owns the destination; global selection cardinality is resolved before any
 selected payload is read, and a unique exact payload is read from the same
 retained package acquisition that supplied its selection metadata. Narrow it
 with row or path selectors for exact transfer.
+Unstructured exact `--out` rejects line windows because clipping would no
+longer be exact. Every refused export is decided before opening its destination:
+an absent path stays absent, and an existing file remains byte-for-byte
+unchanged.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the framed, encoded
@@ -505,7 +510,8 @@ the caller made.
 
 `--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
 Table-or-narrower selection; multi-section (Document) output stays in Markdown or
-JSON.
+JSON. `--print` likewise requires exactly one declared row set, though it may
+project every selected row in that set.
 
 ### URL-shape modifiers (orthogonal to the ladder)
 
