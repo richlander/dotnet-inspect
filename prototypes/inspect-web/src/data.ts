@@ -5,20 +5,77 @@
 // wiring; these functions are pure transforms over explicit inputs/outputs so they can be
 // unit-tested and reused (e.g. by `graph-mermaid.ts`) without the render/event-wiring layer.
 
-export const lenses: readonly (readonly [string, string])[] = [
+// Exhaustiveness guard for the closed vocabularies below. The unions in this module are
+// derived from catalogs that also drive visible UI choices, so adding a catalog entry both
+// widens the union and offers the new value to users. Passing the switched value here makes
+// the compiler reject that addition until every consumer states what the new value does; the
+// throw is the residual runtime signal if a value ever reaches a consumer past its validator.
+export function assertNever(value: never, vocabulary: string): never {
+  throw new Error(`Unhandled ${vocabulary}: ${JSON.stringify(value)}`);
+}
+
+// Not exported: every consumer now goes through `typeLensesFor`, which applies the
+// runtime-pack filter. A direct export would be a way to skip it.
+const lenses = [
   ["api", "API"],
   ["metadata", "Metadata"],
   ["source", "Source"]
-];
+] as const;
 
-export const packageLenses: readonly (readonly [string, string])[] = [
+export type TypeLens = (typeof lenses)[number][0];
+
+export function isTypeLens(
+  value: string | null | undefined,
+): value is TypeLens {
+  return typeof value === "string"
+    && lenses.some(([id]) => id === value);
+}
+
+export const packageLenses = [
   ["overview", "Overview"],
   ["dependencies", "Dependencies"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"]
-];
+] as const;
+
+export type PackageLens = (typeof packageLenses)[number][0];
+
+export function isPackageLens(
+  value: string | null | undefined,
+): value is PackageLens {
+  return typeof value === "string"
+    && packageLenses.some(([id]) => id === value);
+}
+
+export const memberSectionDefinitions = [
+  ["overview", "Overview"],
+  ["call-graph", "Call graph"],
+  ["facts", "Facts"],
+  ["source", "Source"],
+  ["annotated", "Annotated source"],
+] as const;
+
+export type MemberSection = (typeof memberSectionDefinitions)[number][0];
+
+export function isMemberSection(
+  value: string | null | undefined,
+): value is MemberSection {
+  return typeof value === "string"
+    && memberSectionDefinitions.some(([id]) => id === value);
+}
+
+const workspaceScopes = ["package", "type", "member"] as const;
+
+export type WorkspaceScope = (typeof workspaceScopes)[number];
+
+export function isWorkspaceScope(
+  value: string | null | undefined,
+): value is WorkspaceScope {
+  return typeof value === "string"
+    && workspaceScopes.some(scope => scope === value);
+}
 
 export const MAX_WORKSPACE_PACKAGES = 12;
 export const MAX_SHARE_STATE_CHARACTERS = 65536;
@@ -81,10 +138,26 @@ export function mergeInspectionErrors(
   current: string | null | undefined,
   next: string | null | undefined,
 ): string {
-  const messages = [current, next]
-    .map(value => (value ?? "").trim())
+  return renderInspectionErrors(mergeInspectionErrorEntries(
+    current ? [current] : [],
+    next ? [next] : [],
+  ));
+}
+
+export function mergeInspectionErrorEntries(
+  current: readonly string[] | null | undefined,
+  next: readonly string[] | null | undefined,
+): string[] {
+  const messages = [...(current ?? []), ...(next ?? [])]
+    .map(value => value.trim())
     .filter(Boolean);
-  return [...new Set(messages)].join("; ");
+  return [...new Set(messages)];
+}
+
+export function renderInspectionErrors(
+  entries: readonly string[] | null | undefined,
+): string {
+  return (entries ?? []).join("; ");
 }
 
 export type PlatformPack = "netcore.app" | "aspnetcore.app";
@@ -1374,9 +1447,9 @@ export interface SourceWorkbenchState {
   package?: unknown;
   graphSourceOpen?: boolean;
   atPackageRoot?: boolean;
-  lens?: string;
+  lens?: TypeLens;
   selectedMemberKey?: string;
-  memberSection?: string;
+  memberSection?: MemberSection;
 }
 
 function sourceWorkbenchIsVisible(state: SourceWorkbenchState): boolean {
@@ -1489,18 +1562,28 @@ export interface SectionableMember {
   kind?: string;
 }
 
+// The full roster is derived from the catalog rather than restated, so a new section is
+// offered as soon as it is defined. Restating it was the durable defect: the compiler
+// rejects a *removal* from the catalog, because the literal would stop being assignable,
+// but nothing caught an *addition*, which silently never reached the UI at all.
+const allMemberSections: readonly MemberSection[] =
+  memberSectionDefinitions.map(([id]) => id);
+
+const sourceBackedMemberSections: ReadonlySet<MemberSection> =
+  new Set<MemberSection>(["source", "annotated"]);
+
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
   isRuntimePack = false,
   hasSelectedBody = false,
-): string[] {
+): MemberSection[] {
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     return ["overview"];
   }
   const sections = isRuntimePack
-    ? ["overview", "call-graph", "facts"]
-    : ["overview", "call-graph", "facts", "source", "annotated"];
+    ? allMemberSections.filter(section => !sourceBackedMemberSections.has(section))
+    : [...allMemberSections];
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")
     ? sections.filter(id => id !== "source")
@@ -1509,7 +1592,7 @@ export function memberSectionIdsFor(
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean } | null | undefined,
-): readonly (readonly [string, string])[] {
+): readonly (readonly [TypeLens, string])[] {
   return pkg?.isRuntimePack
     ? lenses.filter(([id]) => id === "api")
     : lenses;
