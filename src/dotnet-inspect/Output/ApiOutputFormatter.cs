@@ -3066,6 +3066,11 @@ public static class ApiOutputFormatter
             ? OperatorNames.FormatDisplayName(member.Name)
             : CSharpIdentifier.ContainRenderedText(member.Name);
 
+    private static string FormatMemberDisplayNameUntreated(ApiMember member)
+        => member.Kind == "operator"
+            ? OperatorNames.FormatDisplayNameUntreated(member.Name)
+            : member.Name;
+
     private static string GetMemberSelectorName(ApiMember member)
         => ApiMemberIdentity.GetMemberSelectorName(member);
 
@@ -3169,7 +3174,7 @@ public static class ApiOutputFormatter
             return new ApiTableRow(
                 ApiViewText.Field(kindLabel),
                 ApiViewText.Field(
-                    OperatorNames.FormatDisplayNameUntreated(m.Name)),
+                    FormatMemberDisplayNameUntreated(m)),
                 returnType,
                 detail);
         }).ToList();
