@@ -1529,8 +1529,11 @@ public static class ApiOutputFormatter
         SectionNames.PdbSource,
         SectionNames.SourceDiff,
         SectionNames.SourceLocations,
+        SectionNames.CustomAttributes,
         SectionNames.Callers,
-        SectionNames.CallGraph
+        SectionNames.CallGraph,
+        SectionNames.SafetyFacts,
+        SectionNames.UnsafeOperations
     ];
 
     /// <summary>

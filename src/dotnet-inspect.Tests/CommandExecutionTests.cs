@@ -13506,6 +13506,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallerScope_BareSelectPreservesAuthoredOverview()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        var unscoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "-S", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "-S", "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Contains($"## {SectionNames.MethodGroups}", scoped.Output);
+        Assert.DoesNotContain($"## {SectionNames.Callers}", scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_EmptyTypeFilterSkipsImplicitCallerAcquisition()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-empty-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "--kind", "field", "--bin", missingDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain(SectionNames.Callers, result.Output);
+        Assert.DoesNotContain(SectionNames.Callers, result.Error);
+    }
+
+    [Fact]
     public async Task Member_CallerScope_KindFilterExcludesImplicitCallerTargets()
     {
         string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
@@ -13551,6 +13588,109 @@ public partial class CommandExecutionTests
         Assert.Contains(
             option == "-S" ? $"## {SectionNames.Callers}" : "| Caller | column |",
             result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallersWithoutAdditionalScopeUsesOwnAssembly()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "-S", SectionNames.Callers, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {SectionNames.Callers}", result.Output);
+        Assert.Contains(nameof(CallerScopeCountFixture.Root), result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallGraphRemainsUnselectable()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "-S", SectionNames.CallGraph, "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.CallGraph}' not found",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task Member_UnsafeFilterAutoSelectsOriginalOverloadIndex()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(MemberBodylessEvidenceFixture.Mixed),
+            "--unsafe", "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("Mixed(int* value)", result.Output);
+        Assert.DoesNotContain("Mixed(byte value)", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Native),
+        "native marker")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Abstract),
+        "abstract marker")]
+    public async Task Member_BodylessCustomAttributesRemainAddressable(
+        string memberName,
+        string marker)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", TestAssemblyPath, memberName,
+            "-S", SectionNames.CustomAttributes, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {SectionNames.CustomAttributes}", result.Output);
+        Assert.Contains(marker, result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Native),
+        SectionNames.UnsafeOperations,
+        "void*")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Native),
+        SectionNames.SafetyFacts,
+        "void*")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Abstract),
+        SectionNames.UnsafeOperations,
+        "int*")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Abstract),
+        SectionNames.SafetyFacts,
+        "int*")]
+    public async Task Member_BodylessUnsafeSignatureEvidenceRemainsAddressable(
+        string memberName,
+        string section,
+        string signatureEvidence)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", TestAssemblyPath, memberName,
+            "-S", section, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {section}", result.Output);
+        Assert.Contains("Unsafe signature", result.Output);
+        Assert.Contains(signatureEvidence, result.Output);
         Assert.Empty(result.Error);
     }
 

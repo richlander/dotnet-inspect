@@ -138,11 +138,8 @@ public static class ApiMemberSectionDescriptors
 
         if (includeCallerSections)
         {
-            pipeline
-                .Add<ApiMemberDetailSectionDescriptors.Callers>(
-                    model => model.Members.Any(IsBodyBacked))
-                .Add<ApiMemberDetailSectionDescriptors.CallGraph>(
-                    model => model.Members.Any(IsBodyBacked));
+            pipeline.Add<ApiMemberDetailSectionDescriptors.Callers>(
+                model => model.Members.Any(IsBodyBacked));
         }
 
         return pipeline
@@ -397,7 +394,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static bool CanRender(ApiType model) => model.Members.Any(HasExecutableBody);
+        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class CostFacts : ISectionDescriptor<ApiType>
@@ -596,7 +593,6 @@ public static class ApiMemberSectionPipelines
         ApiType type,
         ApiOptions options)
         => options is MemberOptions memberOptions
-           && memberOptions.HasCallerScope
            && memberOptions.OverloadIndex is null
            && string.IsNullOrWhiteSpace(memberOptions.MemberDigest)
            && options.IncludeSections?.Contains(
@@ -611,17 +607,14 @@ public static class ApiMemberSectionPipelines
     internal static bool IsImplicitCallerTarget(
         ApiMember member,
         ApiOptions options)
-        => options is not MemberOptions
-           {
-               CallerScopeSectionImplicitlySelected: true,
-               MemberFilter.Count: > 0
-           } memberOptions
-           || TypeMatcher.MatchesMemberFilter(
-               member.Name,
-               memberOptions.MemberFilter)
-           && (!memberOptions.UnsafeOnly || member.IsUnsafe)
-           && (memberOptions.KindFilter.Count == 0
-               || memberOptions.KindFilter.Contains(member.Kind));
+        => options is not MemberOptions memberOptions
+           || ((memberOptions.MemberFilter.Count == 0
+                || TypeMatcher.MatchesMemberFilter(
+                    member.Name,
+                    memberOptions.MemberFilter))
+               && (!memberOptions.UnsafeOnly || member.IsUnsafe)
+               && (memberOptions.KindFilter.Count == 0
+                   || memberOptions.KindFilter.Contains(member.Kind)));
 
     private static bool IsCallerAddressable(ApiMember member)
         => (ApiMemberSectionDescriptors.IsMethodLike(member)
@@ -762,7 +755,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.CustomAttributes;
         public static bool IsExpensive => false;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
@@ -935,7 +928,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class BodyShapes : ISectionDescriptor<ApiType>

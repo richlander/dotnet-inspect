@@ -319,20 +319,23 @@ public static class MemberCommand
                 && ShouldAutoSelectSingleOverload(authoredSelection))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
-                var autoOverloads = GetCandidateMembers(
+                var autoCandidates = GetTargetCandidates(
                         apiType,
                         effectiveOptions,
                         autoMemberName)
-                    .Where(member => !effectiveOptions.UnsafeOnly || member.IsUnsafe)
+                    .Where(candidate =>
+                        !effectiveOptions.UnsafeOnly
+                        || candidate.Member.IsUnsafe)
                     .ToList();
-                if (autoOverloads.Count == 1)
+                if (autoCandidates.Count == 1)
                 {
+                    var autoCandidate = autoCandidates[0];
                     if (effectiveOptions.BodyKindQuery.HasFilter
-                        && BodyAccessorCount(autoOverloads[0]) > 1)
+                        && BodyAccessorCount(autoCandidate.Member) > 1)
                     {
                         WriteAccessorSelectionRequired(
                             apiType,
-                            autoOverloads[0]);
+                            autoCandidate.Member);
                         return 1;
                     }
                     var inventoryPipeline = ApiMemberSectionPipelines.Create(authoredSelection);
@@ -344,7 +347,7 @@ public static class MemberCommand
 
                     inventorySections = inventorySections with
                     {
-                        OverloadIndex = 1,
+                        OverloadIndex = autoCandidate.SelectorIndex,
                         AutoSelectedSingleOverload = true
                     };
                     var detailPipeline = ApiMemberSectionPipelines.Create(inventorySections);
@@ -572,9 +575,12 @@ public static class MemberCommand
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
             }
 
-            // For caller-scope queries without a specific overload, ensure DllPath is set so we can
-            // open the member's own assembly index for aggregated callers across all overloads.
-            if (effectiveOptions.HasCallerScope
+            // Aggregated caller queries always inspect the member's own assembly, with any
+            // explicit caller scope contributing additional assemblies below.
+            if ((effectiveOptions.HasCallerScope
+                 || ApiMemberSectionPipelines.ShouldAggregateCallers(
+                     apiType,
+                     effectiveOptions))
                 && effectiveOptions.DllPath == null
                 && apiDllPath != null)
             {
@@ -973,6 +979,7 @@ public static class MemberCommand
     private static bool HasAuthoredSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
+           || options.SelectDefault
            || options.Discover is { Length: > 0 }
            || options.BodyKindQuery.HasFilter;
 

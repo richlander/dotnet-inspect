@@ -2639,7 +2639,9 @@ public class ApiCommand
             // Can be called with a specific overload for all sections, or without an overload
             // for Callers-only mode (aggregates across all overloads).
             if (options is MemberOptions { DllPath: not null } mo4 
-                && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
+                && (mo4.OverloadIndex.HasValue
+                    || mo4.HasCallerScope
+                    || mo4.AggregatedCallerMemberTokens is { Count: > 0 }))
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = ApiOutputFormatter.ResolveBodyMethods(

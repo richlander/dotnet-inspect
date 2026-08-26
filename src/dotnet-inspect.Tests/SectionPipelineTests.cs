@@ -6635,6 +6635,51 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void BroadMemberPipeline_PublishesCallersButNotSingleRootCallGraph()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreateBroadMemberPipeline();
+
+        Assert.Contains(SectionNames.Callers, pipeline.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.CallGraph, pipeline.AllSectionNames);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.CustomAttributes)]
+    [InlineData(SectionNames.SafetyFacts)]
+    [InlineData(SectionNames.UnsafeOperations)]
+    public void BodylessMetadataAndSignatureSectionsRemainApplicable(string section)
+    {
+        var model = new ApiType
+        {
+            Name = "Bodyless",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "BodylessMethod",
+                    Kind = "method",
+                    IsAbstract = true,
+                    MethodHasBody = false
+                }
+            ]
+        };
+
+        bool canRender = section switch
+        {
+            SectionNames.CustomAttributes =>
+                ApiMemberDetailSectionDescriptors.MethodAttributes.CanRender(model),
+            SectionNames.SafetyFacts =>
+                ApiMemberSectionDescriptors.SafetyFacts.CanRender(model),
+            SectionNames.UnsafeOperations =>
+                ApiMemberDetailSectionDescriptors.UnsafeOperations.CanRender(model),
+            _ => false
+        };
+
+        Assert.True(canRender);
+    }
+
+    [Fact]
     public void LibraryPipeline_InfoPreset_HasDenseSections()
     {
         var pipeline = LibrarySections.CreatePipeline();
