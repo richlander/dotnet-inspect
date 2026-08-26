@@ -296,6 +296,10 @@ public static class CommandLineBuilder
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
+        // Workspace share packet conversion
+        rootCommand.Subcommands.Add(
+            UtilityCommandDefinitions.CreateWorkspaceStateCommand());
+
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
 
