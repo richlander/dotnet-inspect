@@ -245,13 +245,18 @@ it returns a real row, so nothing looks broken, and the reader has no way to
 recover the sequence being indexed. Addressing the pre-projection ordered row
 can only ever hit the intended row or report a miss.
 
-Every selected print row emits a visible success or failure result. A row that
-does not declare a printable payload, or whose payload cannot be acquired, is
-not omitted. Other rows continue, and any failure makes the command exit
-non-zero. Normal text frames every result with typed row identity; JSONL and
-JSON-array output retain that identity in one complete object per row.
-Plain `--json` retains its unary one-object contract and rejects multiple
-selected rows.
+A row set that declares no printable capability rejects `--print` once during
+preflight rather than emitting one failure per row. Per-row failures apply to a
+print-capable row set after that preflight, including heterogeneous rows that do
+not individually carry a payload.
+
+After successful preflight, every selected print row emits a visible success or
+failure result. A heterogeneous row that does not declare a printable payload,
+or whose payload cannot be acquired, is not omitted. Other rows continue, and
+any failure makes the command exit non-zero. Normal text frames every result
+with typed row identity; JSONL and JSON-array output retain that identity in one
+complete object per row. Plain `--json` retains its unary one-object contract
+and rejects multiple selected rows.
 
 A printed document is the document the package shipped. Markdown conventions --
 YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
@@ -410,8 +415,8 @@ unchanged. Because the lens owns the shape, its answers are fixed:
 - An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
   with the reason rather than inferring structure from rendered text. A lens
   that declares rows and their capabilities composes with ordinary projections:
-  for example, version rows may expose URLs, and `--print` emits a visible
-  failure for each selected version row that declares no printable payload.
+  for example, version rows may expose URLs. A version row set that declares no
+  printable capability rejects `--print` once during preflight.
 - `-S`/`--select` is refused when the caller typed it, rather than ignored. A
   lens and a section selection are competing answers to *what am I looking at*,
   and silently honoring the lens hides that the selection did nothing.
@@ -682,8 +687,9 @@ symbolication evidence, `Context: Member` shows the owning metadata context,
 active exception-handling regions, `Context: Callsite` shows the call-like
 operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
-document path, and `--print` returns the visually encoded payload at the
-location rather than a decorated snippet. Add `--out` for exact payload export.
+document path, and `--print --bare` returns the visually encoded payload at the
+location without the normal frame or gutter. Add `--out` for exact payload
+export.
 
 ## Design discipline for future flags
 

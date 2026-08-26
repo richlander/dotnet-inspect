@@ -240,12 +240,13 @@ Shape reducers do not revise operation arity. In particular:
   `--row N|first|last` remains the exactly-one address;
 - `-n N --lines` runs after selected payload acquisition and applies per
   payload, so it does not reduce the authorized fetch set;
-- any selected non-printable or failed payload remains a visible failure row,
-  successful siblings continue, and the overall exit is nonzero;
-- a plain version string has no printable document. `--print`
-  reports one failure for that selected row rather than silently transitioning
-  from version-address rows to package artifact inspection. The explicit
-  transition remains `package Package@version`.
+- after print-capability preflight, any selected heterogeneous non-printable or
+  failed payload remains a visible failure row, successful siblings continue,
+  and the overall exit is nonzero;
+- a version row set declares no printable capability, so `--print` rejects it
+  once during preflight rather than producing one failure per version. It must
+  not silently transition from version-address rows to package artifact
+  inspection. The explicit transition remains `package Package@version`.
 
 The same rule applies to `timeline`. `--count` can reduce an already assembled
 Timeline table; it cannot probe additional cells and rejects item/range

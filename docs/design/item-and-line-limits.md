@@ -255,11 +255,15 @@ content value before JSON encoding; they never truncate serialized JSON.
 
 ### Partial failures
 
-Every selected row produces a visible success or failure result. A row that
-does not declare a printable payload, or whose payload acquisition fails, is
-not skipped. Text output emits a framed failure; structured output emits a
-typed failure row. Other selected rows continue, and the command exits nonzero
-when any row failed.
+If the selected row set declares no printable capability, `--print` rejects the
+request once before payload acquisition or stdout. It does not emit one failure
+per row for a shape that cannot print any row.
+
+After that row-set preflight, every selected row produces a visible success or
+failure result. A heterogeneous row that does not declare a printable payload,
+or whose payload acquisition fails, is not skipped. Text output emits a framed
+failure; structured output emits a typed failure row. Other selected rows
+continue, and the command exits nonzero when any row failed.
 
 This is batch-result behavior, not a success-shaped fallback. A zero-row
 selection remains an error for `--print`.
@@ -305,10 +309,13 @@ Numbers that are not result counts remain distinct: `--row` addresses one row,
 `--index` addresses one overload, `--depth` controls traversal, and timeout or
 budget options retain their own units.
 
-The implementation PR updates README examples, runnable workflows, and every
-shipped `skills/**/SKILL.md` reference in the same change. No compatibility
-alias is required; an old spelling may receive direct replacement guidance, but
-must not execute with its old meaning.
+The implementation PR updates all maintained command guidance in the same
+change, including `README.md`, `docs/**`, `prompts/**`, runnable workflows, and
+every shipped `skills/**/SKILL.md` reference. Historical prose may still name a
+retired spelling to explain the migration, but no maintained invocation may
+recommend or execute it. No compatibility alias is required; an old spelling
+may receive direct replacement guidance, but must not execute with its old
+meaning.
 
 ## Required gates
 
@@ -321,10 +328,15 @@ The implementation must add named Release gates for these target properties:
 | `CountRejectsItemAndLineWindows` | `--count` never silently ignores or applies a result/line window. |
 | `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects item-mode `-n`/`--tail`. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
-| `MultiPrintPreservesIdentityAndFailures` | Every selected row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
+| `NonPrintableRowSetsRejectOnce` | A selected row set with no printable capability emits one preflight diagnostic and performs no payload acquisition. |
+| `MultiPrintPreservesIdentityAndFailures` | After print-capability preflight, every selected row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
 | `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
 | `MultiPrintPayloadCannotForgeFrames` | Payload lines matching the frame grammar, mixed line terminators, empty lines, and missing final newlines remain guttered payload and cannot create a sibling frame. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
-| `RemoteMultiPrintRequiresBoundedSelection` | A per-row network payload source rejects multi-row `--print` without an explicit finite item bound before any fetch. |
-| `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before writing stdout or a file. |
-| `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, help, README, workflows, and embedded skills contain no retired result-limit spelling. |
+| `OrdinaryLineWindowsApplyAfterRendering` | Ordinary head/tail line windows and `--top` plus line-mode `-n` preserve the selected item set and clip the final text only. |
+| `NonPrintJsonRejectsLineWindows` | Typed and lowered document JSON reject `--lines` with empty stdout; printable JSON clips content before complete-value encoding. |
+| `RemoteMultiPrintRequiresBoundedSelection` | A per-row network payload source rejects multi-row `--print` without an explicit finite item bound and performs no fetch. |
+| `SelectedRowsBoundPayloadAcquisition` | Instrumented payload providers are called exactly once for each selected row with an acquired payload, and never for non-printable, filtered, unselected, or windowed-out rows. |
+| `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout, file creation, or any payload acquisition. |
+| `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
+| `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling. |
