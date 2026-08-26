@@ -591,7 +591,10 @@ Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `npm run build && dotnet publish -c Release` from the same directories shown
 above. The TypeScript check is part of both `npm run build` and `npm test`.
 Remote addresses require HTTPS because the .NET loader uses secure-context
-browser APIs.
+browser APIs. For private cross-machine demos, follow
+[`docs/runbooks/inspect-web-demo-hosting.md`](../../docs/runbooks/inspect-web-demo-hosting.md);
+the preferred SSH-forwarding pattern preserves a browser-loopback URL without
+exposing an application port.
 
 On a bare visit, `dotnet-inspect.ts` waits for the home page's first contentful paint
 before dynamically importing `inspect-web-engine.js`. Search and demo controls
