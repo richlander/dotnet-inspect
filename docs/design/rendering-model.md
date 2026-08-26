@@ -61,7 +61,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Target: print one framed or structured payload result per selected printable row; use `--row N\|first\|last` for an exactly-one address |
+| `--print` | Row payload | Target: print one framed or structured payload result per selected row; use `--row N\|first\|last` for an exactly-one address |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -110,8 +110,8 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 ### Each lens owns its own rendering
 
 The `--files` view renders a tree. The `--versions` view renders a list. In the
-multi-item target, `--print` projects every selected printable row to a framed
-document result; `--row N` narrows that set to one stable address. `--jsonl`
+multi-item target, `--print` projects every selected row to a framed document
+success or failure; `--row N` narrows that set to one stable address. `--jsonl`
 emits one complete success/failure object per selected row. `member -S "Call
 Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid`
 select standalone graph renderings, while `--markdown --mermaid` embeds the

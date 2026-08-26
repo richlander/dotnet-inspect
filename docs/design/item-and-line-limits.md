@@ -85,10 +85,18 @@ dotnet-inspect ... -n 200 --rows 50..60
 dotnet-inspect ... --top 100 --order-by "Score desc" --rows 21..40
 ```
 
+Filtering and effective ordering establish those 1-based addresses before any
+item window. Consequently, rows 21 through 40 in the second example are ranked
+positions 21 through 40, and retain those addresses after the intersection.
+
 An empty intersection is an honest empty result. `--tail` cannot modify an
-absolute row range, but it may still modify an independent line window:
+absolute row range. It can modify an accompanying item count or an independent
+line window:
 
 ```bash
+# Stable rows 90 through 95, if they occur among the last 20 items.
+dotnet-inspect ... -n 20 --tail --rows 90..95
+
 # Rows 2 through 5, printing the last 20 lines of each selected payload.
 dotnet-inspect ... --rows 2..5 --print -n 20 --lines --tail
 ```
@@ -101,8 +109,8 @@ Each declared row set follows one pipeline:
 select subject and section/lens
 -> produce rows
 -> apply --where and command-owned filters
--> apply effective order
--> apply -n/--tail or --top
+-> apply effective order and assign 1-based row addresses
+-> apply item-mode -n/--tail or --top
 -> intersect --rows range
 -> project columns, fields, values, paths, URLs, or printable payloads
 -> apply per-payload --lines window when requested
@@ -151,11 +159,12 @@ Rules:
   declares that its default order is a ranking order.
 - A stable but non-ranking default, such as alphabetical or producer order,
   cannot satisfy bare `--top`.
-- `--top` is mutually exclusive with explicit `-n` and `--tail`.
+- `--top` is mutually exclusive with item-mode `-n` and `--tail`. It may
+  combine with `-n N --lines` and line-mode `--tail`.
 - The order's `asc`/`desc` direction chooses lowest/highest ranking; `--tail`
   does not reverse it.
-- `--top` may combine with an absolute `--rows` range to page within the ranked
-  result.
+- `--top` may combine with an absolute `--rows` range to intersect ranked
+  positions after the effective ranking order assigns their addresses.
 
 Human output says "top N by ..." only for `--top`. Plain `-n` says "first N" or
 "last N", even when an explicit order is present. Structured output carries
@@ -218,6 +227,10 @@ not consume the line budget.
 payloads are rejected because their boundary and row identity would be lost.
 Exact `--out` payload export likewise remains unary; a multi-item file export
 requires a structured format or a separately designed directory export.
+
+Plain `--json` also remains unary and preserves its one-object contract.
+Multi-item structured print requires `--jsonl` or `--json-array`; accepting
+multiple rows with plain `--json` would leave its envelope ambiguous.
 
 For `--jsonl`, each selected row produces one complete object that retains its
 row identity and adds content, selected line range, total line count,
@@ -292,8 +305,9 @@ The implementation must add named Release gates for these target properties:
 | `ItemLimitsUseDeclaredRowsAcrossFormats` | Every renderer selects the same first/last logical rows per declared row set and preserves non-row sections. |
 | `AbsoluteRangesIntersectWithoutRenumbering` | `--rows` range intersections retain stable row addresses across item limits and rankings. |
 | `CountRejectsItemAndLineWindows` | `--count` never silently ignores or applies a result/line window. |
-| `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects `-n`/`--tail`. |
+| `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects item-mode `-n`/`--tail`. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
-| `MultiPrintPreservesIdentityAndFailures` | Every selected printable row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
+| `MultiPrintPreservesIdentityAndFailures` | Every selected row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
+| `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, help, README, workflows, and embedded skills contain no retired result-limit spelling. |

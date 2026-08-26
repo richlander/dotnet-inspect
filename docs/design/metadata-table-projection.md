@@ -279,7 +279,7 @@ dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
 dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
 
 # a bounded window into a large table
-dotnet-inspect library My.dll -S "Metadata: MethodDef" -n 20
+dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows 20
 
 # structured, for tooling
 dotnet-inspect library My.dll -S "Metadata: TypeRef" --jsonl

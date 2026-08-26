@@ -260,10 +260,11 @@ shrink what the bound counts:
   fewer matches than its candidate bound is a true, bounded-complete result
   over that candidate set, not a truncated one.
 
-Whichever ordering an implementation slice picks, it must say so explicitly
-in the command's help text and its rendered completion state, naming the gate
-the same way this project already requires assertions about behavior to
-name their enforcing test.
+The implementation must preserve both distinct orderings: nuspec predicates
+run before the semantic `-n` result limit, while `--deepen` bounds candidates
+before promoted IL evaluation. Help text and rendered completion state must
+name the candidate bound, and the asserted ordering must name its enforcing
+gate.
 
 ## Shared request/outcome shape with the browser
 

@@ -229,9 +229,10 @@ Shape reducers do not revise operation arity. In particular:
   payloads";
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
-- `--print` projects every selected printable row and may therefore fetch more
-  than one declared payload, but it still cannot evaluate a version address
-  that the operation did not already select;
+- `--print` attempts every selected row and may therefore fetch more than one
+  declared payload, but it still cannot evaluate a version address that the
+  operation did not already select; a row without a declared payload produces
+  a visible failure;
 - `-n N` and `--rows N..M` select rows before `--print`, while
   `--row N|first|last` remains the exactly-one address;
 - `-n N --lines` runs after selected payload acquisition and applies per

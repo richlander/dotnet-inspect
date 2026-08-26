@@ -97,8 +97,9 @@ first N." It requires an explicit `--order-by` unless the section declares that
 its default order is a ranking order. Alphabetical, insertion, and upstream
 listing order are stable sequences, not ranking defaults.
 
-`--top` is mutually exclusive with `-n`, `--tail`, and `--count`. An absolute
-`--rows` range may page within the ranked result.
+`--top` is mutually exclusive with item-mode `-n`, item-mode `--tail`, and
+`--count`. It may combine with `-n N --lines` and line-mode `--tail`. An
+absolute `--rows` range may select positions within the ranked result.
 
 Pipeline:
 
