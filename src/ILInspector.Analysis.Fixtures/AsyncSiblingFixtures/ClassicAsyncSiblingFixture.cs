@@ -38,6 +38,14 @@ public static class ClassicAsyncSiblingFixture
         return ReadValue(value);
     }
 
+    public static async Task<bool> AsyncGenBoxed<T>(
+        T left,
+        T right)
+    {
+        await Task.Yield();
+        return left!.Equals(right);
+    }
+
     [CompilerGenerated]
     public static async Task<int> CompilerGeneratedAsyncOwner(
         int value)

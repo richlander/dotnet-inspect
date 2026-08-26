@@ -658,12 +658,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                         ? DeclaredOwnerResolution.None
                         : DeclaredOwnerResolution.Resolved;
                 bool needsUltimateResolution =
-                    declaredMethod is not null
+                    includeOpportunities
+                    || declaredMethod is not null
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
-                                declaredMethod.Name)
-                    || includeOpportunities
-                        && bodyTypeScope is not null;
+                                declaredMethod.Name);
                 if (needsUltimateResolution)
                 {
                     ownerResolution =
@@ -813,12 +812,12 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             bool collectOwnershipDerivedOpportunities =
                 includeOpportunities
+                && opportunityOwnershipResolved
                 && (bodyTypeScope is null
-                    || opportunityOwnershipResolved
-                        && (opportunityDeclaredMethod is null
-                            || bodyTypeScope(
-                                opportunityDeclaredMethod
-                                    .DeclaringType)));
+                    || opportunityDeclaredMethod is null
+                    || bodyTypeScope(
+                        opportunityDeclaredMethod
+                            .DeclaringType));
             bool collectBodyIntrinsicOpportunities =
                 includeOpportunities
                 && (bodyTypeScope is null
@@ -828,7 +827,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                             unresolvedOwner.DeclaringType));
             result.ScopeExcluded =
                 includeOpportunities
-                && bodyTypeScope is not null
                 && !collectOwnershipDerivedOpportunities;
             try
             {
@@ -903,6 +901,16 @@ internal sealed class LibraryMethodAnalysisRunner(
                         OptimizationOpportunityAnalysis.Collect(
                             allocationFacts,
                             methodAnalysisResolver);
+                    if (!collectOwnershipDerivedOpportunities)
+                    {
+                        result.Opportunities =
+                        [
+                            .. result.Opportunities.Where(
+                                static opportunity =>
+                                    opportunity.Shape
+                                        != "generic-parameter-object-box"),
+                        ];
+                    }
                 }
                 else if (collectOwnershipDerivedOpportunities
                     && opportunityOwnershipResolved

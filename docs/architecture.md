@@ -903,8 +903,11 @@ Research overlay bridge, and the application layer:
   authentication.
   `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
   gates the unscoped immediate-source fallback and fail-closed scoped
-  ownership-derived recommendations while preserving full-scope
-  body-intrinsic opportunities.
+  ownership-derived recommendations and allocation fanout while preserving
+  full-scope body-intrinsic opportunities.
+  `OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
+  gates generic-box suppression for unresolved async ownership in full,
+  method, and type scopes.
   `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
   gates generated generic-box projection on an authenticated ultimate owner in
   full, method, and type scopes.

@@ -364,8 +364,11 @@ established attribution. Rejected identities and incomplete lifted-owner
 chains cannot expand scoped acquisition.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
 and
+`OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
+gate fail-closed allocation-fanout and async-state-machine generic-box
+projection while retaining body-intrinsic opportunities, and
 `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
-gate that boundary for async-sibling and generated generic-box recommendations,
+gates that boundary for generated generic-box recommendations,
 while
 `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
 `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate

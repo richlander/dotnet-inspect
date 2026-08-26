@@ -4425,7 +4425,7 @@ public class LibraryBodyIndexTests
                 full.OptimizationOpportunities,
                 opportunity => opportunity.Method.MetadataToken
                     == moveNext.MetadataToken);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 full.AllocationFanoutOpportunities,
                 opportunity => opportunity.Method.MetadataToken
                     == moveNext.MetadataToken);
@@ -4703,6 +4703,10 @@ public class LibraryBodyIndexTests
                     && call.Callee.Name == "Read"
                     && call.Caller == moveNext);
             Assert.DoesNotContain(
+                full.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+            Assert.DoesNotContain(
                 methodScoped.OptimizationOpportunities,
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
@@ -4714,6 +4718,10 @@ public class LibraryBodyIndexTests
                 opportunity => opportunity.Shape == "small-array"
                     && opportunity.Method.MetadataToken
                         == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                methodScoped.AllocationFanoutOpportunities,
+                opportunity => opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
             Assert.Null(
                 methodScoped.ResolveDeclaredMethod(moveNext));
             Assert.Contains(
@@ -4741,6 +4749,71 @@ public class LibraryBodyIndexTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location);
+        const string unresolvedOwner = "<Outer>b__0_0";
+        ReplaceAscii(
+            image,
+            nameof(ClassicAsyncSiblingFixture.AsyncGenBoxed),
+            unresolvedOwner,
+            expectedReplacements: 3);
+        LibraryBodyIndex identities =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedAsyncGenericBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            identities.Methods,
+            method => method.Name == unresolvedOwner);
+        MethodIdentity moveNext = Assert.Single(
+            identities.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    unresolvedOwner,
+                    StringComparison.Ordinal));
+        Assert.Equal(
+            source,
+            identities.ResolveDeclaredMethod(moveNext));
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedAsyncGenericBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedAsyncGenericBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    source.MetadataToken,
+                }),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "UnresolvedAsyncGenericBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        source.DeclaringType)),
+        })
+        {
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "generic-parameter-object-box"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
         }
     }
 
