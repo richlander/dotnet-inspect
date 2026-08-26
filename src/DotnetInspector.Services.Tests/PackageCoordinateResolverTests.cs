@@ -66,6 +66,35 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Fact]
+    public async Task SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion()
+    {
+        using var client = new HttpClient(new NuGetOrgHandler());
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://api.nuget.org/v3/index.json?token=signed",
+                        "https://api.nuget.org/v3/index.json",
+                    ],
+                },
+                "UnlistedPkg");
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("UnlistedPkg"),
+                sources,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+
+        Assert.Equal("1.5.0", resolved.Coordinate.Version);
+    }
+
+    [Fact]
     public async Task BorrowedFloatingCoordinate_ExcludesUnlistedVersion()
     {
         var sourceClient = new VersionSourceClient(
@@ -1530,7 +1559,7 @@ public sealed class PackageCoordinateResolverTests
         {
             Interlocked.Increment(ref _requestCount);
             string url = request.RequestUri!.ToString();
-            if (url.Equals(
+            if (url.StartsWith(
                 "https://api.nuget.org/v3/index.json",
                 StringComparison.OrdinalIgnoreCase))
             {

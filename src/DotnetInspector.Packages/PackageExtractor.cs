@@ -811,8 +811,12 @@ public static class PackageExtractor
         {
             foreach (NuGetSource transport in NuGetSourceResolver.Transports(source))
             {
+                HttpClient sourceClient =
+                    ReferenceEquals(client, HttpClientFactory.Shared)
+                        ? HttpClientFactory.GetPackageSourceClient(transport.Url)
+                        : client;
                 var url = await GetNuspecUrlAsync(
-                    client,
+                    sourceClient,
                     transport,
                     normalizedName,
                     normalizedVersion,
@@ -824,7 +828,7 @@ public static class PackageExtractor
                 {
                     HttpRetryHelper.HttpBodyFetchResult body =
                         await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                            client,
+                            sourceClient,
                             url,
                             static _ => true,
                             log: log,
@@ -1938,7 +1942,8 @@ public static class PackageExtractor
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (lookup.Versions is not { } versions || !source.IsNuGetOrg)
+        if (lookup.Versions is not { } versions
+            || !NuGetSourceResolver.IsNuGetOrgProducer(source))
         {
             return (
                 lookup.Versions,
@@ -2245,7 +2250,8 @@ public static class PackageExtractor
         // Throwaway scope: search is best-effort before the authoritative flat-container
         // / registration path. A 500 here must not merge into the parent and convert a
         // later authoritative 404 into "source did not answer".
-        if (source.IsNuGetOrg && !includePrerelease)
+        if (NuGetSourceResolver.IsNuGetOrgProducer(source)
+            && !includePrerelease)
         {
             using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
             {
@@ -2266,7 +2272,7 @@ public static class PackageExtractor
         // Authoritative=false; picking a "latest" from that could surface an unlisted version, so
         // return failure (couldn't determine a latest) instead of falling through to the unfiltered
         // index below.
-        if (source.IsNuGetOrg)
+        if (NuGetSourceResolver.IsNuGetOrgProducer(source))
         {
             var (listed, authoritative, failed, _) =
                 await FetchListedVersionsFromSourceAsync(
@@ -2837,7 +2843,7 @@ public static class PackageExtractor
                 return PackageSourceDisplay.ForDiagnostics(source).ToString();
             }
 
-            if (source.IsNuGetOrg)
+            if (NuGetSourceResolver.IsNuGetOrgProducer(source))
                 return "nuget.org";
 
             return Uri.TryCreate(
@@ -3112,7 +3118,9 @@ public static class PackageExtractor
                 lookup.SourceMissing);
         }
 
-        NuGetOrgRegistrationVersions? registration = source.IsNuGetOrg
+        bool isNuGetOrg =
+            NuGetSourceResolver.IsNuGetOrgProducer(source);
+        NuGetOrgRegistrationVersions? registration = isNuGetOrg
             ? await FetchRegistrationVersionsFromNuGetOrgAsync(
                 client,
                 packageName,
@@ -3120,7 +3128,7 @@ public static class PackageExtractor
                 cancellationToken).ConfigureAwait(false)
             : null;
 
-        bool authoritative = !source.IsNuGetOrg
+        bool authoritative = !isNuGetOrg
             || registration is not null
                 && RegistrationCovers(versions, registration.AllVersions);
         var listings = versions

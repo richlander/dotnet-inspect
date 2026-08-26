@@ -413,6 +413,44 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers()
+    {
+        var probe = new PluginCredentialLeakProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                HttpClientFactory.Shared,
+                "Example",
+                "1.0.0",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://feed.example/feed-a/v3/index.json",
+                        "https://feed.example/feed-b/v3/index.json",
+                    ],
+                });
+
+            Assert.Null(nuspec);
+            Assert.Equal(3, probe.Requests.Count);
+            Assert.Null(probe.Requests[0].Authorization);
+            Assert.Equal(
+                "dXNlcjpwYXNzd29yZA==",
+                probe.Requests[1].Authorization);
+            Assert.Null(probe.Requests[2].Authorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
     public async Task PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -928,6 +966,10 @@ public class HttpClientFactoryTests : IDisposable
                             : HttpStatusCode.OK)
                     {
                         RequestMessage = request,
+                        Content = challenge
+                            ? null
+                            : new StringContent(
+                                """{"version":"3.0.0","resources":[]}"""),
                     });
             }
         }

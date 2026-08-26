@@ -83,7 +83,7 @@ internal static class PackageSourceClientProvider
             : NuGetCache.GetSourceKey(identity);
     }
 
-    private static PackageSourceIdentity? ProducerIdentity(
+    internal static PackageSourceIdentity? ProducerIdentity(
         string sourceUrl) =>
         Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? endpoint)
         && endpoint.Scheme is "http" or "https"
@@ -298,7 +298,19 @@ internal sealed class FailoverPackageSourceClient
                     await operation(
                         transport,
                         routeCancellation.Token).ConfigureAwait(false);
-                routeCancellation.Token.ThrowIfCancellationRequested();
+                if (routeCancellation.IsCancellationRequested)
+                {
+                    if (result
+                        is PackageSourceOperationResult<PackageSourcePayload>
+                            .Succeeded lateSuccess)
+                    {
+                        await lateSuccess.Value.Content.DisposeAsync()
+                            .ConfigureAwait(false);
+                    }
+
+                    routeCancellation.Token.ThrowIfCancellationRequested();
+                }
+
                 if (result
                     is PackageSourceOperationResult<PackageSourcePayload>
                         .Succeeded success)

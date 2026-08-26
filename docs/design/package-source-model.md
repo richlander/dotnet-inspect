@@ -82,8 +82,10 @@ accepting a shared client or opaque caller handler. The desktop compatibility
 adapter may borrow a host-selected transport without transferring ownership.
 Desktop hosts share the credential-free connection pool by origin, but place
 each stateful plugin-authentication handler in a producer-scoped client above
-that pool. Their default handler disables cookies, default credentials, and
-preauthentication on desktop.
+that pool. Legacy standalone nuspec requests select that scoped client when
+the caller supplied the process-wide shared client; an explicitly injected
+client remains authoritative. Their default handler disables cookies, default
+credentials, and preauthentication on desktop.
 Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
@@ -98,6 +100,7 @@ This is gated by
 `PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers`,
 `PackageSourceClientProvider_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
 `PackageSourceClientProvider_ReusesConnectionsAcrossPathDistinctProducers`,
+`StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
 `PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect`,
 `PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
@@ -159,14 +162,17 @@ one stable producer identity are retained as ordered transports within that
 producer route rather than discarding every alias after the first.
 All transports in that route share one operation deadline; trying another
 alias does not reset the ceiling, and a successful package stream retains the
-same route deadline until the caller disposes it.
+same route deadline until the caller disposes it. If a transport returns a
+successful payload after that deadline has expired, the route owns and
+disposes the unreturned stream before projecting the typed timeout.
 `PackagePayloadAcquisitionTests.SignedSourceAliases_FailOverWithinOneProducer`
 and
 `SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer` gate
 failover.
 `SignedSourceAliasesShareOneOperationDeadline` and
 `SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate the route-wide
-deadline.
+deadline, and `SignedSourceAliasDeadlineDisposesLatePayload` gates disposal at
+the handoff race.
 
 ## Resolving active and eligible sources
 
@@ -496,6 +502,13 @@ vulnerability services may be queried for a package id only when NuGet.org is
 eligible for that id. Merely listing NuGet.org somewhere in the active config
 is insufficient when package source mapping assigns the id elsewhere. This
 prevents a private package identity from being disclosed to NuGet.org.
+NuGet.org-specific listing and symbol policy uses the stable producer identity,
+not whichever signed transport alias appears first in a route. Feed-controlled
+resource URLs and source displays are redacted before entering diagnostics.
+`PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`
+gates route-invariant listing policy, while
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources`
+gates signed resource redaction.
 
 PDB acquisition has its own provenance:
 
@@ -566,8 +579,9 @@ transport, preserving the configured `--http-timeout` contract across ordinary
 and signed-alias sources.
 Configured HTTP base sources are normalized to `/v3/index.json` for typed
 service-index requests while retaining signed query bytes and removing at most
-one optional trailing slash; producer identity continues to describe the
-configured endpoint path. Service-index `@type`
+one optional trailing slash; the v3 client constructor is the single owner of
+that normalization, including for legacy factory overloads. Producer identity
+continues to describe the configured endpoint path. Service-index `@type`
 accepts the JSON-LD string and array forms. Parsing counts every type
 observation, including malformed array entries, against the 4,096-observation
 limit and checks cancellation during traversal. Malformed optional or unrelated
@@ -583,6 +597,7 @@ cache pass still receives the complete ordered producer set before any network
 request, and exact payload attempts retain typed producer identity through
 admission and commit.
 `PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`,
+`PackageSourceClientTests.V3SourceNormalizationRemovesAtMostOneTrailingSlash`,
 `PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
 `PackageSourceClientTests.V3UnrelatedPackageBaseAddressPrefixIsIgnored`,
 `PackageSourceClientTests.V3ServiceIndexVersionAndPackageRetryTransientResponses`,

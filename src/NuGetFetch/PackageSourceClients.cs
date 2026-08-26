@@ -331,7 +331,7 @@ public static class PackageSourceClientFactory
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
-            NormalizeServiceIndexEndpoint(endpoint),
+            endpoint,
             CreateOwnedTransport(endpoint),
             options ?? new NuGetFetchOptions(),
             source.Credential);
@@ -365,7 +365,7 @@ public static class PackageSourceClientFactory
             : CreateBorrowedDesktopTransport(client);
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
-            NormalizeServiceIndexEndpoint(endpoint),
+            endpoint,
             transport,
             options ?? new NuGetFetchOptions(),
             source.Credential,

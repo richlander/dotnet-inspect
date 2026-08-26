@@ -142,7 +142,9 @@ public static class PackageMetadataService
                 }
                 if (fromCache is { } cached)
                 {
-                    log?.Invoke($"Using cached metadata from {source.Name}");
+                    log?.Invoke(
+                        $"Using cached metadata from "
+                        + $"{PackageSourceDisplay.ForDiagnostics(source)}");
                     return cached.Metadata;
                 }
             }
@@ -158,7 +160,8 @@ public static class PackageMetadataService
                 {
                     log?.Invoke(
                         $"Skipping non-HTTP NuGet metadata source "
-                        + $"'{transport.Name}': {transport.Url}");
+                        + $"'{PackageSourceDisplay.ForDiagnostics(transport)}': "
+                        + $"{InertText.UrlRedaction.ForDiagnostics(transport.Url)}");
                     result = new SourceMetadataResult(SourcePresence.Indeterminate);
                     continue;
                 }
@@ -185,7 +188,8 @@ public static class PackageMetadataService
                 || routeResult.Presence == SourcePresence.Indeterminate)
             {
                 log?.Invoke(
-                    $"Metadata from higher-precedence source '{source.Name}' is unavailable; "
+                    $"Metadata from higher-precedence source "
+                    + $"'{PackageSourceDisplay.ForDiagnostics(source)}' is unavailable; "
                     + "lower sources were not consulted.");
                 return new PackageMetadata();
             }
@@ -304,7 +308,9 @@ public static class PackageMetadataService
                 registration.Id,
                 normalizedName,
                 $"{version}.json");
-            log?.Invoke($"Fetching registration metadata: {registrationUrl}");
+            log?.Invoke(
+                $"Fetching registration metadata: "
+                + $"{InertText.UrlRedaction.ForDiagnostics(registrationUrl)}");
 
             TextFetchResult registrationResult = await FetchTextAsync(
                 client,
@@ -340,7 +346,10 @@ public static class PackageMetadataService
                     or InvalidOperationException
                     or UriFormatException)
                 {
-                    log?.Invoke($"Invalid registration metadata from {source.Name}: {ex.Message}");
+                    log?.Invoke(
+                        $"Invalid registration metadata from "
+                        + $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+                        + $"{ex.Message}");
                     sawIndeterminate = true;
                 }
                 continue;
@@ -401,7 +410,9 @@ public static class PackageMetadataService
             catalogDataAvailable = false;
             try
             {
-                log?.Invoke($"Fetching catalog entry: {catalogEntryUrl}");
+                log?.Invoke(
+                    $"Fetching catalog entry: "
+                    + $"{InertText.UrlRedaction.ForDiagnostics(catalogEntryUrl)}");
                 TextFetchResult catalogResult = await FetchTextAsync(
                     client,
                     untrustedClient,
@@ -510,7 +521,8 @@ public static class PackageMetadataService
                 {
                     log?.Invoke(
                         $"Error fetching vulnerability data from "
-                        + $"{vulnerabilityInfo.Id}: {ex.Message}");
+                        + $"{InertText.UrlRedaction.ForDiagnostics(vulnerabilityInfo.Id)}: "
+                        + $"{ex.Message}");
                 }
             }
         }
@@ -583,7 +595,10 @@ public static class PackageMetadataService
             normalizedName,
             version,
             $"{normalizedName}.{version}.nupkg");
-        log?.Invoke($"Fetching package size from {source.Name}: {nupkgUrl}");
+        log?.Invoke(
+            $"Fetching package size from "
+            + $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+            + $"{InertText.UrlRedaction.ForDiagnostics(nupkgUrl)}");
 
         AuthenticationHeaderValue? auth =
             NuGetCredentialScope.AuthFor(source, nupkgUrl, log);
@@ -614,7 +629,7 @@ public static class PackageMetadataService
         {
             log?.Invoke(
                 $"Package endpoint returned HTML instead of package content: "
-                + $"{nupkgUrl}");
+                + $"{InertText.UrlRedaction.ForDiagnostics(nupkgUrl)}");
             return new PackageProbeResult(SourcePresence.Indeterminate);
         }
 
@@ -655,7 +670,9 @@ public static class PackageMetadataService
                     out string searchUrl))
             {
                 log?.Invoke(
-                    $"The search endpoint for {source.Name} is not a usable absolute HTTP or HTTPS URL.");
+                    $"The search endpoint for "
+                    + $"{PackageSourceDisplay.ForDiagnostics(source)} is not "
+                    + "a usable absolute HTTP or HTTPS URL.");
                 return new SearchFetchResult(
                     Succeeded: false,
                     Found: false,
@@ -663,7 +680,8 @@ public static class PackageMetadataService
             }
 
             log?.Invoke(
-                $"Fetching search metadata from {source.Name}: "
+                $"Fetching search metadata from "
+                + $"{PackageSourceDisplay.ForDiagnostics(source)}: "
                 + NetworkRequestObservation.RedactSensitiveUrlText(searchUrl));
 
             TextFetchResult searchResult = await FetchTextAsync(
@@ -1129,12 +1147,15 @@ public static class PackageMetadataService
             {
                 log?.Invoke(
                     $"Invalid vulnerability page reference from "
-                    + $"{source.Name}: {ex.Message}");
+                    + $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+                    + $"{ex.GetType().Name}");
                 allPagesSucceeded = false;
                 continue;
             }
 
-            log?.Invoke($"Fetching vulnerability page: {resolvedPageUrl}");
+            log?.Invoke(
+                $"Fetching vulnerability page: "
+                + $"{InertText.UrlRedaction.ForDiagnostics(resolvedPageUrl)}");
             TextFetchResult pageResult = await FetchTextAsync(
                 client,
                 untrustedClient,
@@ -1238,7 +1259,8 @@ public static class PackageMetadataService
             {
                 log?.Invoke(
                     $"Invalid vulnerability page from "
-                    + $"{source.Name}: {ex.Message}");
+                    + $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+                    + $"{ex.Message}");
                 allPagesSucceeded = false;
             }
         }

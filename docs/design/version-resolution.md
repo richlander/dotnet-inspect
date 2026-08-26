@@ -93,15 +93,20 @@ selected, including siblings named by an array-valued JSON-LD `@type`, so an
 unusable or credential-bearing sibling still makes the source incomplete.
 Configured base sources are normalized to `/v3/index.json` while signed query
 bytes remain unchanged, removing at most one optional trailing slash from an
-otherwise canonical index path. Exact package pins are normalized once before
-cache lookup and payload acquisition. Borrowed clients retain authoritative
-listing state for floating selection, exclude unlisted candidates, and reject
-partial answers.
+otherwise canonical index path. The v3 client constructor is the single owner
+of that source normalization, including for legacy factory overloads. Exact
+package pins are normalized once before cache lookup and payload acquisition.
+Borrowed clients retain authoritative listing state for floating selection,
+exclude unlisted candidates, and reject partial answers. NuGet.org listing
+policy follows the stable producer identity rather than the first signed alias
+in a route.
 The `package --versions` exact-pin shortcut uses that same canonical
 coordinate, so semantically equivalent spellings share cache and listing
 identity and malformed pins fail before source discovery. A timeout while
 consuming a returned package stream remains a typed source timeout rather than
-being reported as payload-policy rejection.
+being reported as payload-policy rejection. A successful payload returned by a
+transport after the route deadline is disposed before that timeout is
+projected.
 Package-ID validation precedes wildcard and range discovery as well as exact
 acquisition, so every selector shape returns the same clean coordinate
 diagnostic without opening a source client.
@@ -120,10 +125,13 @@ absence and authentication failures are not retried.
 `CommandExecutionTests.RangeConsumers_InvalidPackageIdReturnCoordinateDiagnostic`,
 `PackageExtractorOfflineTests.ExtractPackageAsync_WildcardInvalidPackageId_ReturnsTypedError`,
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_ExcludesUnlistedVersion`,
+`PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`,
 `PackageCoordinateResolverTests.BorrowedFloatingCoordinate_PartialListingFailsClosed`,
 `PackagePayloadAcquisitionTests.PackageStreamTimeoutRemainsATypedSourceFailure`,
+`PackagePayloadAcquisitionTests.SignedSourceAliasDeadlineDisposesLatePayload`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
 and
+`PackageSourceClientTests.V3SourceNormalizationRemovesAtMostOneTrailingSlash`,
 `PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
 `V3ServiceIndexVersionAndPackageRetryTransientResponses`, and
 `V3TransientRetriesAreBounded`

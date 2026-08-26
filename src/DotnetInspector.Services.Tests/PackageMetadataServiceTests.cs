@@ -230,7 +230,7 @@ public class PackageMetadataServiceTests : IDisposable
                   "resources": [
                     { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
                     { "@id": "https://private.example/query?s%69g=%73ecret&semVerLevel=1.0.0", "@type": "SearchQueryService/3.5.0" },
-                    { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" },
+                    { "@id": "https://private.example/flat/?sig=FLATSECRET", "@type": "PackageBaseAddress/3.0.0" },
                     { "@id": "https://private.example/vulnerabilities/index.json", "@type": "VulnerabilityInfo/6.7.0" }
                   ]
                 }
@@ -320,6 +320,9 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.DoesNotContain(
             log,
             message => message.Contains("secret", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            log,
+            message => message.Contains("FLATSECRET", StringComparison.Ordinal));
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal("private.example", request.Uri.Host);

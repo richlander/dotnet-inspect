@@ -192,6 +192,16 @@ public static class NuGetSourceResolver
     }
 
     /// <summary>
+    /// Reports whether one resolved source represents the canonical NuGet.org producer.
+    /// </summary>
+    public static bool IsNuGetOrgProducer(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return PackageSourceClientProvider.ProducerIdentity(source.Url)
+            == PackageSourceIdentity.NuGetOrg;
+    }
+
+    /// <summary>
     /// Reduces already-resolved sources to ordered candidate-metadata route identities.
     /// </summary>
     public static IReadOnlyList<string> CandidateCacheKeys(

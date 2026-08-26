@@ -2532,6 +2532,30 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task SignedSourceAliasDeadlineDisposesLatePayload()
+    {
+        var transport =
+            new ServiceIndexHandler.LatePayloadSourceClient(
+                TimeSpan.FromMilliseconds(100));
+        using var sourceClient =
+            new FailoverPackageSourceClient(
+                [transport],
+                TimeSpan.FromMilliseconds(20));
+
+        PackageSourceFailure failure = Assert.IsType<
+            PackageSourceOperationResult<PackageSourcePayload>.Failed>(
+                await sourceClient.GetPackageAsync(
+                    PackageId,
+                    Version,
+                    TestContext.Current.CancellationToken))
+            .Failure;
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.True(transport.PayloadProduced);
+        Assert.True(transport.StreamDisposed);
+    }
+
+    [Fact]
     public async Task PackageStreamTimeoutRemainsATypedSourceFailure()
     {
         using var source =
@@ -3693,6 +3717,78 @@ public sealed class PackagePayloadAcquisitionTests
 
             public void Dispose()
             {
+            }
+        }
+
+        internal sealed class LatePayloadSourceClient(TimeSpan delay)
+            : IPackageSourceClient
+        {
+            private readonly DisposeTrackingStream _stream = new();
+
+            public bool PayloadProduced { get; private set; }
+            public bool StreamDisposed => _stream.IsDisposed;
+
+            public PackageSourceIdentity Identity =>
+                PackageSourceIdentity.NuGetOrg;
+
+            public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
+
+            public PackageSourceCapabilities Capabilities =>
+                PackageSourceCapabilities.PackagePayload;
+
+            public Task<PackageSourceOperationResult<PackageSearchResult>>
+                SearchAsync(
+                    string query,
+                    int take = 20,
+                    bool prerelease = false,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public Task<PackageSourceOperationResult<PackageVersionResult>>
+                GetVersionsAsync(
+                    string packageId,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public async Task<
+                PackageSourceOperationResult<PackageSourcePayload>>
+                GetPackageAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default)
+            {
+                await Task.Delay(delay);
+                PayloadProduced = true;
+                return new PackageSourceOperationResult<PackageSourcePayload>
+                    .Succeeded(
+                        new PackageSourcePayload(
+                            PackageSourceCoordinate.Create(packageId, version),
+                            Identity,
+                            Kind,
+                            PackageSourcePayloadKind.Package,
+                            _stream));
+            }
+
+            public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                TryGetSymbolsAsync(
+                    string packageId,
+                    string version,
+                    CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
+
+            public void Dispose()
+            {
+            }
+        }
+
+        private sealed class DisposeTrackingStream : MemoryStream
+        {
+            internal bool IsDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                IsDisposed = true;
+                base.Dispose(disposing);
             }
         }
 

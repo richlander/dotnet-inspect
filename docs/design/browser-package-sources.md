@@ -623,6 +623,8 @@ configured origins.
 path on the desktop wire, while
 `V3SearchCanonicalIndexRemovesTrailingSlashBeforeSignedQuery` gates canonical
 index spelling without rewriting signed query bytes,
+`V3SourceNormalizationRemovesAtMostOneTrailingSlash` gates that the v3 client,
+including its legacy factory paths, applies this normalization exactly once,
 `V3SearchPathlessBaseSourcePreservesSignedQuery` gates root insertion before
 an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
 resource normalization.
@@ -664,11 +666,14 @@ caller coordinates and caller cancellation likewise remain exceptions rather
 than being misreported as source failures.
 When several signed transport aliases represent one producer, alias failover
 shares one operation ceiling rather than multiplying it by the alias count.
-The same ceiling remains attached to a returned payload stream.
+The same ceiling remains attached to a returned payload stream. A payload that
+arrives after the shared deadline but before handoff is disposed by the route
+before the timeout result is returned.
 `PackagePayloadAcquisitionTests.SignedSourceAliasesShareOneOperationDeadline`
 and
 `SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate those
-properties.
+properties, and `SignedSourceAliasDeadlineDisposesLatePayload` gates the late
+handoff race.
 
 Gallery version enumeration joins the complete flat-container list with the
 SemVer2 registration index. Inline pages are consumed in place. External page
@@ -743,14 +748,24 @@ test client remains authoritative. The typed client borrows that host transport
 and does not dispose it. Package-layer aggregation still owns source order,
 reporting feeds, NuGet.org listing enrichment, complete-source requirements,
 the cache-first authorized-producer pass, payload admission, and source
-failover.
+failover. NuGet.org-specific listing and symbol decisions use the stable
+producer identity rather than the first transport alias, so signing or
+reordering aliases cannot disable Gallery listing semantics. Legacy standalone
+nuspec acquisition selects a source-scoped authentication client only when the
+caller supplied the process-wide shared client; injected clients remain
+authoritative. Feed-controlled metadata resource URLs and source displays are
+redacted before diagnostic projection.
 `SourcePrecedenceTests`, `VersionCacheTests`,
 `PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
 `PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`, and
 `PackageSourceClientTests.OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient`,
 and
-`HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`
+`HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`,
+`PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`,
+`HttpClientFactoryTests.StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+and
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources`
 gate
 those boundaries.
 

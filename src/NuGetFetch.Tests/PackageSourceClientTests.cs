@@ -775,7 +775,7 @@ public sealed class PackageSourceClientTests
                 """,
             [Versions] = """{"versions":["1.0.0"]}""",
         };
-        HttpMessageHandler client = handler;
+        using var client = new HttpClient(handler);
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", source),
