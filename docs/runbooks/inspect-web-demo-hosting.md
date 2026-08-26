@@ -54,7 +54,6 @@ The build host needs:
 - the exact branch in its own clean development worktree;
 - the repository-selected .NET SDK and WebAssembly workload;
 - Node.js at the version required by `prototypes/inspect-web/package.json`;
-- Python 3 for the loopback static server; and
 - SSH access from the viewer or gateway, depending on the selected pattern.
 
 Use these build-host variables:
@@ -127,8 +126,9 @@ while `dotnet publish` is rewriting it.
 
 Do not use:
 
-- `vite` or `vite preview` - the demo must include the published .NET engine,
-  and Vite also applies host allow-list behavior;
+- the Vite development server - it does not serve the published .NET engine;
+- the default `npm run preview` command - it targets the frontend `dist/`
+  directory rather than the complete published WebAssembly site;
 - `dotnet run` as the remote proof - the WebAssembly development host has
   previously served fingerprinted assets incorrectly in this workflow; or
 - the frontend `dist/` directory - it does not contain the complete published
@@ -139,10 +139,24 @@ Do not use:
 Keep this process in a dedicated persistent terminal or tmux window:
 
 ```bash
-python3 -m http.server "$DEMO_BUILD_ORIGIN_PORT" \
-  --bind 127.0.0.1 \
-  --directory "$site_root"
+cd "$repo_root/prototypes/inspect-web"
+
+if [ -n "${DEMO_PUBLIC_HOST:-}" ]; then
+  export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="$DEMO_PUBLIC_HOST"
+fi
+
+npm run preview -- \
+  --host 127.0.0.1 \
+  --port "$DEMO_BUILD_ORIGIN_PORT" \
+  --strictPort \
+  --outDir "$site_root"
 ```
+
+This uses the already-pinned Vite dependency as a static server while
+overriding its default output directory with the published `wwwroot`.
+`--strictPort` keeps an occupied port from silently selecting a different one.
+For the Serve pattern, allow only the exact tailnet DNS hostname; do not disable
+Vite's host check globally.
 
 Record the window or exact PID. Do not use a name-based process kill during
 cleanup.
@@ -221,9 +235,11 @@ viewer browser
   -> build-host loopback static server
 ```
 
-The gateway route is shared infrastructure. It can present only one demo on a
-given origin port at a time. Inspect its current owner before taking it over,
-and never reset or replace an unknown route.
+The gateway route is a standing, tailnet-only slot. Keep its Serve
+configuration in place between web-development demos so its URL and certificate
+remain stable, but attach the reverse tunnel and origin only while a demo is
+active. The slot can present only one demo at a time. Inspect its current owner
+before taking it over, and never reset or replace an unknown route.
 
 An existing gateway operator must own Tailscale Serve changes. Do not grant an
 agent account Tailscale operator access merely to publish or test one demo; that
@@ -371,7 +387,7 @@ silently repoint an existing build-tagged URL to unrelated work.
 | Gateway origin fails | Reverse tunnel | Check the tunnel terminal and both loopback ports |
 | Serve returns 502/503 | Serve cannot reach its origin | Restore the reverse tunnel; do not replace the Serve route |
 | Serve times out only on the build host | Tailnet policy | Validate on the gateway and an authorized viewer |
-| Vite reports a disallowed host | Wrong server | Serve the published `wwwroot`, not Vite |
-| `dotnet.js` or bundled assets are empty or missing | Wrong artifact or host | Re-publish and use the static `wwwroot` |
+| Vite reports a disallowed host | Missing exact Serve hostname | Restart with `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` set to the tailnet DNS name |
+| Fingerprinted loader or bundled assets are empty or missing | Wrong artifact or host | Re-publish and serve the complete `wwwroot` |
 | Page paints but controls remain inert | Wasm engine did not initialize | Inspect framework requests and browser console; HTTP 200 alone is not success |
 | User sees an older build | Stale URL or wrong served worktree | Confirm full head, restart from its `wwwroot`, and issue a new `build=<short-head>` URL |
