@@ -10,6 +10,7 @@ using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -2853,6 +2854,74 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Home.Demo.Methods.{suffix}";
+        string peerPackageId = $"Home.Demo.Methods.Peer.{suffix}";
+        string assemblyPath =
+            typeof(BrowserEngineBoundaryTests).Assembly.Location;
+        string peerAssemblyPath = typeof(BrowserPackage).Assembly.Location;
+        BrowserPackageCoordinate coordinate = Coordinate(
+            packageId,
+            Package(
+                File.ReadAllBytes(assemblyPath),
+                $"lib/net11.0/{Path.GetFileName(assemblyPath)}"));
+        BrowserPackageCoordinate peerCoordinate = Coordinate(
+            peerPackageId,
+            Package(
+                File.ReadAllBytes(peerAssemblyPath),
+                $"lib/net11.0/{Path.GetFileName(peerAssemblyPath)}"));
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope(
+                [peerCoordinate, coordinate]);
+        try
+        {
+            var plan = new BrowserHomeDemoRunPlan(
+                [
+                    new BrowserPackageRequest(
+                        peerPackageId,
+                        "1.0.0",
+                        "net11.0"),
+                    new BrowserPackageRequest(
+                        packageId,
+                        "1.0.0",
+                        "net11.0"),
+                ],
+                FocusRequestIndex: 1,
+                typeof(BrowserEngineBoundaryTests).FullName!,
+                ProductDemoSections.Methods,
+                Member: null);
+            var resolution = new BrowserScopeResolution(
+                scope,
+                [peerCoordinate, coordinate]);
+
+            BrowserHomeDemoRunResult result =
+                InspectionEngine.RunHomeDemoCore(plan, resolution);
+
+            Assert.True(result.Found);
+            Assert.Equal(2, result.Packages.Length);
+            Assert.Equal(ProductDemoSections.Methods, result.Activation?.Section);
+            Assert.Null(result.Activation?.MemberName);
+            Assert.Null(result.Activation?.MemberSection);
+            Assert.Null(result.CallGraph);
+            BrowserTypeSurface type = Assert.Single(
+                result.Packages[1].Types,
+                candidate => candidate.Id
+                    == typeof(BrowserEngineBoundaryTests).FullName);
+            Assert.NotEmpty(type.Api);
+            Assert.Equal(
+                2,
+                type.Api.Count(member =>
+                    member.Name == nameof(HomeDemoRunFixture)));
+        }
+        finally
+        {
+            BrowserPackageWorkspace.RemoveScope(scope);
+        }
+    }
+
+    [Fact]
     public void HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph()
     {
         string suffix = Guid.NewGuid().ToString("N");
@@ -2902,10 +2971,12 @@ public sealed class BrowserEngineBoundaryTests
                 ],
                 FocusRequestIndex: 1,
                 type.Id,
-                member.Name,
-                member.Kind,
-                member.AnchorDigest[..6],
-                MemberSection: "call-graph");
+                ProductDemoSections.CallGraph,
+                new BrowserHomeDemoRunMember(
+                    member.Name,
+                    member.Kind,
+                    member.AnchorDigest[..6],
+                    MemberSection: "call-graph"));
             var resolution = new BrowserScopeResolution(
                 scope,
                 [peerCoordinate, coordinate]);
@@ -2915,6 +2986,7 @@ public sealed class BrowserEngineBoundaryTests
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
+            Assert.Equal(ProductDemoSections.CallGraph, result.Activation?.Section);
             Assert.Equal(member.AnchorDigest, result.Activation?.MemberAnchorDigest);
             Assert.Equal("call-graph", result.Activation?.MemberSection);
             Assert.NotNull(result.CallGraph);

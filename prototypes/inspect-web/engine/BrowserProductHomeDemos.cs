@@ -47,27 +47,29 @@ internal static class BrowserProductHomeDemos
                 view.Section));
     }
 
-    internal static BrowserHomeDemoRunPlan ToCallGraphRunPlan(
+    internal static BrowserHomeDemoRunPlan ToRunPlan(
         ResolvedScenario scenario)
     {
         ProductDemoRunPlan productPlan = ProductDemoRunPlan.Create(scenario);
-        if (!string.Equals(
-                productPlan.Section,
-                ProductDemoSections.CallGraph,
-                StringComparison.Ordinal))
+        if (productPlan.Scenario.View?.Libraries.Count > 0)
         {
             throw new InspectionDefinitionException(
-                $"Home demo '{scenario.ScenarioId}' does not select the Call Graph section.");
+                $"Home demo '{scenario.ScenarioId}' browser execution does not support library-scoped views.");
         }
 
-        if (productPlan.Member is not
-            {
-                Anchor: { Length: > 0 } memberAnchor,
-            } member)
+        BrowserHomeDemoRunMember? member = productPlan.Section switch
         {
-            throw new InspectionDefinitionException(
-                $"Home demo '{scenario.ScenarioId}' Call Graph view must select a member anchor.");
-        }
+            ProductDemoSections.Methods when productPlan.Member is null => null,
+            ProductDemoSections.Methods =>
+                throw new InspectionDefinitionException(
+                    $"Home demo '{scenario.ScenarioId}' Methods view must not select a member."),
+            ProductDemoSections.CallGraph =>
+                ToCallGraphMember(scenario.ScenarioId, productPlan.Member),
+            _ => throw new InspectionDefinitionException(
+                $"Home demo '{scenario.ScenarioId}' browser execution does not implement "
+                + $"section '{productPlan.Section}' (supported: "
+                + $"{ProductDemoSections.Methods}, {ProductDemoSections.CallGraph})."),
+        };
 
         BrowserPackageRequest[] requests =
         [
@@ -87,11 +89,34 @@ internal static class BrowserProductHomeDemos
         int focusIndex = Array.FindIndex(
             requests,
             request => request == focus);
+        if (focusIndex < 0)
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{scenario.ScenarioId}' navigation focus is not present in its browser workspace requests.");
+        }
 
         return new BrowserHomeDemoRunPlan(
             requests,
             focusIndex,
             productPlan.TypeName,
+            productPlan.Section,
+            member);
+    }
+
+    private static BrowserHomeDemoRunMember ToCallGraphMember(
+        string scenarioId,
+        ProductDemoMemberSelection? selection)
+    {
+        if (selection is not
+            {
+                Anchor: { Length: > 0 } memberAnchor,
+            } member)
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{scenarioId}' Call Graph view must select a member anchor.");
+        }
+
+        return new BrowserHomeDemoRunMember(
             member.Name,
             member.Kind,
             memberAnchor,
@@ -148,7 +173,11 @@ internal sealed record BrowserHomeDemoRunPlan(
     BrowserPackageRequest[] Requests,
     int FocusRequestIndex,
     string TypeId,
-    string MemberName,
+    string Section,
+    BrowserHomeDemoRunMember? Member);
+
+internal sealed record BrowserHomeDemoRunMember(
+    string Name,
     string? MemberKind,
-    string MemberAnchorDigest,
+    string AnchorDigest,
     string MemberSection);
