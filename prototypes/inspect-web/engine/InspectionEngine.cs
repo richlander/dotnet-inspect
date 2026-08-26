@@ -1101,10 +1101,10 @@ public static partial class InspectionEngine
     }
 
     /// <summary>
-    /// Runs one member-bound Call Graph home demo from its product definition.
+    /// Runs one supported home demo from its product definition.
     /// The browser supplies only the scenario id: workspace coordinates,
-    /// navigation focus, member-anchor selection, and query execution remain
-    /// on the engine side.
+    /// navigation focus, section selection, optional member selection, and
+    /// query execution remain on the engine side.
     /// </summary>
     [JSExport]
     public static async Task<string> RunHomeDemo(string scenarioId)
@@ -1117,7 +1117,7 @@ public static partial class InspectionEngine
         }
 
         BrowserHomeDemoRunPlan plan =
-            BrowserProductHomeDemos.ToCallGraphRunPlan(resolved);
+            BrowserProductHomeDemos.ToRunPlan(resolved);
         BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 deadline => BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
@@ -1149,6 +1149,11 @@ public static partial class InspectionEngine
             throw new InvalidOperationException(
                 "The product home demo workspace did not preserve its distinct request ordering.");
         }
+        if ((uint)plan.FocusRequestIndex >= (uint)resolution.RequestedCoordinates.Length)
+        {
+            throw new InvalidOperationException(
+                "The product home demo focus is outside its resolved browser workspace.");
+        }
 
         BrowserPackageCoordinate focusCoordinate =
             scope.Coordinate(
@@ -1172,6 +1177,25 @@ public static partial class InspectionEngine
         }
 
         BrowserTypeSurface type = types[0];
+        BrowserHomeDemoRunMember? memberPlan = plan.Member;
+        if (memberPlan is null)
+        {
+            return new BrowserHomeDemoRunResult(
+                true,
+                [.. projections.Select(projection => projection.Surface)],
+                new BrowserHomeDemoRunActivation(
+                    focusCoordinate.PackageId,
+                    focusCoordinate.Version,
+                    focusCoordinate.Framework,
+                    type.Id,
+                    plan.Section,
+                    MemberName: null,
+                    MemberKind: null,
+                    MemberAnchorDigest: null,
+                    MemberSection: null),
+                null);
+        }
+
         (ApiType Type, AssemblyContextSubject Subject)[] apiTypes =
         [
             .. focusProjection.ApiSurfaces.Assemblies.Assemblies
@@ -1193,10 +1217,10 @@ public static partial class InspectionEngine
 
         (ApiType apiType, AssemblyContextSubject subject) = apiTypes[0];
         var selector = new MemberTargetSelector(
-            $"{plan.MemberName}~{plan.MemberAnchorDigest}",
-            plan.MemberName,
-            DigestPrefix: plan.MemberAnchorDigest,
-            Kind: plan.MemberKind);
+            $"{memberPlan.Name}~{memberPlan.AnchorDigest}",
+            memberPlan.Name,
+            DigestPrefix: memberPlan.AnchorDigest,
+            Kind: memberPlan.MemberKind);
         MemberTargetResolution target =
             MemberTargetResolver.Resolve(apiType, selector);
         if (target.Diagnostic is { } diagnostic)
@@ -1263,10 +1287,11 @@ public static partial class InspectionEngine
                 focusCoordinate.Version,
                 focusCoordinate.Framework,
                 type.Id,
+                plan.Section,
                 member.Name,
                 member.Kind,
                 member.AnchorDigest,
-                plan.MemberSection),
+                memberPlan.MemberSection),
             ProjectCallGraph(scope, view));
     }
 

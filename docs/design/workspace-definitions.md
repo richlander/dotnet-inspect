@@ -440,23 +440,45 @@ output from the existing pipelines; multi-package workspaces encode extra
 package members as `--caller-package` for the call-graph demo. **inspect-web**
 loads home-demo catalog and coordinates from the product registry through the
 browser engine (`ListHomeDemos` / `ResolveHomeDemo` /
-`RunHomeDemo` over `ProductInspectionDemos`); host-only share encoding and the
-residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for future
-platform members) live in
-`prototypes/inspect-web/src/product-home-demos.ts`. STJ restores via share deep
-links built from the resolved projection. The member-bound Call Graph button
-passes only the product scenario id to `RunHomeDemo`; the engine resolves the
-workspace, focus, member anchor, and section, opens one aggregate browser
-workspace, and returns its package surfaces, exact activation identity, and
-ordinary Call Graph projection. TypeScript applies that typed result to the UI
-without parsing definition member keys or reconstructing package/query inputs.
+`RunHomeDemo` over `ProductInspectionDemos`). `RunHomeDemo` accepts both
+type-only `Methods` and member-bound `Call Graph` presets: the engine resolves
+the workspace, focus, section, and optional member anchor, opens one aggregate
+browser workspace, and returns its package surfaces plus exact activation
+identity. The focused `BrowserTypeSurface.Api` rows are the browser's ordinary
+Methods-section output; a member-bound run additionally returns the ordinary
+Call Graph projection. The engine rejects other product sections,
+library-scoped views, and runtime-identifier-scoped package workspaces until
+Browser has explicit execution support rather than silently dropping those
+bindings. These properties are gated by
+`ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
+`StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
+`ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
+`ToRunPlan_RejectsUnsupportedBrowserSection`,
+`ToRunPlan_RejectsLibraryScopedView`,
+`ToRunPlan_RejectsRuntimeIdentifierScopes`,
+`ToRunPlan_RejectsFocusOutsideSelectedContext`,
+`HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`, and
+`HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`.
+
+This engine capability does not yet change the home buttons. The current
+TypeScript still restores STJ through a share deep link built from the resolved
+projection and invokes `RunHomeDemo` for Call Graph. The frontend follow-up
+must apply the typed Methods result and then push a canonical shareable
+location; calling the engine without updating location would regress refresh
+and sharing. That follow-up can then delete the host-owned share encoding and
+the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
+future platform members) from
+`prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
+current Call Graph result without parsing definition member keys or
+reconstructing package/query inputs.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) minted facet ids replacing display-name allow list; (2) realize
 definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding and the browser runtime-pack share encoding for
-platform; (3) Call Graph / Callers structured JSON projection remains the
+`--caller-package` encoding; (3) canonical frontend activation of every home
+demo, including share-location projection and deletion of browser-owned packet
+construction; (4) Call Graph / Callers structured JSON projection remains the
 shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
 today).
 
@@ -1030,8 +1052,11 @@ Implementation must add, at minimum:
   resolve the static product-registry scenario to `WorkspaceMemberCoordinate`
   plans, member anchor `74b6b4b321`, browser workspace requests, and exact
   activation identity;
-  `BrowserProductHomeDemosTests.ToCallGraphRunPlan_DerivesNonFirstFocusFromNavigation`
-  gates non-first focus derivation from the product navigation plan;
+  `BrowserProductHomeDemosTests.ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`
+  gates type-only Methods lowering and non-first focus derivation from the
+  product navigation plan;
+  `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`
+  gates the real projected type/member surface and expected fixture methods;
   `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`
   gates aggregate workspace projection, non-first focus consumption,
   digest-prefix selection, and graph execution;
@@ -1079,8 +1104,11 @@ Definition records and product demos (this slice):
   including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
-  product home demos; inspect-web's generated `RunHomeDemo` binding runs the
-  member-bound Call Graph preset from its product scenario id;
+  product home demos; inspect-web's generated `RunHomeDemo` binding runs both
+  type-only Methods and member-bound Call Graph presets from their product
+  scenario ids. `BrowserProductHomeDemosTests` gates host-plan lowering and
+  unsupported bindings; `BrowserEngineBoundaryTests` gates nonempty Methods
+  projection and anchored Call Graph execution;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
   legacy prototype packets, malformed or non-canonical encoding and JSON,

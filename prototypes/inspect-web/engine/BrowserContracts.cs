@@ -281,10 +281,11 @@ public sealed record BrowserHomeDemoRunActivation(
     string FocusVersion,
     string FocusFramework,
     string TypeId,
-    string MemberName,
-    string MemberKind,
-    string MemberAnchorDigest,
-    string MemberSection);
+    string Section,
+    string? MemberName,
+    string? MemberKind,
+    string? MemberAnchorDigest,
+    string? MemberSection);
 
 /// <summary>
 /// Browser result of running one product home demo through the normal package

@@ -165,10 +165,11 @@ export interface BrowserHomeDemoRunActivation {
   focusVersion: string;
   focusFramework: string;
   typeId: string;
-  memberName: string;
-  memberKind: string;
-  memberAnchorDigest: string;
-  memberSection: string;
+  section: string;
+  memberName: string | null;
+  memberKind: string | null;
+  memberAnchorDigest: string | null;
+  memberSection: string | null;
 }
 
 export interface BrowserHomeDemoRunResult {
