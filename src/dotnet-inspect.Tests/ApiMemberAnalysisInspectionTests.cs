@@ -7,6 +7,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -25,6 +26,7 @@ public class ApiMemberAnalysisInspectionTests
 {
     static readonly string SelfPath = typeof(ApiMemberAnalysisInspectionTests).Assembly.Location;
     static readonly string AnalysisPath = typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly.Location;
+    static readonly string MetadataPath = typeof(ApiMember).Assembly.Location;
     static readonly string CliPath = typeof(ApiMemberAnalysisInspection).Assembly.Location;
 
     static ApiMemberAnalysisInspection Create(string assemblyPath, IReadOnlyList<string>? scope)
@@ -107,6 +109,20 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Equal(
             ILInspector.CallGraph.CallGraphNodeMatch.Found,
             projection.FindNode(opportunity.Method, out _));
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index =>
+            {
+                Assert.True(index.Features.HasFlag(
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
+                        .AsyncSiblingOpportunities));
+                Assert.False(index.Features.HasFlag(
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
+                        .Allocations));
+                Assert.False(index.Features.HasFlag(
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+            });
     }
 
     [Fact]
@@ -134,7 +150,11 @@ public class ApiMemberAnalysisInspectionTests
                     method.DeclaringType.Name == nameof(DiffCommand)));
 
         Assert.NotEmpty(inspection.BodyIndex.OptimizationOpportunities);
+        Assert.True(inspection.BodyIndex.Features.HasFlag(
+            ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
         Assert.Empty(cliIndex.OptimizationOpportunities);
+        Assert.False(cliIndex.Features.HasFlag(
+            ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
     }
 
     [Fact]
@@ -164,6 +184,109 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Empty(inspection.CallGraphFields);
         Assert.False(inspection.IncludesCallGraphOpportunities);
         Assert.Empty(cliIndex.OptimizationOpportunities);
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index => Assert.False(index.Features.HasFlag(
+                ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
+    }
+
+    [Theory]
+    [InlineData("Fanout")]
+    [InlineData("Copy")]
+    [InlineData("EvidenceIL")]
+    public void CallGraphFields_DoNotEnableClassifiedAllocationAnalysis(
+        string field)
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Fields = [field],
+            });
+        int root = TokenOf(
+            SelfPath,
+            nameof(MemberCallGraphFixture),
+            nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
+
+        _ = inspection.BuildCallGraph(root);
+
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index => Assert.False(index.Features.HasFlag(
+                ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
+    }
+
+    [Fact]
+    public void CallGraphAllocationField_EnablesClassifiedAllocationAnalysis()
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Fields = ["Alloc"],
+            });
+        int root = TokenOf(
+            SelfPath,
+            nameof(MemberCallGraphFixture),
+            nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
+
+        _ = inspection.BuildCallGraph(root);
+
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index => Assert.True(index.Features.HasFlag(
+                ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
+    }
+
+    [Fact]
+    public void CallGraphAsyncField_EnablesCallerScopeOpportunitiesWithoutAllocations()
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            MetadataPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Fields = ["Async"],
+            });
+        int root = TokenOf(
+            MetadataPath,
+            "ApiDiffAnalyzer",
+            "ProjectInspectionFailures");
+
+        _ = inspection.BuildCallGraph(root);
+        ILInspector.Analysis.LibraryBodyIndex cliIndex =
+            inspection.CallGraphBodyIndexes.Single(index =>
+                index.DeclaredMethods.Any(method =>
+                    method.DeclaringType.Name == nameof(DiffCommand)));
+
+        Assert.Contains(
+            cliIndex.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(DiffCommand));
+        Assert.All(
+            inspection.CallGraphBodyIndexes,
+            index =>
+            {
+                Assert.True(index.Features.HasFlag(
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
+                        .AsyncSiblingOpportunities));
+                Assert.False(index.Features.HasFlag(
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
+                        .Allocations));
+                Assert.False(index.Features.HasFlag(
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+            });
     }
 
     [Fact]
