@@ -815,7 +815,7 @@ test("typed package view owns package navigation bindings", () => {
       ?? "";
   assert.match(
     packageViewSource,
-    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-token\]/);
+    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-selector\]/);
   assert.match(
     packageViewSource,
     /export function bindPackageDependencyList\([\s\S]*\[data-dep-open\][\s\S]*\[data-dep-load\]/);
@@ -863,13 +863,20 @@ test("typed package view owns package navigation bindings", () => {
   }
   assert.match(
     binding,
-    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.match(
+    appSource,
+    /function drillToPerfMember\([\s\S]*resetMemberSectionState\(\);[\s\S]*loadSelectedMemberDocumentation\(\)/);
+  assert.doesNotMatch(
+    appSource.match(
+      /function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "",
+    /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
   assert.doesNotMatch(
     appSource,
-    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]"\)/);
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]"\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]/);
+    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]/);
   assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
 });
 

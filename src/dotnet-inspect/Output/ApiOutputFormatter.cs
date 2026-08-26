@@ -1617,7 +1617,7 @@ public static class ApiOutputFormatter
             Name = name,
             Kind = "method",
             MetadataToken = token,
-            MethodHasBody = accessorKind switch
+            HasMethodBody = accessorKind switch
             {
                 "get" => owner.GetterHasBody,
                 "set" => owner.SetterHasBody,

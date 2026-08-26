@@ -35,7 +35,12 @@ preserving non-`net*` framework and runtime contexts, and releases each
 participant before advancing. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
-directions, and remain independent of rendering. The `extensions`,
+directions, and remain independent of rendering. Group-scoped optimization
+ranking also builds Analysis indexes from retained snapshots, resolves
+cross-assembly metadata only to selected siblings under each participant's
+binding policy, attributes bodies to public API owners, and returns one stable
+product-owned order across the group. Analysis index execution remains
+sequential, preserving the Browser/Wasm baseline. The `extensions`,
 `implements`, and `find` commands also execute typed queries through ephemeral
 workspaces. Ordinary search fan-out creates and disposes one-participant groups
 sequentially; explicit extension reachability uses one binding-consistent group
@@ -636,6 +641,28 @@ also gates disposal of the graph's catalog scope.
 malformed-image failure caching, and
 `MemberCallGraphSessionTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
 gates the complete metadata-decoder exception classification.
+
+`AssemblyContextOptimizationOpportunitiesQuery` is the first whole-assembly
+Analysis ranking over a complete group. It opens one optimization-only body
+index per available participant from the workspace-retained snapshot, uses the
+participant's binding policy only for selected siblings in that group, and
+releases call-graph caches before advancing. Analysis owns opportunity priority,
+semantic loop classification, source-owner aggregation for lifted bodies, and
+generated-framework suppression before aggregation and deterministic ordering;
+the query joins analyzed body tokens to owning public API members and carries
+their exact metadata type identity and stable member selector. Getter/setter or
+add/remove evidence aggregates under that one public member while retaining
+every contributing body token. Non-public counts, Analysis diagnostics,
+metadata projection failures, and participant acquisition failures remain
+beside the ranked result. Group execution remains sequential rather than
+introducing a parallel-only contract.
+`OptimizationOpportunityRankingTests` gate the product ranking policy, and
+`AssemblyContextOptimizationOpportunitiesQueryTests` gate public-body
+attribution, group ordering, binding-policy use, visible rejection, and query
+cost.
+`AssemblyContextResearchProjectionQueryTests.Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup`
+gates the shared resolver's group-containment boundary. Method-scoped Analysis
+evidence over a group participant remains a later query.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

@@ -186,7 +186,7 @@ public static class MetadataDeclarationQuery
                 Signature = MethodSignatureText(declaration),
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
-                MethodHasBody = method.RelativeVirtualAddress != 0,
+                HasMethodBody = method.RelativeVirtualAddress != 0,
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
                 IsVirtual = declaration.IsVirtual,

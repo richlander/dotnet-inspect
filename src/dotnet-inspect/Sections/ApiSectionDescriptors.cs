@@ -515,7 +515,7 @@ public static class ApiMemberSectionDescriptors
             return false;
 
         if (IsMethodLike(member))
-            return member.MethodHasBody ?? !member.IsAbstract;
+            return member.HasMethodBody ?? !member.IsAbstract;
 
         return member.Kind switch
         {
