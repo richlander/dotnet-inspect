@@ -52,6 +52,66 @@ internal abstract class TypeNode
     internal virtual string StructuralIdentity()
         => CSharpText.XmlDocumentationNotation.NormalizeParameterType(RenderCanonical());
 
+    internal IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes()
+    {
+        if (this is NamedTypeNode { AssemblyIdentity: { } assembly } named)
+        {
+            yield return new(
+                assembly,
+                named.Name,
+                StructuredName(named.MetadataName));
+        }
+        else if (this is GenericTypeNode
+            {
+                DefinitionAssemblyIdentity: { } definitionAssembly
+            } generic)
+        {
+            yield return new(
+                definitionAssembly,
+                generic.DefinitionName,
+                StructuredName(generic.MetadataName));
+        }
+
+        foreach (TypeNode child in TypeChildren(this))
+        {
+            foreach (ApiTypeReferenceIdentity reference
+                in child.ReferencedTypes())
+            {
+                yield return reference;
+            }
+        }
+    }
+
+    internal ApiTypeReferenceIdentity? DefinitionReference() =>
+        this switch
+        {
+            NamedTypeNode
+            {
+                AssemblyIdentity: { } assembly
+            } named => new(
+                assembly,
+                named.Name,
+                StructuredName(named.MetadataName)),
+            GenericTypeNode
+            {
+                DefinitionAssemblyIdentity: { } assembly
+            } generic => new(
+                assembly,
+                generic.DefinitionName,
+                StructuredName(generic.MetadataName)),
+            _ => null,
+        };
+
+    static MetadataTypeDefinitionName? StructuredName(
+        MetadataTypeNameParts? parts) =>
+        parts is not null
+        && MetadataTypeDefinitionName.Create(
+                parts.Namespace,
+                [.. parts.Segments]) is
+            MetadataTypeDefinitionNameResult.Valid valid
+            ? valid.Name
+            : null;
+
     /// <summary>Renders this type to a C# display string with nullability annotations,
     /// including C# tuple syntax (<c>(int count, string name)</c>) for
     /// <c>System.ValueTuple</c> instantiations.</summary>
@@ -277,9 +337,11 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 internal sealed class NamedTypeNode(
     string name,
     bool isReferenceType,
-    MetadataTypeNameParts? metadataName = null) : TypeNode
+    MetadataTypeNameParts? metadataName = null,
+    ApiAssemblyIdentity? assemblyIdentity = null) : TypeNode
 {
     public string Name => name;
+    public ApiAssemblyIdentity? AssemblyIdentity => assemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
@@ -308,12 +370,20 @@ internal sealed class GenericTypeNode(
     string nestedSuffix = "",
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null,
-    string? structuralMetadataName = null) : TypeNode
+    string? structuralMetadataName = null,
+    ApiAssemblyIdentity? definitionAssemblyIdentity = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
 
     public string BaseName => baseName;
+    public string DefinitionName =>
+        structuralMetadataName
+        ?? metadataName?.ToDottedName()
+        ?? baseName;
+    public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
+        definitionAssemblyIdentity;
+    public MetadataTypeNameParts? MetadataName => metadataName;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
@@ -449,9 +519,18 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Multi-dimensional arrays (int[,], etc.).</summary>
-internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
+internal sealed class MDArrayTypeNode(
+    TypeNode elementType,
+    int rank,
+    ImmutableArray<int> arraySizes = default,
+    ImmutableArray<int> arrayLowerBounds = default) : TypeNode
 {
     public TypeNode ElementType => elementType;
+    public int Rank => rank;
+    public ImmutableArray<int> ArraySizes =>
+        arraySizes.IsDefault ? [] : arraySizes;
+    public ImmutableArray<int> ArrayLowerBounds =>
+        arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
     internal override bool HasStructuralPayload => elementType.HasStructuralPayload;
