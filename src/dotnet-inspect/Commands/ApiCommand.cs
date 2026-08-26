@@ -4284,7 +4284,7 @@ public class ApiCommand
 
         CommandError.Write(
             $"Document --json cannot represent {section} analysis. "
-            + "Use --jsonl, --tsv, --table, or a graph output format.");
+            + "Use --jsonl, --tsv, --table, --count, or a graph output format.");
         return true;
     }
 
