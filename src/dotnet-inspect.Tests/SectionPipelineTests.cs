@@ -4512,13 +4512,16 @@ public class SectionPipelineTests
         {
             Target = new InertString(TextPolicy.Field, "target\nError: FORGED"),
         };
-        (string Reason, InspectionQueryDefinition Query)[] discoveryDemand =
-            [("discovery catalog", MetadataImageQuery.Definition)];
+        (string Reason, InspectionQueryDefinition Query)[] commandDemand =
+        [
+            ("discovery catalog", MetadataImageQuery.Definition),
+            ("source availability", SourceAvailabilityQuery.Definition),
+        ];
 
         HashSet<InspectionQueryDefinition> requested = pipeline.GetRequiredQueries(
             Verbosity.Detailed,
             trace: trace,
-            commandDemand: discoveryDemand);
+            commandDemand: commandDemand);
         HashSet<InspectionQueryDefinition> closure = registry.ExpandRequired(requested);
         trace.RecordQueryClosure(closure);
 
@@ -4536,7 +4539,11 @@ public class SectionPipelineTests
             }
         }
 
-        Assert.Empty(trace.QueryClosure.Except(reachable));
+        Assert.DoesNotContain(SourceLinkDocumentsQuery.Definition, requested);
+        Assert.Contains(SourceLinkDocumentsQuery.Definition, trace.QueryClosure);
+        Assert.Equal(
+            reachable.OrderBy(query => query.Name, StringComparer.Ordinal),
+            trace.QueryClosure);
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
@@ -4546,6 +4553,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 ResourcesQuery.Definition,
+                SourceAvailabilityQuery.Definition,
                 SwitchesQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
