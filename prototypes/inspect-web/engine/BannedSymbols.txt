@@ -61,6 +61,25 @@ T:ILInspector.Metadata.IAssemblyReferenceResolver;Assembly-role binding belongs 
 T:ILInspector.Metadata.AssemblyReferenceBindingPolicy;Assembly-role binding belongs to product workspace composition, never to the browser host.
 T:System.Reflection.PortableExecutable.PEReader;Raw image decoding belongs to product package realization; the browser host uses product queries.
 T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding belongs to product package realization; the browser host uses product queries.
+T:System.Runtime.Loader.AssemblyLoadContext;Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.Load(System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.Load(System.Byte[],System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.Load(System.Reflection.AssemblyName);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.Load(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.LoadFile(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.LoadFrom(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.LoadFrom(System.String,System.Byte[],System.Configuration.Assemblies.AssemblyHashAlgorithm);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.LoadModule(System.String,System.Byte[]);Inspected modules are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.LoadModule(System.String,System.Byte[],System.Byte[]);Inspected modules are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.LoadWithPartialName(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.ReflectionOnlyLoad(System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.ReflectionOnlyLoad(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.ReflectionOnlyLoadFrom(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.Reflection.Assembly.UnsafeLoadFrom(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.AppDomain.Load(System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.AppDomain.Load(System.Byte[],System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.AppDomain.Load(System.Reflection.AssemblyName);Inspected assemblies are parsed by product queries, never loaded into the runtime.
+M:System.AppDomain.Load(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
 
 M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup(System.Collections.Generic.IEnumerable{DotnetInspector.Queries.AssemblyContextParticipant},DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns binding-consistent group composition.
 M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles(System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{DotnetInspector.Queries.PackageAssemblyRoleCorrespondence},System.Boolean,DotnetInspector.Queries.AssemblyContextGroupOptions,DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns package role construction and correspondence.

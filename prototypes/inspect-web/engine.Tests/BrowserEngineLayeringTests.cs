@@ -196,6 +196,36 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void RuntimeLoadingInspectedAssembliesIsCompilerBanned()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        string[] runtimeLoaders =
+        [
+            .. RequiredType("System.Reflection.Assembly")
+                .GetMembers()
+                .OfType<IMethodSymbol>()
+                .Where(method =>
+                    method.MethodKind == MethodKind.Ordinary
+                    && (method.Name.StartsWith("Load", StringComparison.Ordinal)
+                        || method.Name.StartsWith(
+                            "ReflectionOnlyLoad",
+                            StringComparison.Ordinal)
+                        || method.Name.Equals(
+                            "UnsafeLoadFrom",
+                            StringComparison.Ordinal)))
+                .Select(method => method.GetDocumentationCommentId()!),
+            .. RequiredType("System.AppDomain")
+                .GetMembers("Load")
+                .OfType<IMethodSymbol>()
+                .Select(method => method.GetDocumentationCommentId()!),
+        ];
+
+        Assert.NotEmpty(runtimeLoaders);
+        Assert.Contains("T:System.Runtime.Loader.AssemblyLoadContext", banned);
+        Assert.All(runtimeLoaders, loader => Assert.Contains(loader, banned));
+    }
+
+    [Fact]
     public void EveryPublicInspectionStreamOwnerIsBannedOrApprovedAcquisitionSurface()
     {
         IReadOnlyList<string> banned = BannedSymbols();
@@ -445,6 +475,11 @@ public sealed class BrowserEngineLayeringTests
         .Select(assembly => assembly.GetType(fullName, throwOnError: false))
         .OfType<Type>()
         .FirstOrDefault();
+
+    static INamedTypeSymbol RequiredType(string fullName) =>
+        ProductCompilation.GetTypeByMetadataName(fullName)
+        ?? throw new InvalidOperationException(
+            $"Required framework type '{fullName}' is unavailable.");
 
     static IReadOnlyList<Assembly> ProductAssemblies { get; } =
         ProductReferenceClosure();

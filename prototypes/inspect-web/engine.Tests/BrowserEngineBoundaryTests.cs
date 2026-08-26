@@ -63,8 +63,9 @@ public sealed class BrowserEngineBoundaryTests
                 participant);
         string[] failures =
         [
-            BrowserSurfaceProjection.ApiSurfaceFailures(
-                surface.Assemblies.Assemblies)!,
+            Assert.Single(
+                BrowserSurfaceProjection.ApiSurfaceFailureEntries(
+                    surface.Assemblies.Assemblies)),
             InspectionEngine.CreateIntegrations(
                 "Package.Sample",
                 "1.0.0",
