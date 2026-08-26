@@ -105,7 +105,6 @@ public static class DiffSections
         public static string Name => "Changes";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }
 
@@ -114,7 +113,6 @@ public static class DiffSections
         public static string Name => "Finding Transitions";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }
 
@@ -123,7 +121,6 @@ public static class DiffSections
         public static string Name => "Analysis Diff";
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }
 
@@ -132,7 +129,6 @@ public static class DiffSections
         public static string Name => "Implementation Diff";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }
 }
