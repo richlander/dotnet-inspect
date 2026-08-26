@@ -19,6 +19,7 @@ internal sealed class ApiMemberAnalysisInspection
     readonly IReadOnlyList<string>? _callerScopeAssemblies;
     readonly bool _includeAllocations;
     readonly bool _includeOpportunities;
+    readonly bool _includeGraphAllocations;
     readonly bool _includeGraphOpportunities;
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
@@ -75,14 +76,15 @@ internal sealed class ApiMemberAnalysisInspection
                 || options?.Columns is { Length: > 0 }))
         {
             _hasCallGraphFieldProjection = true;
-            _includeAllocations = true;
             _callGraphFields = CallGraphFieldSelection.Resolve(
                 options?.Fields ?? []);
+            _includeGraphAllocations = _callGraphFields.Contains(
+                CallGraphField.Allocations);
             _includeGraphOpportunities = _callGraphFields.Contains(
                 CallGraphField.AsyncAlternatives);
-            if (_includeGraphOpportunities)
+            if (_includeGraphAllocations)
             {
-                _includeOpportunities = true;
+                _includeAllocations = true;
             }
         }
 
@@ -136,8 +138,11 @@ internal sealed class ApiMemberAnalysisInspection
             var seen = new HashSet<Analysis.LibraryBodyIndex>(
                 ReferenceEqualityComparer.Instance);
             Add(Session);
-            foreach (MethodBodyInspectionSession scope in
-                _graphScopes ?? [])
+            IEnumerable<MethodBodyInspectionSession> callerScopes =
+                _graphScopesResolved
+                    ? _graphScopes ?? []
+                    : _callerScopes ?? [];
+            foreach (MethodBodyInspectionSession scope in callerScopes)
             {
                 Add(scope);
             }
@@ -189,7 +194,12 @@ internal sealed class ApiMemberAnalysisInspection
         ILInspector.CallGraph.CallGraphProjection projection =
             Session.CallGraph(
                 methodToken,
-                CallerScopes(_includeAllocations, methodToken),
+                CallerScopes(
+                    includeAllocations: _includeGraphAllocations,
+                    includeAsyncSiblingOpportunities:
+                        _includeGraphOpportunities,
+                    graphScope: true,
+                    methodToken),
                 CalleeScopes(),
                 out Analysis.CatalogCallGraphDiagnostics diagnostics);
         _callGraphDiagnostics = diagnostics;
@@ -202,7 +212,10 @@ internal sealed class ApiMemberAnalysisInspection
         Analysis.CallTreeNode tree = Session.CallerTree(
             methodToken,
             CallerScopes(
-                includeAllocations: _includeAllocations,
+                includeAllocations: _includeGraphAllocations,
+                includeAsyncSiblingOpportunities:
+                    _includeGraphOpportunities,
+                graphScope: true,
                 methodToken),
             out Analysis.CatalogCallGraphDiagnostics diagnostics);
         _callGraphDiagnostics = diagnostics;
@@ -220,7 +233,9 @@ internal sealed class ApiMemberAnalysisInspection
                 _options),
             _includeAllocations,
             _includeOpportunities,
-            BodyScope);
+            BodyScope,
+            includeAsyncSiblingOpportunities:
+                _includeGraphOpportunities);
 
     IReadOnlySet<int>? BodyScope
     {
@@ -309,20 +324,28 @@ internal sealed class ApiMemberAnalysisInspection
         token ??= Session.BodyIndex.Methods
             .FirstOrDefault()?.MetadataToken;
         return token.HasValue
-            ? CallerScopes(includeAllocations, token.Value)
+            ? CallerScopes(
+                includeAllocations,
+                includeAsyncSiblingOpportunities:
+                    includeAllocations
+                        && _includeGraphOpportunities,
+                graphScope: includeAllocations,
+                token.Value)
             : null;
     }
 
     IReadOnlyList<MethodBodyInspectionSession>? CallerScopes(
         bool includeAllocations,
+        bool includeAsyncSiblingOpportunities,
+        bool graphScope,
         int methodToken)
     {
         ref List<MethodBodyInspectionSession>? cached =
-            ref includeAllocations
+            ref graphScope
                 ? ref _graphScopes
                 : ref _callerScopes;
         ref bool resolved =
-            ref includeAllocations
+            ref graphScope
                 ? ref _graphScopesResolved
                 : ref _callerScopesResolved;
         if (resolved)
@@ -338,9 +361,7 @@ internal sealed class ApiMemberAnalysisInspection
                 OpenScopes(
                     ScopeCandidates,
                     includeAllocations,
-                    includeOpportunities:
-                        includeAllocations
-                            && _includeGraphOpportunities);
+                    includeAsyncSiblingOpportunities);
             if (unfiltered.Count == 0)
                 return null;
 
@@ -353,9 +374,7 @@ internal sealed class ApiMemberAnalysisInspection
             OpenScopes(
                 plan.GraphCandidates,
                 includeAllocations,
-                includeOpportunities:
-                    includeAllocations
-                        && _includeGraphOpportunities);
+                includeAsyncSiblingOpportunities);
         if (opened.Count == 0
             && !plan.HasRuledOutCandidateNotDefinitelyUnopenable)
         {
@@ -378,7 +397,7 @@ internal sealed class ApiMemberAnalysisInspection
         List<MethodBodyInspectionSession> opened =
             OpenScopes(
                 ForwardScopeCandidates(),
-                _includeAllocations,
+                _includeGraphAllocations,
                 _includeGraphOpportunities);
         if (opened.Count == 0)
             return null;
@@ -484,7 +503,13 @@ internal sealed class ApiMemberAnalysisInspection
             return _callerScopes;
 
         if (!TryTargetType(methodToken, out Analysis.TypeRef? target))
-            return CallerScopes(includeAllocations: false, methodToken);
+        {
+            return CallerScopes(
+                includeAllocations: false,
+                includeAsyncSiblingOpportunities: false,
+                graphScope: false,
+                methodToken);
+        }
 
         Analysis.CallerScopeReachabilityPlan plan = Plan(target);
         if (_directCallerScopes.TryGetValue(target, out var cached))
@@ -546,7 +571,7 @@ internal sealed class ApiMemberAnalysisInspection
     List<MethodBodyInspectionSession> OpenScopes(
         IReadOnlyList<ResolvedAssemblyReference> candidates,
         bool includeAllocations,
-        bool includeOpportunities = false)
+        bool includeAsyncSiblingOpportunities = false)
     {
         var opened = new List<MethodBodyInspectionSession>();
         foreach (ResolvedAssemblyReference candidate in candidates)
@@ -562,7 +587,9 @@ internal sealed class ApiMemberAnalysisInspection
                         candidate.Path,
                         _options),
                     includeAllocations,
-                    includeOpportunities));
+                    includeOpportunities: false,
+                    includeAsyncSiblingOpportunities:
+                        includeAsyncSiblingOpportunities));
             }
             catch (Exception ex) when (
                 ex is IOException

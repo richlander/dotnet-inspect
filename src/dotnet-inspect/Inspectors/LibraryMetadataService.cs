@@ -1416,9 +1416,8 @@ internal static class LibraryMetadataService
     // helpers) are not actionable source-shape fixes, so optimization scans suppress them
     // and leverage scans label them as generated.
     internal static bool IsGeneratedMethod(Analysis.MethodIdentity method)
-        => ILInspector.Metadata.MemberFilters.IsCompilerGenerated(method.Name)
-           || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name)
-           || IsSystemTextJsonContextGeneratedMethod(method);
+        => Analysis.OptimizationOpportunityRanking.IsGeneratedMethod(
+            method);
 
     // Overload that also treats members of structurally-detected generated framework types
     // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypes) as generated, so their
@@ -1427,55 +1426,17 @@ internal static class LibraryMetadataService
     internal static bool IsGeneratedMethod(
         Analysis.MethodIdentity method,
         IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
-        => IsGeneratedMethod(method)
-           || Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
-               generatedFrameworkTypes,
-               method.DeclaringType);
+        => Analysis.OptimizationOpportunityRanking.IsGeneratedMethod(
+            method,
+            generatedFrameworkTypes);
 
     internal static bool IncludePerformanceOpportunity(
         Analysis.OptimizationOpportunity opportunity,
         IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
-        => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
-            || opportunity.Shape == "generic-parameter-object-box"
-                && !IsInGeneratedFrameworkType(
-                    opportunity,
-                    generatedFrameworkTypes)
-                && IsSourceFunctionName(opportunity.Method.Name);
-
-    static bool IsInGeneratedFrameworkType(
-        Analysis.OptimizationOpportunity opportunity,
-        IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
-    {
-        if (opportunity.SourceOwner is { } sourceOwner
-            && Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
-                generatedFrameworkTypes,
-                sourceOwner.DeclaringType))
-        {
-            return true;
-        }
-
-        return Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
-            generatedFrameworkTypes,
-            opportunity.Method.DeclaringType);
-    }
-
-    static bool IsSourceFunctionName(string methodName)
-        => methodName.Contains(">g__", StringComparison.Ordinal)
-            || methodName.Contains(">b__", StringComparison.Ordinal);
-
-    private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
-        => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
-           && method.IsStatic
-           && method.ReturnType.Equals(Analysis.TypeRef.CoreLib("System", "Boolean"))
-           && method.ParameterTypes.Length == 2
-           && method.ParameterTypes[0].Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json", "JsonSerializerOptions"))
-           && method.ParameterTypes[1] is { Kind: Analysis.TypeRefKind.ByRef, ElementType: { } jsonTypeInfo }
-           && IsJsonTypeInfo(jsonTypeInfo);
-
-    private static bool IsJsonTypeInfo(Analysis.TypeRef type)
-        => type.Kind == Analysis.TypeRefKind.GenericInstance
-           && type.ElementType is { } definition
-           && definition.Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
+        => Analysis.OptimizationOpportunityRanking
+            .IncludePerformanceOpportunity(
+                opportunity,
+                generatedFrameworkTypes);
 
     /// <summary>
     /// Builds a metadata-token → (Stable, Visibility, Selector) map across the whole
@@ -1766,52 +1727,15 @@ internal static class LibraryMetadataService
     // are medium priority; ordinary one-shot candidates are low. Confidence then ranks the
     // certainty of the evidence/rewrite within that tier, followed by weight and call-graph reach.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
-        => opportunities
-            .OrderByDescending(TriagePriorityRank)
-            .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
-            .ThenByDescending(opportunity => WeightSortRank(opportunity.Weight))
-            .ThenByDescending(opportunity => opportunity.RootReach)
-            .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.ILOffset ?? -1)
-            .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+        => Analysis.OptimizationOpportunityRanking.Order(opportunities);
 
     internal static string TriagePriority(Analysis.OptimizationOpportunity opportunity)
-        => TriagePriorityRank(opportunity) switch
+        => Analysis.OptimizationOpportunityRanking.Priority(opportunity) switch
         {
-            2 => "high",
-            1 => "medium",
+            Analysis.OptimizationOpportunityPriority.High => "high",
+            Analysis.OptimizationOpportunityPriority.Medium => "medium",
             _ => "low",
         };
-
-    static int TriagePriorityRank(Analysis.OptimizationOpportunity opportunity)
-    {
-        if (opportunity.ColdPath)
-            return 0;
-
-        if (opportunity.Shape is
-                "allocation-hotspot"
-                or "cache-lookup-factory-delegate"
-                or "linq-scan-in-loop"
-                or "materialize-in-loop"
-                or "scan-method-in-loop-call"
-                or "string-build-in-loop"
-            || (opportunity.Weight == "high"
-                && opportunity.Shape != "small-array"))
-        {
-            return 2;
-        }
-
-        if (opportunity.Shape == "generic-parameter-object-box")
-            return IteratesInLoop(opportunity)
-                    ? 2
-                    : 1;
-
-        return IteratesInLoop(opportunity)
-            || opportunity.Weight == "medium"
-                ? 1
-                : 0;
-    }
 
     // Whether an allocation opportunity actually iterates as a hot loop, per the
     // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
@@ -1820,8 +1744,8 @@ internal static class LibraryMetadataService
     // unknown. This is the single source of truth for the Loop column, triage sort,
     // and the --loop filter.
     internal static bool IteratesInLoop(Analysis.OptimizationOpportunity opportunity)
-        => opportunity.Multiplicity == "loop"
-            || (opportunity.Multiplicity is null && opportunity.InLoop);
+        => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
+            opportunity);
 
     // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
     static int ConfidenceRank(string confidence)
@@ -1934,7 +1858,10 @@ internal static class LibraryMetadataService
             int expected = ConfidenceRank(predicate.Value);
             if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
                 return false;
-            int compare = TriagePriorityRank(opportunity).CompareTo(expected);
+            int compare = Analysis.OptimizationOpportunityRanking
+                .Priority(opportunity)
+                .CompareTo(
+                    (Analysis.OptimizationOpportunityPriority)expected);
             return MatchCompare(compare, predicate.Operator);
         }
 
@@ -2016,7 +1943,11 @@ internal static class LibraryMetadataService
             return leftNumber.CompareTo(rightNumber);
         }
         if (field == "Priority")
-            return TriagePriorityRank(left).CompareTo(TriagePriorityRank(right));
+            return Analysis.OptimizationOpportunityRanking
+                .Priority(left)
+                .CompareTo(
+                    Analysis.OptimizationOpportunityRanking.Priority(
+                        right));
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")

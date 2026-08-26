@@ -67,7 +67,8 @@ Start with a package, drill down into details:
 dotnet-inspect package Newtonsoft.Json             # metadata
 dotnet-inspect package Newtonsoft.Json -S Signals  # signals
 dotnet-inspect type JsonConvert --package Newtonsoft.Json --shape
-dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject
+dotnet-inspect member JsonConvert --package Newtonsoft.Json \
+  --member SerializeObject
 ```
 
 ### Platform-centric workflow
@@ -134,6 +135,12 @@ When commands or flags are deprecated:
 1. They continue to work but emit a warning to stderr
 2. Documentation is updated to show the new approach
 3. After two minor versions, deprecated items may be removed
+
+This is the default compatibility policy, not a requirement that every syntax
+change enter deprecation. The explicitly approved
+[#4677 result-limit migration](item-and-line-limits.md#compatibility-and-migration)
+is an exception: its low compatibility bar permits atomic removal of the named
+aliases and count grammars without a warning period.
 
 Current deprecations:
 

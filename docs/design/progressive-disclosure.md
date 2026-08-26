@@ -207,7 +207,7 @@ After selecting a section, `--columns` and `--fields` project its data:
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json \
-  -m Serialize -S Methods --columns "Name;Signature;Obsolete"
+  --member Serialize -S Methods --columns "Name;Signature;Obsolete"
 ```
 
 Projection is validated against the selected section schema. Across multiple
@@ -221,19 +221,37 @@ than add one flag per column. See
 
 ## Counts and limits
 
+The examples and semantics in this section describe the approved
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
+released behavior. [Item and line limits](item-and-line-limits.md) records the
+current implementation status and required gates.
+
 Use built-in limiters instead of shell pipes:
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S "Async*" --count
-dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 10
+dotnet-inspect library System.Private.CoreLib -S "Async*" -n 10
 dotnet-inspect package System.Text.Json -n 12
+dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
 ```
 
 - `--count` reports rows for the selected candidate set, including zero-row
-  sections when category membership is being counted.
-- `-n N` and numeric shorthand such as `-6` limit output lines.
-- `--tail` takes lines from the end.
-- `--rows` limits rows within each table while preserving headings and headers.
+  sections when category membership is being counted. It rejects row
+  addresses and item/range or line windows. An upstream-bounded source reports
+  the full count within that candidate set and discloses the bound rather than
+  claiming a corpus total; `package search --count` requests 20 rows per
+  configured source, deduplicates in configured-source order, and reports the
+  complete merged candidate count before the global cap while disclosing every
+  non-exhausted source.
+- `-n N` and numeric shorthand such as `-6` limit declared items independently
+  within each row set after filtering and ordering. Bare `package search` uses
+  a default provider and global merged-row cap of 20; an explicit N sets both
+  caps to N.
+- `--tail` takes items from the end.
+- `--rows` selects absolute stable row ranges such as `11..20`, `11+10`, or
+  `11..`; it carries no count-only form.
+- `-n N --lines` explicitly limits rendered lines. For multi-item `--print`,
+  the line window applies to each selected payload.
 
 ## Explicit-only execution
 

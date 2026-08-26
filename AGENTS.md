@@ -81,6 +81,30 @@ Do not repeat or move the round report, architectural checkpoint, carry-forward
 analysis, evidence, or recommendation into the prompt. The prompt is a control,
 not the record.
 
+### Keep PR readiness labels current
+
+`ready-to-merge` and `carry-forward` are mutually exclusive live state, not
+historical milestones. Reconcile them after every resume and whenever the head,
+review result, base, draft state, or mergeability changes. Remove a stale label
+before reporting the new state. Neither label authorizes a merge.
+
+- **`ready-to-merge`:** add it when, and only when, the current head satisfies
+  the repository's `Ready to merge` claim: every required review is
+  review-clean and GitHub reports positive mergeability. Remove it before a new
+  round, author change, conflict recovery, restack, unresolved finding, draft
+  transition, or non-positive mergeability. When base movement enters the
+  carry-forward path, replace it with `carry-forward`.
+- **`carry-forward`:** add it when the
+  [clean-review carry-forward rule](#clean-reviews-are-not-spent-by-main-moving)
+  applies and analysis or approval is the next action. Keep it while that
+  analysis or decision is pending, including when another base movement requires
+  re-analysis. Remove it when carry-forward is unavailable or declined, before
+  integrating an approved tip, or when the review-clean evidence is otherwise
+  invalidated.
+
+Never leave both labels on a PR. A successful approved carry-forward may restore
+`ready-to-merge` only after the new head again satisfies its conditions.
+
 ### Publish your state where tooling can read it
 
 Update both window-scoped options whenever state changes:
@@ -221,6 +245,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
+| Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |
 | Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
