@@ -837,6 +837,57 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_UnrelatedInvalidImplementationTagDoesNotFail()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                includeInvalidImplementationTagForwarder: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_InvalidImplementationTagForMatchedRootFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: false,
+                includeInvalidImplementationTagForwarder: true,
+                invalidImplementationTagMatchesRoot: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("malformed exported-root evidence", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReusedMalformedForwarderAssemblyReferenceIsProjectedOnce()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                noiseForwarderCount: 9,
+                noisePublicKeyBytes: 512 * 1024,
+                noisePublicKeyIsToken: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
     public void ResolveApiMember_ReusedForwarderAssemblyReferenceIsProjectedOnce()
     {
         byte[] source =
@@ -2590,6 +2641,9 @@ public sealed class MethodCorrespondenceResolverTests
         ForwarderTargetKind forwarderTargetKind =
             ForwarderTargetKind.PlatformCoreLibrary,
         int noisePublicKeyBytes = 0,
+        bool noisePublicKeyIsToken = false,
+        bool includeInvalidImplementationTagForwarder = false,
+        bool invalidImplementationTagMatchesRoot = false,
         string typeNamespace = "N")
     {
         var metadata =
@@ -2777,7 +2831,9 @@ public sealed class MethodCorrespondenceResolverTests
                     new Version(1, 0, 0, 0),
                     default,
                     metadata.GetOrAddBlob(key),
-                    AssemblyFlags.PublicKey,
+                    noisePublicKeyIsToken
+                        ? default
+                        : AssemblyFlags.PublicKey,
                     default);
         }
         for (int i = 0; i < noiseForwarderCount; i++)
@@ -2806,6 +2862,24 @@ public sealed class MethodCorrespondenceResolverTests
                 MetadataTokens.AssemblyReferenceHandle(
                     metadata.GetRowCount(TableIndex.AssemblyRef) + 1),
                 typeDefinitionId: 0);
+        }
+        ExportedTypeHandle invalidImplementationTagForwarder = default;
+        if (includeInvalidImplementationTagForwarder)
+        {
+            invalidImplementationTagForwarder =
+                metadata.AddExportedType(
+                    TypeAttributes.Public
+                        | (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString(
+                        invalidImplementationTagMatchesRoot
+                            ? typeNamespace
+                            : "Noise"),
+                    metadata.GetOrAddString(
+                        invalidImplementationTagMatchesRoot
+                            ? forwardedRootName
+                            : "InvalidImplementation"),
+                    coreLibrary,
+                    typeDefinitionId: 0);
         }
 
         int codedIndex =
@@ -2841,7 +2915,33 @@ public sealed class MethodCorrespondenceResolverTests
                 bodyOffset: 0,
                 MetadataTokens.ParameterHandle(1));
         }
-        return Serialize(metadata);
+        byte[] image = Serialize(metadata);
+        if (!invalidImplementationTagForwarder.IsNil)
+        {
+            using var pe = new PEReader(new MemoryStream(image));
+            MetadataReader reader = pe.GetMetadataReader();
+            int stringIndexSize =
+                reader.GetHeapSize(HeapIndex.String) >= 0x10000
+                    ? 4
+                    : 2;
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.ExportedType);
+            int implementationOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.ExportedType)
+                + (MetadataTokens.GetRowNumber(
+                        invalidImplementationTagForwarder) - 1)
+                    * rowSize
+                + 8
+                + (2 * stringIndexSize);
+            if ((image[implementationOffset] & 0x03) != 1)
+            {
+                throw new InvalidOperationException(
+                    "The fixture expected an AssemblyRef implementation.");
+            }
+            image[implementationOffset] |= 0x03;
+        }
+        return image;
     }
 
     static byte[] BuildForwarderBudgetAmbiguityImage(

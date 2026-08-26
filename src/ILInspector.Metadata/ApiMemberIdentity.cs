@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using ILInspector.MetadataPrimitives;
 
@@ -97,6 +98,10 @@ public static class ApiMemberIdentity
             MetadataReader,
             HashSet<AssemblyReferenceHandle>>
             _chargedAssemblyReferences = [];
+        readonly Dictionary<
+            MetadataReader,
+            Dictionary<AssemblyReferenceHandle, ExceptionDispatchInfo>>
+            _failedAssemblyReferenceProjections = [];
 
         internal IntrinsicCoreLibraryForwardedRootProjection
             GetOrAddIntrinsicCoreLibraryForwardedRoots(
@@ -132,9 +137,28 @@ public static class ApiMemberIdentity
                 charged = [];
                 _chargedAssemblyReferences.Add(reader, charged);
             }
+            if (!_failedAssemblyReferenceProjections.TryGetValue(
+                    reader,
+                    out Dictionary<
+                        AssemblyReferenceHandle,
+                        ExceptionDispatchInfo>? failures))
+            {
+                failures = [];
+                _failedAssemblyReferenceProjections.Add(
+                    reader,
+                    failures);
+            }
+            if (failures.TryGetValue(
+                    handle,
+                    out ExceptionDispatchInfo? failure))
+            {
+                failure.Throw();
+            }
 
             bool added = charged.Add(handle);
+            bool chargeCompleted = !added;
             bool succeeded = false;
+            bool failureCached = false;
             try
             {
                 if (added)
@@ -154,6 +178,7 @@ public static class ApiMemberIdentity
                             reader.GetBlobReader(
                                 reference.PublicKeyOrToken).Length);
                     }
+                    chargeCompleted = true;
                 }
 
                 AssemblyReferenceIdentity identity =
@@ -163,9 +188,19 @@ public static class ApiMemberIdentity
                 succeeded = true;
                 return identity;
             }
+            catch (Exception ex) when (
+                chargeCompleted
+                && ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                failures[handle] =
+                    ExceptionDispatchInfo.Capture(ex);
+                failureCached = true;
+                throw;
+            }
             finally
             {
-                if (added && !succeeded)
+                if (added && !succeeded && !failureCached)
                     charged.Remove(handle);
             }
         }
@@ -2060,30 +2095,31 @@ public static class ApiMemberIdentity
                         continue;
                     }
 
-                    EntityHandle terminal = root.Implementation;
+                    EntityHandle terminal;
+                    try
+                    {
+                        terminal = root.Implementation;
+                    }
+                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
+                    {
+                        if (TryReadRootIdentity(
+                                root,
+                                out var malformedRootIdentity))
+                        {
+                            forwardedRoots.RecordMalformed(
+                                malformedRootIdentity);
+                        }
+                        continue;
+                    }
                     if (terminal.Kind == HandleKind.ExportedType)
                         continue;
                     bool nestedVisibility =
                         HasNestedVisibility(root.Attributes);
 
-                    (string Namespace, string Name) rootIdentity;
-                    try
-                    {
-                        rootIdentity =
-                            (
-                                ReadStructuralString(
-                                    reader,
-                                    root.Namespace,
-                                    _workBudget),
-                                ReadStructuralString(
-                                    reader,
-                                    root.Name,
-                                    _workBudget));
-                    }
-                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
-                    {
+                    if (!TryReadRootIdentity(
+                            root,
+                            out var rootIdentity))
                         continue;
-                    }
 
                     bool authorized = false;
                     try
@@ -2118,6 +2154,31 @@ public static class ApiMemberIdentity
                     _workBudget.Remaining > 0
                     && ex is BadImageFormatException
                         or ArgumentOutOfRangeException;
+
+                bool TryReadRootIdentity(
+                    ExportedType root,
+                    out (string Namespace, string Name) rootIdentity)
+                {
+                    try
+                    {
+                        rootIdentity =
+                            (
+                                ReadStructuralString(
+                                    reader,
+                                    root.Namespace,
+                                    _workBudget),
+                                ReadStructuralString(
+                                    reader,
+                                    root.Name,
+                                    _workBudget));
+                        return true;
+                    }
+                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
+                    {
+                        rootIdentity = default;
+                        return false;
+                    }
+                }
 
                 static bool HasNestedVisibility(
                     TypeAttributes attributes) =>
