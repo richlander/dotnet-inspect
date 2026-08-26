@@ -4,6 +4,7 @@ using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 
 namespace DotnetInspector.Services;
 
@@ -38,9 +39,11 @@ public class SharedOptions
     public Option<int?> Limit { get; }
     public Option<string?> Rows { get; } = new("--rows")
     {
-        Description = "Select data rows per rendered table: a count (6), an inclusive range (2..10), a start plus count (2+10), or an open range (10..)",
+        Description = "Select an absolute data-row range per rendered table: inclusive (2..10), start plus count (2+10), or open-ended (10..)",
         Arity = ArgumentArity.ExactlyOne
     };
+    public Option<bool> Lines { get; } = new("--lines") { Description = "Interpret -n as a rendered-line limit instead of an item limit" };
+    public Option<bool> TailLines { get; } = new("--tail-lines") { Description = "Sugar for -n N --lines --tail" };
     public Option<bool> Head { get; } = new("--head") { Description = "Take the count from the start (the default direction)" };
     public Option<bool> Tail { get; } = new("--tail") { Description = "Take the count from the end instead of the start" };
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
@@ -75,7 +78,7 @@ public class SharedOptions
         Description = "Performance Triage: include only shape(s), comma-separated or repeated; run -S \"Performance Triage\" to see shapes",
         AllowMultipleArgumentsPerToken = false
     };
-    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
+    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Keep the top N ranked rows" };
     public Option<string[]> RowWhere { get; } = new("--where")
     {
         Description = "Filter selected section rows with a field predicate, e.g. --where \"Allocation=boxed *\" or --where \"RootReach>=10\"",
@@ -107,7 +110,7 @@ public class SharedOptions
         Verbosity.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
         PerformanceTriageMinConfidence.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, "low", "medium", "high");
 
-        Limit = new Option<int?>("-n") { Description = "Count of output lines to keep (like head -n); pair with --tail to take them from the end" };
+        Limit = new Option<int?>("-n") { Description = "Count of declared items to keep; use --lines to limit rendered lines instead" };
 
         Tips = new Option<string?>("--tips")
         {
@@ -243,21 +246,71 @@ public class SharedOptions
         command.Options.Add(Info);
         command.Options.Add(Limit);
         command.Options.Add(Rows);
+        command.Options.Add(Lines);
+        command.Options.Add(TailLines);
         command.Options.Add(Head);
         command.Options.Add(Tail);
 
-        // --head and --tail name a direction, so asking for both is not a narrower
-        // window but a contradiction. This applies with or without --rows.
         command.Validators.Add(result =>
         {
-            if (result.GetValue(Head) && result.GetValue(Tail))
+            if (result.GetResult(Limit) is { Tokens.Count: > 1 })
+            {
+                result.AddError("Specify -n only once.");
+                return;
+            }
+
+            var countResult = result.GetResult(Limit);
+            bool countSpecified = countResult is { Implicit: false, Tokens.Count: > 0 };
+            int? count = countSpecified && int.TryParse(countResult!.Tokens[^1].Value, out var parsedCount)
+                ? parsedCount
+                : null;
+            bool linesRequested = IsLinesRequested(result);
+            bool headRequested = result.GetValue(Head);
+            bool tailRequested = IsTailRequested(result);
+
+            if (headRequested && tailRequested)
                 result.AddError("--head and --tail select opposite ends; choose one.");
+
+            if (countSpecified && count <= 0)
+                result.AddError("-n must be a positive integer.");
+
+            if (linesRequested && !countSpecified)
+                result.AddError("--lines requires -n N.");
+
+            if ((headRequested || tailRequested) && !countSpecified)
+                result.AddError($"{(headRequested ? "--head" : "--tail")} requires -n N.");
+
+            var topResult = result.GetResult(PerformanceTriageTop);
+            bool topSpecified = command.Options.Contains(PerformanceTriageTop)
+                && topResult is { Implicit: false, Tokens.Count: > 0 };
+            if (topSpecified && topResult!.Tokens.Count > 1)
+            {
+                result.AddError("Specify --top only once.");
+                return;
+            }
+            int? top = topSpecified && int.TryParse(topResult!.Tokens[^1].Value, out var parsedTop)
+                ? parsedTop
+                : null;
+            if (topSpecified && top <= 0)
+                result.AddError("--top must be a positive integer.");
+
+            if (topSpecified
+                && countSpecified
+                && !linesRequested)
+            {
+                result.AddError("--top cannot be combined with item-mode -n; use either --top N or -n N, or add --lines to make -n a line window.");
+            }
+
+            if (topSpecified && result.GetResult(Rows) is { Implicit: false })
+                result.AddError("--top cannot be combined with --rows in this slice.");
         });
 
         if (!supportsRowWindows)
         {
             command.Validators.Add(result =>
             {
+                if (result.GetResult(Limit) is { Implicit: false } && !IsLinesRequested(result))
+                    result.AddError($"-n selects items for commands with row windows; use --lines with -n on the '{command.Name}' command.");
                 if (result.GetResult(Rows) is not null)
                     result.AddError($"--rows is not supported by the '{command.Name}' command.");
             });
@@ -289,7 +342,7 @@ public class SharedOptions
             // reader to fix the wrong thing; the actual mistake is the missing value.
             if (token.StartsWith('-'))
             {
-                result.AddError($"--rows requires a row selection, but '{token}' is another option. Give --rows a count (6), a range (2..10), a start plus count (2+10), or an open range (10..).");
+                result.AddError($"--rows requires a row selection, but '{token}' is another option. Give --rows an inclusive range (2..10), a start plus count (2+10), or an open range (10..).");
                 return;
             }
 
@@ -299,16 +352,17 @@ public class SharedOptions
                 return;
             }
 
-            // A range names the rows to keep, so it already answers the question a
-            // direction would answer. Taking "the last of rows 2..10" is not a
-            // narrower request, it is two different answers to the same question.
-            if (spec.IsRange && (result.GetValue(Head) || result.GetValue(Tail)))
-                result.AddError($"--rows {token} already names which rows to keep, so it cannot combine with --head or --tail; use a count such as --rows {spec.RowCount ?? 10} --tail to take rows from one end.");
+            if (!spec.IsRange)
+            {
+                result.AddError($"--rows {token} is no longer a count. Use -n {spec.Count} instead.");
+                return;
+            }
 
-            // -n counts output lines. With --rows the count comes from the spec, so a
-            // second count is ambiguous rather than redundant.
-            if (result.GetValue(Limit) is not null)
-                result.AddError($"--rows {token} already carries the count, so it cannot combine with -n; drop one.");
+            if ((result.GetValue(Head) || IsTailRequested(result)) && result.GetResult(Limit) is null)
+                result.AddError($"--rows {token} already names which rows to keep, so it cannot combine with bare --head or --tail.");
+
+            if (result.GetResult(Limit) is { Implicit: false } && !IsLinesRequested(result))
+                result.AddError($"--rows {token} cannot be combined with item-mode -n in this slice.");
         });
     }
 
@@ -382,7 +436,34 @@ public class SharedOptions
     }
 
     public RowWindow? ParseRows(ParseResult parseResult)
-        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Tail));
+    {
+        var rows = parseResult.GetValue(Rows);
+        if (rows is not null)
+            return BuildRowWindow(rows, fromEnd: false);
+
+        if (!parseResult.GetValue(Count)
+            && parseResult.GetResult(PerformanceTriageTop) is { Implicit: false } topResult
+            && topResult.Tokens.Count > 0
+            && parseResult.GetValue(PerformanceTriageTop) is int top
+            && top > 0)
+        {
+            return RowWindow.Head(top);
+        }
+
+        if (IsLinesRequested(parseResult))
+            return null;
+
+        if (parseResult.GetResult(Limit) is { Implicit: false }
+            && parseResult.GetValue(Limit) is int count
+            && count > 0)
+        {
+            return IsTailRequested(parseResult)
+                ? RowWindow.Tail(count)
+                : RowWindow.Head(count);
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Resolves the <c>--rows</c> data-row window from the parsed spec and direction.
@@ -398,6 +479,8 @@ public class SharedOptions
             return null;
         if (!RowSpec.TryParse(rows, out var spec, out var error))
             throw new RowWindowValidationException($"--rows {error}");
+        if (!spec.IsRange)
+            throw new RowWindowValidationException($"--rows {rows} is no longer a count. Use -n {spec.Count} instead.");
         return BuildRowWindow(spec, fromEnd);
     }
 
@@ -413,6 +496,63 @@ public class SharedOptions
 
         return fromEnd ? RowWindow.Tail(spec.Count) : RowWindow.Head(spec.Count);
     }
+
+    internal bool IsLinesRequested(ParseResult parseResult) =>
+        parseResult.GetValue(Lines) || parseResult.GetValue(TailLines);
+
+    internal bool IsTailRequested(ParseResult parseResult) =>
+        parseResult.GetValue(Tail) || parseResult.GetValue(TailLines);
+
+    private bool IsLinesRequested(CommandResult commandResult) =>
+        commandResult.GetValue(Lines) || commandResult.GetValue(TailLines);
+
+    private bool IsTailRequested(CommandResult commandResult) =>
+        commandResult.GetValue(Tail) || commandResult.GetValue(TailLines);
+
+
+
+    public bool TryValidateTopRanking(
+        ParseResult parseResult,
+        string[]? select,
+        bool autoSelectsRankingSection,
+        out string? error)
+    {
+        error = null;
+
+        if (parseResult.GetResult(PerformanceTriageTop) is not { Implicit: false })
+            return true;
+
+        if (parseResult.GetResult(RowOrderBy) is { Implicit: false })
+            return true;
+
+        if (autoSelectsRankingSection || SelectionHasRankingDefault(select))
+            return true;
+
+        string section = select is { Length: 1 }
+            ? $"Section '{select[0]}' has a sequence default, not a ranking default."
+            : "--top requires a ranking order.";
+        error = $"{section} Use --top N with --order-by, or use -n N for a positional limit.";
+        return false;
+    }
+
+    private static bool SelectionHasRankingDefault(string[]? select)
+    {
+        if (select is not { Length: > 0 })
+            return false;
+
+        foreach (var section in select)
+        {
+            if (!IsRankingDefaultSection(section))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsRankingDefaultSection(string section)
+        => section.Equals(SectionNames.PerformanceTriage, StringComparison.Ordinal)
+           || section.Equals(SectionNames.TopLeverage, StringComparison.Ordinal)
+           || PerformanceKinds.Sections.Contains(section, StringComparer.Ordinal);
 
     public RowSelector? ParsePrintRow(ParseResult parseResult)
         => RowSelector.TryParse(parseResult.GetValue(Row), out var selector) ? selector : null;

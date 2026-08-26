@@ -84,10 +84,28 @@ public static class CommandLineBuilder
         if (WriteParseErrors(parseResult))
             return 1;
 
+        if (RejectInvalidLineWindow(parseResult))
+            return 1;
+
         // Two projections cannot both shape one payload, so reject the combination before
         // the command runs rather than letting one of them be discarded.
         if (!ProjectionAudit.ValidateExclusive(parseResult, message => CommandError.Write(message)))
             return 1;
+
+        var originalOut = Console.Out;
+        TailLineLimitingTextWriter? tailWriter = null;
+        if (ShouldApplyConsoleLineWindow(parseResult))
+        {
+            if (TailLines is int tailLines)
+            {
+                tailWriter = new TailLineLimitingTextWriter(originalOut, tailLines);
+                Console.SetOut(tailWriter);
+            }
+            else if (HeadLines is int headLines)
+            {
+                Console.SetOut(new LineLimitingTextWriter(originalOut, headLines));
+            }
+        }
 
         try
         {
@@ -132,7 +150,53 @@ public static class CommandLineBuilder
             CommandError.WriteUnhandled(ex);
             return 1;
         }
+        finally
+        {
+            tailWriter?.FlushTail();
+            if (!ReferenceEquals(Console.Out, originalOut))
+                Console.SetOut(originalOut);
+        }
     }
+
+    private static bool RejectInvalidLineWindow(ParseResult parseResult)
+    {
+        if (HeadLines is null && TailLines is null)
+            return false;
+
+        if (IsNonPrintJson(parseResult))
+        {
+            CommandError.Write("Document --json cannot be combined with --lines.");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ShouldApplyConsoleLineWindow(ParseResult parseResult)
+    {
+        if (HeadLines is null && TailLines is null)
+            return false;
+
+        if (IsNonPrintJson(parseResult))
+            return false;
+
+        return !IsStructuredPrintProjection(parseResult);
+    }
+
+    private static bool IsNonPrintJson(ParseResult parseResult)
+        => HasOptionToken(parseResult, "--json")
+           && !HasOptionToken(parseResult, "--print");
+
+    private static bool IsStructuredPrintProjection(ParseResult parseResult)
+        => HasOptionToken(parseResult, "--print")
+           && (HasOptionToken(parseResult, "--json")
+               || HasOptionToken(parseResult, "--jsonl")
+               || HasOptionToken(parseResult, "--json-array"));
+
+    private static bool HasOptionToken(ParseResult parseResult, string optionName)
+        => parseResult.Tokens.Any(token =>
+            token.Type == System.CommandLine.Parsing.TokenType.Option
+            && string.Equals(token.Value.Split('=', 2)[0], optionName, StringComparison.Ordinal));
 
     private static bool WriteParseErrors(ParseResult parseResult)
     {

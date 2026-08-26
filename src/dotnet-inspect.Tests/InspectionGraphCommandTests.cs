@@ -257,19 +257,23 @@ public sealed class InspectionGraphCommandTests
         InspectionGraphDocument document = GraphWithTwoEdges();
 
         Execution markdown = await ExecuteAsync(
-            ["--rows", "1"],
+            rows: RowWindow.Head(1),
             injectedDocument: document);
         Execution table = await ExecuteAsync(
-            ["--table", "--rows", "1"],
+            ["--table"],
+            rows: RowWindow.Head(1),
             injectedDocument: document);
         Execution json = await ExecuteAsync(
-            ["--json", "--rows", "1"],
+            ["--json"],
+            rows: RowWindow.Head(1),
             injectedDocument: document);
         Execution jsonLines = await ExecuteAsync(
-            ["--jsonl", "--rows", "1"],
+            ["--jsonl"],
+            rows: RowWindow.Head(1),
             injectedDocument: document);
         Execution count = await ExecuteAsync(
-            ["--count", "--rows", "1"],
+            ["--count"],
+            rows: RowWindow.Head(1),
             injectedDocument: document);
 
         Assert.All(
@@ -543,7 +547,8 @@ public sealed class InspectionGraphCommandTests
         InspectionGraphDocument document = GraphWithDuplicateLabels();
 
         Execution json = await ExecuteAsync(
-            ["--json", "--rows", "1"],
+            ["--json"],
+            rows: RowWindow.Head(1),
             injectedDocument: document);
 
         Assert.Equal(0, json.ExitCode);

@@ -321,6 +321,14 @@ public static class MemberOptionsParser
         // with -S; an explicit selection must not silently gain a second section.
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
+        if (!opts.TryValidateTopRanking(
+                parseResult,
+                select,
+                autoSelectsRankingSection: performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect,
+                out var topRankingError))
+        {
+            return new VersionError(topRankingError!);
+        }
 
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
         if (parseResult.GetValue(opts.Mermaid)

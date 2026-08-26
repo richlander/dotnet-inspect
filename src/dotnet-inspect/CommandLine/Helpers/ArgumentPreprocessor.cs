@@ -9,13 +9,14 @@ namespace DotnetInspector.CommandLine;
 public static class ArgumentPreprocessor
 {
     /// <summary>
-    /// When the -NN shorthand is used (e.g. -30), stores the line limit.
-    /// Also set for explicit -n N so both forms behave consistently.
+    /// When <c>--lines</c> is active, stores the head line limit carried by
+    /// <c>-n N</c> or bare <c>-N</c>.
     /// </summary>
     public static int? HeadLines { get; private set; }
 
     /// <summary>
-    /// When --tail is used, stores the line count taken from -n/-NN.
+    /// When <c>--lines</c> is active with <c>--tail</c> or <c>--tail-lines</c>,
+    /// stores the tail line limit carried by <c>-n N</c> or bare <c>-N</c>.
     /// </summary>
     public static int? TailLines { get; private set; }
 
@@ -50,10 +51,13 @@ public static class ArgumentPreprocessor
 
             var flag = args[i];
             var count = args[i + 1];
-            var rowMode = args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
-            var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
+            var lineMode = args.Take(end).Any(static a => a is "--lines" or "--tail-lines");
+            var replacement = lineMode
+                ? $"-n {count} --lines {flag}"
+                : $"-n {count} {flag}";
             error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
-                + $"the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.";
+                + $"the count comes from -n, and --lines makes it a rendered-line limit. "
+                + $"Use '{replacement}'.";
             return true;
         }
 
@@ -139,38 +143,60 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
 
-        // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
-        for (int i = 0; i < args.Length; i++)
+        var endOfOptions = Array.IndexOf(args, "--");
+        if (endOfOptions < 0)
+            endOfOptions = args.Length;
+
+        // Expand every bare -NN shorthand (e.g., -30) into -n 30 before parsing.
+        for (int i = 0; i < endOfOptions; i++)
         {
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingOptionValue(args, i)
+                && !IsFollowingRequiredOptionValue(args, i)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
             {
-                HeadLines = headN;
                 args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
-                break;
+                endOfOptions++;
+                i++;
             }
         }
 
-        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
-        if (HeadLines == null)
+        bool lineModeRequested = args.Take(endOfOptions)
+            .Any(static a => a is "--lines" or "--tail-lines");
+        if (lineModeRequested)
         {
-            for (int i = 0; i < args.Length - 1; i++)
+            int? count = null;
+            for (int i = 0; i < endOfOptions; i++)
             {
-                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
+                if (args[i].StartsWith("-n=", StringComparison.Ordinal)
+                    && int.TryParse(args[i].AsSpan(3), out var inline)
+                    && inline > 0)
                 {
-                    HeadLines = n;
+                    count = inline;
+                    break;
+                }
+
+                if (args[i] == "-n"
+                    && i + 1 < endOfOptions
+                    && int.TryParse(args[i + 1], out var separate)
+                    && separate > 0)
+                {
+                    count = separate;
                     break;
                 }
             }
-        }
 
-        // --tail names the direction; the count comes from -n/-NN. Move the count
-        // across so the tail writer gets it and the head writer does not.
-        if (args.Any(static a => a == "--tail"))
-        {
-            TailLines = HeadLines;
-            HeadLines = null;
+            bool tailLinesRequested = args.Take(endOfOptions)
+                .Any(static a => a is "--tail" or "--tail-lines");
+            if (tailLinesRequested)
+            {
+                TailLines = count;
+                HeadLines = null;
+            }
+            else
+            {
+                HeadLines = count;
+                TailLines = null;
+            }
         }
 
         // Find the first positional argument, skipping any leading options
@@ -217,7 +243,7 @@ public static class ArgumentPreprocessor
         return args;
     }
 
-    private static bool IsFollowingOptionValue(string[] args, int index)
+    private static bool IsFollowingRequiredOptionValue(string[] args, int index)
     {
         if (index == 0)
             return false;
@@ -225,7 +251,7 @@ public static class ArgumentPreprocessor
         string precedingToken = args[index - 1];
         string optionName = precedingToken.Split('=', 2)[0];
         return !precedingToken.Contains('=', StringComparison.Ordinal)
-            && OptionsWithFollowingValue.Contains(optionName);
+            && RequiredValueOptions.Contains(optionName);
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
@@ -249,6 +275,17 @@ public static class ArgumentPreprocessor
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
+    };
+    private static readonly HashSet<string> RequiredValueOptions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "--package", "--assembly", "--project", "--bin", "--directory",
+        "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
+        "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
+        "--caller-package", "--caller-project", "--match", "--path",
+        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--take", "--row",
+        "--where", "--order-by", "--min-confidence", "--triage-shape", "--top", "--session",
+        "--package-prefix", "--depth", "-n", "--rows", "--source",
+        "--add-source", "--nugetconfig", "--columns", "--fields"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 

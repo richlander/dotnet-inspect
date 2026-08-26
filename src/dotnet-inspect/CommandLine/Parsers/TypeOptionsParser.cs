@@ -193,6 +193,14 @@ public static class TypeOptionsParser
         // silently gain a second section and break single-section formats (--table/--tsv/--jsonl).
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
+        if (!opts.TryValidateTopRanking(
+                parseResult,
+                select,
+                autoSelectsRankingSection: performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect,
+                out var topRankingError))
+        {
+            return new VersionError(topRankingError!);
+        }
 
         var options = routePolicy.ApplyTo(new TypeOptions
         {

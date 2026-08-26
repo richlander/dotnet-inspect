@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector;
 using InertText;
 
 namespace DotnetInspector.Output;
@@ -117,7 +118,7 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            payload.Content);
+            ClipStructuredContent(payload.Content, options));
 
         if (options.Jsonl)
         {
@@ -164,6 +165,44 @@ public static class PrintProjectionOutput
             File.WriteAllText(outputPath, output);
         else
             Console.Write(output);
+    }
+
+    private static string ClipStructuredContent(string content, PrintProjectionOptions options)
+    {
+        if (!options.JsonOutput && !options.Jsonl && !options.JsonArray)
+            return content;
+
+        if (CommandLineBuilder.HeadLines is int headLines)
+            return ClipHeadLines(content, headLines);
+
+        if (CommandLineBuilder.TailLines is int tailLines)
+            return ClipTailLines(content, tailLines);
+
+        return content;
+    }
+
+    private static string ClipHeadLines(string content, int maxLines)
+    {
+        if (maxLines < 1)
+            return string.Empty;
+
+        using var output = new StringWriter();
+        var writer = new LineLimitingTextWriter(output, maxLines);
+        writer.Write(content);
+        writer.Flush();
+        return output.ToString();
+    }
+
+    private static string ClipTailLines(string content, int maxLines)
+    {
+        if (maxLines < 1)
+            return string.Empty;
+
+        using var output = new StringWriter();
+        var writer = new TailLineLimitingTextWriter(output, maxLines);
+        writer.Write(content);
+        writer.FlushTail();
+        return output.ToString();
     }
 }
 

@@ -149,7 +149,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithTailLineLimit_Parses()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "-n", "5", "--tail"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "-n", "5", "--lines", "--tail"]);
 
         Assert.Empty(result.Errors);
     }
@@ -599,9 +599,7 @@ public class CommandLineTests
         string[] result = CommandLineBuilder.PreprocessArgs(args);
 
         Assert.Same(args, result);
-        Assert.Equal(
-            option == "-n" ? -5 : (int?)null,
-            CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.HeadLines);
     }
 
     [Fact]

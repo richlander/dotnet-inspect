@@ -457,6 +457,18 @@ public static class InspectionCommandDefinitions
                 }
                 select = [.. select ?? [], .. targets];
             }
+            if (!opts.TryValidateTopRanking(
+                    parseResult,
+                    select,
+                    autoSelectsRankingSection: performanceTriage.HasFilters
+                                              && !bodyKindQuery.HasFilter
+                                              && !opts.IsDiscoveryMode(parseResult)
+                                              && !hasExplicitSelect,
+                    out var topRankingError))
+            {
+                CommandError.Write(topRankingError!);
+                return 1;
+            }
 
             var options = new LibraryOptions
             {
