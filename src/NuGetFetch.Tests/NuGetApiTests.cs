@@ -210,6 +210,29 @@ public class NuGetApiTests
     }
 
     [Theory]
+    [InlineData(
+        """
+        {"data":[{"id":"SomePackage","version":"1.0.0","owners":"owner"}]}
+        """)]
+    [InlineData(
+        """
+        {"data":[{"id":"SomePackage","version":"1.0.0","owners":["owner"]}]}
+        """)]
+    public async Task GetSearchResponseAsync_StringOrArrayOwners_Normalizes(
+        string json)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+
+        SearchResponse? result = await NuGetApi.GetSearchResponseAsync(
+            stream,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["owner"],
+            Assert.Single(result!.Data).Owners);
+    }
+
+    [Theory]
     [InlineData("{}")]
     [InlineData("""{"data":null}""")]
     [InlineData("""{"data":[null]}""")]

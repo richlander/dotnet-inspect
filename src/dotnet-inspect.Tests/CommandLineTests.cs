@@ -587,6 +587,23 @@ public class CommandLineTests
         Assert.Equal(args, result);
     }
 
+    [Theory]
+    [InlineData("-t")]
+    [InlineData("--type")]
+    [InlineData("-n")]
+    public void PreprocessArgs_NegativeOptionValueIsNotHeadShorthand(
+        string option)
+    {
+        string[] args = ["find", "--package-prefix", "Azure", option, "-5"];
+
+        string[] result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Same(args, result);
+        Assert.Equal(
+            option == "-n" ? -5 : (int?)null,
+            CommandLineBuilder.HeadLines);
+    }
+
     [Fact]
     public void PreprocessArgs_WithUnknownFirstArg_PrependsRouter()
     {
