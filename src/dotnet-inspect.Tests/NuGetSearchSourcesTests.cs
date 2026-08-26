@@ -311,7 +311,7 @@ public class NuGetSearchSourcesTests
             [IndexUrl, firstSearch, secondSearch],
             handler.Requested.Select(RouteHandler.WithoutQuery));
         Assert.Contains(
-            nameof(NuGetOperationTimeoutException),
+            PackageSourceTimeoutKind.Operation.ToString(),
             error.Message,
             StringComparison.Ordinal);
     }
@@ -460,7 +460,7 @@ public class NuGetSearchSourcesTests
             ex.Message,
             StringComparison.Ordinal);
         Assert.Contains(
-            "configured deadline",
+            "NuGet request did not complete within 00:00:00.0400000.",
             ex.Message,
             StringComparison.Ordinal);
     }

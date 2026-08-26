@@ -45,7 +45,8 @@ internal static class NuGetV3SearchResourceDiscovery
                     options,
                     client.Timeout,
                     requestToken).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+            },
+            retryDeadlineExpirations: false).ConfigureAwait(false);
     }
 
     private static async ValueTask<IReadOnlyList<string>>

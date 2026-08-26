@@ -1782,6 +1782,14 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                TimeSpan.FromMilliseconds(20)),
+            failure.Timeout);
+        Assert.Equal(
+            "NuGet request did not complete within 00:00:00.0200000.",
+            failure.Message);
     }
 
     [Fact]
@@ -2101,6 +2109,66 @@ public sealed class PackageSourceClientTests
             PackageSearchTruncationReason.RequestedLimit,
             result.TruncationReason);
         Assert.Equal([ServiceIndex, request], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3PrefixSearchFailsOverAfterIncompleteEquivalentEndpoint()
+    {
+        const string firstSearch =
+            "https://feed.example/v3/query-incomplete";
+        const string secondSearch =
+            "https://feed.example/v3/query-complete";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{firstSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    },
+                    {
+                      "@id": "{{secondSearch}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        for (int skip = 0; skip < 100; skip++)
+        {
+            handler[
+                firstSearch
+                + $"?q=Contoso.&skip={skip}&take=100&prerelease=false&semVerLevel=2.0.0"] =
+                $$"""{"data":[{"id":"Other.{{skip}}","version":"1.0.0"}]}""";
+        }
+
+        string secondRequest =
+            secondSearch
+            + "?q=Contoso.&skip=0&take=100&prerelease=false&semVerLevel=2.0.0";
+        handler[secondRequest] =
+            """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}""";
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchByPrefixAsync(
+                "Contoso.",
+                take: 1,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "Contoso.Tools",
+            Assert.Single(result.Matches).Metadata.Id);
+        Assert.Equal(
+            PackageSearchTruncationReason.RequestedLimit,
+            result.TruncationReason);
+        Assert.Equal(102, handler.Requested.Count);
+        Assert.Equal(secondRequest, handler.Requested[^1]);
     }
 
     [Fact]

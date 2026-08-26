@@ -38,7 +38,7 @@ public sealed class NuGetSearchDeadlineRaceTests
                         }));
 
                 Assert.Contains(
-                    nameof(NuGetRequestTimeoutException),
+                    "NuGet request did not complete within",
                     error.Message,
                     StringComparison.Ordinal);
                 Assert.Equal(1, handler.RequestCount);

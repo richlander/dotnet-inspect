@@ -146,7 +146,8 @@ public partial class SearchService
         SearchResponse? parsed = _retryTransientRequests
             ? await NuGetHttpRetry.RunRequestAsync(
                 operation,
-                SendAsync).ConfigureAwait(false)
+                SendAsync,
+                retryDeadlineExpirations: false).ConfigureAwait(false)
             : await operation.RunRequestAsync(
                 SendAsync).ConfigureAwait(false);
 

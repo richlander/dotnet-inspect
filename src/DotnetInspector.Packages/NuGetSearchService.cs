@@ -162,6 +162,20 @@ public static class NuGetSearchService
                     fetchOptions.OperationTimeout,
                     operationCancellation.Token);
             }
+            catch (NuGetOperationTimeoutException)
+            {
+                operationTimedOut = true;
+                failures.Add(OperationTimeoutFailure(
+                    source,
+                    fetchOptions.OperationTimeout,
+                    attempted: true));
+                AddOperationTimeoutFailures(
+                    sources,
+                    sourceIndex + 1,
+                    failures,
+                    fetchOptions.OperationTimeout);
+                break;
+            }
             catch (PackageSourceClientUnavailableException)
             {
                 failures.Add(
@@ -198,6 +212,20 @@ public static class NuGetSearchService
                     failed.Failure,
                     NetworkTrafficKind.PackageSearch);
                 failures.Add(DescribeSearchFailure(source, failed.Failure));
+                if (failed.Failure is
+                    {
+                        Kind: PackageSourceFailureKind.Timeout,
+                        Timeout.Kind: PackageSourceTimeoutKind.Operation,
+                    })
+                {
+                    operationTimedOut = true;
+                    AddOperationTimeoutFailures(
+                        sources,
+                        sourceIndex + 1,
+                        failures,
+                        fetchOptions.OperationTimeout);
+                    break;
+                }
                 continue;
             }
 
@@ -323,7 +351,8 @@ public static class NuGetSearchService
         bool attempted) =>
         $"{PackageSourceDisplay.ForDiagnostics(source)}: "
         + (attempted ? "search failed " : "search not attempted ")
-        + $"({nameof(NuGetOperationTimeoutException)}: "
+        + $"({PackageSourceFailureKind.Timeout}; "
+        + $"{PackageSourceTimeoutKind.Operation}: "
         + $"NuGet operation did not complete within {timeout}.)";
 
     private static bool HasOperationExpired(

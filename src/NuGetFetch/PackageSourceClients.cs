@@ -797,6 +797,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 }
 
                 Exception? lastFailure = null;
+                PrefixSearchResult? incompletePrefix = null;
                 foreach (string endpoint in endpoints)
                 {
                     try
@@ -822,22 +823,17 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                                     maximumSkip: null,
                                     operation)
                                 .ConfigureAwait(false);
-                            return PackageSourceProjection.ProjectSearch(
-                                prefix.Matches,
-                                Identity,
-                                operation,
-                                prefix.Completion switch
-                                {
-                                    PrefixSearchCompletion.Complete =>
-                                        PackageSearchTruncationReason.None,
-                                    PrefixSearchCompletion.TakeReached =>
-                                        PackageSearchTruncationReason.RequestedLimit,
-                                    PrefixSearchCompletion.SourcePageLimitReached =>
-                                        PackageSearchTruncationReason.SourcePageLimit,
-                                    PrefixSearchCompletion.ClientPageLimitReached =>
-                                        PackageSearchTruncationReason.ClientPageLimit,
-                                    _ => throw new ArgumentOutOfRangeException(),
-                                });
+                            if (prefix.Completion is
+                                PrefixSearchCompletion.SourcePageLimitReached
+                                or PrefixSearchCompletion.ClientPageLimitReached)
+                            {
+                                incompletePrefix ??= prefix;
+                                continue;
+                            }
+
+                            return ProjectPrefixSearch(
+                                prefix,
+                                operation);
                         }
 
                         IReadOnlyList<SearchResult> results =
@@ -867,6 +863,13 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                     }
                 }
 
+                if (incompletePrefix is not null)
+                {
+                    return ProjectPrefixSearch(
+                        incompletePrefix,
+                        operation);
+                }
+
                 throw lastFailure switch
                 {
                     InvalidOperationException invalidResponse
@@ -885,6 +888,26 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 };
             },
             cancellationToken).ConfigureAwait(false);
+
+    private PackageSearchResult ProjectPrefixSearch(
+        PrefixSearchResult prefix,
+        NuGetOperationDeadline operation) =>
+        PackageSourceProjection.ProjectSearch(
+            prefix.Matches,
+            Identity,
+            operation,
+            prefix.Completion switch
+            {
+                PrefixSearchCompletion.Complete =>
+                    PackageSearchTruncationReason.None,
+                PrefixSearchCompletion.TakeReached =>
+                    PackageSearchTruncationReason.RequestedLimit,
+                PrefixSearchCompletion.SourcePageLimitReached =>
+                    PackageSearchTruncationReason.SourcePageLimit,
+                PrefixSearchCompletion.ClientPageLimitReached =>
+                    PackageSearchTruncationReason.ClientPageLimit,
+                _ => throw new ArgumentOutOfRangeException(),
+            });
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,

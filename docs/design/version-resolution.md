@@ -127,7 +127,8 @@ diagnostic without opening a source client.
 Service-index, version-index, and exact-package
 requests use the
 source-owned bounded transient retry policy within one operation deadline;
-absence and authentication failures are not retried.
+absence and authentication failures are not retried. Keyword and prefix search
+also do not retry an exhausted request or metadata-body deadline.
 `PackageCoordinateResolverTests`,
 `PackagePayloadAcquisitionTests`,
 `PackageExtractorOfflineTests.ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate`,

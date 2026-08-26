@@ -282,6 +282,24 @@ public enum PackageSourceFailureKind
     Transport,
 }
 
+/// <summary>The deadline that caused a package-source timeout.</summary>
+public enum PackageSourceTimeoutKind
+{
+    /// <summary>One HTTP request exceeded its deadline.</summary>
+    Request,
+
+    /// <summary>One metadata response body exceeded its stricter body deadline.</summary>
+    MetadataBody,
+
+    /// <summary>The complete source operation exceeded its ceiling.</summary>
+    Operation,
+}
+
+/// <summary>Typed details for a package-source timeout.</summary>
+public sealed record PackageSourceTimeout(
+    PackageSourceTimeoutKind Kind,
+    TimeSpan Duration);
+
 /// <summary>
 /// A source-scoped failure safe to retain without transport URLs or credentials.
 /// </summary>
@@ -292,7 +310,8 @@ public sealed record PackageSourceFailure(
     PackageSourceCoordinate? Coordinate,
     PackageSourceFailureKind Kind,
     string Message,
-    HttpStatusCode? StatusCode = null);
+    HttpStatusCode? StatusCode = null,
+    PackageSourceTimeout? Timeout = null);
 
 /// <summary>
 /// The typed success or expected source failure of one source operation.
@@ -338,7 +357,8 @@ internal static class PackageSourceOperation
                 capability,
                 coordinate,
                 out PackageSourceFailureKind kind,
-                out HttpStatusCode? statusCode))
+                out HttpStatusCode? statusCode,
+                out PackageSourceTimeout? timeout))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new PackageSourceOperationResult<T>.Failed(
@@ -348,8 +368,9 @@ internal static class PackageSourceOperation
                     capability,
                     coordinate,
                     kind,
-                    MessageFor(kind),
-                    statusCode));
+                    MessageFor(kind, timeout),
+                    statusCode,
+                    timeout));
         }
     }
 
@@ -372,7 +393,8 @@ internal static class PackageSourceOperation
         PackageSourceCapabilities capability,
         PackageSourceCoordinate? coordinate,
         out PackageSourceFailureKind kind,
-        out HttpStatusCode? statusCode)
+        out HttpStatusCode? statusCode,
+        out PackageSourceTimeout? timeout)
     {
         statusCode = exception switch
         {
@@ -381,6 +403,16 @@ internal static class PackageSourceOperation
             {
                 InnerException: HttpRequestException http,
             } => http.StatusCode,
+            _ => null,
+        };
+        timeout = exception switch
+        {
+            NuGetRequestTimeoutException request =>
+                new(PackageSourceTimeoutKind.Request, request.Timeout),
+            NuGetMetadataBodyTimeoutException body =>
+                new(PackageSourceTimeoutKind.MetadataBody, body.Timeout),
+            NuGetOperationTimeoutException operation =>
+                new(PackageSourceTimeoutKind.Operation, operation.Timeout),
             _ => null,
         };
         kind = exception switch
@@ -444,7 +476,9 @@ internal static class PackageSourceOperation
             or IOException;
     }
 
-    private static string MessageFor(PackageSourceFailureKind kind) =>
+    private static string MessageFor(
+        PackageSourceFailureKind kind,
+        PackageSourceTimeout? timeout = null) =>
         kind switch
         {
             PackageSourceFailureKind.Unsupported =>
@@ -454,7 +488,17 @@ internal static class PackageSourceOperation
             PackageSourceFailureKind.AuthenticationRequired =>
                 "The package source requires or rejected authentication.",
             PackageSourceFailureKind.Timeout =>
-                "The package source operation exceeded its configured deadline.",
+                timeout switch
+                {
+                    { Kind: PackageSourceTimeoutKind.Request } =>
+                        $"NuGet request did not complete within {timeout.Duration}.",
+                    { Kind: PackageSourceTimeoutKind.MetadataBody } =>
+                        $"NuGet metadata response body did not complete within {timeout.Duration}.",
+                    { Kind: PackageSourceTimeoutKind.Operation } =>
+                        $"NuGet operation did not complete within {timeout.Duration}.",
+                    _ =>
+                        "The package source operation exceeded its configured deadline.",
+                },
             PackageSourceFailureKind.InvalidResponse =>
                 "The package source returned invalid protocol metadata.",
             PackageSourceFailureKind.ResponseRejected =>

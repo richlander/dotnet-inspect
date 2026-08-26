@@ -359,6 +359,10 @@ Each HTTP request receives the lesser of the request deadline and the remaining
 operation ceiling. No retry, authentication exchange, transport failover,
 redirect, or body reader resets the operation ceiling. Independent source and
 registration-page requests run concurrently when their contract permits it.
+Keyword and prefix search do not retry a request or metadata-body timeout that
+has consumed its complete deadline; completed transient responses and
+transport failures may retry within the operation ceiling. Other source
+operations retain their bounded deadline-retry policy.
 
 A source client links both library bounds with caller cancellation. It does not
 depend solely on `HttpClient.Timeout`, because hosts may supply an infinite or
@@ -382,7 +386,9 @@ must update the private-feed timeout guidance with that behavior change.
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
 answer. Cache fallback follows the explicit version-resolution policy and
-retains the timeout diagnostic.
+retains the timeout diagnostic. Typed source failures preserve whether the
+request, metadata body, or whole operation expired and the corresponding
+duration, so consumers do not reconstruct timeout policy from exception text.
 
 Required gates include stalled-header, stalled-metadata-body, stalled-payload,
 retry, authentication, multi-source, and redirect cases that terminate without
@@ -800,9 +806,12 @@ service-index or payload request. Search discovers the highest supported
 `SearchQueryService` capability from the source's service index, preserves
 equivalent endpoint order for failover, scopes credentials to the service-index
 origin, stops endpoint failover on authentication rejection, and retains signed
-endpoint query bytes. `Capabilities` describes operations implemented by the
-runtime client; a particular v3 feed that does not advertise a search resource
-returns typed `Unsupported` from that operation. The adapter does not restore
+endpoint query bytes. An incomplete bounded prefix result continues to the next
+equivalent endpoint; if none completes, the first incomplete result retains its
+typed truncation state so consumers can fail closed. `Capabilities` describes
+operations implemented by the runtime client; a particular v3 feed that does
+not advertise a search resource returns typed `Unsupported` from that
+operation. The adapter does not restore
 the retired NuGet.org-only search shortcut.
 `NuGetV3PackageResourceClient` owns `PackageBaseAddress` discovery,
 normalization, version-index URL construction, and exact package URL
@@ -828,6 +837,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
+`V3PrefixSearchFailsOverAfterIncompleteEquivalentEndpoint`,
 `V3ServiceIndexVersionAndPackageRetryTransientResponses`,
 `V3ArrayValuedPackageBaseAddressIsDiscovered`,
 `V3ArrayValuedResourceExpansionIsBounded`,
