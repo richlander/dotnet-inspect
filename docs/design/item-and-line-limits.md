@@ -131,8 +131,10 @@ the full matched-row count, so it is mutually exclusive with `-n`, `--top`,
 A semantic result limit is not automatically a work budget:
 
 - Natural streaming order may stop after N matching rows.
-- A global `--order-by`, `--top`, or last-N request must exhaust the applicable
-  input before it can choose rows.
+- A request must exhaust the applicable input when provider order cannot
+  determine the requested declared rows. Global `--order-by` and `--top`
+  normally require exhaustion; last-N does unless provider order delivers the
+  declared suffix first.
 - An absolute range may stop after its closed upper bound when the producer's
   order is already final.
 - `--lines` limits projected text, not acquisition. It does not authorize
@@ -233,6 +235,15 @@ rendered cell. Every successful frame includes the selected line range, total
 line count, and whether content was truncated. Full acquisition makes that
 metadata available even when the content projection is clipped.
 
+Line boundaries are CR, LF, and CRLF, with CRLF treated as one boundary. An
+empty payload has zero lines. A terminator ends its line but does not create a
+phantom line after it, so `"a\n"` has one line and `"\n"` has one empty line.
+Consecutive terminators create consecutive empty lines, and a non-empty final
+segment without a terminator is a line. Other Unicode separators remain content
+and pass through the terminal-safety encoding. An empty successful payload has
+no selected range, total zero, and `truncated: false`; framed text renders that
+state as `lines none of 0`, while structured range endpoints are null.
+
 Framed text prefixes every rendered payload line with the tool-owned `|`
 followed by one space, including empty lines, and inserts a tool-owned line ending after the
 last payload line when another frame follows. A payload line that looks exactly
@@ -315,12 +326,13 @@ that consumes one payload body adds `--bare`; guidance that consumes multiple
 results uses the framed form or a structured batch format. This audit is part of
 the same atomic implementation change as the retired syntax migration.
 
-One surviving-spelling composition also changes: current `--count --rows N..M`
-returns the size of the window, while the target rejects `--count` with every
-item, range, or line window. This preserves the existing requirement that a
-count describe the payload it accompanies by refusing a request for both a full
-matched-row count and a windowed payload. Existing count/window tests migrate to
-the `CountRejectsItemAndLineWindows` gate rather than retaining windowed counts.
+Surviving-spelling compositions also change. Current `--count --rows N..M`
+returns the size of the window, while current `--count --top N` succeeds after
+silently dropping `--top`. The target rejects `--count` with every item, range,
+or line window. This preserves the existing requirement that a count describe
+the payload it accompanies and prevents a successful ignored limiter. Existing
+count/window tests migrate to `CountRejectsItemAndLineWindows`, with explicit
+negative fixtures for both `--rows` and `--top`.
 
 The replacement for count-valued `--versions-with-feed N` also changes the
 counted noun. The retired spelling keeps the newest N distinct versions and all
@@ -357,7 +369,7 @@ The implementation must provide named Release gates for these target properties:
 | `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
 | `First_And_Last_ResolveToDisplayedEndpoints` | Gap-producing `--value`, `--urls`, and `--paths` projections resolve `first` and `last` to the first and last projected rows without renumbering their stable addresses; `--print` retains every selected row as a success or failure. |
 | `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality after filters and before ordering or windows, including zero matches and every declared row set or inspection contributing to an aggregate count. |
-| `CountRejectsItemAndLineWindows` | `--count` never silently ignores or applies a result/line window. |
+| `CountRejectsItemAndLineWindows` | `--count` rejects every result/line window, with explicit negative fixtures for current windowed `--rows` counting and silently ignored `--top`. |
 | `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects item-mode `-n`/`--tail`. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
 | `MultiPrintRequiresOneRowSet` | `--print` rejects selections spanning multiple declared row sets before capability checks, acquisition, stdout, or destination mutation. |
@@ -366,7 +378,7 @@ The implementation must provide named Release gates for these target properties:
 | `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
 | `MultiPrintPayloadCannotForgeFrames` | Payload lines matching the frame grammar, mixed line terminators, empty lines, and missing final newlines remain guttered payload and cannot create a sibling frame. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
-| `MultiPrintLineMetadataIsExact` | Full, head, and tail projections report the exact selected range, total line count, and truncation state in framed text, JSONL, and JSON-array output. |
+| `MultiPrintLineMetadataIsExact` | Full, head, and tail projections report the exact selected range, total line count, and truncation state in framed text, JSONL, and JSON-array output; fixtures cover CR, LF, CRLF, mixed and consecutive terminators, empty payloads, terminal newlines, and missing final newlines. |
 | `OrdinaryLineWindowsApplyAfterRendering` | Ordinary head/tail line windows and `--top` plus line-mode `-n` preserve the selected item set and clip the final text only. |
 | `NonPrintJsonRejectsLineWindows` | Typed and lowered document JSON reject `--lines` with empty stdout; printable JSON clips content before complete-value encoding. |
 | `MarkdownScopeRejectsMixedSelectionAtomically` | `--frontmatter` and `--body` inspect only selected rows, but one selected non-Markdown document rejects the whole `--print` or `--content` request before acquisition, per-row output, stdout, or destination mutation. |
@@ -377,7 +389,7 @@ The implementation must provide named Release gates for these target properties:
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
 | `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
-| `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy version source proves newest-first first-N and absolute ranges exhaust before selection, newest-first last-N may stop after N matching oldest rows, and version-report line windows do not shorten metadata enumeration. |
-| `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N newest-first `(version, feed)` rows rather than N distinct versions with unbounded feed-row expansion. |
+| `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy source proves bare newest-first and both caller-directed range Vectors preserve their declared addresses; first-N, last-N, and absolute ranges exhaust or stop only when provider order can determine the requested rows, and report line windows do not shorten metadata enumeration. |
+| `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N newest-first `(version, feed)` rows rather than N distinct versions with unbounded feed-row expansion; reversed source declaration order produces the same cutoff rows because equal-version ties use canonical producer identity. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including value-bearing `--versions`/`--versions-with-feed` and count-form `--rows`, while affected replacement routes execute successfully. |
 | `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter. |

@@ -136,6 +136,12 @@ When commands or flags are deprecated:
 2. Documentation is updated to show the new approach
 3. After two minor versions, deprecated items may be removed
 
+This is the default compatibility policy, not a requirement that every syntax
+change enter deprecation. The explicitly approved
+[#4677 result-limit migration](item-and-line-limits.md#compatibility-and-migration)
+is an exception: its low compatibility bar permits atomic removal of the named
+aliases and count grammars without a warning period.
+
 Current deprecations:
 
 | Deprecated             | Use Instead                   | Removal Target |

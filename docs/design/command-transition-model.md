@@ -213,21 +213,25 @@ The result-limit gestures in this section describe the approved
 released behavior. [Item and line limits](item-and-line-limits.md) records the
 current implementation status and required gates.
 
-`--versions` selects a version **Vector** while retaining package focus. For a
-range, resolving that Vector uses registry/cache metadata and acquires zero
-package payloads. Its declared row order is newest-first, while the merged
-metadata provider order is ascending and therefore oldest-first. Selection may
-stop early only when that provider order can determine the requested declared
-rows. Once selected, the normal output-shape rules apply:
+`--versions` selects a version **Vector** while retaining package focus. A bare
+package's Vector is newest-first. A `Package@A..B` Vector instead preserves the
+caller's endpoint direction, so `A` is row 1, `B` is the last row, and
+`--at #N|first|last` and result windows address that same order. Resolving
+either Vector uses registry/cache metadata and acquires zero package payloads.
+The merged metadata provider is ascending and therefore oldest-first.
+Selection may stop early only when provider order can determine the requested
+declared rows; a reversed declared order must be materialized through the
+applicable endpoint before selection. Once selected, the normal output-shape
+rules apply:
 
 | Gesture | Shape effect | Acquisition effect |
 | --- | --- | --- |
 | `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
-| `-n N` | Select the first N newest-first rows in the version Vector. | Must exhaust ascending metadata input before choosing rows; acquires zero package payloads by itself. |
-| `-n N --tail` | Select the last N newest-first rows in the version Vector. | May stop ascending metadata enumeration after N matching oldest rows; acquires zero package payloads by itself. |
-| `--rows N..M` | Select an absolute range of stable newest-first version rows. | Must exhaust ascending metadata input before assigning the requested addresses; acquires zero package payloads by itself. |
+| `-n N` | Select the first N rows in declared Vector order. | May stop only when provider order delivers that declared prefix; bare newest-first input must exhaust before choosing rows. |
+| `-n N --tail` | Select the last N rows in declared Vector order. | May stop only when provider order delivers that declared suffix first; bare newest-first input may stop after N matching oldest rows. |
+| `--rows N..M` | Select an absolute range of stable declared-order version rows. | May stop only when provider order can assign those declared addresses without unseen rows. |
 | `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
 | `-n N --lines` | Clip the rendered version report to its first N lines. | None. A line window does not bound version-metadata enumeration. |
 

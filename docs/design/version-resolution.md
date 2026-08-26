@@ -413,7 +413,11 @@ which feeds carry each coordinate, including a coordinate published by more than
 one feed. Under the target item-limit contract, its declared row is one
 `(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
 This differs from the released count-valued lens option, which selects N
-distinct versions and then emits every carrying feed.
+distinct versions and then emits every carrying feed. Rows sort by descending
+semantic version, then by the credential-free canonical producer key in ordinal
+order.
+Presentation labels do not define this tie-breaker, and reversing source
+declaration order cannot change which rows an item limit selects.
 
 ### Listing status across sources
 
