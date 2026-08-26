@@ -15,8 +15,9 @@ user gesture
 ```
 
 The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
-and category planning. `InspectionQueryRegistry` owns typed query cost,
-prerequisites, optional composition, and execution.
+and category planning. `InspectionQueryRegistry` authors typed query
+declarations; its immutable `InspectionQueryCatalog` owns query cost,
+prerequisites, optional composition, planning, and execution.
 
 ## Section descriptors
 
@@ -76,6 +77,25 @@ CLI-owned signal composition, then recomposes only model-derived rows after
 later source evidence lands. `Unsafe Members` binds the unbounded
 `UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
 and retains raw unsafe evidence through the Finding and presentation boundary.
+Bare library discovery instead uses the network-free
+`UnsafeEvidencePresenceQuery`, which reuses the same Analysis safety producer
+but stops at the first finding and does not materialize the body index or
+decoded instruction arrays. It uses a synchronous capability callback over
+the command-owned non-prefetched reader and visits methods sequentially in
+metadata order. Signature-marker prescans
+are no-copy, cached by blob, and charged to a 4 MiB assembly-wide budget;
+streaming instruction visits have a separate 4 MiB aggregate budget. A
+marker-bearing declaration, local, member-reference, method-definition, or
+method-specification signature that the structural guard rejects makes the
+presence result explicitly incomplete instead of becoming successful absence
+or affirmative evidence, even when a later method contains conclusive evidence.
+Decoded custom modifiers retain their unmodified type, so a wrapped pointer
+still counts as unsafe evidence. Name-only `Unsafe` candidates require trusted
+framework identity resolution before becoming evidence. The discovery gate
+also retains renderable metadata signature-decode diagnostics so a negative
+bounded probe cannot hide a known-incomplete scan.
+`UnsafeEvidencePresenceTests` gates these properties, including lookalike
+identity, signature-guard, aggregate-budget, and large-suffix cases.
 `Top Leverage` binds `TopLeverageQuery`, which retains ranked
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy
@@ -109,8 +129,8 @@ sections now bind typed queries or consume baseline command facts.
 ## Query-owned cost
 
 Production cost belongs to the query because multiple sections can be views
-over the same work. `UseQueryCosts(registry.CostOf)` binds a pipeline to the
-registry before any section is added.
+over the same work. `UseQueryCosts(catalog.CostOf)` binds a pipeline to the catalog before any
+section is added.
 
 A section's effective cost is:
 
@@ -134,10 +154,21 @@ The three production tiers are:
 An unbounded section remains reachable through exact selection, explicit
 category selection, or effective category discovery.
 
-`LibrarySectionCatalog` constructs per-assembly and group typed-query
-registries plus one cost-bound pipeline. Commands use that catalog for planning
-and execution so the pipeline cannot snapshot costs from one registry while
-another performs the work.
+`LibrarySections` retains one process-wide immutable per-assembly query catalog
+and one assembly-group catalog. Catalog construction validates the complete
+required graph and precomputes each query's closure, transitive cost, and
+single-query execution plan. Repeated catalog acquisition and single-query
+planning allocate no memory after static initialization; the
+`LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing` gate
+enforces that property.
+
+`LibrarySectionCatalog` binds each request's section pipeline to those shared
+catalogs. Commands compile arbitrary multi-query demand once and reuse the
+resulting immutable plan for every assembly in that request, so package
+inspection does not rebuild dependency state per assembly. The mutable
+`InspectionQueryRegistry` remains the authoring surface for dynamic hosts and
+focused extensions; `Compile` snapshots it into a catalog without allowing
+later registrations to mutate that snapshot.
 
 ## Resource declarations
 
@@ -150,15 +181,15 @@ that calls one throws at the acquisition boundary. Production
 catch boundaries do not convert that declaration violation into a
 success-shaped result.
 
-Typed queries use the same host-side resource guard. The query registry enters
+Typed queries use the same host-side resource guard. The query catalog enters
 an execution scope with each query's maximum transitive `InspectionCost`; the
 CLI adapter maps that cost to `SectionCost`. Query planning, contract, and
 executor failures remain fail-visible, while cancellation and cost-declaration
 failures retain their specific exception types.
 
-Declarations are scoped to one registry run and cannot leak into later work.
-This is a correctness mechanism for well-behaved product-owned query wiring,
-not an in-process security boundary.
+Declarations are scoped to one catalog execution and cannot leak into later
+work. This is a correctness mechanism for well-behaved product-owned query
+wiring, not an in-process security boundary.
 
 Metadata query adapters share the command's open inspection session. They do not
 reopen the target independently, and they continue to observe the image the
@@ -173,7 +204,7 @@ For library discovery:
 
 | Gesture | Candidate scope | Producer behavior |
 | --- | --- | --- |
-| `-D` | Base sections and category doors | Metadata presence only |
+| `-D` | Base sections, category doors, effective standalone sections | Metadata and bounded presence queries |
 | `-D --effective` | Base-category union | Full base query closure |
 | `-D @Category` | Authored category members | Structural; no member queries |
 | `-D @Category --effective` | Authored category members | Full category query closure |
