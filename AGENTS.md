@@ -306,10 +306,10 @@ effort or stack slice. Do not expand the current design merely to make the whole
 end-to-end system appear closed. The preference for fewer coherent PRs does not
 justify combining independently owned component designs.
 
-Outside the bounded one-donor transfer above, a **broad design** normatively
-specifies multiple independently owned components or sweeps an end-to-end
-lifecycle such as acquisition, analysis, publication, and presentation. Do not
-start one or broaden a focused effort into one unless the user explicitly
+A **broad design** sweeps an end-to-end lifecycle such as acquisition,
+analysis, publication, and presentation or, outside the bounded one-donor
+transfer above, normatively specifies multiple independently owned components.
+Do not start one or broaden a focused effort into one unless the user explicitly
 requests or approves that scope. A large issue, cross-cutting motivation,
 general request to redesign a subsystem, or reviewer suggestion is not
 approval. Before requesting approval, present the component map, explain why
