@@ -48,8 +48,8 @@ public class StructuralCloneCrossAssemblyCorpusTests
 
         string text = StructuralCloneCrossAssemblyCorpus.Format(report);
         Assert.Contains(
-            "Query selection: 7 methods named by the loaded ledger "
-                + "in the query artifact",
+            "Query selection: 7 query entries in the loaded ledger; "
+                + "each selects a method in the query artifact",
             text);
         Assert.Contains(
             "Submitted candidate population: all methods in the "
@@ -70,7 +70,7 @@ public class StructuralCloneCrossAssemblyCorpusTests
                 + "85.71% (6/7)",
             text);
         Assert.Contains(
-            "Declared peers beyond reviewed depth: 1",
+            "Declared peers not recovered within reviewed depth: 1",
             text);
         Assert.Contains(
             "EXPECTATIONS MET: stable-body"
@@ -162,6 +162,51 @@ public class StructuralCloneCrossAssemblyCorpusTests
     }
 
     [Fact]
+    public void Run_DescribesUnrankedRelevantPeerAsNotRecovered()
+    {
+        StructuralCloneCrossAssemblyCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCrossAssemblyQuery stable =
+            corpus.Queries.Single(static query =>
+                query.Id == "stable-body");
+        StructuralCloneCrossAssemblyLabel typeToken =
+            corpus.Queries.Single(static query =>
+                    query.Id == "type-token-shapes")
+                .Labels.Single(static label =>
+                    label.Relevance
+                        == StructuralCloneReviewRelevance.Relevant);
+        StructuralCloneCrossAssemblyCorpusReport report =
+            StructuralCloneCrossAssemblyCorpus.Run(
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                FixtureCatalog.DiffPair.NewAssemblyPath(),
+                corpus with
+                {
+                    Queries =
+                    [
+                        stable with
+                        {
+                            Labels =
+                            [
+                                typeToken with { ScoresAbove = [] },
+                            ],
+                        },
+                    ],
+                });
+
+        StructuralCloneCrossAssemblyQueryResult query =
+            Assert.Single(report.Queries);
+        Assert.Null(Assert.Single(query.Labels).Rank);
+        Assert.Equal(1, report.KnownMisses);
+        string text = StructuralCloneCrossAssemblyCorpus.Format(report);
+        Assert.Contains(
+            "Query selection: 1 query entry in the loaded ledger; "
+                + "each selects a method in the query artifact",
+            text);
+        Assert.Contains(
+            "Declared peers not recovered within reviewed depth: 1",
+            text);
+    }
+
+    [Fact]
     public void Run_PreservesPreAdmissionMethodLimitAsCorpusFailure()
     {
         StructuralCloneCrossAssemblyCorpusDocument corpus = LoadCorpus();
@@ -194,6 +239,14 @@ public class StructuralCloneCrossAssemblyCorpusTests
                             == StructuralCloneRetrievalBlockerKind
                                 .MethodLimit);
             });
+        string text = StructuralCloneCrossAssemblyCorpus.Format(report);
+        Assert.Contains(
+            "Recall at reviewed depth over declared peers: n/a"
+                + Environment.NewLine,
+            text);
+        Assert.DoesNotContain(
+            "over declared peers: n/a (",
+            text);
     }
 
     [Fact]

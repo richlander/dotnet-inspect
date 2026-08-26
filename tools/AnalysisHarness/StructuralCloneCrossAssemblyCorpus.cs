@@ -468,8 +468,12 @@ public static class StructuralCloneCrossAssemblyCorpus
         text.AppendLine("Cross-assembly retrieval evaluation");
         text.Append("Query selection: ")
             .Append(report.TotalQueries)
+            .Append(
+                report.TotalQueries == 1
+                    ? " query entry"
+                    : " query entries")
             .AppendLine(
-                " methods named by the loaded ledger in the "
+                " in the loaded ledger; each selects a method in the "
                     + "query artifact");
         text.AppendLine(
             "Submitted candidate population: all methods in the "
@@ -496,19 +500,23 @@ public static class StructuralCloneCrossAssemblyCorpus
             .Append(Percentage(report.PrecisionBasisPoints))
             .AppendLine();
         text.Append("Recall at reviewed depth over declared peers: ")
-            .Append(Percentage(report.RecallBasisPoints))
-            .Append(" (")
-            .Append(report.RelevantAtK)
-            .Append('/')
-            .Append(report.RelevantLabels)
-            .AppendLine(")");
+            .Append(Percentage(report.RecallBasisPoints));
+        if (report.RecallBasisPoints is not null)
+        {
+            text.Append(" (")
+                .Append(report.RelevantAtK)
+                .Append('/')
+                .Append(report.RelevantLabels)
+                .Append(')');
+        }
+        text.AppendLine();
         text.Append("Semantic lookalikes at reviewed depth: ")
             .Append(report.SemanticHazardsAtK)
             .AppendLine();
         text.Append("Hard negatives at reviewed depth: ")
             .Append(report.HardNegativesAtK)
             .AppendLine();
-        text.Append("Declared peers beyond reviewed depth: ")
+        text.Append("Declared peers not recovered within reviewed depth: ")
             .Append(report.KnownMisses)
             .AppendLine();
         text.Append("Query artifact: ")
@@ -559,13 +567,16 @@ public static class StructuralCloneCrossAssemblyCorpus
                 .Append("; recall@")
                 .Append(query.ReviewedTopK)
                 .Append(" over declared peers: ")
-                .Append(Percentage(query.RecallBasisPoints))
-                .Append(" (")
-                .Append(query.RelevantAtK)
-                .Append('/')
-                .Append(query.RelevantLabels)
-                .Append(')')
-                .AppendLine();
+                .Append(Percentage(query.RecallBasisPoints));
+            if (query.RecallBasisPoints is not null)
+            {
+                text.Append(" (")
+                    .Append(query.RelevantAtK)
+                    .Append('/')
+                    .Append(query.RelevantLabels)
+                    .Append(')');
+            }
+            text.AppendLine();
             foreach (StructuralCloneCrossAssemblyTopCandidate candidate
                 in query.TopCandidates)
             {

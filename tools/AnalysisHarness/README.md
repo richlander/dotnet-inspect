@@ -131,8 +131,8 @@ Harness-specific terms are spelled out rather than abbreviated. **Expectations
 met** means the observed ranking matched the ledger's declared rank, contrast,
 precision, and recall bounds; it does not mean retrieval was perfect.
 **Semantic lookalike** means structural evidence ranked a behaviorally
-different candidate highly. **Declared peer beyond reviewed depth** means a
-relevant ledger candidate ranked below K.
+different candidate highly. **Declared peer not recovered within reviewed
+depth** means a relevant ledger candidate ranked below K or was not ranked.
 
 The seven-query evaluation meets all ledger expectations with six relevant
 peers among 14 reviewed results (42.85% precision) and recovers six of seven
