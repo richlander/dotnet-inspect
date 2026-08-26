@@ -175,7 +175,10 @@ import {
   type AnnotatedSourceResult,
   type CSharpSyntaxToken,
 } from "./annotated-source-explorer.ts";
-import { validateAnnotatedSourceDocument } from "./annotated-source-view.ts";
+import {
+  MEDIA,
+  validateAnnotatedSourceDocument,
+} from "./annotated-source-view.ts";
 import {
   bindDependencyGraphNodes,
   bindGraphBack,
