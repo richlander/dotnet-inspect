@@ -216,18 +216,18 @@ BodyProjection
 MetadataBodyProjection
   ImportedFunction        pristine annotation/IL anchor snapshot
   ImportObservation       frozen diagnostics at importer return
-  SharedClassicBoundary   one stage-neutral post-classic snapshot
+  Planning                ClassicAsyncPlanningResult
   Raised                  StageBodyProjection
   Lowered                 StageBodyProjection, materialized on request
-  CapturedDecision?       decision from the shared boundary
+
+ClassicAsyncPlanningResult
+  Unavailable(ImportInternalError)
+  Failed(Diagnostics)
+  Planned(ClassicAsyncDecision)
 
 ImportObservation
   DiagnosticsAtImport      detached immutable copy
   HasInternalError        DEC0001 was present when import returned
-
-SharedClassicBoundary
-  Prepared(IrFunctionSnapshot, ClassicAsyncStageState)
-  Failed(Diagnostics, ClassicAsyncStageState)
 
 StageBodyProjection
   Prepared(Stage, IrFunctionSnapshot, ClassicAsyncStageState)
@@ -237,9 +237,9 @@ PreparationStage         Raised | Lowered
 
 ClassicAsyncStageState
   Unavailable(ImportInternalError)
-  NotReached              shared prefix failed before the classic pass
+  NotReached              stage failed before the classic pass
   DecisionFailed          pass ran but produced no valid decision
-  Decided(Decision, Outcome)
+  Decided(Decision, StageApplication, Outcome)
 
 PreparedStageBody.Render(PrinterOptions)
   Stage                  retained from preparation; caller cannot override
@@ -250,7 +250,8 @@ PreparedStageBody.Render(PrinterOptions)
   EvidenceMap            AddressedIlOrigin -> printed ranges
 
 PassContext.ClassicAsyncDirective
-  None                   pass recognizes and records on the host function
+  None                   orchestration plans before stage passes begin
+  Supplied(Decision)     pass materializes one stage-local application
   Unavailable(ImportInternalError)
                          pass deliberately produces no classic outcome
 
@@ -269,28 +270,43 @@ ClassicAsyncDecision
   HostIdentity           module-scoped MethodDef identity
   Outcome
   Machine?               detached recognition/consumption value
-  Application            exhaustive detached host-mutation value
+  ApplicationPlan        exhaustive detached stage-neutral mutation recipe
 
-ClassicAsyncApplication
-  BodyEdit               Replace(owned body) | Prepend(owned marker) | None
-  LocalTable?            locals, names, scopes, eliminated slots
-  TypeFactContribution   complete companion fact maps/sets
-  EvidenceOrigins        AddressedIlOrigin*
+ClassicAsyncApplicationPlan
+  BodyEditPlan           Replace(ClassicAsyncBodyRecipe) | PrependMarker | None
+  LocalPlan              stable local identities, names, scopes, eliminated slots
+  TypeFactPlan           complete companion fact identities
+  EvidencePlan           node identity -> AddressedIlOrigin*
   DiagnosticsToAdd
   FunctionFactChanges    flags and provenance/fidelity inputs written by pass
+
+ClassicAsyncStageApplication
+  BodyEdit               stage-owned concrete body/marker | None
+  LocalTable?
+  TypeFactContribution
+  EvidenceBindings       stage node identity -> AddressedIlOrigin*
+  DiagnosticsToAdd
+  FunctionFactChanges
 
 AddressedIlOrigin
   MethodAddress          physical evidence MethodDef
   IlOffset               instruction boundary in that MethodDef
 
+IrNode.Provenance        AddressedIlOrigin*
+AddressedAnnotation      AddressedIlOrigin + annotation payload
+AnnotationAnchor         AddressedIlOrigin + printed range
+FactIdentity             subject + fact kind + AddressedIlOrigin
+FactRow                  EvidenceMethodAddress + ILOffset + fact fields
+
 IrFunctionSnapshot
   FunctionTree
   LocalState
   TypeFacts
-  EvidenceOrigins
+  NodeOrigins            node identity -> AddressedIlOrigin*
   Diagnostics
   FunctionFacts
   ClassicAsyncDecision?
+  ClassicAsyncStageApplication?
 
 ClassicAsyncOutcome
   NotClassic(SupportMethodAcknowledgment?)
@@ -507,57 +523,73 @@ freezes the function's diagnostics and `HasInternalError` at importer
 return in `ImportObservation`, before any pass can add diagnostics. The
 pristine function retains those diagnostics for consumers that render it.
 
-The canonical pipeline has one shared prefix ending at
-`ClassicAsyncReconstructionPass`, followed by separate Raised and Lowered
-tails. The shared prefix contains every transform required to recognize and
-construct a classic body, but no byte-divergent pass. In particular,
-`LockSugarPass`, `ForLoopPass`, and `IncrementDecrementPass` move after the
-classic boundary in the Raised tail and remain absent from the Lowered tail.
-The companion import used by classic recognition runs
-`ForClassicAsyncRecognition`, the same shared prefix without
-`ClassicAsyncReconstructionPass`; it runs neither stage tail. Set-equality
-gates keep every future byte-divergent pass out of the shared prefix and keep
-the dedicated companion pipeline equal to that prefix minus the requesting
-pass.
+The existing `IrPasses.Default` and `IrPasses.Lowered` orders remain intact.
+`ForLoopPass` stays before `ForeachStatementPass`; the Lowered pipeline
+continues to omit `ForLoopPass`, `LockSugarPass`, and
+`IncrementDecrementPass`. These are render-altitude passes, not the
+`StyleOptionCatalog.ByteDivergent` lens set. No stage-order change is used to
+obtain decision invariance.
 
-`SharedClassicBoundary` is materialized once from the pristine import before
-either requested stage. `ClassicAsyncReconstructionPass` recognizes the exact
-host, creates its typed decision and owned application, and applies that
-application once at this common boundary. The identity is the exact host
-MethodDef, not only a source kickoff: an independently projected `MoveNext` or
-`SetStateMachine` is its own decision host. Preparation captures the decision
-and the post-classic snapshot. Raised and Lowered each clone that snapshot and
-run only their own tail, so requesting Raised then Lowered or Lowered then
-Raised produces the same two results. No stage re-recognizes or reapplies the
-classic decision, and no concrete body produced after a stage-divergent pass is
-replayed into the other stage. The snapshots are owned mutable IR; consumers
-print detached root clones, not the stored instances.
+Instead, preparation first runs a private
+`ClassicAsyncDecisionPlanningPipeline` over detached host and companion clones.
+Host preparation is pinned to the current Raised prefix through the point
+immediately before `ClassicAsyncReconstructionPass`. Companion preparation
+remains the existing complete
+`IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>()` sequence
+(`Default` minus the requesting pass and `SlotMaterializationPass`), including
+its post-classic-position passes. The planner performs recognition and
+consumption once but emits no product snapshot. Its result is a
+stage-neutral `ClassicAsyncDecision`: host and companion addresses, typed
+outcome, stable consumed-region identities, and a
+`ClassicAsyncApplicationPlan` containing recipes rather than `IrNode`, local,
+or stage-shaped body instances. This planning step runs before either requested
+stage and is independent of request order. A planning failure is retained as
+`ClassicAsyncPlanningResult.Failed`; requested stages become
+`DecisionFailed` with that diagnostic and do not run a success-shaped
+unplanned pipeline.
 
-When the frozen import observation has DEC0001, the shared boundary receives
+Raised and Lowered then run their existing full pass orders over separate
+pristine-import clones. At `ClassicAsyncReconstructionPass`, each receives
+`Supplied(Decision)`. The pass validates exact host identity and materializes
+one `ClassicAsyncStageApplication` by binding the plan's stable identities to
+that stage's current host and to a companion prepared through the stage's
+explicit reconstruction sequence. Raised uses the existing
+`ForReconstruction` sequence; Lowered uses its ordered Lowered counterpart.
+Both bind the already-proven identities from the canonical companion; neither
+re-runs recognition. The pass applies only that stage-owned application, and no
+concrete body, local, or sidecar from one stage enters the other. Requesting
+Raised then Lowered or Lowered then Raised therefore produces the same two
+results while preserving every existing ordering dependency, including
+`ForLoopPass` before `ForeachStatementPass`.
+
+When the frozen import observation has DEC0001, every stage receives
 `Unavailable(ImportInternalError)`: the classic pass deliberately leaves the
 diagnosed crash function unchanged and records no `NotClassic`,
 `Reconstructed`, or `Declined`. In an independent pipeline with directive
 `None`, DEC0001 already present when the classic pass begins is the same
 terminal no-decision case.
 
-The shared boundary freezes `ClassicAsyncStageState`: `Unavailable` for that
-import-health exemption, `NotReached` if the shared prefix failed before the
-pass, `DecisionFailed` if the pass ran but recognition/application did not
-produce a valid decision, and `Decided` once the pass produced and applied one.
-Each stage inherits that state before running its tail; a later tail failure
-retains it. Every `Decided` value equals `CapturedDecision`; an unavailable
-projection never has a captured decision. Neither consumers nor
-`DecompilerResult` infer an outcome for a shared-boundary failure.
+Each stage freezes its own `ClassicAsyncStageState`: `Unavailable` for that
+import-health exemption, `NotReached` if it failed before the pass,
+`DecisionFailed` if plan validation or stage-local materialization failed, and
+`Decided` once the supplied plan produced and applied an application. Every
+`Decided` value references `Planning.Planned.Decision` plus only its own detached
+`ClassicAsyncStageApplication`; an unavailable projection has neither.
+Neither consumers nor `DecompilerResult` infer an earlier failed stage's
+outcome from a different stage.
 `PreparedStageBody.Render` is the sole source-body emission seam. It
 clones the stored snapshot and retains its preparation stage as render
 policy; a caller cannot relabel a Lowered snapshot as Raised. Both
 stages apply byte-preserving `PrinterOptions` spelling/layout and print
 analysis without rerunning a structural pipeline.
 
-`StyleOptionCatalog.Options.Where(option => option.ByteDivergent)` is
-the single set that defines render altitude. Lowered clears or otherwise
-neutralizes every option in that set before any pass or printer-local
-rewrite can observe it by folding
+`StyleOptionCatalog.Options.Where(option => option.ByteDivergent)` is the
+single set for **option-driven lenses**, not the complete render-altitude
+definition. Pipeline altitude remains the ordered `IrPasses.Default` versus
+`IrPasses.Lowered` difference, including the existing omission of
+`ForLoopPass`, `IncrementDecrementPass`, and `LockSugarPass`. Lowered clears or
+otherwise neutralizes every byte-divergent option before any pass or
+printer-local rewrite can observe it by folding
 `descriptor.WithValue(options, descriptor.DefaultValue)` over the set;
 the policy does not hand-maintain `PrinterOptions` property names.
 Raised allows the requested set, and every cataloged byte-divergent
@@ -572,13 +604,14 @@ shape below all raised sugar, records no `StyleLens` decision, and
 retains statement-to-opcode correspondence and interleaved IL. The seam
 returns the rendered clone, result, and printed ranges as one value.
 
-The pass appears once in the shared prefix from which `IrPasses.Default` and
-`IrPasses.Lowered` are composed. A standalone seam-enabled pipeline with
-directive `None` recognizes through that same implementation, records an
-available outcome on its function, and produces the same body as prepared
-Raised output after running the Raised tail. This keeps stage dumps, corpus
-sensors, validity/fidelity harnesses, and render A/B on the shipped policy
-without requiring a MethodDef handle. A null-seam
+The pass remains at its existing position in both `IrPasses.Default` and
+`IrPasses.Lowered`. Before either list starts, `IrPasses.Run` with directive
+`None` runs the private planning pipeline over a detached pristine clone and
+enters the requested list with `Supplied(Decision)`. The pass materializes one
+local application for that pipeline and records the available outcome on its
+function. Its Default result matches prepared Raised output. This keeps stage
+dumps, corpus sensors, validity/fidelity harnesses, and render A/B on the
+shipped policy without requiring a MethodDef handle. A null-seam
 physical pipeline cannot reconstruct or decline a kickoff because it
 cannot import a companion machine. Support-method acknowledgment is the
 deliberate local exception. Import stamps the exact current MethodDef
@@ -598,21 +631,28 @@ foreign import seam. A diagnosed DEC0001 crash function still keeps no
 classic outcome under the independent path; parity includes preserving
 its importer marker rather than manufacturing a classic decision.
 
-The cached decision borrows no `IrNode`, block, local, edge, mutable diagnostic
-collection, or other function sidecar from a stage tail.
-`ClassicAsyncMachine.UserRegions` records stable IL-origin/structured
-identities. `ClassicAsyncApplication` owns the body/marker fragments and the
-complete deterministic mutation the pass applies at the shared boundary: body
-edit, local-table reset, companion type-fact contribution, addressed evidence
-origins, pass-authored diagnostics, and every function fact the pass changes.
-The application is present even when its body edit is `None`. A new pass
-mutation outside the application is a contract failure. Generate observes the
-shared-prefix host and constructs the complete decision before mutation; only
-`ClassicAsyncApplication.Apply` edits the boundary function, and a failed
-decision leaves it unchanged. Reconstructed user statements retain their
+The cached decision and application plan borrow no `IrNode`, block, local,
+edge, mutable diagnostic collection, or other stage sidecar.
+`ClassicAsyncMachine.UserRegions` and every node-like machine operand become
+stable address-qualified identities or reconstruction recipes.
+`ClassicAsyncStageApplication` owns the concrete body/marker fragments and the
+complete deterministic mutation for one stage: body edit, local-table reset,
+companion type-fact contribution, addressed evidence bindings, pass-authored
+diagnostics, and every function fact the pass changes. The application is
+present even when its body edit is `None`. A new pass mutation outside the
+application is a contract failure. Materialization observes that stage's host,
+validates every planned identity, and constructs the complete application
+before mutation; only `ClassicAsyncStageApplication.Apply` edits the function,
+and a failure leaves it unchanged. Reconstructed user statements retain their
 `MoveNextAddress` plus original instruction offsets; the application does not
 reanchor a companion subtree to one kickoff offset. A synthesized wrapper with
 no physical instruction has no origin rather than borrowing one.
+`IrNode.Provenance` is the authoritative node association. The existing bare
+`SourceOffset` is only a compatibility projection when every origin belongs to
+the current physical host; it is unavailable for a cross-method node.
+`PrintedBodyMap` replaces its offset-only `provenanceOffsetAllowList` with an
+address-to-instruction-boundaries map and validates every node origin against
+the corresponding physical body.
 
 Support-method acknowledgment is part of that same decision path, not a
 pre-decision normalization. Import constructs
@@ -624,10 +664,11 @@ identity never comes from the support method body: compiler-generated
 need not read the builder field. Missing, duplicate, malformed, or unrecognized
 builder fields produce no acknowledgment and preserve the method physically. A
 generated MethodDef with exact `AsyncStateMachineSupportIdentity` produces
-`NotClassic(SupportMethodAcknowledgment)` plus a complete application.
+`NotClassic(SupportMethodAcknowledgment)` plus a complete no-edit application
+plan.
 Every recognized builder and both support roles record
-`PreservedPhysical`; the application has `BodyEdit.None` and performs no
-body or local-table mutation. `SupportBodyDisposition` is a separate closed
+`PreservedPhysical`; every stage application has `BodyEdit.None` and performs
+no body or local-table mutation. `SupportBodyDisposition` is a separate closed
 type, so `Declined(Reason, BodyDisposition)` cannot carry
 `PreservedPhysical`. Exact interface identity establishes a
 support role, not that its implementation is disposable. Safe support
@@ -637,9 +678,9 @@ compiler kickoff/state-machine relationship and is outside slices 0 and
 and likewise preserves both support bodies. This
 typed support result does not change `IsClassicAsync`,
 `IsAsyncMethodBuilder`, or the slice-0 accepted kickoff raise set.
-Raised and Lowered preparation of the same support MethodDef clone the same
-post-acknowledgment boundary; an imported `MoveNext` always owns a fresh
-foreign boundary and cannot receive its kickoff's decision. A decoy
+Raised and Lowered materialize equivalent local no-edit applications from the
+same support decision; an imported `MoveNext` always owns a fresh foreign
+decision and cannot receive its kickoff's plan. A decoy
 `MoveNext` overload,
 `SetStateMachine` with the wrong parameter, same-name helper, or
 unmapped explicit/implicit implementation never receives a support
@@ -808,7 +849,8 @@ projection:
   `StyledProjectionProduced = false`; Fidelity Causes is `Failed`.
   `Bodyless` produces no C# body output, marker, or body modifier. It
   preserves the existing non-null failed `DecompilerResult` with null
-  `Output` and the visible DEC0001 "has no IL body" diagnostic when
+  `Output` and the visible DEC0002 `ContextUnavailable` "has no IL body"
+  diagnostic when
   Decompiled Source is requested; `StyledProjectionProduced` remains
   false. Fidelity Causes maps the same state to its existing typed
   `Absent`, not `Failed`.
@@ -838,16 +880,28 @@ projection:
   For an imported body, `ResearchFactContext` receives the declaration
   address plus the distinct physical body-evidence addresses and
   `EvidenceMap`; fact producers query each evidence MethodDef rather than
-  assuming `ImportedFunction.MetadataToken`, then attach a fact only to a
-  printed range with the same `AddressedIlOrigin`. A reconstructed kickoff
-  therefore acquires user-body call/allocation facts from `MoveNext`, while
-  same-valued offsets in the kickoff cannot claim them.
-  `AnnotatedSourceDocument` increments its schema and carries an evidence-method
-  table plus address-qualified node origins. Its top-level `Source` remains the
-  declaration host. Single-method documents may retain the existing compact
-  local-range encoding, but readers normalize both encodings to
-  `AddressedIlOrigin`; cross-method documents never imply that a bare offset
-  belongs to the declaration host.
+  assuming `ImportedFunction.MetadataToken`. Producers emit
+  `AddressedAnnotation`; `AnnotationAnchor`, `FactIdentity`, and `FactRow`
+  retain that full address and attach a fact only to a printed range with the
+  same `AddressedIlOrigin`. A reconstructed kickoff therefore acquires
+  user-body call/allocation facts from `MoveNext`, while same-valued offsets in
+  the kickoff cannot claim them.
+  `AnnotatedSourceDocument` increments its schema and carries an
+  evidence-method table (address plus body fingerprint) and address-qualified
+  node origins. Its top-level `Source` remains the declaration host.
+  Single-method documents may retain the existing compact local-range
+  encoding, but readers normalize both encodings to `AddressedIlOrigin`;
+  cross-method documents never imply that a bare offset belongs to the
+  declaration host. Construction and strict deserialization require the table
+  to equal the exact set containing `Source` plus every distinct method address
+  referenced by node, annotation, fact, target, and printed-range origins;
+  every reference must resolve to its table entry, and every entry must be
+  used by `Source` or an origin. Product
+  construction additionally validates each fingerprint and instruction
+  boundary against the acquired physical body; strict deserialization validates
+  the closed serialized graph without claiming external reacquisition.
+  Omitting a `MoveNext` entry is therefore invalid rather than a way to regain
+  single-method status.
 - `AnnotationStage.Raised` consumes `Raised`.
   `AnnotationStage.Lowered` consumes `Lowered`, prepared from the same
   classic decision. If a stage-compatible classic snapshot
@@ -907,7 +961,7 @@ projection:
   projector-prepared exact support stage is `Decided` with that same
   value.
   `DecompilerResult` takes outcome only from its own stage state, never
-  from `MetadataBodyProjection.CapturedDecision`. Its hand-written
+  from `MetadataBodyProjection.Planning`. Its hand-written
   `Equals` and `GetHashCode` include outcome presence, decline reason,
   decline body disposition, support-method acknowledgment fields, and
   support-only body disposition.
@@ -923,9 +977,17 @@ change implementation-diff lines/LCS, and violate the physical evidence
 contract. Slice 0 does not do that.
 
 Physical C# comparison has the same boundary.
-`CSharpBodyDiff.PreparePhysicalDocument(MetadataSource,
-MetadataMethodAddress)` imports with the null companion seam and returns a
-typed value:
+The existing internal `CSharpBodyDiff.Decompile` becomes the sole chokepoint
+and returns:
+
+```text
+PhysicalCSharpBodyPreparationResult
+  Prepared(PhysicalCSharpBodyDocument)
+  Absent(Bodyless)
+  Failed(Diagnostics)
+```
+
+Only `Prepared` carries:
 
 ```text
 PhysicalCSharpBodyDocument
@@ -938,22 +1000,43 @@ PhysicalCSharpBodyDocument
 
 Its constructor is not public; only that factory can mint the wrapper after
 validating its exact address, body fingerprint, local-origin document, and
-physical-projection provenance. The existing
-`CompareMembers(MetadataSource, MethodDefinitionHandle, ...)` convenience
-entry mints one wrapper per side and immediately delegates to
-`CompareMembers(PhysicalCSharpBodyDocument, PhysicalCSharpBodyDocument)`.
-Implementation Diff therefore reaches line comparison only through the
-factory without changing its Research-layer call shape.
+physical-projection provenance. `CompareMembers`, `CompareAssemblies` /
+`CompareMethodIndexes`, and `CSharpBodyDiff.Canonicalize` (as called by
+`CSharpFindings.Inspect`) all consume that total result; only two `Prepared`
+values enter the line-comparison core. Method indexes carry identity and
+selection facts only. Body-presence detection, fingerprint
+calculation/validation, import, and rendering all occur inside `Decompile`, so
+malformed bodies and fingerprint failures cannot escape the total result.
+Fingerprint-equality short-circuiting occurs only after both sides are
+`Prepared`.
+`Absent` and `Failed` retain the existing typed `CSharpDiffFailureRow` /
+Finding failure behavior rather than throwing or fabricating a document.
+Implementation Diff therefore reaches every line or retained-Finding
+comparison only through this chokepoint without changing its Research-layer
+call shape.
 
 `IssueCorrespondence(AnnotatedSourceDocument, ...)` remains the existing
 same-physical-body review operation. It is not an old/new Implementation Diff
 correspondence: equal MVID, MethodDef token, and body fingerprint remain
-mandatory, and projector-prepared documents with companion provenance remain
-unsupported. There is no cross-version structural consumer in Implementation
-Diff today. A future one requires a separately designed, Research-owned
-cross-version correspondence operation with explicit admissible evidence and
-failure results; it must not reuse or weaken same-body
+mandatory. Admission additionally requires each document's evidence-method
+table to contain exactly one address/fingerprint pair equal to its `Source`;
+issuance returns
+`CSharpNodeCorrespondenceIssueResult.Issued(CSharpNodeCorrespondenceResult)`
+only after those checks, otherwise
+`Unsupported(DocumentContainsForeignEvidenceMethods | DifferentPhysicalBody |
+MissingPhysicalProvenance)`. `CSharpStructuralDiffDocument` construction
+accepts only `Issued`; the review harness reports the unsupported reason
+without manufacturing rows. This rejects every
+projector-prepared reconstructed document before node matching even when its
+kickoff `Source` is unchanged. There is no cross-version structural consumer in
+Implementation Diff today. A future one requires a separately designed,
+Research-owned cross-version correspondence operation with explicit admissible
+evidence and failure results; it must not reuse or weaken same-body
 `IssueCorrespondence`. That future operation is outside slice 0.
+Slice 0 updates [Implementation Diff](implementation-diff.md) and the
+[decompiler raise discipline](../decompiler-raise-discipline.md) to describe
+this typed same-body admission result before relying on the new
+address-qualified document schema.
 
 Implementation Diff is an independent downstream consumer. After its own
 selection and correspondence logic chooses exact per-side physical MethodDefs,
@@ -961,7 +1044,7 @@ each `CSharpBodyDiff` remains a seam-free projection: it does not import
 companion bodies, reconstruct a kickoff, or introduce foreign offsets. A
 kickoff therefore receives no classic outcome or marker. An exact support
 MethodDef may carry only its local no-edit `SupportMethodAcknowledgment` and
-boundary application. Physical line and IL offsets remain local to the
+stage-local application. Physical line and IL offsets remain local to the
 selected MethodDef.
 
 This document gates only that async-specific integration behavior.
@@ -1026,8 +1109,8 @@ rediscover a sibling state machine makes the result depend on section
 selection and import-seam availability.
 `ClassicAsyncReconstructionPass` owns sibling recognition,
 reconstruction, decline marking, and the typed decision. Canonical
-preparation owns one stage-neutral shared boundary and detached
-stage-tail snapshots with stage-local outcome state. Views own only
+preparation owns one stage-neutral decision plan and detached stage
+snapshots with stage-local applications and outcome state. Views own only
 annotation and spelling over the `PreparedStageBody.Render` result;
 the prepared stage owns whether byte-divergent lenses are legal.
 
@@ -1043,16 +1126,17 @@ different methods can never collide. It does not apply to physical-body
 evidence whose identity contract forbids companion-body import.
 
 Preparation does not obtain invariance by running `PrintRaised` and
-`PrintLowered` independently and comparing their answers. The shared prefix
-recognizes one `ClassicAsyncMachine` / decline decision, applies it once, and
-freezes the post-classic boundary. Raised and Lowered clone that boundary and
-run their own tails. `Reconstructed` installs owned body/local state and merges
-the captured companion type-fact and addressed-origin contributions;
-`Declined` applies the decided replacement/preservation edit and diagnostic.
+`PrintLowered` independently and comparing their answers. A private canonical
+planning clone recognizes one `ClassicAsyncMachine` / decline decision and
+freezes only immutable identities and recipes. Raised and Lowered keep their
+existing pass order, receive that plan at the classic pass, and materialize
+separate applications. `Reconstructed` installs stage-owned body/local state
+and merges the planned companion type-fact and addressed-origin contributions;
+`Declined` applies the planned replacement/preservation edit and diagnostic.
 `Decided` stage pipelines may still differ in cosmetic sugar, but cannot differ
-on classic identity, outcome, consumed regions, or pass-owned state. A shared
-prefix that failed earlier retains `NotReached`; neither tail borrows that
-invariance claim.
+on classic identity, outcome, consumed regions, or plan-owned facts. A stage
+that failed before the pass retains `NotReached`; it does not borrow another
+stage's outcome.
 
 An independent top-level pipeline is a separate product/evidence
 projection, not a second view inside that prepared request. With the
@@ -1248,8 +1332,9 @@ the decompiler library and corpus.
    unsupported comment in code views. DEC0004 is observed separately
    through `DecompilerFindings.InspectFidelityCauses`; successful code
    rendering does not put it in `DecompilerResult.Diagnostics`.
-   Prepared Raised and Lowered snapshots inherit the same decided
-   post-classic boundary. A typed import/preparation/render failure is already visible
+   Prepared Raised and Lowered snapshots materialize the same stage-neutral
+   decision through separate stage-local applications. A typed
+   import/preparation/render failure is already visible
    failure and does not fabricate a marker-only body.
 3. **Narrow handoff ownership is exact and correlated.** Every
    statement must belong to one machine/local:
@@ -1322,9 +1407,9 @@ the decompiler library and corpus.
 8. **Evidence runs the same classic policy.** A seam-enabled
    `CSharpPrinter.PrintRaised`, `PipelineStages`, corpus profile, or
    validity/fidelity harness executes
-   `ClassicAsyncReconstructionPass` with directive `None`. The pass
-   recognizes once and records the same typed decision/outcome that
-   `MetadataBodyProjector` captures. `IrImporter.ImportAssembly` may
+   the pipeline with directive `None`. Its orchestrator plans once, then
+   `ClassicAsyncReconstructionPass` consumes the same typed decision/outcome
+   contract that `MetadataBodyProjector` captures. `IrImporter.ImportAssembly` may
    remain a handle-free function sweep after acquisition, but it stamps the
    complete classification while each MethodDef handle and reader are still
    available; the pass then uses its function plus sibling-import context.
@@ -1335,8 +1420,9 @@ non-narrow statement disappears; a declined classic declaration retains
 `async`; a declined runtime-async declaration loses `async`; exact source
 views disagree on outcome; classification runs after body status; a typed
 address, classification, bodyless, import, stage, or render failure becomes
-plausible output; the shared boundary loses application state, aliases mutable
-snapshots, or depends on stage request order; an outer decision reaches a
+plausible output; a decision/application plan loses state, aliases mutable
+snapshots, or produces output dependent on stage request order; an outer
+decision reaches a
 nested function; a foreign body that
 needs an async declaration carrier is embedded; Lowered applies a
 byte-divergent style lens or loses interleaved IL; a physical C# diff imports
@@ -1377,7 +1463,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep address, classification, relationship, `Bodyless`, import, stage, and render states distinct. Build one exact-host `ClassicAsyncDecision` at a shared pre-divergence boundary, then clone into Raised and Lowered tails; keep support acknowledgment local, exact, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Carry address-qualified Research origins while keeping physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Address, bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and Research-layer Implementation Diff lifecycle remain unchanged; the Decompiler physical path mints its wrapper internally, and no comparison operation/result enters reconstruction. |
+| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep address, classification, relationship, `Bodyless`, import, stage, and render states distinct. Plan one exact-host `ClassicAsyncDecision` on a private canonical clone, then materialize separate applications in the unchanged Raised and Lowered pipelines; keep support acknowledgment local, exact, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Carry per-node and per-fact address-qualified Research origins while keeping physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Address, bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and Research-layer Implementation Diff lifecycle remain unchanged; the Decompiler physical chokepoint mints its wrapper internally, and no comparison operation/result enters reconstruction. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, broader state-dispatch descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
@@ -1484,9 +1570,9 @@ Decompiler-owned relationship resolver while waiting for them.
 | Exact classic companion resolution | Metadata index; Decompiler sibling-import adapter correlates kickoff IR and consumes exact addresses |
 | Slice-0 accepted-raise boundary | Decompiler `LegacyRaiseEligibility`, separate from broader recognition |
 | Frozen import observation and root snapshot clone | Decompiler `MetadataBodyProjector` and `IrFunctionSnapshot` |
-| Shared classic boundary and stage-local tails | Decompiler `MetadataBodyProjection`, `PassContext`, and `StageBodyProjection` |
-| Raised/Lowered render altitude | Decompiler `PreparedStageBody` over `StyleOptionCatalog.ByteDivergent` |
-| Kickoff and support-method mutation | Decompiler `ClassicAsyncApplication` |
+| Stage-neutral classic planning and stage-local application | Decompiler `MetadataBodyProjection`, `PassContext`, and `StageBodyProjection` |
+| Raised/Lowered render altitude | Decompiler `PreparedStageBody` over the ordered `IrPasses.Default` / `IrPasses.Lowered` difference plus `StyleOptionCatalog.ByteDivergent` lenses |
+| Kickoff and support-method mutation | Decompiler `ClassicAsyncApplicationPlan` and `ClassicAsyncStageApplication` |
 | Foreign-function execution and directive reset | Decompiler `PassContext.RunForeignFunctionPipeline` |
 | Nested lambda/local-function embedding disposition | Decompiler `NestedFunctionEmbeddingPolicy` |
 | Public typed-body and whole-type carriers | Decompiler `MemberBodyProductionResult` and internal `DecompiledBodyProjection` |
@@ -1516,14 +1602,15 @@ gate ordinary reconstruction.
 | Canonical front-door architecture | `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | A declared-source consumer emits a body or runs a top-level pass outside `MetadataBodyProjector` / `PreparedStageBody`, except the named physical and diagnostic seams |
 | Classification and body-status ownership | `DeclaredSourceAsyncClassificationUsesProjector` + `DeclaredSourceBodyStatusUsesProjector` | A consumer classifies, catches decode failure, checks RVA/`HasBody`, filters abstract members, or derives a body modifier outside the projector |
 | Resolved-address projection parity | Metadata resolver + Decompiler projector | Requests resolving to the same MethodDef produce different classification, lifecycle state, outcome, render, or diagnostic |
-| Resolved bodyless lifecycle | Decompiler + CLI + Research + typed/whole-member/type + Body Shape | `Bodyless` becomes import/stage failure, emits a body/marker/modifier, loses its existing absence signal, or counts as inspected |
+| Resolved bodyless lifecycle | Decompiler + CLI + Research + typed/whole-member/type + Body Shape | `Bodyless` becomes import/stage failure, uses DEC0001 instead of DEC0002/`ContextUnavailable`, emits a body/marker/modifier, loses its existing absence signal, or counts as inspected |
 | Resolved classification-failure lifecycle | Decompiler + CLI + Research + typed/whole-member/type + Body Shape | Failure loses `DEC0015`, runs body/import work, emits plausible output, or differs for concrete, abstract, method, or accessor cases |
 | Import observation totality | Decompiler projector | A non-null function is not `Imported`, frozen import diagnostics change, DEC0001 is inferred late, or null import has a stage |
 | Importer-crash preservation | Existing importer-crash surfaces + projector | The marker/DEC0001 disappears, the stage gains a classic outcome, or metadata `async` is lost |
-| Shared classic boundary | Decompiler pass/projector + pass-order inventory | A byte-divergent pass runs before the boundary; the companion pipeline differs from the shared prefix minus the requesting pass; classic recognition/application runs more than once per preparation; the common snapshot depends on which stage was requested first; a tail mutates captured decision/application state; or a decision applies to another host |
+| Stage-neutral classic planning | Decompiler pass/projector + current pass-order inventory | Planning depends on which stage was requested first; canonical companion recognition differs from the existing complete `ForReconstruction` sequence; the plan retains stage-owned nodes/locals; a stage recognizes instead of consuming the plan; materialization applies to another host or aliases another stage; or existing Default/Lowered pass order changes |
+| Pipeline-order preservation | Existing accepted classic fixtures + `ForeachStatementPass` array/string/rectangular fixtures | Planning or materialization changes an existing accepted classic result; `ForLoopPass` no longer feeds `ForeachStatementPass`; Raised loses a `foreach`; either outer stage changes order before the classic pass; or either reconstruction sequence differs from its named parent list minus the requesting/materialization exclusions |
 | Exact classic companion identity | Metadata index + Decompiler thin adapter/pass | Decompiler scans structural relationships, kickoff IR disagrees with the returned type without decline, name/order selects `MoveNext`, or a typed relationship failure reconstructs |
-| Support-method identity and preservation | Decompiler importer/pass/projector + seam-free physical C# | Exact support mapping or builder identity is guessed; support and kickoff disposition types mix; acknowledgment edits body/locals; stage tails differ on acknowledgment; or classic/iterator/custom-builder support logic is lost |
-| Stage-local classic state | Decompiler projector failure matrix | A healthy stage lacks `Decided`; DEC0001 gains a decision; a shared-prefix failure acquires an outcome; or a post-boundary tail failure loses its own outcome |
+| Support-method identity and preservation | Decompiler importer/pass/projector + seam-free physical C# | Exact support mapping or builder identity is guessed; support and kickoff disposition types mix; acknowledgment edits body/locals; stage applications differ on acknowledgment; or classic/iterator/custom-builder support logic is lost |
+| Stage-local classic state | Decompiler projector failure matrix | A healthy stage lacks `Decided`; DEC0001 gains a decision; planning failure runs an unplanned stage or loses its diagnostic; a pre-pass failure borrows another stage's outcome; or a post-classic failure loses its own outcome |
 | Snapshot clone isolation | Decompiler snapshot/render | Mutating one render changes another stage/render or any frozen sidecar |
 | Foreign-function decision scope | Decompiler local/lambda/iterator fixtures | A parent directive reaches a foreign pipeline, nested identity resolves as the outer host, or a nested function fails to decide independently |
 | Foreign-function pipeline architecture | Product pass-run inventory | A separately imported function runs passes outside `PassContext.RunForeignFunctionPipeline` |
@@ -1531,20 +1618,22 @@ gate ordinary reconstruction.
 | Nested embedding honesty | Runtime, classic, iterator, modifier-fallback, and importer-crash local/lambda fixtures + `NestedFunctionEmbeddingUsesSharedPolicy` | A foreign body needing async syntax or carrying unsupported output is embedded; classic nesting widens the accepted raise set; or lambda/local-function rules diverge |
 | Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` | Prepared Raised output/outcome differs from the terminal seam-enabled stage |
 | Raised/Lowered Research contract | Catalog-derived byte-divergent style specimens in both request orders | Lowered observes a divergent option or loses IL; Raised changes output without a typed decision; either result depends on request order; or altitude is caller-relabelled |
+| Addressed provenance transport | Decompiler node/annotation/anchor + Research fact identity/row + `PrintedBodyMap` | Any cross-method node, annotation, anchor, fact identity, row, or serialized origin loses its method address; the evidence-method table is not the exact used-address set; an origin references a missing/wrong-fingerprint entry; the offset-only compatibility projection is used for a cross-method node; or validation checks an offset against the wrong body's instruction boundaries |
 | Reconstructed Research evidence | Research call/allocation fixtures whose user operations exist only in `MoveNext` + structured-output round trip | A reconstructed kickoff queries facts only by its declaration token, loses the `MoveNextAddress`, reanchors companion offsets to the kickoff, conflates equal offsets from different MethodDefs, fails to map the user-body fact to the rendered range, or loses the evidence-method table/addressed origins in structured output |
+| Same-body structural admission | Strict document round trip + `IssueCorrespondence` physical-provenance fixtures + non-vacuity rejection test | Construction/deserialization accepts a missing or unused evidence-method entry; either valid document's table is not a singleton equal to `Source`; source address/fingerprint differs across documents; a reconstructed kickoff reaches node matching; or unsupported evidence is presented as trusted correspondence |
 | Honesty marker and fidelity cause | Five CLI code views + public typed body + whole-type + Fidelity Causes | A declined classic body lacks its unsupported marker or DEC0004 |
 | Non-narrow preservation | CLI + typed/whole-type over extra call/store fixtures | Any original statement disappears |
 | Declaration modifier by stage-local state | CLI + typed/whole-member/type | Declined classic retains `async`, reconstructed classic omits it, runtime async loses it, or post-classic failure changes the retained decision's modifier |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape | Lifecycle states collapse, failures acquire success-shaped outcomes, or inspection accounting changes |
 | Exact legacy raise population | Existing accepted fixtures + close negatives | Slice 0 widens accepted reconstruction or a new eligibility path escapes set equality |
-| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures and source-architecture non-vacuity inventory | The existing source/handle `CompareMembers` path bypasses `PreparePhysicalDocument`; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
+| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures and source-architecture non-vacuity inventory | `CompareMembers`, `CompareAssemblies` / `CompareMethodIndexes`, or `CSharpBodyDiff.Canonicalize` via `CSharpFindings.Inspect` bypasses the total `Decompile` chokepoint; body detection/fingerprinting happens upstream; `Absent`/`Failed` fabricates a document or loses its typed failure row; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
 | `DecompilerResult` value semantics | Decompiler tests | Outcome, kickoff decline disposition, support-only disposition, or support acknowledgment is omitted from equality/hash/`with` behavior |
 | Corpus A/B | `CorpusSensor` / `IrImporter.ImportAssembly` | Product and corpus policy differ, support methods are hollowed, or fidelity/coverage changes are unrecorded |
 
 Deleting marker insertion must fail the render gate; deleting fidelity-cause
 enumeration must fail the DEC0004 gate. Widening
 `IsAsyncMethodBuilder` must fail the legacy-raise gate. Removing decision
-capture, the shared pre-divergence boundary, application-owned state,
+capture, stage-neutral application planning, stage-owned application state,
 address-qualified evidence, the shared relationship-index lookup, exact
 companion/support identity, foreign context reset, shared nested embedding
 policy, or catalog-derived render altitude must each fail its independent gate.
