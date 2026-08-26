@@ -1008,6 +1008,17 @@ public static class CompileBackSourceComposer
                     closureFacts,
                     root,
                     new CompileBackFact("metadata", "target-interface", reader.GetFullTypeName(interfaceDef)));
+                if (interfaceDef.GetInterfaceImplementations().Count != 0)
+                {
+                    // An inherited interface edge makes the interface itself the
+                    // receiver type for inherited member references. Preserve its
+                    // direct surface so target-side interface-property projection
+                    // remains available even when the edge now binds directly.
+                    AddClosureFact(
+                        closureFacts,
+                        root,
+                        new CompileBackFact("metadata", "closure-member", "target-interface-inheritance"));
+                }
             }
         }
 
