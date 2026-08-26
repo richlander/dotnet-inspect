@@ -56,23 +56,16 @@ Assert the IR invariant on accepted and declined results.
 
 ### Review evidence
 
-For the real witness, acquire exact base/head assemblies and their
-`AnnotatedSourceDocument` values with `-S "Annotated Source Document"`. Save
-the documents separately, then pass both documents and an explicit acquisition
-capability for those exact assemblies to
-`DecompilerHarness --structural-review`. A portable document is data, not
-physical proof: after serialization the decompiler issuer reacquires the exact
-body and validates its MVID, MethodDef, fingerprint, evidence-method table, and
-instruction boundaries before binding correspondence to the exact document
-revisions. Missing or mismatched bytes are
-`Unsupported(UnvalidatedPhysicalProvenance)`, never trusted correspondence. The
-issuer matches only unique product-owned IL-origin evidence, then feeds the
-full-body structural review introduced by #4092 from one
+For the real witness, acquire exact base/head `AnnotatedSourceDocument` values
+with `-S "Annotated Source Document"`, save them separately, and pass both
+product documents to `DecompilerHarness --structural-review`. The decompiler
+issuer binds correspondence to the exact document revisions and the exact
+physical method body. It matches only unique product-owned IL-origin evidence,
+then feeds the full-body structural review introduced by #4092 from one
 `CSharpStructuralDiffDocument` and its derived `CSharpStructuralComparison`.
 Paste its Before/After caret overlays, structural rows, and any correspondence
 gaps verbatim. Add `--json` when the revision-bound diff document itself must be
-retained. Replaying it requires the same explicit physical acquisition; never
-replace that validation with caller-authored correspondence.
+retained or replayed; never replace it with caller-authored correspondence.
 
 Never hand-place carets or recover correspondence from equal ids, coordinates,
 text, labels, or display order. A generated `Partial` status is a decline

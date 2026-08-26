@@ -38,18 +38,8 @@ family.
 ### Structural body comparison
 
 `CSharpBodyDiff.IssueCorrespondence` is the product correspondence owner for
-two exact owner-validated physical source documents describing the same
-physical method body. Publicly constructed or deserialized
-`AnnotatedSourceDocument` values are portable data, not proof. The in-process
-physical projection owner can issue a non-serializable validation receipt;
-otherwise `ValidatePhysicalSourceDocument` must reacquire the exact body through
-an explicit `IPhysicalBodyAcquisition` capability and validate its MVID,
-MethodDef, fingerprint, evidence-method table, and instruction boundaries.
-Validation performs no implicit network acquisition. Missing or invalid
-physical evidence returns typed
-`Unsupported(UnvalidatedPhysicalProvenance)` before node matching.
-
-Each product document carries assembly name, MVID, MethodDef token, body
+two exact `AnnotatedSourceDocument` values describing the same physical method
+body. Each product document carries assembly name, MVID, MethodDef token, body
 fingerprint, and source-facing member label. Each supported C# node carries the
 sorted IL-origin set retained by its contributing IR subtree. The issuer first
 requires equal physical method provenance, hashes each exact document revision,
@@ -58,11 +48,10 @@ ambiguous even when nested nodes happen to occupy corresponding depths: wrapper
 substitution can shift those depths without preserving identity. A unique
 one-sided set is `NoCounterpart` only when every opposite-side node carries
 provenance; otherwise the incomplete population leaves it ambiguous. Equal
-document-local ids, source coordinates, selected text, kind labels, display
-order, self-asserted fingerprints, and syntactically valid origins never
-establish cross-document identity.
+document-local ids, source coordinates, selected text, kind labels, and display
+order never establish cross-document identity.
 
-The validation owner checks every origin against an instruction boundary in the
+The producer checks every origin against an instruction boundary in the
 fingerprinted physical body. A subtree that retains any offset imported from a
 nested or reconstructed companion method is unsupported as a whole; foreign
 offsets are never intersected into a plausible-looking partial identity.
@@ -99,24 +88,16 @@ fidelity evidence. It also retains the generated structural rows so the JSON is
 the diff artifact, not only a recipe for recreating one. Its top-level Before
 and After values are the exact C#-only projections that own those row ids and
 spans; the correspondence payload separately retains the original mixed
-annotated-source documents. In-process construction retains the owner's
-non-serializable validation receipt while deriving both projections and the
-expected rows. Serialization never carries that receipt. Strict deserialization
-checks the closed portable graph but cannot reissue correspondence or make
-`ToComparison` trusted. `ValidateForReview(IPhysicalBodyAcquisition)` must
-reacquire and validate both exact bodies, reissue correspondence, derive both
-projections and the expected rows, and require exact agreement before
-`ToComparison` exposes them. Missing exact bytes or any mismatch returns
-`Unsupported(UnvalidatedPhysicalProvenance)` rather than caller-authored
+annotated-source documents. Construction and strict deserialization reissue
+correspondence from those originals, derive both projections and the expected
+rows, and require exact agreement before `ToComparison` exposes them. This
+keeps the artifact product-issued rather than accepting caller-authored
 mappings, projections, or rows.
 `CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedCorrespondence`
 `CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedProjection`,
 and
 `StructuralDiffDocument_RejectsTamperedRows` are the non-vacuity gates for that
 replay check.
-`StructuralDiffDocument_DeserializationCannotMintPhysicalValidation` and the
-matching-synthetic-fingerprint/mid-instruction-origin fixtures gate the trust
-boundary.
 `StructuralDiffDocument_ProjectsInterleavedIlWithoutInferringFromText` gates
 that the top-level projections own the serialized row coordinates.
 
@@ -141,24 +122,20 @@ remains rejected by the existing safety gate. It performs no correspondence.
 gates the lossless wrapped-text claim.
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
 consumes the same result for both presentations. With two documents it invokes
-the product validator and issuer with explicit physical acquisition; `--json`
-emits the resulting
+the product issuer; `--json` emits the resulting
 `CSharpStructuralDiffDocument`. The one-file form accepts only that generated
-artifact plus an explicit physical acquisition capability, validates and
-reissues its correspondence, and renders it later. Without the exact physical
-bytes it reports `UnvalidatedPhysicalProvenance`; it does not render stored rows
-as trusted correspondence. Both forms read untrusted input through
-Decompiler-owned `AnnotatedSourceJson`, so the CLI document writer and harness
-reader share one model-owned contract while retaining separate writer and
-strict-reader policies. Unsupported and ambiguous nodes remain a separate
-correspondence-gap section. The default Markdown table keeps change, structure,
-and region, adds fidelity only when populated, and omits absolute spans. Gaps
-are grouped by side and reason with counts and at most five node examples. Any
-gap marks the review partial because matched rows cannot establish changes
-represented only by unsupported or ambiguous nodes. That status appears before
-either body so a long artifact cannot bury the evidence limit. The portable
-JSON remains exhaustive for spans, unmatched nodes, and IL provenance.
-`AuthoredCorpusHarnessProcessTests.
+artifact, reissues its correspondence, and renders it later. Both forms read
+untrusted input through Decompiler-owned `AnnotatedSourceJson`, so the CLI
+document writer and harness reader share one model-owned contract while
+retaining separate writer and strict-reader policies. Unsupported and ambiguous
+nodes remain a separate correspondence-gap section. The default Markdown table
+keeps change, structure, and region, adds fidelity only when populated, and
+omits absolute spans. Gaps are grouped by side and reason with counts and at
+most five node examples. Any gap marks the review partial because matched rows
+cannot establish changes represented only by unsupported or ambiguous nodes.
+That status appears before either body so a long artifact cannot bury the
+evidence limit. The portable JSON remains exhaustive for spans, unmatched
+nodes, and IL provenance. `AuthoredCorpusHarnessProcessTests.
 Harness_BoundsStructuralReviewGapsWithoutDiscardingJsonEvidence` gates that
 bounded-presentation/exhaustive-evidence boundary. An incomplete result is
 never reported as "no structural changes."
