@@ -5374,12 +5374,6 @@ public class CfgSampleClass
     }
 }
 
-internal static class AwaitOrderingHelpers
-{
-    public static int Combine(int x, int y) => x - y;
-    public static void Sink(int value) { }
-}
-
 // A top-level type sharing the nested type's leaf name, to prove the importer
 // keys on the fully-qualified name, not the leaf.
 public sealed class NestedSample
