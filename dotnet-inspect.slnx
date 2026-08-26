@@ -102,6 +102,10 @@
     <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
+    <Project Path="tests/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
+    <Project Path="tests/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
+    <Project Path="tests/ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
+    <Project Path="tests/ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
