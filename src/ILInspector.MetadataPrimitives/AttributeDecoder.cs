@@ -344,7 +344,7 @@ public static class AttributeDecoder
         }
     }
 
-    sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
+    internal sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
         : BadImageFormatException(failure.Detail)
     {
         public MetadataTypeNameFailure Failure { get; } = failure;

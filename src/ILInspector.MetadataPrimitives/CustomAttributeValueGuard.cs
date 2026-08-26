@@ -50,7 +50,10 @@ public static class CustomAttributeValueGuard
     /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>. A caller
     /// <paramref name="enumUnderlyingType"/> is bound to the same
     /// local-TypeDef-first, <see cref="EnumUnderlyingPrimitive.Normalize"/>
-    /// oracle <c>DecodeValue</c> uses, so a direct skip cannot diverge.
+    /// oracle <c>DecodeValue</c> uses, so a direct skip cannot diverge. A
+    /// TypeDef-index failure during that bind is <see langword="false"/>, not
+    /// a swallowed blob-format success: the walk never finished, so a later
+    /// <c>DecodeValue</c> with a different provider must not run.
     /// </summary>
     public static bool IsSafeToDecode(
         MetadataReader reader,
@@ -74,6 +77,10 @@ public static class CustomAttributeValueGuard
                     beforeMaterialize,
                     enumUnderlyingType)
                 != Result.Unsafe;
+        }
+        catch (AttributeDecoder.TypeDefinitionIndexException)
+        {
+            return false;
         }
         catch (BadImageFormatException)
         {

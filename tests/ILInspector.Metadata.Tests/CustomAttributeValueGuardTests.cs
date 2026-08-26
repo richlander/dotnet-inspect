@@ -503,6 +503,26 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void DirectGuard_MalformedTypeDefIndex_DoesNotBypassHostileCount()
+    {
+        using var image = Open(
+            BuildOverlappingInt64NamedEnumHostileImage(cyclicTypeDef: true));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                ExactSimpleNameInt64));
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                ExactSimpleNameInt64));
+    }
+
+    [Fact]
     public void ClassSystemStringFixedArgument_SeesFollowingArrayCount()
     {
         using var image = Open(
@@ -1281,7 +1301,9 @@ public sealed class CustomAttributeValueGuardTests
     static PrimitiveTypeCode ExactSimpleNameInt64(string name)
         => name == "Samples.E" ? PrimitiveTypeCode.Int64 : PrimitiveTypeCode.Int32;
 
-    static byte[] BuildOverlappingInt64NamedEnumHostileImage(bool localInt64Enum = false)
+    static byte[] BuildOverlappingInt64NamedEnumHostileImage(
+        bool localInt64Enum = false,
+        bool cyclicTypeDef = false)
     {
         var metadata = CreateMetadata("User");
         MemberReferenceHandle constructor = AddConstructor(
@@ -1312,6 +1334,18 @@ public sealed class CustomAttributeValueGuardTests
             AddAttributedTypeWithLocalInt64Enum(metadata, constructor, value);
         else
             AddAttributedType(metadata, constructor, value);
+        if (cyclicTypeDef)
+        {
+            TypeDefinitionHandle poisoned = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Poison"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(poisoned, poisoned);
+        }
+
         return Serialize(metadata);
     }
 
