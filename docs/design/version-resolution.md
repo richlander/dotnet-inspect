@@ -410,7 +410,10 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed.
+one feed. Under the target item-limit contract, its declared row is one
+`(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
+This differs from the released count-valued lens option, which selects N
+distinct versions and then emits every carrying feed.
 
 ### Listing status across sources
 

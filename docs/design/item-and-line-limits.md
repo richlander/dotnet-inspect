@@ -62,7 +62,8 @@ piece of presentation:
 - types or members in an API listing;
 - rows in a table or list;
 - directed logical edges in a graph;
-- files or versions in a lens that declares those rows.
+- files, versions, or `(version, feed)` observations in a lens that declares
+  those rows.
 
 `-n` applies independently to every declared row set in a multi-section
 document. Non-row field sets, text, code, and scalar sections remain unchanged.
@@ -321,6 +322,13 @@ count describe the payload it accompanies by refusing a request for both a full
 matched-row count and a windowed payload. Existing count/window tests migrate to
 the `CountRejectsItemAndLineWindows` gate rather than retaining windowed counts.
 
+The replacement for count-valued `--versions-with-feed N` also changes the
+counted noun. The retired spelling keeps the newest N distinct versions and all
+feed rows for each; target `--versions-with-feed -n N` keeps the first N
+newest-first `(version, feed)` rows. This is the universal declared-row rule:
+cross-feed duplication is a visible result, not a hidden expansion outside the
+item limit.
+
 Long `--type` and `--member` selectors remain where the command needs them;
 positional member syntax remains. `--versions` and `--versions-with-feed`
 become value-less lens selectors and compose with `-n`.
@@ -369,6 +377,7 @@ The implementation must provide named Release gates for these target properties:
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
 | `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
-| `VersionTailExhaustsMetadata` | An instrumented lazy version source proves last-N exhausts the applicable metadata input before selection and that version-report line windows do not shorten metadata enumeration. |
+| `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy version source proves newest-first first-N and absolute ranges exhaust before selection, newest-first last-N may stop after N matching oldest rows, and version-report line windows do not shorten metadata enumeration. |
+| `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N newest-first `(version, feed)` rows rather than N distinct versions with unbounded feed-row expansion. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including value-bearing `--versions`/`--versions-with-feed` and count-form `--rows`, while affected replacement routes execute successfully. |
 | `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter. |
