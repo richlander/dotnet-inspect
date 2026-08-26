@@ -356,6 +356,9 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
+        if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
+            options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
+
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var structuralDetailOptions = options.Discover is not null
                                       && !options.EffectiveDiscovery
@@ -444,25 +447,57 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select,
-            knownSections,
-            bareSelectSections,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
-        if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+        // Resolve raw selectors unless member lookup already supplied the authoritative set.
+        // Both paths still enforce Body Shapes requirements before acquisition.
+        if (options is not MemberOptions { MemberSectionsPreResolved: true })
         {
-            // `-D` advertised these names and `-S` rejected them, on the same command line: the
-            // preamble was answering for the single-type pipeline while the render is a listing.
-            // Hold the rejection rather than resolving it here, because which pipeline is right is
-            // not known until the type lookup runs.
-            options = options with { SelectDeferredToListing = true };
+            var selectResult = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                knownSections,
+                bareSelectSections,
+                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+            {
+                // `-D` advertised these names and `-S` rejected them, on the same command line: the
+                // preamble was answering for the single-type pipeline while the render is a listing.
+                // Hold the rejection rather than resolving it here, because which pipeline is right is
+                // not known until the type lookup runs.
+                options = options with { SelectDeferredToListing = true };
+            }
+            else
+            {
+                if (SelectOutput.WriteUnresolved(selectResult))
+                    return (null!, 1);
+                if (ApplyBodyShapeSelectionRequirements(
+                        options,
+                        selectResult) is { } bodyShapeError)
+                {
+                    CommandError.Write(bodyShapeError);
+                    return (null!, 1);
+                }
+                if (selectResult.Sections != null)
+                {
+                    options = options with
+                    {
+                        IncludeSections = selectResult.Sections,
+                        ExactIncludeSectionsOverride = selectResult.ExactSections,
+                    };
+                }
+            }
         }
-        else
+        else if (options is MemberOptions { IncludeSections: { } preResolvedSections })
         {
-            if (SelectOutput.WriteUnresolved(selectResult))
-                return (null!, 1);
+            var selectResult = new SelectResult(
+                new HashSet<string>(
+                    preResolvedSections,
+                    StringComparer.OrdinalIgnoreCase),
+                [])
+            {
+                ExactSections = new HashSet<string>(
+                    options.ExactIncludeSections ?? [],
+                    StringComparer.OrdinalIgnoreCase)
+            };
             if (ApplyBodyShapeSelectionRequirements(
                     options,
                     selectResult) is { } bodyShapeError)
@@ -470,14 +505,11 @@ public class ApiCommand
                 CommandError.Write(bodyShapeError);
                 return (null!, 1);
             }
-            if (selectResult.Sections != null)
+            options = options with
             {
-                options = options with
-                {
-                    IncludeSections = selectResult.Sections,
-                    ExactIncludeSectionsOverride = selectResult.ExactSections,
-                };
-            }
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
         }
         if (options is
             {
@@ -620,7 +652,11 @@ public class ApiCommand
 
         const string required =
             "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
-        if (TargetsBodyShapes(options, options.Select)
+        bool explicitlyTargetsBodyShapes =
+            options is MemberOptions { MemberSectionsPreResolved: true }
+                ? selectResult.ExactSections.Contains(SectionNames.BodyShapes)
+                : TargetsBodyShapes(options, options.Select);
+        if (explicitlyTargetsBodyShapes
             || sections.Count == 1)
         {
             return required;
@@ -1094,8 +1130,15 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        if (SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                sectionsPreResolved)
+            || SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections,
+                sectionsPreResolved))
             return;
 
         var filtered = BuildFilteredTypeForSections(type, options);
@@ -1293,8 +1336,13 @@ public class ApiCommand
     internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
+        var explicitInclude = options is MemberOptions { MemberSectionsPreResolved: true };
         var sections = new HashSet<string>(
-            pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections),
+            pipeline.GetEffectiveSections(
+                type,
+                options.Verbosity,
+                options.IncludeSections,
+                explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
         if (options.Discover is { Length: > 0 } discover)
         {
@@ -2484,12 +2532,18 @@ public class ApiCommand
             }
             else
             {
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                if (SelectResolver.IsActiveAllSelector(
+                    options.Select,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(
+                    options.SelectDefault,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
@@ -2889,7 +2943,10 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
+        var effective = memberPipeline.GetDiscoverableSections(
+            filteredType,
+            options.IncludeSections,
+            explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
         if (!options.BodyKindQuery.HasFilter)
         {
             effective = effective
@@ -3341,7 +3398,9 @@ public class ApiCommand
                 .ToList();
 
         // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
-        if (options.IncludeSections is { Count: > 0 } sections)
+        if (options.IncludeSections is { } sections
+            && (sections.Count > 0
+                || options is MemberOptions { MemberSectionsPreResolved: true }))
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
@@ -3404,13 +3463,22 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && HasExplicitAnnotatedSourceDocumentSelector(options)
            && (sections.Count != 1
                || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
-        => options.Select is { Length: > 0 } selectors
-           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.AnnotatedSourceDocument)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool HasExplicitAnnotatedSourceDocumentSelector(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.AnnotatedSourceDocument) == true
+            : options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true;
 
     private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
         => selector.Equals(
@@ -3418,13 +3486,16 @@ public class ApiCommand
             StringComparison.OrdinalIgnoreCase);
 
     private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
-        => options.Select?.Any(static selector =>
-               selector.Equals(
-                   SectionNames.PerformanceTriage,
-                   StringComparison.OrdinalIgnoreCase)
-               || selector.Equals(
-                   "Optimization Opportunities",
-                   StringComparison.OrdinalIgnoreCase)) == true;
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.PerformanceTriage) == true
+            : options.Select?.Any(static selector =>
+                   selector.Equals(
+                       SectionNames.PerformanceTriage,
+                       StringComparison.OrdinalIgnoreCase)
+                   || selector.Equals(
+                       "Optimization Opportunities",
+                       StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
