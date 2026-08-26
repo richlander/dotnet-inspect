@@ -29,6 +29,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly Func<DecodedInstruction, bool>
         _isStableReceiverGetter;
     readonly Action? _asyncStateMachineTypesBuilt;
+    readonly Lazy<Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle>> _localTypeDefinitions;
     // Build owns the only async-state-machine classification cache and prewarms it before
     // parallel method analysis. OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis
     // gates that the consumed cache, rather than a duplicate, is initialized exactly once.
@@ -61,6 +64,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+        _localTypeDefinitions = new(
+            BuildLocalTypeDefinitions,
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     internal bool MemorySafetyRulesEnabled =>
@@ -509,14 +515,34 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
             MemberReference member =
                 _reader.GetMemberReference((MemberReferenceHandle)handle);
-            if (member.Parent.Kind != HandleKind.TypeDefinition)
-                return fallback;
+            TypeDefinitionHandle parent;
+            if (member.Parent.Kind == HandleKind.TypeDefinition)
+            {
+                parent = (TypeDefinitionHandle)member.Parent;
+            }
+            else if (member.Parent.Kind == HandleKind.TypeReference
+                && CouldReferenceCurrentModule(declaringType!))
+            {
+                if (!CanCanonicalizeCurrentModuleReference(
+                        declaringType!)
+                    || !TryResolveLocalTypeDefinition(
+                        declaringType!,
+                        out parent))
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return CouldReferenceCurrentModule(declaringType!)
+                    ? null
+                    : fallback;
+            }
 
             FieldDefinitionHandle[] matches =
             [
                 .. _reader
-                    .GetTypeDefinition(
-                        (TypeDefinitionHandle)member.Parent)
+                    .GetTypeDefinition(parent)
                     .GetFields()
                     .Where(field =>
                         FieldMatchesMemberReference(
@@ -539,6 +565,93 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             return null;
         }
+    }
+
+    bool CouldReferenceCurrentModule(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        return definition.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference assembly =>
+                _reader.IsAssembly
+                && assembly.Assembly.Name.Equals(
+                    _reader.GetString(
+                        _reader.GetAssemblyDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            TypeReferenceOrigin.ModuleReference module =>
+                module.ModuleName.Equals(
+                    _reader.GetString(
+                        _reader.GetModuleDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    bool CanCanonicalizeCurrentModuleReference(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        return definition.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference assembly =>
+                _reader.IsAssembly
+                && assembly.Assembly.IsEquivalentTo(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        _reader)),
+            TypeReferenceOrigin.ModuleReference module =>
+                module.ModuleName.Equals(
+                    _reader.GetString(
+                        _reader.GetModuleDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    bool TryResolveLocalTypeDefinition(
+        TypeRef type,
+        out TypeDefinitionHandle handle)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        if (definition.Resolution is not { Type: var name }
+            || !_localTypeDefinitions.Value.TryGetValue(
+                name,
+                out handle)
+            || handle.IsNil)
+        {
+            handle = default;
+            return false;
+        }
+
+        return true;
+    }
+
+    Dictionary<MetadataTypeDefinitionName, TypeDefinitionHandle>
+        BuildLocalTypeDefinitions()
+    {
+        var definitions = new Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle handle in _reader.TypeDefinitions)
+        {
+            TypeRef type = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                _reader,
+                handle,
+                0);
+            if (type.Resolution is not { Type: var name })
+                continue;
+
+            if (!definitions.TryAdd(name, handle))
+                definitions[name] = default;
+        }
+
+        return definitions;
     }
 
     bool FieldMatchesMemberReference(

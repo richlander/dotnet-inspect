@@ -2879,6 +2879,76 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString("Value"),
                 int32Field);
 
+        AssemblyReferenceHandle selfAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("FieldAlias"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle selfType =
+            metadata.AddTypeReference(
+                selfAssembly,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle selfAlias =
+            metadata.AddMemberReference(
+                selfType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        ModuleReferenceHandle selfModule =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("FieldAlias.dll"));
+        TypeReferenceHandle moduleType =
+            metadata.AddTypeReference(
+                selfModule,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle moduleAlias =
+            metadata.AddMemberReference(
+                moduleType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        AssemblyReferenceHandle externalAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("FieldAlias.External"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle externalType =
+            metadata.AddTypeReference(
+                externalAssembly,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle externalAlias =
+            metadata.AddMemberReference(
+                externalType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+        AssemblyReferenceHandle sameNameExternalAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("FieldAlias"),
+                new Version(2, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle sameNameExternalType =
+            metadata.AddTypeReference(
+                sameNameExternalAssembly,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle sameNameExternalAlias =
+            metadata.AddMemberReference(
+                sameNameExternalType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
         var int64FieldSignature = new BlobBuilder();
         new BlobEncoder(int64FieldSignature)
             .FieldSignature()
@@ -2886,6 +2956,11 @@ public class LibraryBodyIndexTests
         MemberReferenceHandle wrongSignature =
             metadata.AddMemberReference(
                 owner,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(int64FieldSignature));
+        MemberReferenceHandle wrongSelfSignature =
+            metadata.AddMemberReference(
+                selfType,
                 metadata.GetOrAddString("Value"),
                 metadata.GetOrAddBlob(int64FieldSignature));
 
@@ -2899,9 +2974,14 @@ public class LibraryBodyIndexTests
         var il = new BlobBuilder();
         foreach (EntityHandle field in new EntityHandle[]
             {
-                alias,
                 definition,
+                alias,
+                selfAlias,
+                moduleAlias,
+                externalAlias,
+                sameNameExternalAlias,
                 wrongSignature,
+                wrongSelfSignature,
             })
         {
             il.WriteByte((byte)ILOpCode.Ldc_i4_0);
@@ -6951,13 +7031,22 @@ public class LibraryBodyIndexTests
             .. index.FieldStores.OrderBy(store => store.ILOffset),
         ];
 
-        Assert.Equal(3, stores.Length);
-        Assert.NotNull(stores[0].Identity);
-        Assert.Equal(stores[0].Identity, stores[1].Identity);
+        Assert.Equal(8, stores.Length);
+        FieldIdentity canonical = Assert.IsType<FieldIdentity>(
+            stores[0].Identity);
+        Assert.All(
+            stores[1..4],
+            store => Assert.Equal(canonical, store.Identity));
         Assert.Equal(
-            stores[1].FieldToken,
-            stores[0].Identity!.LocalDefinitionToken);
-        Assert.Null(stores[2].Identity);
+            stores[0].FieldToken,
+            canonical.LocalDefinitionToken);
+        FieldIdentity external = Assert.IsType<FieldIdentity>(
+            stores[4].Identity);
+        Assert.NotEqual(canonical, external);
+        Assert.Equal(0, external.LocalDefinitionToken);
+        Assert.All(
+            stores[5..],
+            store => Assert.Null(store.Identity));
     }
 
     [Fact]

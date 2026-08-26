@@ -233,11 +233,12 @@ fact's independent wiring.
 carry different metadata tokens for the same runtime field. A consumer asking
 "is this the only write to this field?" and linking by token would count one
 write where there are two, so field accesses are linked by identity instead.
-For a local parent, Analysis matches both name and field signature and
-canonicalizes a unique match to its reader-local `FieldDef` token; duplicate
-matches, a signature mismatch, or an unresolvable operand produce no identity.
-This also keeps an external same-simple-name assembly reference from standing in
-for a current-module field.
+For a local parent, including a `TypeRef` scoped back to the current module or
+assembly, Analysis matches both name and field signature and canonicalizes a
+unique match to its reader-local `FieldDef` token. Duplicate matches, a
+signature mismatch, or an unresolvable potentially local operand produce no
+identity. This also keeps an external same-simple-name assembly reference from
+standing in for a current-module field.
 `LibraryBodyIndexTests.FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature`,
 `MethodCallResolvedValueTests.FieldIdentity_DistinguishesDeclaringTypeOrigins`,
 and `LeavesUnresolvableFieldAccessesWithoutIdentity` gate it.
