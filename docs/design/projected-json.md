@@ -5,6 +5,21 @@ section/shape model when a caller requests `--fields` or `--columns`. It is a
 format contract, not a new shape or a replacement for the established typed
 JSON contracts.
 
+**Lowered** names the point where this JSON path joins Markout. The command
+builds the same Markout view used by Markdown, TSV, and JSONL; Markout applies
+section selection, field/column projection, and row windows while serializing
+that view. A JSON formatter receives the resulting field, table, list, and tree
+callbacks and assembles them into one JSON document. It is a sibling formatter,
+not a projection over the typed JSON graph and not a parser for rendered
+Markdown or table text.
+
+The current Markout formatter seam carries field values and table cells as
+display strings. Markout therefore owns which content reaches lowered JSON and
+how typed facts become display text; the JSON formatter owns only the JSON
+containers, keys, escaping, and structural loss checks. This string-valued seam
+is why lowered JSON intentionally differs from the pre-lowered typed JSON
+contract described below.
+
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
 column projection under `--json`. New command families adopt this contract
