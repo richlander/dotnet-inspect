@@ -31,6 +31,8 @@ public static class HttpClientFactory
     private static HttpClient? _untrustedFetchOverride;
     private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
         _packageSourceClients = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
+        _packageSourceTransports = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
     private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
 
@@ -124,6 +126,12 @@ public static class HttpClientFactory
                 client.Value.Dispose();
         }
         _packageSourceClients.Clear();
+        foreach (Lazy<HttpClient> client in _packageSourceTransports.Values)
+        {
+            if (client.IsValueCreated)
+                client.Value.Dispose();
+        }
+        _packageSourceTransports.Clear();
         _networkTrafficLoggingSubscription?.Dispose();
         _networkTrafficLoggingSubscription = null;
     }
@@ -242,6 +250,27 @@ public static class HttpClientFactory
     /// the returned client.
     /// </remarks>
     public static HttpClient GetPackageSourceClient(string sourceUrl)
+        => GetPackageSourceClient(
+            sourceUrl,
+            _packageSourceClients,
+            allowAutoRedirect: true);
+
+    /// <summary>
+    /// Gets the process-lifetime cookie-free transport for one explicitly
+    /// configured package-source origin. Redirects are left to the typed
+    /// package-source client.
+    /// </summary>
+    /// <remarks>Do not dispose the returned client.</remarks>
+    public static HttpClient GetPackageSourceTransport(string sourceUrl)
+        => GetPackageSourceClient(
+            sourceUrl,
+            _packageSourceTransports,
+            allowAutoRedirect: false);
+
+    private static HttpClient GetPackageSourceClient(
+        string sourceUrl,
+        ConcurrentDictionary<string, Lazy<HttpClient>> clients,
+        bool allowAutoRedirect)
     {
         Uri source = ParsePackageSource(sourceUrl);
         string originKey =
@@ -249,9 +278,11 @@ public static class HttpClientFactory
             + $"{source.IdnHost.ToLowerInvariant()}\n"
             + source.Port;
         var candidate = new Lazy<HttpClient>(
-            () => CreatePackageSourceClient(source.AbsoluteUri),
+            () => CreatePackageSourceClient(
+                source.AbsoluteUri,
+                allowAutoRedirect),
             LazyThreadSafetyMode.ExecutionAndPublication);
-        return _packageSourceClients.GetOrAdd(originKey, candidate).Value;
+        return clients.GetOrAdd(originKey, candidate).Value;
     }
 
     /// <summary>
@@ -261,6 +292,13 @@ public static class HttpClientFactory
     /// </summary>
     /// <remarks>The caller owns and must dispose the returned client.</remarks>
     public static HttpClient CreatePackageSourceClient(string sourceUrl)
+        => CreatePackageSourceClient(
+            sourceUrl,
+            allowAutoRedirect: true);
+
+    private static HttpClient CreatePackageSourceClient(
+        string sourceUrl,
+        bool allowAutoRedirect)
     {
         Uri source = ParsePackageSource(sourceUrl);
 
@@ -269,8 +307,11 @@ public static class HttpClientFactory
         HttpMessageHandler handler = new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
-            AllowAutoRedirect = true,
+            AllowAutoRedirect = allowAutoRedirect,
             MaxAutomaticRedirections = 5,
+            Credentials = null,
+            PreAuthenticate = false,
+            UseCookies = false,
             UseProxy = false,
             ConnectCallback = (context, cancellationToken) =>
                 NetworkDestinationPolicy.ConnectAsync(

@@ -93,6 +93,9 @@ another request is formed.
 This is gated by
 `OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
+`PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers`,
+`PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect`,
+`PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
 `BrowserNuGetRequestsOmitAmbientCredentials`,
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin`,

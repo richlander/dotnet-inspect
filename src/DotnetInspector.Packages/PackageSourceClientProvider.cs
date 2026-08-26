@@ -55,7 +55,7 @@ internal static class PackageSourceClientProvider
         PackageSource source,
         HttpClient client) =>
         ReferenceEquals(client, HttpClientFactory.Shared)
-            ? HttpClientFactory.GetPackageSourceClient(source.Url)
+            ? HttpClientFactory.GetPackageSourceTransport(source.Url)
             : client;
 
     internal static NuGetFetchOptions FetchOptionsFor(HttpClient client)

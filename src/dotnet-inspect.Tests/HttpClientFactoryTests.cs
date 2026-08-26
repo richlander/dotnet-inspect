@@ -205,7 +205,7 @@ public class HttpClientFactoryTests : IDisposable
                 HttpClientFactory.Shared);
 
         Assert.Same(
-            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceTransport(
                 source.Url),
             selected);
         Assert.Same(
@@ -213,6 +213,191 @@ public class HttpClientFactoryTests : IDisposable
             PackageSourceClientProvider.SelectTransport(
                 source,
                 injected));
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var first = new NuGetFetch.PackageSource(
+            "first",
+            $"http://127.0.0.1:{port}/feed-a/v3/index.json");
+        var second = new NuGetFetch.PackageSource(
+            "second",
+            $"http://127.0.0.1:{port}/feed-b/v3/index.json");
+        string? secondRequest = null;
+        Task server = Task.Run(
+            async () =>
+            {
+                using (TcpClient connection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken))
+                {
+                    NetworkStream stream = connection.GetStream();
+                    _ = await ReadHttpRequestAsync(
+                        stream,
+                        TestContext.Current.CancellationToken);
+                    await WriteHttpResponseAsync(
+                        stream,
+                        "200 OK",
+                        "Set-Cookie: source-a=secret; Path=/\r\n",
+                        "{}",
+                        TestContext.Current.CancellationToken);
+                }
+
+                using TcpClient secondConnection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken);
+                NetworkStream secondStream = secondConnection.GetStream();
+                secondRequest = await ReadHttpRequestAsync(
+                    secondStream,
+                    TestContext.Current.CancellationToken);
+                await WriteHttpResponseAsync(
+                    secondStream,
+                    "200 OK",
+                    "",
+                    "{}",
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        HttpClient firstClient =
+            PackageSourceClientProvider.SelectTransport(
+                first,
+                HttpClientFactory.Shared);
+        HttpClient secondClient =
+            PackageSourceClientProvider.SelectTransport(
+                second,
+                HttpClientFactory.Shared);
+        Assert.Same(firstClient, secondClient);
+        using HttpResponseMessage firstResponse =
+            await firstClient.GetAsync(
+                first.Url,
+                TestContext.Current.CancellationToken);
+        using HttpResponseMessage secondResponse =
+            await secondClient.GetAsync(
+                second.Url,
+                TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.DoesNotContain(
+            "Cookie: source-a=secret",
+            secondRequest,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://127.0.0.1:{port}/feed/v3/index.json";
+        string? firstRequest = null;
+        string? redirectedRequest = null;
+        Task server = Task.Run(
+            async () =>
+            {
+                using (TcpClient connection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken))
+                {
+                    NetworkStream stream = connection.GetStream();
+                    firstRequest = await ReadHttpRequestAsync(
+                        stream,
+                        TestContext.Current.CancellationToken);
+                    await WriteHttpResponseAsync(
+                        stream,
+                        "302 Found",
+                        $"Location: http://127.0.0.1:{port}/feed/v3/redirected.json\r\n",
+                        "",
+                        TestContext.Current.CancellationToken);
+                }
+
+                using TcpClient redirectedConnection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken);
+                NetworkStream redirectedStream =
+                    redirectedConnection.GetStream();
+                redirectedRequest = await ReadHttpRequestAsync(
+                    redirectedStream,
+                    TestContext.Current.CancellationToken);
+                await WriteHttpResponseAsync(
+                    redirectedStream,
+                    "200 OK",
+                    "Content-Type: application/json\r\n",
+                    """{"resources":[]}""",
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        var source = new NuGetFetch.PackageSource(
+            "private",
+            sourceUrl,
+            new NuGetFetch.PackageSourceCredential(
+                "user",
+                "password"));
+        using NuGetFetch.IPackageSourceClient runtime =
+            PackageSourceClientProvider.Create(
+                source,
+                HttpClientFactory.Shared);
+        _ = await runtime.GetVersionsAsync(
+            "contoso",
+            TestContext.Current.CancellationToken);
+        await server;
+
+        const string Authorization =
+            "Authorization: Basic dXNlcjpwYXNzd29yZA==";
+        Assert.Contains(
+            Authorization,
+            firstRequest,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            Authorization,
+            redirectedRequest,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect()
+    {
+        var probe = new RedirectProbeHandler(
+            new Uri("https://cdn.example/redirected.json"));
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            inner => probe.Attach(inner));
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var source = new NuGetFetch.PackageSource(
+                "private",
+                "https://feed.example/v3/index.json",
+                new NuGetFetch.PackageSourceCredential(
+                    "user",
+                    "password"));
+            using NuGetFetch.IPackageSourceClient runtime =
+                PackageSourceClientProvider.Create(
+                    source,
+                    HttpClientFactory.Shared);
+
+            _ = await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(2, probe.Authorization.Count);
+            Assert.Equal(
+                "dXNlcjpwYXNzd29yZA==",
+                probe.Authorization[0]);
+            Assert.Null(probe.Authorization[1]);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
     }
 
     [Theory]
@@ -490,6 +675,99 @@ public class HttpClientFactoryTests : IDisposable
             + "Connection: close\r\n\r\n");
         await stream.WriteAsync(headers, cancellationToken);
         await stream.WriteAsync(content, cancellationToken);
+    }
+
+    private static async Task<string> ReadHttpRequestAsync(
+        NetworkStream stream,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int length = 0;
+        while (length < buffer.Length)
+        {
+            int read = await stream.ReadAsync(
+                buffer.AsMemory(length),
+                cancellationToken);
+            if (read == 0)
+                break;
+
+            length += read;
+            string request = Encoding.ASCII.GetString(
+                buffer,
+                0,
+                length);
+            if (request.Contains(
+                    "\r\n\r\n",
+                    StringComparison.Ordinal))
+            {
+                return request;
+            }
+        }
+
+        return Encoding.ASCII.GetString(buffer, 0, length);
+    }
+
+    private static Task WriteHttpResponseAsync(
+        NetworkStream stream,
+        string status,
+        string headers,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        byte[] bytes = Encoding.ASCII.GetBytes(
+            $"HTTP/1.1 {status}\r\n"
+            + headers
+            + $"Content-Length: {Encoding.ASCII.GetByteCount(body)}\r\n"
+            + "Connection: close\r\n\r\n"
+            + body);
+        return stream.WriteAsync(
+            bytes,
+            cancellationToken).AsTask();
+    }
+
+    private sealed class RedirectProbeHandler
+    {
+        private readonly Uri _redirectTarget;
+
+        internal RedirectProbeHandler(Uri redirectTarget)
+        {
+            _redirectTarget = redirectTarget;
+        }
+
+        internal List<string?> Authorization { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner)
+        {
+            return new ProbeHandler(this, inner);
+        }
+
+        private sealed class ProbeHandler(
+            RedirectProbeHandler owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                owner.Authorization.Add(
+                    request.Headers.Authorization?.Parameter);
+                return Task.FromResult(
+                    owner.Authorization.Count == 1
+                        ? new HttpResponseMessage(HttpStatusCode.Found)
+                        {
+                            RequestMessage = request,
+                            Headers =
+                            {
+                                Location = owner._redirectTarget,
+                            },
+                        }
+                        : new HttpResponseMessage(
+                            HttpStatusCode.Unauthorized)
+                        {
+                            RequestMessage = request,
+                        });
+            }
+        }
     }
 
     /// <summary>

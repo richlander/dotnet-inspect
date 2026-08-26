@@ -360,13 +360,16 @@ public static class PackageSourceClientFactory
                 PackageSourceKind.LocalFolder);
         }
 
+        HttpClient transport = OperatingSystem.IsBrowser()
+            ? client
+            : CreateBorrowedDesktopTransport(client);
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
             NormalizeServiceIndexEndpoint(endpoint),
-            client,
+            transport,
             options ?? new NuGetFetchOptions(),
             source.Credential,
-            ownsClient: false);
+            ownsClient: !OperatingSystem.IsBrowser());
     }
 
     internal static Uri NormalizeServiceIndexEndpoint(Uri endpoint)
@@ -589,6 +592,16 @@ public static class PackageSourceClientFactory
             Timeout = Timeout.InfiniteTimeSpan,
         };
     }
+
+    private static HttpClient CreateBorrowedDesktopTransport(
+        HttpClient client) =>
+        new(
+            new NuGetCredentialRedirectHandler(
+                new BorrowedHttpClientHandler(client)),
+            disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
 
     private static HttpClient CreateGalleryTransport()
     {
