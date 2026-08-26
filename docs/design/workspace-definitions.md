@@ -675,6 +675,15 @@ scalar as raw UTF-8. The packet uses a purpose-built writer: none of
 Packet identity below is semantic identity after decoding; canonical emission
 has one byte representation.
 
+The product codec also exposes the JSON boundary directly. `ParseJson` accepts
+the same bounded, duplicate-free semantic shape with insignificant whitespace,
+property reordering, and equivalent string escapes, while `SerializeJson`
+emits the exact compact text used by canonical packet encoding. This is a
+conversion boundary, not a second packet format: parsing JSON followed by
+`Encode` always restores the one canonical base64url representation, and
+decoding a packet followed by `SerializeJson` exposes the JSON that packet
+actually commits to.
+
 The packet separates navigation from binding:
 
 - `t` is the deduplicated table of acquisition-coordinate tuples used as
@@ -976,6 +985,8 @@ Implementation must add, at minimum:
   proving rejection rather than U+FFFD substitution —
   `WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly`,
   `Decode_UnicodeAndSignatureVector_RoundTripsExactly`,
+  `JsonConversion_AcceptsEquivalentInputAndRestoresCanonicalPacket`,
+  `JsonConversion_UsesTheSameTypedValidityAndCancellationGates`,
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
@@ -1074,7 +1085,22 @@ Definition records and product demos (this slice):
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
-  signatures, and the pinned scalar-escaping rules;
+  signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
+  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  those commands accept inline input or bounded strict UTF-8 stdin/file input
+  and emit BOM-free UTF-8 without acquisition or execution. Stream and file
+  input may carry one terminal LF or CRLF outside the declared payload bound.
+  `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
+  `Dash_ReadsBoundedStandardInputInBothDirections`,
+  `MaximumPacket_DecodePipeEncode_RoundTrips`,
+  `RepeatedTerminalLineEndings_DoNotBypassLimits`,
+  `Encode_RejectsInvalidUtf8FromStandardInput`, and
+  `Encode_RejectsNonUtf8File` gate that CLI boundary.
+  `UnicodePacket_PipesAsUtf8UnderLegacyWindowsCodePage` gates process output
+  under a non-UTF-8 Windows console code page.
+  `Encode_RejectsEmptyFilePathWithoutStackTrace` and
+  `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
+  diagnostics across platform path rules;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;
