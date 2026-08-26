@@ -8560,14 +8560,26 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const loc = initialWorkspace.resolve();
-  if (!loc.package) {
+  const packageId = loc.package;
+  if (!packageId) {
     state.loading = false;
     state.home = true;
     state.queryNotice = loc.workspaceNotice || "";
     render();
     return;
   }
-  await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+  const resolvedLocation = {
+    ...loc,
+    package: packageId,
+    version: loc.version || "latest",
+    framework: loc.framework || state.requestedFramework
+  };
+  state.requestedPackage = resolvedLocation.package;
+  state.requestedVersion = resolvedLocation.version;
+  state.requestedFramework = resolvedLocation.framework;
+  await restoreWorkspaceFromLocation(
+    resolvedLocation,
+    deepLinkFromLocation(resolvedLocation));
 }
 
 function isStyleTier(value: unknown): value is StyleTier {

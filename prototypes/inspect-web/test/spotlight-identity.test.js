@@ -2203,7 +2203,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     ?? "";
   assert.match(
     restore,
-    /const loc = initialWorkspace\.resolve\(\);[\s\S]*restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\)/);
+    /const loc = initialWorkspace\.resolve\(\);[\s\S]*framework: loc\.framework \|\| state\.requestedFramework[\s\S]*state\.requestedPackage = resolvedLocation\.package;[\s\S]*state\.requestedVersion = resolvedLocation\.version;[\s\S]*state\.requestedFramework = resolvedLocation\.framework;[\s\S]*restoreWorkspaceFromLocation\(\s*resolvedLocation,\s*deepLinkFromLocation\(resolvedLocation\)\)/);
   const bootstrap = appSource.match(
     /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
