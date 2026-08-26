@@ -527,6 +527,7 @@ interface Diagnostics {
 
 let spotlightCache: SpotlightCache | null = null;
 const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 const initialState = {
@@ -541,7 +542,7 @@ const initialState = {
   queryNoticeRetryAction: null,
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
-  requestedFramework: "net10.0",
+  requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -1142,14 +1143,15 @@ function parseLocation() {
 
 type ParsedLocation = ParsedWorkspaceLocation;
 
-const initialLocation = parseLocation();
+const initialWorkspace = workspaceLocation.preflightCurrent();
+const initialLocation = initialWorkspace.visible;
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
-state.queryNotice = initialLocation.workspaceNotice || "";
+  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
+state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
   state.requestedVersion = initialLocation.version || "latest";
@@ -1161,21 +1163,21 @@ if (initialLocation.atPackageRoot) {
   state.packageLens = initialLocation.packageLens || "overview";
 }
 
-// Deep-link selection to restore once the first package model is available. Consumed
-// (and cleared) by the first loadPackage so later package switches start fresh.
-const initialDeepLink = {
-  type: initialLocation.type,
-  member: initialLocation.member,
-  overload: initialLocation.overload,
-  section: initialLocation.section,
-  bodyTarget: initialLocation.bodyTarget,
-  memberBrowse: initialLocation.memberBrowse,
-  memberTextFilter: initialLocation.memberTextFilter,
-  memberKindFilter: initialLocation.memberKindFilter,
-  memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
-  memberTraitFilter: initialLocation.memberTraitFilter,
-  graphTarget: initialLocation.graphTarget
-};
+function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
+  return {
+    type: loc.type,
+    member: loc.member,
+    overload: loc.overload,
+    section: loc.section,
+    bodyTarget: loc.bodyTarget,
+    memberBrowse: loc.memberBrowse,
+    memberTextFilter: loc.memberTextFilter,
+    memberKindFilter: loc.memberKindFilter,
+    memberAccessibilityFilter: loc.memberAccessibilityFilter,
+    memberTraitFilter: loc.memberTraitFilter,
+    graphTarget: loc.graphTarget
+  };
+}
 
 function requireElement(selector: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(selector);
@@ -8555,13 +8557,27 @@ function applyLocationView(loc: ParsedLocation) {
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
-  const loc = {
-    ...initialLocation,
-    package: state.requestedPackage,
-    version: state.requestedVersion,
-    framework: state.requestedFramework
+  const loc = initialWorkspace.resolve();
+  const packageId = loc.package;
+  if (!packageId) {
+    state.loading = false;
+    state.home = true;
+    state.queryNotice = loc.workspaceNotice || "";
+    render();
+    return;
+  }
+  const resolvedLocation = {
+    ...loc,
+    package: packageId,
+    version: loc.version || "latest",
+    framework: loc.framework || DEFAULT_REQUESTED_FRAMEWORK
   };
-  await restoreWorkspaceFromLocation(loc, initialDeepLink);
+  state.requestedPackage = resolvedLocation.package;
+  state.requestedVersion = resolvedLocation.version;
+  state.requestedFramework = resolvedLocation.framework;
+  await restoreWorkspaceFromLocation(
+    resolvedLocation,
+    deepLinkFromLocation(resolvedLocation));
 }
 
 function isStyleTier(value: unknown): value is StyleTier {

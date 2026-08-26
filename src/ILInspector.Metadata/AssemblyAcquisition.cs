@@ -343,6 +343,73 @@ public sealed class ResolvedAssemblyReference
         }
     }
 
+    /// <summary>
+    /// Creates a stream-backed descriptor, using the image's real assembly
+    /// identity when one can be decoded and <paramref name="fallbackIdentity"/>
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The fallback keeps a selected malformed, native, or module image visible
+    /// as a participant. Opening that participant still validates the image and
+    /// reports its typed acquisition failure; the fallback is not evidence that
+    /// the image is a managed assembly.
+    /// <c>PackageAssemblyContextRealizationTests.MalformedSelectedAsset_RemainsARejectedParticipant</c>
+    /// gates that behavior through the package realization consumer.
+    /// </remarks>
+    public static ResolvedAssemblyReference CreateFromStreamWithFallbackIdentity(
+        Func<Stream> openRead,
+        AssemblyReferenceIdentity fallbackIdentity,
+        AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        ArgumentNullException.ThrowIfNull(fallbackIdentity);
+        ArgumentNullException.ThrowIfNull(provenance);
+
+        Stream? source = openRead();
+        if (source is null || !source.CanRead)
+        {
+            source?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
+        AssemblyReferenceIdentity? identity = null;
+        using (Stream stream = source)
+        {
+            try
+            {
+                using var peReader =
+                    new System.Reflection.PortableExecutable.PEReader(stream);
+                if (peReader.HasMetadata)
+                {
+                    MetadataReader metadata = peReader.GetMetadataReader();
+                    if (metadata.IsAssembly)
+                    {
+                        AssemblyReferenceIdentity candidate =
+                            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                                metadata);
+                        if (!string.IsNullOrWhiteSpace(candidate.Name))
+                            identity = candidate;
+                    }
+                }
+            }
+            catch (BadImageFormatException)
+            {
+                // The descriptor retains the selected image as a rejection carrier.
+            }
+        }
+
+        usedFallbackIdentity = identity is null;
+        return Create(
+            identity ?? fallbackIdentity,
+            path: null,
+            openRead,
+            provenance,
+            lastWriteTimeUtc);
+    }
+
     public static bool TryCreateFromPath(
         string path,
         AssemblyResolutionProvenance provenance,

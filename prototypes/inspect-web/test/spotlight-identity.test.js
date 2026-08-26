@@ -2211,6 +2211,29 @@ test("shared member views retain scope and filter state", () => {
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
 });
 
+test("initial workspace packet resolution waits for the engine phase", () => {
+  assert.match(
+    appSource,
+    /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
+  assert.match(
+    appSource,
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
+  const restore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /const loc = initialWorkspace\.resolve\(\);[\s\S]*framework: loc\.framework \|\| DEFAULT_REQUESTED_FRAMEWORK[\s\S]*state\.requestedPackage = resolvedLocation\.package;[\s\S]*state\.requestedVersion = resolvedLocation\.version;[\s\S]*state\.requestedFramework = resolvedLocation\.framework;[\s\S]*restoreWorkspaceFromLocation\(\s*resolvedLocation,\s*deepLinkFromLocation\(resolvedLocation\)\)/);
+  const bootstrap = appSource.match(
+    /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
+    ?? "";
+  const initializeAt = bootstrap.indexOf("await initializeEngine(reportEngineStatus);");
+  const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
+  assert.notEqual(initializeAt, -1);
+  assert.notEqual(restoreAt, -1);
+  assert.ok(initializeAt < restoreAt);
+});
+
 test("member entry controls move focus into the resulting member navigation", () => {
   const bindings =
     appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
