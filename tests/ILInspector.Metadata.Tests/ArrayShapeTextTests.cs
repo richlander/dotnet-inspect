@@ -11,8 +11,6 @@ namespace ILInspector.Metadata.Tests;
 public class ArrayShapeTextTests
 {
     [Theory]
-    [InlineData(0, "int32[]")]
-    [InlineData(1, "int32[]")]
     [InlineData(2, "int32[,]")]
     [InlineData(4, "int32[,,,]")]
     public void RendersLoadableRanksFaithfully(int rank, string expected)
@@ -21,6 +19,69 @@ public class ArrayShapeTextTests
 
         Assert.Equal(expected, rendered);
         Assert.DoesNotContain("invalid rank", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ILAsm spells a rank-1 multi-dimensional array <c>int32[...]</c>, which is a different
+    /// signature from the vector <c>int32[]</c>. <c>ildasm</c> is the oracle: assembling
+    /// <c>M(int32[...], int32[])</c> and disassembling it round-trips to those two spellings.
+    /// Collapsing them would emit IL that reassembles to the wrong type.
+    /// </summary>
+    [Fact]
+    public void DistinguishesARankOneMdArrayFromAVector()
+    {
+        Assert.Equal("int32[...]", ArrayShapeText.Format("int32", 1));
+    }
+
+    /// <summary>
+    /// Rank is an unsigned compressed integer that ECMA-335 II.23.2.13 requires to be positive,
+    /// so a zero rank is malformed metadata and gets the marker rather than a vector's spelling.
+    /// </summary>
+    [Fact]
+    public void MarksARankNoArrayCouldDeclare()
+    {
+        Assert.Equal("int32[/* invalid rank 0 */]", ArrayShapeText.Format("int32", 0));
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    [InlineData(1, true)]
+    [InlineData(32, true)]
+    [InlineData(33, false)]
+    [InlineData(536_870_911, false)]
+    public void IsLoadableRank_TracksTheCliLimit(int rank, bool expected)
+    {
+        Assert.Equal(expected, ArrayShapeText.IsLoadableRank(rank));
+    }
+
+    /// <summary>
+    /// <see cref="ArrayShapeText.FormatDimensions"/> is what the identity and display renderers
+    /// use, so its rank-1 spelling stays the empty string they already produced. The bound is the
+    /// part that matters there.
+    /// </summary>
+    [Theory]
+    [InlineData(1, "")]
+    [InlineData(2, ",")]
+    [InlineData(3, ",,")]
+    public void FormatDimensions_RendersLoadableRanks(int rank, string expected)
+    {
+        Assert.Equal(expected, ArrayShapeText.FormatDimensions(rank));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(33)]
+    [InlineData(536_870_911)]
+    public void FormatDimensions_BoundsRanksNoArrayCouldHave(int rank)
+    {
+        string rendered = ArrayShapeText.FormatDimensions(rank);
+
+        Assert.Equal($"/* invalid rank {rank} */", rendered);
+        Assert.True(
+            rendered.Length < 64,
+            $"expected a bounded rendering, got {rendered.Length} chars");
     }
 
     [Fact]

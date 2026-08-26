@@ -317,6 +317,100 @@ public class TypeRefDecoderRecursionTests
         Assert.Equal("Outer.Inner", nestedResult.ToDisplayString());
     }
 
+    // Rank drives work without consuming blob bytes in proportion to it: eight bytes declare
+    // ~536M dimensions. Every byte-oriented structural check admits the blob, so the decoder has
+    // to refuse the rank itself, and refuse it visibly rather than yielding a plausible TypeRef
+    // that every downstream renderer would then spell with a 536MB separator string.
+    [Fact]
+    public void HugeArrayRank_IsRejectedVisibly()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14); // ARRAY
+            signature.WriteByte(0x08); // I4
+            signature.WriteByte(0xdf); // compressed rank ~536M
+            signature.WriteByte(0xff);
+            signature.WriteByte(0xff);
+            signature.WriteByte(0xff);
+            signature.WriteByte(0x00); // 0 sizes
+            signature.WriteByte(0x00); // 0 lower bounds
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "array rank 536870911 is outside the loadable range 1..32",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+
+        // The rejection is the point: no decoded TypeRef carries a rank a renderer would
+        // materialize. Rendering the refusal stays proportional to the text.
+        Assert.True(
+            result.ToDisplayString().Length < 128,
+            $"expected a bounded rendering, got {result.ToDisplayString().Length} chars");
+    }
+
+    // The close negative: the largest rank the CLI can load still decodes exactly.
+    [Fact]
+    public void LargestLoadableArrayRank_StillDecodes()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14); // ARRAY
+            signature.WriteByte(0x08); // I4
+            signature.WriteByte(0x20); // rank 32
+            signature.WriteByte(0x00); // 0 sizes
+            signature.WriteByte(0x00); // 0 lower bounds
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Array, result.Kind);
+        Assert.Equal(32, result.Rank);
+        Assert.EndsWith(
+            $"[{new string(',', 31)}]",
+            result.ToDisplayString(),
+            StringComparison.Ordinal);
+    }
+
+    // Defense in depth for the synthesized path: TypeRef.MdArray is public, so a caller can build
+    // a hostile rank without going through the decoder. The renderers must not turn that into a
+    // rank-proportional allocation either.
+    [Fact]
+    public void SynthesizedHugeArrayRank_RendersBounded()
+    {
+        var hostile = TypeRef.MdArray(
+            TypeRef.CoreLib("System", "Int32"),
+            536_870_911);
+
+        foreach (string rendered in new[]
+        {
+            hostile.ToDisplayString(),
+            hostile.ToQualifiedDisplayString(),
+        })
+        {
+            Assert.Contains("invalid rank 536870911", rendered, StringComparison.Ordinal);
+            Assert.True(
+                rendered.Length < 128,
+                $"expected a bounded rendering, got {rendered.Length} chars");
+        }
+    }
+
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)
     {
         var metadata = new MetadataBuilder();

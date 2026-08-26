@@ -19,7 +19,9 @@ namespace ILInspector.Metadata;
 /// metadata rather than an exotic-but-real shape. Rendering it as a marker keeps the failure
 /// visible in the output — the alternative spellings either lie about the shape or allocate.
 /// </para>
-/// <c>ArrayShapeTextTests</c> gates it.
+/// <c>ArrayShapeTextTests</c> gates the spellings and the bound;
+/// <c>TypeRefDecoderRecursionTests</c> gates the Analysis decode boundary that keeps a hostile
+/// rank out of a <c>TypeRef</c> in the first place.
 /// </remarks>
 public static class ArrayShapeText
 {
@@ -29,11 +31,40 @@ public static class ArrayShapeText
     public const int MaxRenderableRank = 32;
 
     /// <summary>
-    /// <paramref name="elementType"/> followed by <paramref name="rank"/> bracketed dimensions,
-    /// or a marker when the rank could not belong to a loadable array.
+    /// Whether <paramref name="rank"/> could belong to an array the CLI can load. ECMA-335
+    /// II.23.2.13 encodes rank as an unsigned compressed integer and requires it to be positive,
+    /// so zero and negative ranks are malformed rather than merely exotic.
     /// </summary>
+    public static bool IsLoadableRank(int rank) => rank >= 1 && rank <= MaxRenderableRank;
+
+    /// <summary>
+    /// The text between the brackets of an <c>ELEMENT_TYPE_ARRAY</c> spelling, bounded by
+    /// <see cref="MaxRenderableRank"/>: the comma-separated dimension list for a loadable rank,
+    /// and a marker otherwise.
+    /// </summary>
+    /// <remarks>
+    /// This renders a rank-1 multi-dimensional array as the empty string, which spells it exactly
+    /// like a vector. Callers that must keep the two apart — IL-assembler syntax does — use
+    /// <see cref="Format"/> instead. Callers that produce identity strings or display text keep
+    /// this spelling, because it is what they already produced for rank 1 and changing it would
+    /// move identities rather than bound an allocation.
+    /// </remarks>
+    public static string FormatDimensions(int rank)
+        => IsLoadableRank(rank)
+            ? new string(',', rank - 1)
+            : $"/* invalid rank {rank} */";
+
+    /// <summary>
+    /// <paramref name="elementType"/> followed by its bracketed dimensions in IL-assembler
+    /// syntax, or a marker when the rank could not belong to a loadable array.
+    /// </summary>
+    /// <remarks>
+    /// ILAsm spells a rank-1 multi-dimensional array <c>int32[...]</c>, distinct from the vector
+    /// <c>int32[]</c> that <c>GetSZArrayType</c> renders; <c>ildasm</c> is the oracle for that
+    /// spelling. Collapsing the two would emit IL that round-trips to a different signature.
+    /// </remarks>
     public static string Format(string elementType, int rank)
-        => rank < 0 || rank > MaxRenderableRank
-            ? $"{elementType}[/* invalid rank {rank} */]"
-            : $"{elementType}[{new string(',', Math.Max(rank - 1, 0))}]";
+        => rank == 1
+            ? $"{elementType}[...]"
+            : $"{elementType}[{FormatDimensions(rank)}]";
 }
