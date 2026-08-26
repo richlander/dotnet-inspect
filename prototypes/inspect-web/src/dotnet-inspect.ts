@@ -771,6 +771,7 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.selectorKey,
     request.metadataToken,
     taste),
+  memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
   describeError: errorMessage,
   render,
@@ -1995,6 +1996,27 @@ function navMode() {
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
+function memberSourceHasConcreteOverload() {
+  const member = selectedMember(selectedType());
+  return Boolean(
+    member
+    && selectedConcreteOverload(
+      member.overloads,
+      state.selectedOverloadIndex));
+}
+
+function currentSourceOperationKind() {
+  return activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function currentSourceReloadKind() {
+  return sourceReloadKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
 function clearMemberContentCache() {
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
@@ -2489,7 +2511,7 @@ function render() {
 }
 
 function maybeAutoLoadVisibleSource() {
-  const kind = activeSourceOperationKind(state);
+  const kind = currentSourceOperationKind();
   if (kind === "graph") {
     if (state.graphSourceRequest
       && sourceRequestNeedsLoad(
@@ -6539,7 +6561,7 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
-  if (activeSourceOperationKind(state) !== "member") {
+  if (currentSourceOperationKind() !== "member") {
     render();
     return;
   }
@@ -6651,7 +6673,7 @@ function memberRequestIsCurrent(
 }
 
 async function loadSelectedTypeSource() {
-  if (activeSourceOperationKind(state) !== "type") {
+  if (currentSourceOperationKind() !== "type") {
     renderPreservingMemberFocus();
     return;
   }
@@ -6672,7 +6694,7 @@ async function loadSelectedTypeSource() {
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
     isVisible: () =>
-      activeSourceOperationKind(state) === "type"
+      currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
   });
 }
@@ -7929,7 +7951,7 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
-  switch (sourceReloadKind(state)) {
+  switch (currentSourceReloadKind()) {
     case "graph":
       if (state.graphSourceRequest) {
         observeAsync(

@@ -2481,7 +2481,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
   assert.match(
     appSource,
-    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
     typeSource,
     /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
@@ -2827,10 +2827,10 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
     appSource,
-    /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
+    /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
   assert.match(
     sourceInspectionSource,
-    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelSourceRequestState\(state\)/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
@@ -2838,14 +2838,14 @@ test("source operations cancel when superseded or hidden", () => {
   const reloadBody =
     appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
+  assert.match(reloadBody, /switch \(currentSourceReloadKind\(\)\)/);
   const autoLoadBody =
     appSource.match(
       /function maybeAutoLoadVisibleSource\(\)[\s\S]*?\n}\n\nfunction maybeAutoLoadTypeMetadata/)?.[0]
     ?? "";
   assert.match(
     autoLoadBody,
-    /const kind = activeSourceOperationKind\(state\)/);
+    /const kind = currentSourceOperationKind\(\)/);
   assert.match(autoLoadBody, /kind === "type"/);
   assert.match(autoLoadBody, /kind === "member"/);
   assert.match(autoLoadBody, /kind === "graph"/);
@@ -2912,6 +2912,22 @@ test("source operations cancel when superseded or hidden", () => {
       memberSection: "annotated"
     }),
     "annotated");
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "source"
+    }, false),
+    null);
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }, false),
+    null);
   assert.equal(
     sourceReloadKind({
       ...visible,
