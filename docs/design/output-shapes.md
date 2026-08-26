@@ -7,6 +7,11 @@ land on. Naming the ladder gives a shared vocabulary for the output flags
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
+The item-limit and multi-item print passages describe the approved
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
+released behavior. [Item and line limits](item-and-line-limits.md) records its
+implementation status and required gates.
+
 Related docs:
 
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
@@ -14,11 +19,12 @@ Related docs:
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [Command model](command-model.md) — command surface and shared options
+- [Item and line limits](item-and-line-limits.md) — the approved target for
+  `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
+  printable payloads
 - [The package query CLI](package-query-cli.md) — a facet-matched package
   corpus row applying this ladder's "declared row unit" discipline, and the
-  source of [#4677](https://github.com/richlander/dotnet-inspect/issues/4677),
-  a proposal to redefine this document's `-n`/rendered-line default as a
-  universal item-count flag instead
+  source of the item-limit design
 
 ## The shape ladder
 
@@ -44,16 +50,18 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, a tree, or a graph. Those are still "one section" — the
 Table rung — and they collapse to Scalars the same way. For a call graph, the
-declared row unit is a directed edge: `--count` counts relationships, and
-`--rows` selects the same ordered relationships whether the graph is rendered
-as a Markdown edge table, standalone tree, standalone Mermaid diagram, or
-tabular stream. Tree nodes are presentation context, not additional rows.
+declared row unit is a directed edge: `--count` counts relationships, `-n`
+limits them, and `--rows` selects an absolute range of the same ordered
+relationships whether the graph is rendered as a Markdown edge table,
+standalone tree, standalone Mermaid diagram, or tabular stream. Tree nodes are
+presentation context, not additional rows.
 `graph integrations` uses the same row contract: one row is one directed
 logical relationship. Its package groups and finer member/type nodes are
-presentation context, while `--count` and `--rows` count or select logical
-edges consistently across Markdown, tree, Mermaid, tabular, and structured
-output. Isolated explicit packages remain node/group context in graph and JSON
-views, but never become empty data rows in the default Markdown edge table.
+presentation context, while `--count`, `-n`, and `--rows` count, limit, or
+select logical edges consistently across Markdown, tree, Mermaid, tabular, and
+structured output. Isolated explicit packages remain node/group context in
+graph and JSON views, but never become empty data rows in the default Markdown
+edge table.
 `OutputModes_UseTheSameWindowedLogicalEdges` gates the rendered Markdown table
 row count against the selected logical-edge count.
 
@@ -203,18 +211,20 @@ modifier changes how a selected payload is rendered.
 
 ### Printable payload projections
 
-`--print` projects a selected row's declared printable payload. It is unary, but
-it does not mean "take the first row." Cardinality is resolved after section
-selection and filtering:
+The target contract from
+[Item and line limits](item-and-line-limits.md) makes `--print` a batch
+projection over the selected rows. Every selected row is projected to its
+declared printable payload:
 
-| Rendered rows | `--print` | `--print --row N\|first\|last` |
+| Selected rows | `--print` | `--print --row N\|first\|last` |
 | ---: | --- | --- |
 | 0 | Error: the selected section has no rows. | Error. |
-| 1 | Print the one payload. | Print that row by its number, `first`, or `last`; any other number is an error. |
-| More than 1 | Guidance error requiring `--row`. | Print exactly the selected row. |
+| 1 | Print the one payload. | Print the addressed row; any other number is an error. |
+| More than 1 | Print one framed or structured result per selected row. | Print exactly the addressed row. |
 
-`--print` resolves exactly one payload. There is no fan-out gesture: printing
-more than one document at a time is not currently expressible.
+`-n`, `--rows`, `--top`, and `--where` narrow the rows before projection.
+`--paths` and `--urls` project the same selected rows without acquiring their
+content.
 
 Numeric `--row N` addresses a row by its position in the rendered section,
 counting from 1. Sections do not print a row-number column, so N is the number
@@ -235,11 +245,11 @@ so nothing looks broken, and the reader has no way to recover the sequence being
 indexed. Addressing by rendered position can only ever hit the intended row or
 report a miss.
 
-Because `--print` is exactly-one, failing to acquire the selected row's payload
-is an error, not an omission: it reports the failure and exits non-zero rather
-than rendering an empty or short success. This covers acquisition for the
-selected row; whether a section producer declares a row at all is that
-producer's concern.
+Every selected print row emits a visible success or failure result. A row that
+does not declare a printable payload, or whose payload cannot be acquired, is
+not omitted. Other rows continue, and any failure makes the command exit
+non-zero. Normal text frames every result with typed row identity; JSONL and
+JSON-array output retain that identity in one complete object per row.
 
 A printed document is the document the package shipped. Markdown conventions --
 YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
@@ -282,26 +292,27 @@ any byte order mark it ships with. A caller printing a manifest in order to hash
 or diff it is asking for its bytes, and a document silently three bytes shorter
 than the one in the package is not that document.
 
-`-n N` and `--tail` are rendered-line windows applied after
-row cardinality is resolved and the payload is fetched. They do not
-select rows:
+`-n N` and bare `-N` are semantic item windows applied independently to each
+declared row set after filtering and ordering. `--tail` selects the last N
+items. Non-row sections remain unchanged:
 
 ```text
 --print -n 1
-  multi-row selection -> error; does not choose the first row
+  select the first printable row -> fetch and print its payload
 
---print --row 2 -n 20
-  select row 2 -> fetch one payload -> render its first 20 lines
+--print --rows 2..5 -n 20 --lines
+  select rows 2 through 5 -> fetch each payload -> render its first 20 lines
 ```
 
-`--rows <spec>` switches to per-table data-row windows and carries its own
-count, so three concerns stay on three flags: `--rows` sets the unit,
-its value sets the count or the rows, and `--head`/`--tail` set the direction.
+`--rows` carries only absolute row ranges:
 
-- `--rows 6` keeps the first six data rows; `--rows 6 --tail` keeps the last six.
 - `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
 - `--rows 2+10` keeps ten rows starting at row 2.
 - `--rows 10..` keeps row 10 through the last row.
+
+Count-form `--rows 6` and `--rows 6 --tail` retire in favor of `-n 6` and
+`-n 6 --tail`. A range may intersect an `-n` or `--top` result without
+renumbering stable row addresses.
 
 In `package --all-libraries`, singular sections retain one table per library
 for windowing even when a row format flattens them with provenance; aggregate
@@ -315,25 +326,21 @@ and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
 gate selected-row identity at the window boundary.
 
 A count and a range are different kinds, not two spellings of one: a count
-anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected
-rather than silently resolved. Bare `--rows` is an error — it once meant
-"interpret `-n` as rows", which put the count on a different flag than the unit.
+anchors to an end and a range does not. `--rows 2..10 --tail` is rejected
+unless `--tail` belongs to an independent `-n N --lines` window.
 
-Both row-window forms are incompatible with `--print`;
-`--row N|first|last` is the explicit row selector. The CLI implements
-both head and tail data-row windows symmetrically.
-
-This policy deliberately rejects implicit-first behavior. Row order may change
-with filtering, producer evolution, or package versions, and choosing the first
-row could silently fetch the wrong document. It also rejects implicit fan-out:
-one `--print` authorizes exactly one declared payload fetch.
+`--lines` changes the unit carried by `-n` from items to rendered lines. For an
+ordinary report it windows the report; for multi-item `--print` it windows each
+payload independently, excluding separators. `--tail-lines` is sugar for
+`--lines --tail`. A single `-n` cannot carry both an item count and a line
+count; use `--rows 1..M --print -n N --lines` when both dimensions are needed.
 
 Printability is a row capability, not a property implied by Table or Vector
-shape. `--print` may not:
+shape. Multi-item `--print` may not:
 
 - reinterpret an address row as the artifact at that address;
 - evaluate an unevaluated address;
-- change operation arity or primary-subject acquisition cardinality.
+- acquire content that the selected row did not declare.
 
 A version-address Vector is therefore not printable merely because each row
 could name a package. The explicit transition to that package artifact remains
@@ -403,13 +410,13 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   lens and a section selection are competing answers to *what am I looking at*,
   and silently honoring the lens hides that the selection did nothing.
 
-There is deliberately no lens for printing a document. A flag that renders one
-document is a second answer to *which document*, competing with the section the
-caller selected, and the two can disagree — which is exactly how a lens that
-printed the package README came to print the XML manifest through the README's
-Markdown pipeline. Printable documents are therefore reached only by selecting
-the section that lists them, and `--print` projects that section's rows like
-every other payload projection.
+There is deliberately no lens for printing documents. A flag that names a
+particular document is a second answer to *which documents*, competing with the
+section and row selectors, and the two can disagree — which is exactly how a
+lens that printed the package README came to print the XML manifest through the
+README's Markdown pipeline. Printable documents are therefore reached only by
+selecting the section that lists them, narrowing its rows, and applying
+`--print`.
 
 #### Payload stdout is visually encoded; exact export is explicit
 
@@ -419,17 +426,18 @@ folded and their rendering hazards (VT, ANSI escapes, bidi overrides, LS/PS)
 rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
 fence, a tree gutter, or a diagnostic line (issue #3319).
 
-Printing a document (`-S "Package README file" --print`) and `--content`
+Printing documents (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
-explicit file operation: add `--out <path>` to a selection that resolves one
-payload. An unscoped file export preserves the package bytes exactly, including
-encoding, byte order mark, and line endings; a Markdown scope exports that
-projected text. Terminal-facing output never emits a live control or bidi scalar
-from package content. Multi-file or multi-package `--content --out` is refused
-unless `--jsonl` selects the structured table shape; global selection
-cardinality is resolved before any selected payload is read, and the unique
-payload is read from the same retained package acquisition that supplied its
-selection metadata. Narrow it with `--path` for exact transfer.
+explicit unary file operation: add `--out <path>` to a selection that resolves
+one payload. An unscoped file export preserves the package bytes exactly,
+including encoding, byte order mark, and line endings; a Markdown scope exports
+that projected text. Terminal-facing output never emits a live control or bidi
+scalar from package content. Multi-item `--print --out` and multi-file or
+multi-package `--content --out` are refused unless a structured table shape
+owns the destination; global selection cardinality is resolved before any
+selected payload is read, and a unique exact payload is read from the same
+retained package acquisition that supplied its selection metadata. Narrow it
+with row or path selectors for exact transfer.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the encoded document
@@ -466,16 +474,16 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with `--rows`/`--compact` preserved. `find` and `vocabulary` currently wire the lowered path; `type` and `member` reject unsupported combinations, while some other paths still succeed after silently dropping the projection. The no-truncation target under #4677 is currently unverified; the required future `ProjectedJsonWindowingTests` gate owns it. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire the lowered path; `type` and `member` reject unsupported combinations, while some other paths still succeed after silently dropping the projection. Complete structured values under item and line limits remain unverified; `ProjectedJsonWindowingTests` and the gates in [Item and line limits](item-and-line-limits.md) own the target. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / numeric shorthand such as `-20` | keep the first N rendered output lines |
-| `-n N --tail` | keep the last N rendered output lines |
-| `--rows N` | keep the first N **data rows per table**, across Markdown, TSV, JSONL, and the lowered JSON view |
-| `--rows N --tail` | keep the last N **data rows per table** |
-| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those numbers name**, inclusive; absolute, so no direction applies |
-| `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
+| `-n N` / numeric shorthand such as `-20` | keep the first N declared items per row set |
+| `-n N --tail` | keep the last N declared items per row set |
+| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those stable numbers name**, inclusive; absolute, so no item direction applies |
+| `-n N --lines` | keep the first N lines of the rendered report, or of each multi-print payload |
+| `-n N --tail-lines` | keep the last N lines; sugar for `--lines --tail` |
+| `--bare` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
 `--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
@@ -670,15 +678,18 @@ location rather than a decorated snippet. Add `--out` for exact payload export.
 The stable vocabulary is:
 
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
-  single scalar count.
-- `--print` is an exactly-one row-payload projection: it never chooses the first
-  of multiple rows implicitly, does not make rows without a payload printable,
-  and does not evaluate new addresses.
-- `--head` / `--tail` name a direction, not a count. Outside `--rows` they
-  choose which end of the rendered lines `-n N` keeps; they do not select rows
-  or constrain payload acquisition.
-- `--rows` makes the window a first/last or absolute data-row window, but those
-  windows remain presentation limits rather than row selectors.
+  single scalar count. It rejects item and line windows rather than silently
+  ignoring them.
+- `-n N` / bare `-N` select the first N declared items per row set after
+  filtering and ordering. `--tail` reverses that item direction.
+- `--rows` selects absolute stable row ranges and carries no count-only form.
+- `--print` projects every selected row to one framed or structured
+  success/failure result. It neither invents printability nor evaluates new
+  addresses.
+- `--lines` changes the `-n` unit to rendered lines. For multi-item print the
+  line window applies independently to each payload.
+- `--head` / `--tail` name a direction, not a count. They modify the active
+  item or line window; they never modify an absolute row range.
 - `--row` addresses a rendered row by its position in the section, counting from
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no

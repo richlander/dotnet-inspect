@@ -20,7 +20,8 @@ dotnet-inspect vocabulary -S @Decompiler --count
 - Bare `vocabulary` renders the `Vocabulary Sections` index.
 - `-D` discovers sections, categories, and fields.
 - `-S` selects the values to materialize.
-- `--columns`, `--fields`, `--rows`, and `--count` narrow those values.
+- `--columns` and `--fields` project values, `--rows` selects an absolute
+  range, and `--count` collapses each row set to its cardinality.
 - Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
 
 The structured document carries a schema version. Every section declares its

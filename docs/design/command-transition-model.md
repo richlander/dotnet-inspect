@@ -217,8 +217,10 @@ package payloads. Once selected, the normal output-shape rules apply:
 | `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
-| `--print` | Resolve a printable payload already referenced by one selected row. | May fetch that declared payload at the same evaluated address; must not add or evaluate another source address. |
-| `-n N` / `--tail` | Clip rendered output lines after projection. | None. They do not select printable rows or limit payload fetches. |
+| `-n N` / `--tail` | Select the first/last N rows in the version Vector. | May stop natural-order metadata enumeration early; acquires zero package payloads by itself. |
+| `--rows N..M` | Select an absolute range of stable version rows. | May stop at a closed upper bound; acquires zero package payloads by itself. |
+| `--print` | Resolve every selected row's declared printable payload. | May fetch each declared payload at its already evaluated address; must not add or evaluate another source address. |
+| `-n N --lines` | Window each selected printable text payload after acquisition. | None. A line limit does not authorize partial acquisition. |
 
 Shape reducers do not revise operation arity. In particular:
 
@@ -227,24 +229,25 @@ Shape reducers do not revise operation arity. In particular:
   payloads";
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
-- `--print` is exactly-one, not implicit-first: one printable row prints
-  directly, multiple printable rows require `--row N|first|last`, and zero
-  printable rows reject. There is no fan-out gesture, so a single `--print`
-  authorizes at most one declared payload fetch;
-- `-n N` and `--tail` run after print selection and fetching, so
-  `--print -n 1` does not select the first printable row;
-- `--rows N`, `--rows N --tail`, and `--rows N..M` are table-row rendering
-  windows and remain incompatible with `--print`;
-  `--row N|first|last` selects exactly one printable row;
+- `--print` projects every selected printable row and may therefore fetch more
+  than one declared payload, but it still cannot evaluate a version address
+  that the operation did not already select;
+- `-n N` and `--rows N..M` select rows before `--print`, while
+  `--row N|first|last` remains the exactly-one address;
+- `-n N --lines` runs after selected payload acquisition and applies per
+  payload, so it does not reduce the authorized fetch set;
+- any selected non-printable or failed payload remains a visible failure row,
+  successful siblings continue, and the overall exit is nonzero;
 - a plain version string has no printable document. `--print`
-  must report that the selected shape is not printable rather than silently
-  transition from version-address rows to package artifact inspection. The
-  explicit transition remains `package Package@version`.
+  reports one failure for that selected row rather than silently transitioning
+  from version-address rows to package artifact inspection. The explicit
+  transition remains `package Package@version`.
 
-The same rule applies to `timeline`. `--count` can reduce an already
-assembled Timeline table; it cannot probe additional cells. `--print` can print
-only payloads already carried or explicitly referenced by evaluated rows; it
-cannot turn unevaluated rows into implicit acquisition.
+The same rule applies to `timeline`. `--count` can reduce an already assembled
+Timeline table; it cannot probe additional cells and rejects item/range
+windows. `--print` can print only payloads already carried or explicitly
+referenced by evaluated rows; it cannot turn unevaluated rows into implicit
+acquisition.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored

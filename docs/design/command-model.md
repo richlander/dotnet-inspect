@@ -67,7 +67,8 @@ Start with a package, drill down into details:
 dotnet-inspect package Newtonsoft.Json             # metadata
 dotnet-inspect package Newtonsoft.Json -S Signals  # signals
 dotnet-inspect type JsonConvert --package Newtonsoft.Json --shape
-dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject
+dotnet-inspect member JsonConvert --package Newtonsoft.Json \
+  --member SerializeObject
 ```
 
 ### Platform-centric workflow
