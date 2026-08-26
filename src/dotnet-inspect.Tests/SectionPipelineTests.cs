@@ -7077,7 +7077,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void BroadMemberPipeline_AddsFixedExplicitMemberInfoOnlyInThatContext()
+    public void BroadMemberPipeline_AddsMemberInfoAndCallerLensToTypePipeline()
     {
         var broad = ApiMemberSectionPipelines.Create(new MemberOptions());
         var type = ApiMemberSectionPipelines.Create(new TypeOptions());
@@ -7092,8 +7092,13 @@ public class SectionPipelineTests
         });
 
         Assert.Equal(
-            type.AllSectionNames.Length + 1,
-            broad.AllSectionNames.Length);
+            [
+                SectionNames.MemberInfo,
+                SectionNames.Callers
+            ],
+            broad.AllSectionNames.Except(
+                type.AllSectionNames,
+                StringComparer.OrdinalIgnoreCase));
         Assert.Equal(
             [SectionNames.TypeInfo, SectionNames.MemberInfo],
             broad.FixedOverviewSectionNames);
