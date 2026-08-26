@@ -10,8 +10,8 @@ redefine:
 
 - the Finding and annotation semantics in
   [Hidden-Fact Annotations](hidden-fact-annotations.md);
-- the evidence coordinates in
-  [Annotated Source Finding Provenance](annotated-source-finding-provenance.md);
+- the evidence-coordinate semantics in
+  [Finding Coordinates](finding-coordinates.md);
 - the terminal caret layout in [Caret Stacking](caret-stacking.md); or
 - the workspace identity and acquisition rules in
   [Inspection Space Architecture](../inspection-space.md).
@@ -25,11 +25,13 @@ Annotated Source has three surfaces with increasing disclosure:
 
 1. **Embedded reader** — the default member experience. It shows the canonical
    signature, C# source, and the default anchored annotations without the
-   explorer's control and inspector chrome. A prominent **Explore** action
-   opens the full experience.
+   explorer's persistent controls and inspector chrome. Finding evidence chips
+   and their transient evidence peek remain available. A prominent **Explore**
+   action opens the full experience.
 2. **Full explorer** — the source, annotation controls, structural controls,
-   evidence details, and explicit navigation actions. It is a durable workspace
-   view, not a modal whose existence is invisible to navigation and URLs.
+   source-node selection, persistent evidence details, and explicit navigation
+   actions. It is a durable workspace view, not a modal whose existence is
+   invisible to navigation and URLs.
 3. **Facts** — the structured projection over the same typed Finding
    identities. Bidirectional selection between Facts and Annotated Source is a
    later capability; neither surface may reconstruct or loosely match the
@@ -57,7 +59,8 @@ The visual treatment communicates the interaction contract:
 - Inert metadata is a **label**, not a chip, and must not use the chip treatment.
 - A **toggle chip** changes visibility and exposes `aria-pressed`.
 - A **selection chip** selects or focuses the identity it names.
-- An **evidence chip** opens evidence for the Finding it names.
+- An **evidence chip** makes its Finding primary and opens that Finding's
+  evidence as one inspect transition.
 - A **destination action** names where it goes, such as **Member** or
   **Source**. A generic **Navigate** action is prohibited.
 
@@ -67,21 +70,33 @@ indistinguishable.
 
 ### Click and keyboard matrix
 
-| Affordance | Default | Activation |
-| --- | --- | --- |
-| Ordinary source text | Visible | Native text selection only |
-| Addressable source span | Visually ordinary | Selects the tightest product-issued node at that span |
-| Invocation source span | Visually ordinary | Selects its exact `InvocationExpression`; does not navigate |
-| Structural CodeLens chip | Off | Selects and reveals the named structural node |
-| Finding annotation chip | On when its anchored Finding is in the default set | Opens that Finding's evidence |
-| Finding toggle chip | Full explorer only | Adds or removes that Finding's source annotation |
-| Node selection chip | Full explorer only | Selects or focuses that exact node |
-| **Member** destination | After selecting an invocation or remote Finding | Opens the target member overview |
-| **Source** destination | After selecting an invocation or remote Finding | Opens the target member source |
-| Copy action | Where the copied identity is visible | Copies exactly the identity or source named by the action |
+| Affordance | Surface | Availability | Activation |
+| --- | --- | --- | --- |
+| Ordinary source text | Both | Visible | Native text selection only |
+| Addressable source span | Full | Visually ordinary | Selects the tightest product-issued node at that span |
+| Invocation source span | Full | Visually ordinary | Selects its exact `InvocationExpression`; does not navigate |
+| Structural CodeLens chip | Full | Off by default | Selects and reveals the named structural node |
+| Finding annotation chip | Both | Its anchored Finding is active | Makes the Finding primary and opens its evidence |
+| Finding toggle chip | Full | Inspector control | Adds or removes that Finding's source annotation |
+| Node selection chip | Full | Inspector control | Selects or focuses that exact node |
+| **Member** destination | Full | Primary has one actionable member target | Opens that target's member overview |
+| **Source** destination | Full | Primary has one actionable source target | Opens that target's member source |
+| Copy action | Both | Copied identity is visible | Copies exactly the identity or source named by the action |
 
 Pointer and keyboard activation have identical effects. Dragging a text
 selection never activates the source span beneath it.
+
+Invocation hit testing takes precedence over generic addressable-node hit
+testing: activating anywhere within a product-issued `InvocationExpression`
+selects that invocation. Nested nodes within it remain selectable through
+explicit structural controls. Outside an invocation, source activation selects
+the tightest product-issued node at that span.
+
+Destination availability comes only from one owner-issued actionable target on
+the primary selection. Unresolved or ambiguous invocations and aggregate
+Findings expose no destination action. When the owner supplies an unavailable
+or ambiguous result, the inspector reports that result as a label rather than
+inventing a target or rendering a disabled success-shaped action.
 
 The selected-node annotation beneath source is descriptive. If it is inert, it
 is rendered as plain metadata rather than as a chip. If it is retained as a
@@ -90,9 +105,9 @@ it never acquires an implicit navigation destination.
 
 ## Which annotations appear
 
-### Default
+### Initial presentation
 
-The default preset is deliberately useful without configuration:
+The initial presentation is deliberately useful without configuration:
 
 - C# is visible.
 - The canonical member signature precedes the body.
@@ -105,7 +120,7 @@ The default preset is deliberately useful without configuration:
 - Unanchored Findings remain discoverable in the full inspector but cannot be
   drawn against invented source coordinates.
 
-### Opt-in
+### Opt-in presentation
 
 These layers are off by default:
 
@@ -126,25 +141,32 @@ candidates while the structural layer is enabled.
 
 ## State model
 
-The explorer keeps these concepts separate:
+Both Annotated Source surfaces keep these concepts separate:
 
 - **Primary selection** — at most one node or Finding owns inspector detail and
   destination actions.
 - **Active annotations** — zero or more Finding, structure, or capture
   annotations may remain visible.
 - **Evidence peek** — at most one transient evidence surface is open.
-- **Presentation** — visible media, offset visibility, and the annotation
-  preset.
+- **Presentation** — visible media and offset visibility.
+- **Reported annotation state** — Default, All, Clear, or Custom, derived from
+  the active annotation set.
 - **Workspace view** — package, type, member, overload, section, and embedded
   versus full Annotated Source mode.
 
-Multiple annotations may remain active while the latest activation becomes the
-primary selection. Implementations must not infer the primary selection from
-array order; it is explicit state.
+Activating an evidence chip makes its Finding primary and opens its evidence
+peek. Activating a node selection makes that node primary and closes a Finding
+evidence peek. Visibility toggles do not change primary selection unless they
+remove the primary Finding; that transition clears both the primary selection
+and its peek.
+
+Multiple annotations may remain active while one explicit primary selection
+owns detail. Implementations must not infer it from active-annotation array
+order.
 
 ### Default, All, and Clear
 
-The full explorer exposes three annotation presets:
+The full explorer exposes three annotation-set commands:
 
 - **Default** restores the default annotation set and clears transient
   selection and evidence state.
@@ -153,15 +175,23 @@ The full explorer exposes three annotation presets:
 - **Clear** removes active annotations, selection, and evidence peeks. It does
   not hide the source or reset presentation preferences.
 
-When individual toggles diverge from **Default** or **All**, the UI reports a
-custom state. C#/IL and offset controls remain orthogonal to these presets.
+The reported annotation state is derived from the effective set, not the last
+command. **Default** wins when the set equals the default set. Otherwise,
+**All** applies when the set equals every available annotatable layer,
+**Clear** applies when it is empty, and **Custom** applies to every other set.
+This precedence handles documents whose Default, All, or empty sets overlap.
+C#/IL and offset controls remain orthogonal to these commands and states.
 
 ## Navigation and durable state
 
 Annotated Source participates in the workspace navigation model rather than
 maintaining an unrelated modal history.
 
-- Opening the full explorer records a full-mode workspace view.
+- Opening the full explorer replaces the current history entry with the
+  full-mode workspace view; it does not push an entry.
+- Exiting the full explorer through Escape replaces that entry with the
+  embedded-mode workspace view. This also applies to a direct full-mode link,
+  including when it is the first history entry.
 - **Member** and **Source** navigation records the current view before moving.
 - Back from a destination restores the originating package, type, member,
   overload, Annotated Source section, and full explorer mode.
@@ -206,10 +236,11 @@ focus to a surviving, semantically equivalent control.
 ## Source presentation
 
 Source text does not use underlines as persistent interaction decoration.
-Invocation availability, Finding availability, active selection, capture
-scope, and structure must use distinct non-underline treatments such as tint,
-gutter marks, weight, or explicit annotation rows. Hover and focus states may
-increase contrast but must not introduce a different action.
+Addressable-node and invocation availability remains visually ordinary. Hover
+and keyboard focus may reveal the available selection action. Active selection,
+visible Finding annotations, capture scope, and structure use distinct
+non-underline treatments such as tint, gutter marks, weight, or explicit
+annotation rows. Hover and focus states must not introduce a different action.
 
 The explicit caret rows used to connect a visible annotation label to an exact
 extent are annotation geometry, not a text-decoration underline. They appear
@@ -241,8 +272,10 @@ unavailable; Annotated Source does not synthesize a substitute table.
 
 Allocation Findings use the same path as every other Finding. They are not a
 special browser heuristic and are not inferred from `new`, `box`, or rendered
-C#. A compiled fixture with known allocation Findings must gate their presence
-in the default embedded reader and the full explorer.
+C#. A compiled fixture with known allocation Findings gates their presence in
+the initial embedded reader and the full explorer. A close-negative fixture
+with allocation-like syntax but no product-issued allocation Finding gates
+their absence.
 
 ## Current implementation gaps
 
@@ -252,33 +285,46 @@ accepted as a named follow-up.
 
 | Area | Current behavior | Target |
 | --- | --- | --- |
-| Embedded reader | A hand-off card hides all annotated source | Signature, C#, and default Findings are visible with a prominent **Explore** action |
+| Embedded reader | A hand-off card hides all annotated source | Signature, C#, default Finding evidence chips, transient evidence peek, and a prominent **Explore** action |
 | Chip vocabulary | Some pill-shaped labels are inert; actions use several unrelated verbs | Every chip is actionable and every action follows the click matrix |
-| Invocation navigation | Explicit **Member**/**Source** exists only after selection | Keep explicit destinations; remove every generic navigation action |
-| Defaults | C# and all anchored facts start active; structural CodeLens also starts on | Findings default on; structure, captures, IL, and coordinates opt in |
-| Presets | One **clear** action combines several state changes | Separate **Default**, **All**, and **Clear** annotation semantics |
-| History | Full mode is local modal state outside `WorkspaceView` | Full mode round-trips through history and workspace packets |
+| Invocation navigation | Explicit **Member**/**Source** exists only after selection | Keep explicit destinations for one actionable typed target; unresolved, ambiguous, and aggregate selections expose none |
+| Finding primary state | Evidence and annotation arrays can imply selection indirectly | Evidence activation establishes one explicit primary Finding; toggles do not |
+| Initial presentation | C# and all anchored facts start active; structural CodeLens also starts on | Findings start on; structure, captures, IL, and coordinates start off |
+| Annotation commands | One **clear** action combines several state changes | Separate **Default**, **All**, and **Clear** commands with derived-state precedence |
+| History | Full mode is local modal state outside `WorkspaceView` | Embedded/full transitions replace the current entry; destinations round-trip the originating full view |
 | Escape | Browser popovers and the explorer can compete with workspace Escape | Topmost transient surface closes first |
-| Source decoration | Invocation and other states use persistent underlines | No persistent source-text underlines |
+| Source decoration | Invocation and other states use persistent underlines | Availability is ordinary; active states use distinct non-underline treatments |
 | Coordinates | Node chips always show ranges and IL offsets | Coordinates are explicit and off by default |
 | Facts | The browser Facts query is visibly unsupported | Preserve shared identities; add bidirectional projection later |
-| Allocations | Presence in the experience is not proven | Default visibility is compiler-fixture gated |
+| Allocations | Presence and provenance in the experience are not proven | Product-issued presence and syntax-only absence are compiler-fixture gated |
 | Signature | Annotated Source begins at the body | Reuse the canonical Source signature |
 
 ## Validation contract
 
 The interaction model requires:
 
-- a markup/action matrix test proving every chip-shaped element is a button with
-  exactly one documented verb;
-- default, all, clear, and custom-state tests;
+- surface-specific markup/action matrix tests proving every chip-shaped element
+  is a button with exactly one documented verb;
+- embedded-reader tests proving evidence interaction is available while
+  source-node selection and destination actions are absent;
+- invocation hit tests proving invocation precedence over nested nodes;
+- destination-action tests for one actionable typed target, plus unresolved,
+  ambiguous, and aggregate close negatives;
+- primary-state tests with multiple active annotations proving evidence and
+  node selection transitions are explicit and toggles are independent;
+- Default, All, Clear, and Custom derived-state tests, including overlapping
+  effective-set precedence;
 - close negative cases proving opt-in layers are absent by default;
-- browser history and workspace-packet round trips for embedded and full mode;
+- browser history and workspace-packet round trips for embedded and full mode,
+  including Explore/Escape replacement from the first history entry;
 - a real-browser back/forward test after **Member** and **Source** navigation;
 - layered Escape and focus-restoration tests;
+- a real-browser drag-selection negative proving pointer movement selects text
+  without activating its source span;
 - a style gate rejecting persistent source-text underlines;
 - offset-off and offset-on rendering tests;
-- a compiler-produced allocation fixture in the default reader and explorer;
+- a compiler-produced allocation Finding fixture in both surfaces and an
+  allocation-like-syntax fixture with no Finding in either surface;
 - signature parity with the Source view; and
 - identity-preserving Facts integration tests when that capability is enabled.
 
