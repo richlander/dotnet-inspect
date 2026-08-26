@@ -87,6 +87,21 @@ public class LoweredFidelityGateTests
         // #2857's valid while-loop fallback. The explicit default declaration
         // before initialization adds an opcode pair on compile-back.
         "Issue2861_NestedProtectedLeaveToOuterIncrement",
+        // #3924 corrected the compile-back harness's product-owned whole-member
+        // replacement to preserve the requested lowered view. These rows had
+        // been promoted to PinnedExact after #3584 while that replacement
+        // silently rendered raised C#, so the gate was measuring the wrong
+        // altitude. With the actual lowered view, omitting ForLoopPass leaves
+        // explicit default declarations in the four protected-loop rows, and
+        // omitting IncrementDecrementPass leaves explicit spill temporaries in
+        // ReverseCopy and WhileNestedContinueKeepsArmExclusive. Their shipped
+        // raised-view fixes remain pinned in FidelityGateTests.
+        "Issue2830_ForLoopEhCleanupContinue",
+        "Issue2830_ForLoopLeave",
+        "Issue2830_ForLoopNestedContinue",
+        "Issue2861_ForLoopTryAndCatchContinues",
+        "ReverseCopy",
+        "WhileNestedContinueKeepsArmExclusive",
         // CharConditionalElementStore (#1784): a pre-existing slow-docket gap from
         // recent main merges (a char ternary element store that spills to temps),
         // an honest valid re-lowering. Surfaced by running the Speed=Slow gate
@@ -205,25 +220,18 @@ public class LoweredFidelityGateTests
         "ClassifyWide",
         "AnonShorthand",
         // Promoted from KnownDiffs by #3584 after they were measured Exact on the
-        // current main. The local-function/lambda rows are the benign
+        // current main. The remaining local-function/lambda rows are the benign
         // reconstruction-ordinal class that #3505 retired by canonicalizing
         // synthesized-member ordinals in the oracle — the outcome this rail's
-        // ordinal comment anticipated when it pointed at #3503. The Issue2830_* /
-        // Issue2861_ForLoopTryAndCatchContinues rows became exact through the
-        // try/catch return-sinking work (#3553), and the rest through unrelated
-        // raising. They are pinned rather than merely deleted so each fix is now
-        // guarded: a docket row that stops diffing gates nothing, a PinnedExact
-        // row does.
+        // ordinal comment anticipated when it pointed at #3503. They are pinned
+        // rather than merely deleted so each fix is now guarded: a docket row
+        // that stops diffing gates nothing, while a PinnedExact row does.
         "CallOutTarget",
         "CollectionListLiteral",
         "DoubleViaLocalFunction",
         "EnumArgInInlineLocalFunction",
         "EnumArgInLocalFunctionWithLocal",
         "GenericRefKindCallSites",
-        "Issue2830_ForLoopEhCleanupContinue",
-        "Issue2830_ForLoopLeave",
-        "Issue2830_ForLoopNestedContinue",
-        "Issue2861_ForLoopTryAndCatchContinues",
         "ManualParameterPlusConstantFactory",
         // #3502: the late inliner now restores an ordered run of stack-held
         // arguments directly into a returned call. Pin the intended comparison
@@ -245,13 +253,11 @@ public class LoweredFidelityGateTests
         "OrBoolUintMix",
         "RecursiveLocalFunction",
         "RefKindCallSites",
-        "ReverseCopy",
         "SelectBoolReturn",
         "SimpleExpressionTreeLambda",
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
         "TwoLocalFunctionQuadrants",
-        "WhileNestedContinueKeepsArmExclusive",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
