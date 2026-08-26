@@ -53,13 +53,13 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_UsesContextNamingPolicyForFixtureProperties()
+    public void Emit_UsesReadonlyPropertiesWithContextNamingPolicy()
     {
         string dts = EmitFixtureDts();
 
-        Assert.Contains("  name: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  count: number;", dts, StringComparison.Ordinal);
-        Assert.Contains("  displayName: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly count: number;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly displayName: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -68,19 +68,36 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDts(includeAll: true);
 
         Assert.Contains("export interface InternalContextPascalWidget {", dts, StringComparison.Ordinal);
-        Assert.Contains("  Name: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  Count: number;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly Name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly Count: number;", dts, StringComparison.Ordinal);
         Assert.Contains("export interface InternalContextCamelWidget {", dts, StringComparison.Ordinal);
-        Assert.Contains("  name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly name: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Emit_MapsArrayAndNullableRecordProperties()
+    public void Emit_MapsWireCollectionsToReadonlyTypes()
     {
         string dts = EmitFixtureDts();
 
-        Assert.Contains("  tags: number[];", dts, StringComparison.Ordinal);
-        Assert.Contains("  owner: WidgetOwner | null;", dts, StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface WidgetDto {
+              readonly name: string;
+              readonly count: number;
+              readonly tags: ReadonlyArray<number>;
+              readonly owner: WidgetOwner | null;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface WidgetCatalog {
+              readonly ownersByKey: Readonly<Record<string, WidgetOwner>>;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -91,8 +108,8 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface ByteEnvelopeDto {
-              content: string;
-              payload: BytePayloadDto;
+              readonly content: string;
+              readonly payload: BytePayloadDto;
             }
             """,
             dts,
@@ -100,7 +117,7 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface BytePayloadDto {
-              content: string;
+              readonly content: string;
             }
             """,
             dts,
@@ -131,6 +148,21 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_LeavesDirectInteropArraysMutable()
+    {
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export declare function echoBytes(value: number[]): number[];",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "echoBytes(value: ReadonlyArray<number>)",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_MapsPrimitiveArrayAndClosedGenericWireRoots()
     {
         string dts = EmitFixtureDtsWithWireContracts();
@@ -140,7 +172,7 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function getRegisteredIntArray(): number[];",
+            "export declare function getRegisteredIntArray(): ReadonlyArray<number>;",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -152,12 +184,12 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function getRegisteredDecimalArray(): number[];",
+            "export declare function getRegisteredDecimalArray(): ReadonlyArray<number>;",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
             "export declare function getClosedGenericRoot(): "
-                + "Record<string, ClosedGenericRootDto>;",
+                + "Readonly<Record<string, ClosedGenericRootDto>>;",
             dts,
             StringComparison.Ordinal);
     }
@@ -187,8 +219,8 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface ContextSerializationOnlyDto {
-              Name: string;
-              ServerNote: string;
+              readonly Name: string;
+              readonly ServerNote: string;
             }
             """,
             dts,
@@ -266,7 +298,7 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
-        Assert.Contains("  Bytes: unknown;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly Bytes: unknown;", dts, StringComparison.Ordinal);
         Assert.Contains(
             "export declare function echo(value: unknown): unknown;",
             dts,
@@ -508,7 +540,7 @@ public sealed class DtsEmitterTests
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function getWidgetArray(): WidgetDto[];",
+            "export declare function getWidgetArray(): ReadonlyArray<WidgetDto>;",
             dts,
             StringComparison.Ordinal);
     }
@@ -1179,7 +1211,7 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
-        Assert.Contains("  Values: unknown;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly Values: unknown;", dts, StringComparison.Ordinal);
         Assert.Single(diagnostics.UnmappedTypes);
     }
 
@@ -1324,9 +1356,9 @@ public sealed class DtsEmitterTests
     {
         string dts = EmitFixtureDts(includeAll: true);
 
-        Assert.Contains("  wire_name: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  \"display-name\": string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  \"\": string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly wire_name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly \"display-name\": string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly \"\": string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("ignoredAtWire", dts, StringComparison.Ordinal);
     }
 
@@ -1745,7 +1777,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(surface);
 
         Assert.Contains(
-            "\"left\\u202Eright\": string;",
+            "readonly \"left\\u202Eright\": string;",
             dts,
             StringComparison.Ordinal);
         Assert.DoesNotContain('\u202E', dts);
@@ -1780,7 +1812,7 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface);
 
-        Assert.Contains($"  {expectedKey}: string;", dts, StringComparison.Ordinal);
+        Assert.Contains($"  readonly {expectedKey}: string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain($"\"{expectedKey}\"", dts, StringComparison.Ordinal);
     }
 
@@ -1803,7 +1835,7 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface);
 
-        Assert.Contains("  Included: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly Included: string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("Excluded", dts, StringComparison.Ordinal);
     }
 
@@ -2067,7 +2099,7 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface);
 
-        Assert.Contains("  Value: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly Value: string;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "not_the_property_name",
             dts,
@@ -2107,7 +2139,7 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface);
 
-        Assert.Contains("  child: NestedDto;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly child: NestedDto;", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("StaticChild", dts, StringComparison.Ordinal);
     }
 
@@ -2134,7 +2166,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(surface);
 
         Assert.Contains(
-            "  Child: JsonIncludedFieldNestedFixture;",
+            "  readonly Child: JsonIncludedFieldNestedFixture;",
             dts,
             StringComparison.Ordinal);
     }
@@ -2165,8 +2197,8 @@ public sealed class DtsEmitterTests
         Assert.DoesNotContain("SetterOnlyAtWire", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("NoGetter", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
-        Assert.Contains("  IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  PublicGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly PublicGetter: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2222,8 +2254,8 @@ public sealed class DtsEmitterTests
 
         Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("IncludedPrivateField", dts, StringComparison.Ordinal);
-        Assert.Contains("  IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  IncludedInternalField: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedInternalField: string;", dts, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -2364,9 +2396,9 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface DirectionalOutputDto {
-              name: string;
-              serverNote: DirectionalNote | null;
-              alwaysPresent: string;
+              readonly name: string;
+              readonly serverNote: DirectionalNote | null;
+              readonly alwaysPresent: string;
             }
             """,
             dts,
@@ -2381,8 +2413,8 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface DirectionalInputDto {
-              name: string;
-              clientSecret: string;
+              readonly name: string;
+              readonly clientSecret: string;
             }
             """,
             dts,
@@ -2397,8 +2429,8 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface DirectionalSharedInputDto {
-              value: number;
-              secret: string;
+              readonly value: number;
+              readonly secret: string;
             }
             """,
             dts,
@@ -2421,9 +2453,9 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface DirectionalAccessorInputDto {
-              id: number;
-              privateGetter: string;
-              writeOnly: string;
+              readonly id: number;
+              readonly privateGetter: string;
+              readonly writeOnly: string;
             }
             """,
             dts,
@@ -2645,7 +2677,7 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             """
             export interface DirectionalNote {
-              text: string;
+              readonly text: string;
             }
             """,
             dts,

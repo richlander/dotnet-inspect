@@ -2429,7 +2429,7 @@ test("call graph request coordination stays outside the composition root", () =>
 test("typeless member lookup and request guards stay empty", () => {
   assert.match(
     appSource,
-    /function memberGroups\([\s\S]*type: BrowserTypeSurface \| null \| undefined,[\s\S]*for \(const member of \(type\?\.api \?\? \[\]\) as AppMemberSurface\[\]\)/);
+    /function memberGroups\([\s\S]*type: AppTypeSurface \| null \| undefined,[\s\S]*for \(const member of type\?\.api \?\? \[\]\)/);
   assert.match(
     appSource,
     /function memberRequestIsCurrent\([\s\S]*const type = selectedType\(\);\s*if \(!type\) return false;\s*const member = selectedMember\(type\)/);
@@ -3872,7 +3872,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /const hasSelectedBody = bodyTargetMatchesOverload\([\s\S]*?memberSectionIdsFor\(\s*group,\s*state\.package\?\.isRuntimePack,\s*hasSelectedBody\)/);
   assert.match(
     appSource,
-    /function renderMember\(type: BrowserTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?const hasSelectedOverload =[\s\S]*?selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? selectedOverloadIndex \?\? 0 : 0;/);
+    /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?const hasSelectedOverload =[\s\S]*?selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? selectedOverloadIndex \?\? 0 : 0;/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {

@@ -96,10 +96,13 @@ import {
 } from "./workbench-keybindings.ts";
 import {
   createNuGetPackageModel,
+  createAppMemberSurface,
   createPackageAcquisition,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
+  type AppMemberSurface,
   type AppPackage,
+  type AppTypeSurface,
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
@@ -396,16 +399,6 @@ interface AppMemberGroup {
   overloads: AppMemberSurface[];
 }
 
-interface AppMemberSurface extends BrowserMemberSurface {
-  documentationLoaded?: boolean;
-  graphOnly?: boolean;
-  graphTarget?: BodyTarget;
-}
-
-interface AppTypeSurface extends BrowserTypeSurface {
-  api: AppMemberSurface[];
-}
-
 function loadStoredTaste() {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
@@ -473,8 +466,8 @@ type RetryAction = (() => void | Promise<unknown>) | null;
 
 interface SpotlightCache {
   signature: string;
-  pool: Array<{ pkg: AppPackage; type: BrowserTypeSurface }>;
-  keyMap: Map<string, { pkg: AppPackage; type: BrowserTypeSurface }>;
+  pool: Array<{ pkg: AppPackage; type: AppTypeSurface }>;
+  keyMap: Map<string, { pkg: AppPackage; type: AppTypeSurface }>;
   candidatesJson: string;
 }
 
@@ -482,7 +475,7 @@ type HighlightRange = readonly [start: number, end: number];
 
 interface SpotlightMemberCandidate {
   pkg: AppPackage;
-  type: BrowserTypeSurface;
+  type: AppTypeSurface;
   memberKey: string;
   name: string;
   kind: string;
@@ -1786,10 +1779,10 @@ function typeGroups() {
 }
 
 function memberGroups(
-  type: BrowserTypeSurface | null | undefined,
+  type: AppTypeSurface | null | undefined,
 ): AppMemberGroup[] {
   const groups = new Map<string, AppMemberGroup>();
-  for (const member of (type?.api ?? []) as AppMemberSurface[]) {
+  for (const member of type?.api ?? []) {
     const key =
       `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
@@ -1818,33 +1811,33 @@ function resetMemberFilters() {
   state.memberTextFilter = "";
 }
 
-function visibleMemberGroups(type: BrowserTypeSurface) {
+function visibleMemberGroups(type: AppTypeSurface) {
   return filterMemberGroups(publicMemberGroups(type), memberFilterState());
 }
 
-function publicMemberGroups(type: BrowserTypeSurface) {
+function publicMemberGroups(type: AppTypeSurface) {
   return searchableMemberGroups(memberGroups(type));
 }
 
-function selectedGraphMemberGroup(type: BrowserTypeSurface) {
+function selectedGraphMemberGroup(type: AppTypeSurface) {
   return memberGroups(type).find(group =>
     group.key === state.selectedMemberKey
     && group.overloads.some(overload => overload.graphOnly));
 }
 
 function memberSelectionIsAvailable(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   visible: readonly { key: string }[],
 ) {
   return visible.some(group => group.key === state.selectedMemberKey)
     || selectedGraphMemberGroup(type) != null;
 }
 
-function memberKinds(type: BrowserTypeSurface) {
+function memberKinds(type: AppTypeSurface) {
   return [...new Set(publicMemberGroups(type).map(group => group.kind))];
 }
 
-function memberAccessibilities(type: BrowserTypeSurface) {
+function memberAccessibilities(type: AppTypeSurface) {
   const values = new Set(
     publicMemberGroups(type)
       .flatMap(group => group.overloads)
@@ -1856,14 +1849,14 @@ function memberAccessibilities(type: BrowserTypeSurface) {
     ].includes(value)).sort());
 }
 
-function availableMemberTraits(type: BrowserTypeSurface) {
+function availableMemberTraits(type: AppTypeSurface) {
   const publicMembers =
     publicMemberGroups(type).flatMap(group => group.overloads);
   return MEMBER_TRAITS.filter(([property]) =>
     publicMembers.some(member => member[property]));
 }
 
-function renderMemberFilterControls(type: BrowserTypeSurface) {
+function renderMemberFilterControls(type: AppTypeSurface) {
   const groups = publicMemberGroups(type);
   const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
@@ -1934,7 +1927,7 @@ function renderMemberComposition(type: AppTypeSurface) {
     ${traits ? `<div class="composition-filters" aria-label="Browse members by trait">${traits}</div>` : ""}`;
 }
 
-function selectedMember(type: BrowserTypeSurface | null | undefined) {
+function selectedMember(type: AppTypeSurface | null | undefined) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
@@ -2101,7 +2094,7 @@ function applyMemberSection(id: MemberSection) {
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
 // graph-only target, with active overloads nested beneath their group. This is the exact
 // list ↑/↓ walks.
-function memberNavEntries(type: BrowserTypeSurface): MemberNavEntry[] {
+function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
@@ -2504,8 +2497,8 @@ function maybeAutoLoadTypeMetadata() {
 }
 
 function renderNavPane(
-  current: BrowserTypeSurface | null | undefined,
-  visible: readonly BrowserTypeSurface[],
+  current: AppTypeSurface | null | undefined,
+  visible: readonly AppTypeSurface[],
 ) {
   return navMode() === "member" && current
     ? renderMemberNavPane(current)
@@ -2513,8 +2506,8 @@ function renderNavPane(
 }
 
 function renderTypeNavPane(
-  current: BrowserTypeSurface | null | undefined,
-  visible: readonly BrowserTypeSurface[],
+  current: AppTypeSurface | null | undefined,
+  visible: readonly AppTypeSurface[],
 ) {
   return renderTypeNav({
     current: current ?? null,
@@ -2535,7 +2528,7 @@ function renderTypeNavPane(
   });
 }
 
-function renderMemberNavPane(type: BrowserTypeSurface) {
+function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   return renderMemberNav({
     type,
@@ -3607,7 +3600,7 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: BrowserTypeSurface) {
+function typeHeadingHtml(item: AppTypeSurface) {
   return typeHeading({
     item,
     packageContext: currentPackage(),
@@ -3619,7 +3612,7 @@ function typeHeadingHtml(item: BrowserTypeSurface) {
 }
 
 function renderGraphMemberPendingHtml(
-  item: BrowserTypeSurface,
+  item: AppTypeSurface,
   title: string,
 ) {
   return renderGraphMemberPending({
@@ -3645,7 +3638,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   });
 }
 
-function renderTypeSourceHtml(item: BrowserTypeSurface) {
+function renderTypeSourceHtml(item: AppTypeSurface) {
   const currentSignature = typeSourceSignature(
     item,
     currentPackage(),
@@ -3741,7 +3734,7 @@ function renderApiLens(item: AppTypeSurface) {
       : ""}`;
 }
 
-function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
+function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const selectedOverloadIndex = state.selectedOverloadIndex;
   const hasSelectedOverload =
     selectedOverloadIndex != null
@@ -3944,7 +3937,7 @@ function renderAnnotatedSource(result: AnnotatedSourceResult) {
 }
 
 function renderMemberFacts(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   member: AppMemberGroup,
   overload: BrowserMemberSurface,
   overloadIndex: number,
@@ -6557,8 +6550,8 @@ async function loadSelectedMemberAnnotatedSource() {
 }
 
 function memberRequestSignature(
-  type: BrowserTypeSurface,
-  overload: BrowserMemberSurface,
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
   includeBody = false,
   includeTaste = false) {
   const pkg = state.package;
@@ -6720,7 +6713,7 @@ function navigateToTypeByName(fullName: string) {
   navigateToType(target);
 }
 
-function navigateToType(target: BrowserTypeSurface) {
+function navigateToType(target: AppTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
@@ -7145,7 +7138,7 @@ function callGraphNodeBinding(
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
   const candidate =
-    resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
       packages,
       target);
   const pack = runtimePackForFramework(
@@ -7249,7 +7242,7 @@ function resolveLoadedGraphTarget(
   candidate: {
     status: "unique";
     pkg: AppPackage;
-    type: BrowserTypeSurface;
+    type: AppTypeSurface;
   },
 ) {
   const { pkg, type } = candidate;
@@ -7273,7 +7266,7 @@ function resolveLoadedGraphTarget(
 }
 
 function findGraphMemberSelection(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: GraphMemberTarget,
 ) {
   const groups = memberGroups(type);
@@ -7287,7 +7280,7 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
 ) {
   return inspectGraphMemberSurface(
@@ -7303,7 +7296,7 @@ async function loadGraphMemberSurface(
 
 function stageGraphMemberSelection(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   surface: BrowserMemberSurface,
 ) {
@@ -7312,7 +7305,11 @@ function stageGraphMemberSelection(
     && candidate.canonicalSignature === surface.canonicalSignature);
   const isNew = !member;
   if (!member) {
-    member = { ...surface, graphOnly: true, graphTarget: target };
+    member = {
+      ...createAppMemberSurface(surface),
+      graphOnly: true,
+      graphTarget: target,
+    };
   }
   const stagedType = isNew
     ? { ...type, api: [...(type.api ?? []), member] }
@@ -7333,7 +7330,7 @@ function stageGraphMemberSelection(
 
 function commitGraphMemberSelection(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
@@ -7713,7 +7710,7 @@ async function showPlatformTargetError(
 // node) and clears any active platform descent so the new member's graph loads fresh.
 function navigateToRuntimeMember(
   pack: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
@@ -7964,7 +7961,7 @@ function renderGraphSource() {
 
 function navigateToMember(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,

@@ -225,6 +225,11 @@ static class TsTypeMapper
                 location,
                 blockedAliases,
                 mappingContext);
+            if (mappingContext == TsTypeMappingContext.JsonWire)
+            {
+                return $"ReadonlyArray<{mappedElement}>";
+            }
+
             return mappedElement.Contains(" | ", StringComparison.Ordinal)
                 ? $"({mappedElement})[]"
                 : $"{mappedElement}[]";
@@ -354,7 +359,10 @@ static class TsTypeMapper
             return true;
         }
 
-        mappedType = $"Record<string, {mappedValue}>";
+        string recordType = $"Record<string, {mappedValue}>";
+        mappedType = mappingContext == TsTypeMappingContext.JsonWire
+            ? $"Readonly<{recordType}>"
+            : recordType;
         return true;
     }
 
