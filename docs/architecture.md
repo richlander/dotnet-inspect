@@ -894,6 +894,10 @@ Research overlay bridge, and the application layer:
   synchronous-iterator implementations with named decoys, duplicate iterator
   source claims, and async-iterator claims over classic-only state machines,
   including the declared-source fallback for their rejected `MoveNext`.
+  `LibraryBodyDeclaredSourceResolver` composes the async and lifted resolvers
+  into ultimate declared owners, owns the async/lifted/async scoped-evidence
+  expansion sequence, and publishes declared-source mappings plus recoverable
+  diagnostics. It owns no metadata image or parallel scheduling lifetime.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
   state-machine body requirements. The resolver reuses primary metadata
   identity and generated-code judgments plus the builder's shared local
@@ -913,7 +917,8 @@ Research overlay bridge, and the application layer:
   gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
   scheduling, shared local type-definition infrastructure, and service
-  lifetime composition.
+  lifetime composition; declared-source policy is delegated to
+  `LibraryBodyDeclaredSourceResolver`.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
