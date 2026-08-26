@@ -22,6 +22,12 @@ public static class ProductInspectionDemos
 
     public const string ExtensionsCallGraphScenarioId = "extensions-callgraph";
 
+    public const string StjSerializeCallGraphScenarioId = "stj-serialize-callgraph";
+
+    public const string ConfigBindCallGraphScenarioId = "config-bind-callgraph";
+
+    public const string OptionsAddCallGraphScenarioId = "options-add-callgraph";
+
     private static readonly Entry[] s_entries =
     [
         new(
@@ -34,6 +40,21 @@ public static class ProductInspectionDemos
             "Cross-package call graph",
             "Trace calls across three packages",
             CreateExtensionsCallGraphRecords),
+        new(
+            StjSerializeCallGraphScenarioId,
+            "Serialize call graph",
+            "Dense package-local STJ graph",
+            CreateStjSerializeCallGraphRecords),
+        new(
+            ConfigBindCallGraphScenarioId,
+            "Configuration Bind",
+            "Recursive binder call graph",
+            CreateConfigBindCallGraphRecords),
+        new(
+            OptionsAddCallGraphScenarioId,
+            "Options hub",
+            "Inbound fan-in at AddOptions",
+            CreateOptionsAddCallGraphRecords),
     ];
 
     /// <summary>
@@ -214,6 +235,141 @@ public static class ProductInspectionDemos
                 context: "extensions",
                 view: "try-add-enumerable-call-graph",
                 navigation: "extensions-callgraph-navigation"),
+        ];
+    }
+
+    /// <summary>
+    /// Single-package outbound graph: <c>JsonSerializer.Serialize&lt;T&gt;(T, options)</c>.
+    /// Complements the Methods STJ tour with a dense package-local Call Graph.
+    /// </summary>
+    private static InspectionDefinitionRecord[] CreateStjSerializeCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        return
+        [
+            new WorkspaceDefinition(
+                v,
+                "stj-serialize-callgraph-workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "stj",
+                        framework: "net10.0",
+                        members: [stjPackage]),
+                ],
+                title: "System.Text.Json Serialize call graph",
+                description: "Package-local Call Graph for JsonSerializer.Serialize."),
+            new ViewDefinition(
+                v,
+                "stj-serialize-call-graph",
+                type: "System.Text.Json.JsonSerializer",
+                memberAnchor: "1dc14dd1fb",
+                memberKey: "method:Serialize",
+                section: ProductDemoSections.CallGraph),
+            new NavigationDefinition(
+                v,
+                "stj-serialize-callgraph-navigation",
+                [new NavigationTabDefinition("stj", coordinate: stjPackage)],
+                focus: "stj"),
+            new ScenarioDefinition(
+                v,
+                StjSerializeCallGraphScenarioId,
+                title: "Serialize call graph",
+                description: "Dense package-local STJ graph",
+                workspace: "stj-serialize-callgraph-workspace",
+                context: "stj",
+                view: "stj-serialize-call-graph",
+                navigation: "stj-serialize-callgraph-navigation"),
+        ];
+    }
+
+    /// <summary>
+    /// Single-package dense recursive graph: <c>ConfigurationBinder.Bind</c>.
+    /// High fan-out into binder internals (arrays, conversion, BindingPoint).
+    /// </summary>
+    private static InspectionDefinitionRecord[] CreateConfigBindCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var binder = Package("Microsoft.Extensions.Configuration.Binder", "10.0.0", "net10.0");
+        return
+        [
+            new WorkspaceDefinition(
+                v,
+                "config-bind-callgraph-workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "binder",
+                        framework: "net10.0",
+                        members: [binder]),
+                ],
+                title: "Configuration Binder call graph",
+                description: "Recursive ConfigurationBinder.Bind Call Graph."),
+            new ViewDefinition(
+                v,
+                "config-bind-call-graph",
+                type: "Microsoft.Extensions.Configuration.ConfigurationBinder",
+                memberAnchor: "a6a6257f65",
+                memberKey: "method:Bind",
+                section: ProductDemoSections.CallGraph),
+            new NavigationDefinition(
+                v,
+                "config-bind-callgraph-navigation",
+                [new NavigationTabDefinition("binder", coordinate: binder)],
+                focus: "binder"),
+            new ScenarioDefinition(
+                v,
+                ConfigBindCallGraphScenarioId,
+                title: "Configuration Bind",
+                description: "Recursive binder call graph",
+                workspace: "config-bind-callgraph-workspace",
+                context: "binder",
+                view: "config-bind-call-graph",
+                navigation: "config-bind-callgraph-navigation"),
+        ];
+    }
+
+    /// <summary>
+    /// Single-package inbound hub: <c>AddOptions(IServiceCollection)</c>.
+    /// Sibling Configure/PostConfigure/ValidateOnStart methods fan into the hub.
+    /// </summary>
+    private static InspectionDefinitionRecord[] CreateOptionsAddCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var options = Package("Microsoft.Extensions.Options", "10.0.0", "net10.0");
+        return
+        [
+            new WorkspaceDefinition(
+                v,
+                "options-add-callgraph-workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "options",
+                        framework: "net10.0",
+                        members: [options]),
+                ],
+                title: "Options AddOptions call graph",
+                description: "Inbound fan-in Call Graph at Options.AddOptions."),
+            new ViewDefinition(
+                v,
+                "options-add-call-graph",
+                type: "Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions",
+                memberAnchor: "1e6bfaf2ae",
+                memberKey: "method:AddOptions",
+                section: ProductDemoSections.CallGraph),
+            new NavigationDefinition(
+                v,
+                "options-add-callgraph-navigation",
+                [new NavigationTabDefinition("options", coordinate: options)],
+                focus: "options"),
+            new ScenarioDefinition(
+                v,
+                OptionsAddCallGraphScenarioId,
+                title: "Options hub",
+                description: "Inbound fan-in at AddOptions",
+                workspace: "options-add-callgraph-workspace",
+                context: "options",
+                view: "options-add-call-graph",
+                navigation: "options-add-callgraph-navigation"),
         ];
     }
 
