@@ -89,6 +89,8 @@ import {
   createWorkspaceLocationPersistence,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  selectedBrowserCallGraphPackageTabIds,
+  workspaceUrlPreservationApplies,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
@@ -757,7 +759,10 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
-let preserveUrlThroughNextRender = false;
+let failedWorkspaceUrlPreservation: {
+  url: string;
+  projection: string;
+} | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -4759,6 +4764,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
+    failedWorkspaceUrlPreservation = null;
     render();
   },
   onDismissPackageNotice: () => {
@@ -5473,13 +5479,19 @@ function updatePlatformVersionSelect() {
 async function switchPlatformVersion(
   tfm: string,
   retryPackage: AppPackage | null = null,
+  noticeRetryState: NoticeRetryState | null = null,
 ) {
   const pkg = runtimePackPackage() ?? retryPackage;
   if (!pkg || !tfm || tfm === pkg.activeFramework) return;
+  if (noticeRetryState
+    && state.queryNoticeRetryAction === noticeRetryState.action) {
+    state.queryNotice = removeAppendedNotice(
+      state.queryNotice,
+      noticeRetryState.previous,
+      noticeRetryState.appended);
+    state.queryNoticeRetryAction = null;
+  }
   const navigationSeq = navigationSequence.begin();
-  state.packages = state.packages.filter(item => !item.isRuntimePack);
-  state.libraryScope = null;
-  state.platformStack = [];
   state.home = false;
   state.loading = true;
   state.error = "";
@@ -5495,15 +5507,29 @@ async function switchPlatformVersion(
     || (state.package && state.package !== pkg)) return;
   if (!loaded) {
     state.loading = false;
-    state.error = runtimeResult.failureMessage
+    state.error = "";
+    state.errorTitle = "";
+    const failure = runtimeResult.failureMessage
       || state.runtimePackError
       || "Couldn’t load the .NET Platform.";
-    state.errorTitle = "Platform failed";
-    state.retryAction = () => switchPlatformVersion(tfm, pkg);
+    const retryState: NoticeRetryState = {
+      action: null,
+      previous: state.queryNotice,
+      appended: "",
+    };
+    const retryAction = () =>
+      switchPlatformVersion(tfm, pkg, retryState);
+    retryState.action = retryAction;
+    appendQueryNotice(
+      failure,
+      retryAction);
+    retryState.appended = state.queryNotice;
+    state.retryAction = null;
     render();
     return;
   }
   state.workspaceShareBasis = null;
+  state.platformStack = [];
   activatePackage(loaded, { resetAccessibility: true });
   state.loading = false;
   state.atPackageRoot = true;
@@ -5984,22 +6010,19 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
         pkg !== null && !pkg.isRuntimePack);
   }
 
-  const selected = basis.contexts.find(
-    context => context.id === basis.selectedContextId);
-  if (!selected) {
-    throw new Error(
-      "The selected workspace context is no longer available.");
-  }
-  const packageTabIds = selected.tabIds.filter(id =>
-    basis.tabs.some(tab => tab.id === id && tab.kind === "package"));
+  const packageTabIds = selectedBrowserCallGraphPackageTabIds(basis);
   if (!packageTabIds.includes(activeTab.id)) {
     throw new Error(
       "The active package is not part of the selected Call Graph context.");
   }
-  return packageTabIds
-    .map(packageForTabId)
-    .filter((pkg): pkg is AppPackage =>
-      pkg !== null && !pkg.isRuntimePack);
+  return packageTabIds.map(id => {
+    const packageModel = packageForTabId(id);
+    if (!packageModel || packageModel.isRuntimePack) {
+      throw new Error(
+        "The selected Call Graph context could not be realized by this browser.");
+    }
+    return packageModel;
+  });
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -6105,11 +6128,22 @@ function buildStateUrl(base = location.href) {
 // Rewrite the address bar to reflect the current selection so a refresh restores it and
 // the URL is always shareable. replaceState (not pushState) keeps the app's own
 // back/forward buttons authoritative and avoids flooding browser history on every render.
+function workspaceUrlProjection() {
+  return JSON.stringify({
+    packages: state.packages.map(packageIdentityKey),
+    basis: state.workspaceShareBasis,
+    view: captureView(),
+  });
+}
+
 function syncUrl() {
-  if (preserveUrlThroughNextRender) {
-    preserveUrlThroughNextRender = false;
+  if (workspaceUrlPreservationApplies(
+      failedWorkspaceUrlPreservation,
+      location.href,
+      workspaceUrlProjection())) {
     return;
   }
+  failedWorkspaceUrlPreservation = null;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
@@ -6615,6 +6649,7 @@ const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
+    failedWorkspaceUrlPreservation = null;
     render();
   },
   onOpenCredits: openCredits,
@@ -9076,7 +9111,10 @@ function failCanonicalWorkspaceRestore(
     appendQueryNotice(
       `Workspace restore failed: ${message}`,
       retryAction);
-    preserveUrlThroughNextRender = true;
+    failedWorkspaceUrlPreservation = {
+      url: location.href,
+      projection: workspaceUrlProjection(),
+    };
     render();
     return;
   }

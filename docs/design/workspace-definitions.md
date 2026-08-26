@@ -1189,16 +1189,24 @@ Definition records and product demos (this slice):
   an aligned canonical pin`, and `canonical restoration is atomic and history
   adopts the active packet basis`. A present `w=` remains authoritative even
   when product decoding or Browser adaptation rejects it; courtesy route fields
-  never become fallback state. Successful packet activation discards any prior
-  graph-source modal, while rollback retains settled prior source state.
+  never become fallback state or preempt packet handling through malformed path
+  escaping. Failed packet URLs remain stable across automatic nested renders
+  until the user changes the projected workspace or navigates elsewhere.
+  Successful packet activation discards any prior graph-source modal, while
+  rollback retains settled prior source state.
   User-authored version or framework changes discard a floating packet basis
-  before URL capture. `an empty workspace parameter remains authoritative`,
-  `canonical packets without a lens discard legacy hash state`, `explicit
-  coordinate changes discard a floating canonical basis`, and `canonical
-  commit clears a settled graph source without rendering` gate these
-  boundaries. `canonical transitions cancel visible source work before
-  snapshot` and `canonical transitions settle annotated source before snapshot`
-  specifically gate source-request settlement.
+  before URL capture only after acquisition succeeds; a failed Platform switch
+  retains its resident package, scope, stack, and packet basis. A selected Call
+  Graph context containing a Platform participant fails visibly because the
+  Browser query transport can realize only package participants.
+  `an empty workspace parameter remains authoritative`, `authoritative packets
+  bypass malformed courtesy paths`, `failed URL retention survives automatic
+  renders until navigation changes`, `Browser Call Graph contexts reject
+  Platform participants`, `explicit coordinate changes discard a floating
+  canonical basis`, and `canonical commit clears a settled graph source without
+  rendering` gate these boundaries. `canonical transitions cancel visible
+  source work before snapshot` and `canonical transitions settle annotated
+  source before snapshot` specifically gate source-request settlement.
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI

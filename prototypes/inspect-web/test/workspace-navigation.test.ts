@@ -14,7 +14,9 @@ import {
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   resolveWorkspaceRoute,
+  selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
+  workspaceUrlPreservationApplies,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
@@ -695,6 +697,26 @@ test("workspace route preflight defers packet decoding", () => {
       + "The product decoder rejected this packet.");
 });
 
+test("authoritative packets bypass malformed courtesy paths", () => {
+  let decodeCalls = 0;
+  const parsed = parseWorkspaceLocation({
+    href: "https://inspect.example/packages/%E0%A4%A/1.0.0"
+      + "?package=Visible.Package&w=opaque",
+    pathname: "/packages/%E0%A4%A/1.0.0",
+    search: "?package=Visible.Package&w=opaque",
+    hash: "",
+  }, () => {
+    decodeCalls++;
+    return rejected("The packet is invalid.");
+  });
+
+  assert.equal(decodeCalls, 1);
+  assert.equal(parsed.hasWorkspaceState, true);
+  assert.equal(parsed.shareState, null);
+  assert.equal(parsed.package, "Visible.Package");
+  assert.match(parsed.workspaceNotice, /packet is invalid/);
+});
+
 test("an empty workspace parameter remains authoritative", () => {
   const route = parseWorkspaceRoute(locationSnapshot(
     "https://inspect.example/?package=Visible.Package&w=#metadata"));
@@ -702,6 +724,58 @@ test("an empty workspace parameter remains authoritative", () => {
   assert.equal(route.encodedWorkspaceState, "");
   assert.equal(route.hasWorkspaceState, true);
   assert.equal(route.visible.hasWorkspaceState, true);
+});
+
+test("Browser Call Graph contexts reject Platform participants", () => {
+  const state = workspaceState();
+  state.tabs = [
+    state.tabs[0]!,
+    {
+      id: "t1",
+      kind: "group",
+      source: ":Platform",
+      version: "10.0.11",
+      framework: "net10.0",
+      runtimeIdentifier: null,
+    },
+  ];
+  state.contexts = [{ id: "g0", tabIds: ["t0", "t1"] }];
+  state.selectedContextId = "g0";
+
+  assert.throws(
+    () => selectedBrowserCallGraphPackageTabIds(state),
+    /Platform participant.*cannot realize/);
+
+  state.contexts = [{ id: "g0", tabIds: ["t0"] }];
+  assert.deepEqual(
+    selectedBrowserCallGraphPackageTabIds(state),
+    ["t0"]);
+});
+
+test("failed URL retention survives automatic renders until navigation changes", () => {
+  const preservation = {
+    url: "https://inspect.example/?package=Failed&w=opaque",
+    projection: "old-workspace",
+  };
+
+  assert.equal(
+    workspaceUrlPreservationApplies(
+      preservation,
+      preservation.url,
+      preservation.projection),
+    true);
+  assert.equal(
+    workspaceUrlPreservationApplies(
+      preservation,
+      "https://inspect.example/?package=Other",
+      preservation.projection),
+    false);
+  assert.equal(
+    workspaceUrlPreservationApplies(
+      preservation,
+      preservation.url,
+      "changed-workspace"),
+    false);
 });
 
 test("workspace route resolution skips the decoder without packet state", () => {

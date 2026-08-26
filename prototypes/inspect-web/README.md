@@ -819,12 +819,19 @@ and ordered after resolution`, `missing Platform reacquisition retains only an
 aligned canonical pin`, and `canonical restoration is atomic and history adopts
 the active packet basis`. A present `w=` remains authoritative even when
 decoding or Browser adaptation rejects it; the visible package label is never a
-fallback workspace. Successful packet activation discards any prior graph-source
+fallback workspace, and malformed courtesy paths cannot preempt packet handling.
+Failed packet URLs survive automatic nested renders until the projected
+workspace changes. Successful packet activation discards any prior graph-source
 modal, and explicit version or framework changes discard a floating packet basis
-before URL capture. `an empty workspace parameter remains authoritative`,
-`canonical packets without a lens discard legacy hash state`, `explicit
-coordinate changes discard a floating canonical basis`, and `canonical commit
-clears a settled graph source without rendering` gate those boundaries.
+before URL capture only after acquisition succeeds. A failed Platform switch
+retains its resident workspace. A selected Call Graph context containing a
+Platform participant fails visibly because the Browser transport realizes only
+package participants. `an empty workspace parameter remains authoritative`,
+`authoritative packets bypass malformed courtesy paths`, `failed URL retention
+survives automatic renders until navigation changes`, `Browser Call Graph
+contexts reject Platform participants`, `explicit coordinate changes discard a
+floating canonical basis`, and `canonical commit clears a settled graph source
+without rendering` gate those boundaries.
 `canonical transitions cancel visible source work before snapshot` and
 `canonical transitions settle annotated source before snapshot` specifically
 gate source-request settlement. Filters and browse presentation stay

@@ -308,6 +308,42 @@ export interface WorkspaceShareCaptureTopology {
   selectedContextId: string;
 }
 
+export function selectedBrowserCallGraphPackageTabIds(
+  basis: BrowserWorkspaceShareState,
+): string[] {
+  const selected = basis.contexts.find(
+    context => context.id === basis.selectedContextId);
+  if (!selected) {
+    throw new Error(
+      "The selected workspace context is no longer available.");
+  }
+  const selectedTabs = selected.tabIds.map(id =>
+    basis.tabs.find(tab => tab.id === id));
+  if (selectedTabs.some(tab => !tab)) {
+    throw new Error(
+      "The selected Call Graph context contains an unknown tab identity.");
+  }
+  if (selectedTabs.some(tab => tab?.kind !== "package")) {
+    throw new Error(
+      "The selected Call Graph context contains a Platform participant that this browser cannot realize.");
+  }
+  return [...selected.tabIds];
+}
+
+export interface WorkspaceUrlPreservation {
+  url: string;
+  projection: string;
+}
+
+export function workspaceUrlPreservationApplies(
+  preservation: WorkspaceUrlPreservation | null,
+  url: string,
+  projection: string,
+): boolean {
+  return preservation?.url === url
+    && preservation.projection === projection;
+}
+
 export function callGraphCaptureTopology(
   tabs: readonly BrowserWorkspaceShareTab[],
   activeIndex: number,
@@ -656,11 +692,12 @@ function resolveWorkspaceLocation(
   const params = new URLSearchParams(location.search);
   const route = location.pathname.split("/").filter(Boolean);
   const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
+  const hasWorkspaceState = params.has("w");
 
-  let pkg = packageAt >= 0
+  let pkg = !hasWorkspaceState && packageAt >= 0
     ? decodeURIComponent(route[packageAt + 1] || "")
     : params.get("package");
-  let version = packageAt >= 0
+  let version = !hasWorkspaceState && packageAt >= 0
     ? decodeURIComponent(route[packageAt + 2] || "")
     : params.get("version");
   let framework = params.get("framework");
@@ -688,7 +725,6 @@ function resolveWorkspaceLocation(
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
-  const hasWorkspaceState = params.has("w");
   const workspaceNotice = share && "error" in share ? share.error : "";
 
   if (share && !("error" in share)) {

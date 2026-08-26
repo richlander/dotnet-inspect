@@ -763,7 +763,16 @@ test("explicit coordinate changes discard a floating canonical basis", () => {
     /if \(options\.invalidateWorkspaceShareBasis\)\s*state\.workspaceShareBasis = null;\s*activatePackage/);
   assert.match(
     platformVersion,
-    /if \(!loaded\)[\s\S]*return;[\s\S]*state\.workspaceShareBasis = null;\s*activatePackage/);
+    /if \(!loaded\)[\s\S]*return;[\s\S]*state\.workspaceShareBasis = null;[\s\S]*activatePackage/);
+  assert.doesNotMatch(
+    platformVersion.slice(0, platformVersion.indexOf("await loadRuntimePack(")),
+    /state\.packages =|state\.libraryScope = null|state\.platformStack = \[\]/);
+  assert.match(
+    platformVersion,
+    /if \(!loaded\)[\s\S]*appendQueryNotice\([\s\S]*render\(\);\s*return;/);
+  assert.match(
+    platformVersion,
+    /state\.workspaceShareBasis = null;\s*state\.platformStack = \[\];\s*activatePackage[\s\S]*state\.libraryScope = null/);
 });
 
 test("typed package inspection owns package-root request coordination", () => {
@@ -2243,7 +2252,7 @@ test("the selected canonical context bounds call graph workspace membership", ()
 
   assert.match(
     selection,
-    /context\.id === basis\.selectedContextId/);
+    /selectedBrowserCallGraphPackageTabIds\(basis\)/);
   assert.match(
     selection,
     /packageTabIds\.includes\(activeTab\.id\)/);
@@ -2294,7 +2303,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*state\.credits = false;[\s\S]*preserveUrlThroughNextRender = true;\s*render\(\);\s*return/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*state\.credits = false;[\s\S]*failedWorkspaceUrlPreservation = \{[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
   assert.match(
     restore,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
@@ -2303,7 +2312,10 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
   assert.doesNotMatch(
     appSource,
-    /render\(\);\s*preserveUrlThroughNextRender = false/);
+    /preserveUrlThroughNextRender/);
+  assert.match(
+    sync,
+    /workspaceUrlPreservationApplies\([\s\S]*failedWorkspaceUrlPreservation[\s\S]*workspaceUrlProjection\(\)[\s\S]*return;[\s\S]*failedWorkspaceUrlPreservation = null/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
