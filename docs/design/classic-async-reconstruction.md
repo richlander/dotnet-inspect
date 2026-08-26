@@ -161,23 +161,33 @@ MetadataBodyProjector.Prepare(MetadataSource, MetadataBodyRequest)
 
 MetadataBodyRequest
   Exact(MetadataMethodAddress)
-  Carried(MetadataBodyTarget)
+  Carried(BodyTarget)
   Selector(TypeFullName, MetadataBodySelector, Visibility)
 
-MetadataBodyTarget
+BodyTarget
   Version                target schema version
   StrictKey              MetadataBodyKey
   RelationshipRole       Method | Getter | Setter | Adder | Remover
   PreferredAddress?      same-source MetadataMethodAddress hint
   PresentationAnchor?    label only; never resolution evidence
 
+ApiMemberBodyTargets
+  Method?
+  Getter?
+  Setter?
+  Adder?
+  Remover?
+
 MetadataBodyAddressResult
   Resolved(MetadataMethodAddress)
   AddressFailed(MetadataBodyAddressFailure)
 
 MetadataBodyAddressFailure
+  Absent(CarriedTargetNotFound | SelectorNameNotFound |
+         SelectorOrdinalOutOfRange)
   Unavailable(UnsupportedTargetVersion)
-  Rejected(CrossModuleHint | RelationshipRoleMismatch)
+  Rejected(CrossModuleAddress | NilMethodDef | OutOfRangeMethodDef |
+           CrossModuleHint | RelationshipRoleMismatch)
   Ambiguous(CandidateAddresses)
   Failed(Diagnostics)
 
@@ -279,16 +289,20 @@ ClassicAsyncOutcome
   Reconstructed
   Declined(Reason, BodyDisposition)
 
-ClassicAsyncSupportIdentity
+AsyncStateMachineSupportIdentity
   HostAddress            module-scoped MethodDef identity
   MethodKind             MoveNext | SetStateMachine
-  BuilderKind            known builder identity
+  BuilderKind            SupportBuilderKind
   InterfaceMapping       complete signature + MethodImpl/runtime mapping
 
 SupportMethodAcknowledgment
   MethodKind             MoveNext | SetStateMachine
-  BuilderKind            known builder identity
+  BuilderKind            SupportBuilderKind
   BodyDisposition        PreservedPhysical
+
+SupportBuilderKind
+  Classic(ClassicAsyncBuilderKind)
+  AsyncIterator
 
 BodyDisposition
   ReplacedNarrowHandoff
@@ -335,34 +349,47 @@ canonical Metadata owner and consumes only a successfully validated
 `MetadataMethodAddress`; [member target resolution](member-target-resolution.md)
 owns the user-facing selector boundary.
 
-`MetadataBodyTarget` is the single-source carried-target currency owned by
-Metadata. `MetadataBodyKey` retains declaring type, method kind/name, calling
-convention, generic arity and constraints, parameter and return shapes, by-ref
-shape, function pointers, custom modifiers, and exact named type assembly
-scope. `RelationshipRole` exists only on the target envelope. Carried
-resolution revalidates a preferred address against a reopened reader only when
-its MVID, MethodDef row, strict key, and relationship role all agree; a
-same-MVID reopened reader is supported. Otherwise it resolves by
-current-version strict key plus the envelope role in that one
-`MetadataSource`. A role is valid only when the resolved MethodDef occupies
-that exact method/getter/setter/adder/remover relationship. An unknown key
-version is `Unavailable`; a cross-MVID hint or role mismatch is `Rejected`;
-duplicate keys are `Ambiguous` with every candidate address; malformed or
-budget-exhausted metadata is `Failed` with diagnostics. No outcome falls back
-to name, ordinal, presentation anchor, or raw token equality.
+Slice 0 evolves the existing Metadata `BodyTarget` in place into the
+single-source carried-target currency; it does not add a parallel target type.
+`MetadataBodyKey` retains declaring type, method kind/name, calling convention,
+generic arity and constraints, parameter and return shapes, by-ref shape,
+function pointers, custom modifiers, and exact named type assembly scope.
+`RelationshipRole` exists only on the target envelope. Carried resolution
+revalidates a preferred address against a reopened reader only when its MVID,
+MethodDef row, strict key, and relationship role all agree; a same-MVID
+reopened reader is supported. Otherwise it resolves by current-version strict
+key plus the envelope role in that one `MetadataSource`. A role is valid only
+when the resolved MethodDef occupies that exact
+method/getter/setter/adder/remover relationship.
+
+A valid carried lookup with no strict-key match, a selector name with no
+population, or a selector ordinal past its filtered population is `Absent`; an
+unknown key version is `Unavailable`; a cross-module, nil, or out-of-range
+exact address, a cross-MVID hint, or a role mismatch is `Rejected`; duplicate
+keys are `Ambiguous` with every candidate address; malformed or
+budget-exhausted metadata is `Failed` with diagnostics. No exact or carried
+outcome falls back to name, ordinal, presentation anchor, or raw token equality.
 `MetadataBodyProjector` preserves the complete non-`Resolved` value in
 `AddressFailed` and stops before async classification.
 
-The existing Metadata `BodyTarget` and `ResolvedMemberTarget.Body` remain
-selection-only compatibility values during migration; they are not accepted by
-`MetadataBodyProjector`. Before a selected API member leaves its live Metadata
-session, a Metadata factory validates its exact MethodDef and constructs
-`MetadataBodyTarget`; `ResolvedMemberTarget` gains that value alongside the
-legacy property until all non-body consumers migrate. Every declared-source
-body consumer requires the new target or begins with an explicit fresh
-`Selector` request. In particular, `MemberCodeProvider` and whole-member/type
-composition may no longer turn `BodyTarget.MetadataToken` or
-`DeclaringOverloadIndex` into a body request. This contract supersedes the
+Metadata extraction constructs one immutable `BodyTarget` for each method-like
+`ApiMember` and one role-keyed target for each property/event accessor while
+the reader and exact MethodDefs are live. `ApiMember.BodyTargets` carries that
+`ApiMemberBodyTargets` value as `[JsonIgnore]` projection data, so the existing
+JSON contract does not change. A round-tripped member consequently cannot be a
+carried body request and must start a fresh selector request.
+`AccessorMethods` copies the selected role target onto its synthesized accessor
+member, and `MemberTargetResolver` forwards the already-minted target through
+`ResolvedMemberTarget.Body`; neither constructs a target from an anchor, token,
+or ordinal after extraction. Existing internal consumers migrate to the
+evolved record in the same slice.
+
+Every declared-source body consumer requires a carried `BodyTarget` or begins
+with an explicit fresh `Selector` request against its open `MetadataSource`.
+`MemberCodeProvider`, accessor synthesis, and whole-member/type composition may
+no longer turn legacy `BodyTarget.MetadataToken`,
+`DeclaringOverloadIndex`, or raw accessor-token fields into a body request.
+This contract supersedes the
 normalized-signature cross-reader fallback in
 [member-body-substrate.md](member-body-substrate.md#address-identity-not-an-ordinal)
 for declared-source projection; that document continues to describe current
@@ -526,7 +553,7 @@ on the shipped policy without requiring a MethodDef handle. A null-seam
 physical pipeline cannot reconstruct or decline a kickoff because it
 cannot import a companion machine. Support-method acknowledgment is the
 deliberate local exception. Import stamps the exact current MethodDef
-with immutable `ClassicAsyncSupportIdentity` metadata before pass
+with immutable `AsyncStateMachineSupportIdentity` metadata before pass
 execution: exact module-scoped host address, `MoveNext` or
 `SetStateMachine` role, complete interface signature, and the
 MethodImpl/runtime interface-mapping evidence that this MethodDef
@@ -558,14 +585,14 @@ and a failed decision leaves the host unchanged.
 
 Support-method acknowledgment is part of that same decision path, not a
 pre-decision normalization. Import constructs
-`ClassicAsyncSupportIdentity` only after it resolves exactly one
+`AsyncStateMachineSupportIdentity` only after it resolves exactly one
 `<>t__builder` FieldDef on the declaring state-machine type and classifies the
 field's type as a recognized classic or async-iterator builder. Builder
 identity never comes from the support method body: compiler-generated
 `SetStateMachine` may be a bare `ret`, and hand-written mapped support bodies
 need not read the builder field. Missing, duplicate, malformed, or unrecognized
 builder fields produce no acknowledgment and preserve the method physically. A
-generated MethodDef with exact `ClassicAsyncSupportIdentity` produces
+generated MethodDef with exact `AsyncStateMachineSupportIdentity` produces
 `NotClassic(SupportMethodAcknowledgment)` plus a complete application.
 Every recognized builder and both support roles record
 `PreservedPhysical`; the application has `BodyEdit.None` and performs no
@@ -775,7 +802,7 @@ projection:
   `MemberBodyProductionResult` and internal whole-type
   `DecompiledBodyProjection` carry classification, body text/shape
   facts, and `ClassicAsyncOutcome`. API members and accessors use
-  `Carried(MetadataBodyTarget)` with a persisted structural key, typed
+  `Carried(BodyTarget)` with a captured structural key, typed
   role, and optional MVID-scoped hint; stale-token and cross-MVID paths
   never fall back to name/ordinal. Every existing
   accessor is projected before compact property/event syntax is chosen.
@@ -812,7 +839,7 @@ projection:
   `ImportFailed`, `Unavailable`, `NotReached`, `DecisionFailed`,
   a null-seam kickoff render, and intentionally passless raw-IR
   rendering have no classic outcome. A seam-free host with exact
-  `ClassicAsyncSupportIdentity` records its local
+  `AsyncStateMachineSupportIdentity` records its local
   `NotClassic(SupportMethodAcknowledgment)` outcome; a
   projector-prepared exact support stage is `Decided` with that same
   value.
@@ -830,6 +857,22 @@ coordinate plane; `StatementStartOffset` relies on that property.
 Routing it through `MetadataBodyProjector` would admit foreign offsets,
 change implementation-diff lines/LCS, and violate the physical evidence
 contract. Slice 0 does not do that.
+
+Structural physical comparison has the same boundary.
+`CSharpBodyDiff.PreparePhysicalDocument(MetadataSource,
+MetadataMethodAddress)` imports with the null companion seam and returns a
+typed `PhysicalCSharpBodyDocument` that owns its exact
+`AnnotatedSourceDocument`, address, body fingerprint, and physical-projection
+provenance. Its constructor is not public; only that factory can mint the
+wrapper after validating all four values. The
+`CSharpBodyDiff` overloads used by Implementation Diff,
+`CompareMembers(PhysicalCSharpBodyDocument, PhysicalCSharpBodyDocument)` and
+`IssueCorrespondence(PhysicalCSharpBodyDocument,
+PhysicalCSharpBodyDocument)` consume only that wrapper. The general
+`IssueCorrespondence(AnnotatedSourceDocument, ...)` API may continue serving
+review/harness callers and may visibly report `Unsupported` for foreign
+companion offsets, but a raw or projector-prepared document is not admissible
+physical Implementation Diff evidence.
 
 Implementation Diff is an independent downstream consumer. After its own
 selection and correspondence logic chooses exact per-side physical MethodDefs,
@@ -973,7 +1016,7 @@ ClassicAsyncMachine
   MoveNext             MethodRef decoded from that exact MethodDef
   Kind                 Struct | Class
   BuilderField         FieldRef
-  BuilderKind          Task | TaskOfT | ValueTask | ValueTaskOfT | Void
+  BuilderKind          ClassicAsyncBuilderKind
   StateField           FieldRef
   HoistedFields        { FieldRef, Kind, BoundKickoffArgument?, SourceName? }*
   AwaitPoints          { State, AwaiterField, AwaitedOperand, OperandStorage,
@@ -984,6 +1027,12 @@ ClassicAsyncMachine
   UserRegions          stable IL-origin/structured identities the raise claims
   Outcome              Reconstructed | Declined(Reason)
 ```
+
+`ClassicAsyncBuilderKind` is
+`Task | TaskOfT | ValueTask | ValueTaskOfT | Void`.
+`SupportBuilderKind` wraps those classic values and adds `AsyncIterator`, so an
+exact async-iterator `MoveNext` or `SetStateMachine` can be acknowledged without
+entering `ClassicAsyncMachine` or widening classic eligibility.
 
 The sibling-import seam consumes the shared
 `StateMachineRelationshipIndex`. Metadata resolves the kickoff's exact
@@ -1021,7 +1070,8 @@ and foreign-pipeline scope validate the same MethodDef the index selected.
 
 Support `BuilderKind` is observed from the exact unique
 `<>t__builder` FieldDef on the support host's declaring state-machine type
-while `ClassicAsyncSupportIdentity` is minted. The classifier never depends on
+while `AsyncStateMachineSupportIdentity` is minted. The classifier never
+depends on
 a `FieldRef` occurring in `MoveNext` or `SetStateMachine`; the latter is
 commonly a bare `ret`. Slice 0 does **not** change
 `IsAsyncMethodBuilder`: its only consumer is `FinalSetResult`, so widening it
@@ -1072,7 +1122,8 @@ machines are recognized as narrow kickoffs, marked `Declined`, and keep
 their physical `MoveNext`; slice 1 does not raise them. Runtime-async is
 a different lowering. Async iterators
 (`AsyncIteratorMethodBuilder`) are out of domain; their `MoveNext`
-and every other exact support MethodDef remain physical. A custom
+and every other exact support MethodDef remain physical and use
+`SupportBuilderKind.AsyncIterator` in local acknowledgment. A custom
 classic builder is outside the acknowledgment and raise domains but
 inside `IsClassicAsync`; it visibly declines without deleting its
 kickoff.
@@ -1337,7 +1388,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Fact | Owner |
 | --- | --- |
-| Exact/carried/selector source-body addressing | Metadata `MetadataMethodAddress`, `MetadataBodyTarget`, strict-key builder, and resolver; [member target resolution](member-target-resolution.md) owns user-facing selection |
+| Exact/carried/selector source-body addressing | Metadata `MetadataMethodAddress`, evolved `BodyTarget`, strict-key builder, and resolver; [member target resolution](member-target-resolution.md) owns user-facing selection |
 | Disjoint runtime/classic/iterator evidence scan | Metadata, with collapsed `StateMachineAsync` retained only as compatibility inventory |
 | Kickoff/state-machine/support-method relationships and reverse lookup | Metadata `StateMachineRelationshipIndex`, tracked by #4669 |
 | Complete async classification transport | Guarded Metadata classifier to every exact top-level and foreign import |
@@ -1353,7 +1404,7 @@ Decompiler-owned relationship resolver while waiting for them.
 | Nested lambda/local-function embedding disposition | Decompiler `NestedFunctionEmbeddingPolicy` |
 | Public typed-body and whole-type carriers | Decompiler `MemberBodyProductionResult` and internal `DecompiledBodyProjection` |
 | Research source presentation | Research over Decompiler-prepared clones |
-| Physical C# async behavior | Decompiler `CSharpBodyDiff` over independently selected exact MethodDefs |
+| Physical C# async behavior | Decompiler `CSharpBodyDiff` and `PhysicalCSharpBodyDocument` over independently selected exact MethodDefs |
 | Optional cross-version endpoint, participant, correspondence, work-item, mechanism, population, budget, completion, and result lifecycle | Independent [Implementation Diff](implementation-diff.md) consumer |
 | CLI presentation | CLI |
 
@@ -1367,8 +1418,8 @@ gate ordinary reconstruction.
 | Gate | Surface | Fails if |
 | --- | --- | --- |
 | Ordinary-path independence | Decompiler + Research + Queries source-architecture tests | Async projection mints or consumes an Implementation Diff participant, correspondence receipt, work item, mechanism, budget, query lifetime, completion, or result; or body projection bypasses exact address resolution |
-| Carried target resolution | Metadata + Decompiler projector | A carried target omits key version or its sole relationship role; strict keys omit signature/modifier/scope evidence or duplicate the role; a same-MVID reopened-reader hint that passes row/key/role validation is rejected; a cross-MVID hint or role mismatch is not `Rejected`; unavailable/rejected/ambiguous/failed outcomes collapse or lose candidates/reasons; or resolution uses name, ordinal, presentation anchor, or raw token equality |
-| Legacy body-target migration | Exact declared-source caller/sink manifest plus one non-vacuity removal test | `ResolvedMemberTarget.Body`, `BodyTarget.MetadataToken`, `DeclaringOverloadIndex`, or name/ordinal `ResolveMethod` still addresses a declared-source body; a live-reader selection omits `MetadataBodyTarget`; or a non-body compatibility consumer is forced through the projector |
+| Carried target resolution | Metadata + Decompiler projector | A carried target omits key version or its sole relationship role; strict keys omit signature/modifier/scope evidence or duplicate the role; a same-MVID reopened-reader hint that passes row/key/role validation is rejected; a cross-MVID hint or role mismatch is not `Rejected`; absent/unavailable/rejected/ambiguous/failed outcomes collapse or lose candidates/reasons; an invalid exact address is not rejected; or exact/carried resolution uses name, ordinal, presentation anchor, or raw token equality |
+| Legacy body-target migration | Exact declared-source producer/caller/sink manifest plus one non-vacuity removal test | Metadata extraction omits a method/accessor target; accessor synthesis loses its role target; targets enter `ApiMember` JSON; `ResolvedMemberTarget.Body` reconstructs a target after extraction; legacy `BodyTarget.MetadataToken`, `DeclaringOverloadIndex`, raw accessor tokens, or name/ordinal `ResolveMethod` still addresses a declared-source body; or a fresh selector bypasses the projector |
 | Exact async population matrix | Metadata + Decompiler top-level and foreign imports | Runtime, classic, and iterator evidence collapse; contradictory positives do not fail before body/import; or custom classic builders escape visible decline |
 | Exact state-machine relationship index | `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations` over Metadata fixtures | Explicit/implicit interface implementation, signature, custom modifiers, `MethodImpl`, claim kind, named decoys, or metadata order select the wrong MethodDef |
 | State-machine relationship totality | `StateMachineRelationshipIndex_PropagatesTypedFailures` over Metadata fixtures | Missing, duplicate, cross-kind, unresolved, malformed, foreign-module, budget, or ambiguous evidence becomes empty success, throws an expected decode failure, or loses its candidates and reason |
@@ -1396,7 +1447,7 @@ gate ordinary reconstruction.
 | Declaration modifier by stage-local state | CLI + typed/whole-member/type | Declined classic retains `async`, reconstructed classic omits it, runtime async loses it, or post-classic failure changes the retained decision's modifier |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape | Lifecycle states collapse, failures acquire success-shaped outcomes, or inspection accounting changes |
 | Exact legacy raise population | Existing accepted fixtures + close negatives | Slice 0 widens accepted reconstruction or a new eligibility path escapes set equality |
-| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures | The physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, changes unrelated offsets, or makes ordinary reconstruction depend on the comparison operation/result |
+| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures and source-architecture inventory | The physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, accepts a raw/projector-prepared document instead of the typed wrapper, or makes ordinary reconstruction depend on the comparison operation/result |
 | `DecompilerResult` value semantics | Decompiler tests | Outcome, decline, disposition, or support acknowledgment is omitted from equality/hash/`with` behavior |
 | Corpus A/B | `CorpusSensor` / `IrImporter.ImportAssembly` | Product and corpus policy differ, support methods are hollowed, or fidelity/coverage changes are unrecorded |
 
