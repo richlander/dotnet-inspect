@@ -208,17 +208,34 @@ many primary subject payloads may be acquired. Output shape controls how
 already-selected data is projected or reduced. These cardinalities are
 independent.
 
-`--versions` selects a version **Vector** while retaining package focus. For a
-range, resolving that Vector uses registry/cache metadata and acquires zero
-package payloads. Once selected, the normal output-shape rules apply:
+The result-limit gestures in this section describe the approved
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
+released behavior. [Item and line limits](item-and-line-limits.md) records the
+current implementation status and required gates.
+
+`--versions` selects a version **Vector** while retaining package focus. A bare
+package's Vector is newest-first. A `Package@A..B` Vector instead preserves the
+caller's endpoint direction, so `A` is row 1, `B` is the last row, and
+`--at #N|first|last` and result windows address that same order. Resolving
+either Vector uses registry/cache metadata and acquires zero package payloads.
+The merged metadata provider is ascending and therefore oldest-first.
+Both literal range endpoints must be found before any range result is returned;
+an item limit cannot turn a missing far endpoint into a valid prefix.
+Thereafter, selection may stop early only when provider order can determine the
+requested declared rows; a reversed declared order must be materialized through
+the applicable endpoint before selection. Once selected, the normal
+output-shape rules apply:
 
 | Gesture | Shape effect | Acquisition effect |
 | --- | --- | --- |
 | `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
-| `--print` | Resolve a printable payload already referenced by one selected row. | May fetch that declared payload at the same evaluated address; must not add or evaluate another source address. |
-| `-n N` / `--tail` | Clip rendered output lines after projection. | None. They do not select printable rows or limit payload fetches. |
+| `-n N` | Select the first N rows in declared Vector order. | May stop only when provider order delivers that declared prefix; bare newest-first input must exhaust before choosing rows. |
+| `-n N --tail` | Select the last N rows in declared Vector order. | May stop only when provider order delivers that declared suffix first; bare newest-first input may stop after N matching oldest rows. |
+| `--rows N..M` | Select an absolute range of stable declared-order version rows. | May stop only when provider order can assign those declared addresses without unseen rows. |
+| `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
+| `-n N --lines` | Clip the rendered version report to its first N lines. | None. A line window does not bound version-metadata enumeration. |
 
 Shape reducers do not revise operation arity. In particular:
 
@@ -227,24 +244,16 @@ Shape reducers do not revise operation arity. In particular:
   payloads";
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
-- `--print` is exactly-one, not implicit-first: one printable row prints
-  directly, multiple printable rows require `--row N|first|last`, and zero
-  printable rows reject. There is no fan-out gesture, so a single `--print`
-  authorizes at most one declared payload fetch;
-- `-n N` and `--tail` run after print selection and fetching, so
-  `--print -n 1` does not select the first printable row;
-- `--rows N`, `--rows N --tail`, and `--rows N..M` are table-row rendering
-  windows and remain incompatible with `--print`;
-  `--row N|first|last` selects exactly one printable row;
-- a plain version string has no printable document. `--print`
-  must report that the selected shape is not printable rather than silently
-  transition from version-address rows to package artifact inspection. The
-  explicit transition remains `package Package@version`.
+- a version row set declares no printable capability, so `--print` rejects it
+  once during preflight rather than producing one failure per version. It must
+  not silently transition from version-address rows to package artifact
+  inspection. The explicit transition remains `package Package@version`.
 
-The same rule applies to `timeline`. `--count` can reduce an already
-assembled Timeline table; it cannot probe additional cells. `--print` can print
-only payloads already carried or explicitly referenced by evaluated rows; it
-cannot turn unevaluated rows into implicit acquisition.
+The same rule applies to `timeline`. `--count` can reduce an already assembled
+Timeline table; it cannot probe additional cells and rejects item/range
+windows. `--print` can print only payloads already carried or explicitly
+referenced by evaluated rows; it cannot turn unevaluated rows into implicit
+acquisition.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored

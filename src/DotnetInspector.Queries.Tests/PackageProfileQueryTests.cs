@@ -99,6 +99,16 @@ public sealed class PackageProfileQueryTests
         Assert.Equal(
             PackageProfileFailureKind.InvalidManifest,
             failure.Kind);
+        Assert.Equal(
+            PackageManifestFailureReason.IdentityMismatch,
+            failure.ManifestFailureReason);
+        Assert.Equal(
+            "The package manifest identity does not match the requested package.",
+            failure.Message);
+        Assert.DoesNotContain(
+            "Other.Package",
+            failure.Message,
+            StringComparison.Ordinal);
         Assert.Equal("Contoso.Broken", failure.PackageId);
         Assert.IsType<PackageProfileEvent.Match>(events[1]);
         PackageProfileSummary summary =
