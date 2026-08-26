@@ -176,8 +176,6 @@ public static class CustomAttributeValueGuard
                     return ProcessSzArrayElements(item);
                 case Op.TypedArrayElements:
                     return ProcessTypedArrayElements(item);
-                case Op.SerializedElements:
-                    return ProcessSerializedElements(item);
                 case Op.Boxed:
                     return ProcessBoxed(item.Depth);
                 case Op.PopFrame:
@@ -501,24 +499,6 @@ public static class CustomAttributeValueGuard
                 default:
                     return Result.Unsafe;
             }
-        }
-
-        Result ProcessSerializedElements(WorkItem item)
-        {
-            if (item.Remaining <= 0)
-                return Result.Safe;
-            if (_value.RemainingBytes == 0)
-                return Result.Truncated;
-            if (item.Remaining > 1)
-            {
-                _work.Push(
-                    WorkItem.SerializedElements(
-                        item.Code,
-                        item.Remaining - 1,
-                        item.Depth));
-            }
-
-            return ProcessSerialized(item.Code, item.Depth);
         }
 
         Result ProcessGenericParameter(int depth, bool methodParameter)
@@ -1180,7 +1160,6 @@ public static class CustomAttributeValueGuard
         SzArrayElements,
         TypedArrayElements,
         Boxed,
-        SerializedElements,
         PopFrame,
         RestoreSignature,
     }
@@ -1260,9 +1239,6 @@ public static class CustomAttributeValueGuard
                 enumName: enumName);
 
         public static WorkItem Boxed(int depth) => new(Op.Boxed, depth);
-
-        public static WorkItem SerializedElements(byte code, int remaining, int depth)
-            => new(Op.SerializedElements, depth, remaining, code: code);
 
         public static WorkItem PopFrame() => new(Op.PopFrame);
     }
