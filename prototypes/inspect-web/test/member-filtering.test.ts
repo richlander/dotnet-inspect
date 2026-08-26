@@ -103,7 +103,7 @@ test("history rejects a missing member and stale overload body", () => {
     memberTraitFilter: "",
     memberTextFilter: "",
     selectedOverloadIndex: 4,
-    memberSection: "source",
+    memberSection: "source" as const,
     bodyTarget: {
       metadataToken: 99,
       memberName: "Build",
@@ -207,7 +207,7 @@ test("member search covers names and signatures", () => {
 test("member scope follows the resolved type identity", () => {
   const state = {
     atPackageRoot: false,
-    lens: "api",
+    lens: "api" as const,
     selectedMemberKey: "",
     memberBrowseTypeId: "Type0",
     selectedTypeId: null,

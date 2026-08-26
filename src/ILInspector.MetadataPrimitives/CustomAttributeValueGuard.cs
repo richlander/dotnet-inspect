@@ -47,7 +47,13 @@ public static class CustomAttributeValueGuard
     /// <see langword="true"/> so SRM's catchable failure remains the decoder
     /// result. Returns <see langword="false"/> when a declared count would
     /// allocate more slots than the remaining bytes can describe, or when
-    /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>.
+    /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>. A caller
+    /// <paramref name="enumUnderlyingType"/> is bound to the same
+    /// local-TypeDef-first, <see cref="EnumUnderlyingPrimitive.Normalize"/>
+    /// oracle <c>DecodeValue</c> uses, so a direct skip cannot diverge. A
+    /// TypeDef-index failure during that bind is <see langword="false"/>, not
+    /// a swallowed blob-format success: the walk never finished, so a later
+    /// <c>DecodeValue</c> with a different provider must not run.
     /// </summary>
     public static bool IsSafeToDecode(
         MetadataReader reader,
@@ -57,12 +63,24 @@ public static class CustomAttributeValueGuard
     {
         try
         {
+            if (enumUnderlyingType is not null)
+            {
+                enumUnderlyingType = AttributeDecoder.BindEnumWidthResolver(
+                    reader,
+                    beforeMaterialize,
+                    enumUnderlyingType);
+            }
+
             return Check(
                     reader,
                     attribute,
                     beforeMaterialize,
                     enumUnderlyingType)
                 != Result.Unsafe;
+        }
+        catch (AttributeDecoder.TypeDefinitionIndexException)
+        {
+            return false;
         }
         catch (BadImageFormatException)
         {
@@ -176,8 +194,6 @@ public static class CustomAttributeValueGuard
                     return ProcessSzArrayElements(item);
                 case Op.TypedArrayElements:
                     return ProcessTypedArrayElements(item);
-                case Op.SerializedElements:
-                    return ProcessSerializedElements(item);
                 case Op.Boxed:
                     return ProcessBoxed(item.Depth);
                 case Op.PopFrame:
@@ -503,24 +519,6 @@ public static class CustomAttributeValueGuard
             }
         }
 
-        Result ProcessSerializedElements(WorkItem item)
-        {
-            if (item.Remaining <= 0)
-                return Result.Safe;
-            if (_value.RemainingBytes == 0)
-                return Result.Truncated;
-            if (item.Remaining > 1)
-            {
-                _work.Push(
-                    WorkItem.SerializedElements(
-                        item.Code,
-                        item.Remaining - 1,
-                        item.Depth));
-            }
-
-            return ProcessSerialized(item.Code, item.Depth);
-        }
-
         Result ProcessGenericParameter(int depth, bool methodParameter)
         {
             if (_signature.RemainingBytes < 1)
@@ -668,7 +666,9 @@ public static class CustomAttributeValueGuard
                     beforeMaterialize);
             return name is null
                 ? PrimitiveTypeCode.Int32
-                : enumUnderlyingType(name);
+                : EnumUnderlyingPrimitive.Normalize(
+                    enumUnderlyingType(
+                        EnumUnderlyingPrimitive.NormalizeSerializedName(name)));
         }
 
         if (handle.Kind == HandleKind.TypeDefinition)
@@ -702,7 +702,7 @@ public static class CustomAttributeValueGuard
             return PrimitiveTypeCode.Int32;
         string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(enumName);
         return enumUnderlyingType is not null
-            ? enumUnderlyingType(normalized)
+            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(normalized))
             : EnumUnderlyingPrimitive.FromSerializedName(reader, normalized);
     }
 
@@ -1180,7 +1180,6 @@ public static class CustomAttributeValueGuard
         SzArrayElements,
         TypedArrayElements,
         Boxed,
-        SerializedElements,
         PopFrame,
         RestoreSignature,
     }
@@ -1260,9 +1259,6 @@ public static class CustomAttributeValueGuard
                 enumName: enumName);
 
         public static WorkItem Boxed(int depth) => new(Op.Boxed, depth);
-
-        public static WorkItem SerializedElements(byte code, int remaining, int depth)
-            => new(Op.SerializedElements, depth, remaining, code: code);
 
         public static WorkItem PopFrame() => new(Op.PopFrame);
     }

@@ -42,8 +42,11 @@ import {
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionDefinitions,
   memberSectionIdsFor,
+  mergeInspectionErrorEntries,
   mergeInspectionErrors,
+  renderInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -625,12 +628,32 @@ test("platform inspection notices survive cumulative surface loads", () => {
       "First: omitted 1 metadata row.",
       "First: omitted 1 metadata row."),
     "First: omitted 1 metadata row.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: truncated; 0 assemblies were not projected.",
+      "Second: omitted 2 metadata rows."),
+    "First: truncated; 0 assemblies were not projected.; "
+      + "Second: omitted 2 metadata rows.");
+  const entries = mergeInspectionErrorEntries(
+    [
+      "First: truncated; 0 assemblies were not projected.",
+      "Second: truncated; 0 assemblies were not projected.",
+    ],
+    ["Second: truncated; 0 assemblies were not projected."]);
+  assert.deepEqual(entries, [
+    "First: truncated; 0 assemblies were not projected.",
+    "Second: truncated; 0 assemblies were not projected.",
+  ]);
+  assert.equal(
+    renderInspectionErrors(entries),
+    "First: truncated; 0 assemblies were not projected.; "
+      + "Second: truncated; 0 assemblies were not projected.");
   assert.match(
     packageAcquisitionSource,
-    /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);
+    /existing\.inspectionErrors\s*=\s*mergeInspectionErrorEntries\(/);
   assert.match(
     packageAcquisitionSource,
-    /inspectionError:\s*result\.inspectionError\s*\|\|\s*""/);
+    /inspectionError:\s*renderInspectionErrors\(inspectionErrors\)/);
 });
 
 test("typed Spotlight owns search presentation and hosts commands", () => {
@@ -792,7 +815,7 @@ test("typed package view owns package navigation bindings", () => {
       ?? "";
   assert.match(
     packageViewSource,
-    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-token\]/);
+    /export function bindPackageView\([\s\S]*\[data-dep-group\][\s\S]*\[data-kind-jump\][\s\S]*\[data-namespace-jump\][\s\S]*\[data-lib-scope\][\s\S]*\[data-graph-type\][\s\S]*\[data-perf-selector\]/);
   assert.match(
     packageViewSource,
     /export function bindPackageDependencyList\([\s\S]*\[data-dep-open\][\s\S]*\[data-dep-load\]/);
@@ -840,13 +863,20 @@ test("typed package view owns package navigation bindings", () => {
   }
   assert.match(
     binding,
-    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.metadataToken,\s*target\.assembly,\s*target\.typeId\)/);
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.match(
+    appSource,
+    /function drillToPerfMember\([\s\S]*resetMemberSectionState\(\);[\s\S]*loadSelectedMemberDocumentation\(\)/);
+  assert.doesNotMatch(
+    appSource.match(
+      /function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "",
+    /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
   assert.doesNotMatch(
     appSource,
-    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]"\)/);
+    /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]"\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-token)\]/);
+    /\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]/);
   assert.doesNotMatch(appSource, /function bindDependencyListHandlers\(/);
 });
 
@@ -970,7 +1000,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
-    /onDismissPackageNotice: \(\) => \{[\s\S]*currentPackage\(\)\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
   assert.match(
     workbenchActions,
     /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
@@ -1298,13 +1328,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   const memberSection = callbackProperty(actions, "onMemberSectionSelect");
   assert.deepEqual(
     statementSignatures(memberSection.body.body),
-    [
-      {
-        if: "section && isMemberSection(section)",
-        whenTrue: ["call:applyMemberSection(section)"],
-        whenFalse: [],
-      },
-    ]);
+    ["call:applyMemberSection(section)"]);
 
   const packageLens = callbackProperty(actions, "onPackageLensSelect");
   assert.deepEqual(
@@ -1346,7 +1370,9 @@ test("typed scope bar owns its rendered control bindings", () => {
               {
                 if: 'target === "member"',
                 whenTrue: ["call:enterMemberScope()"],
-                whenFalse: [],
+                // A scope this dispatch does not handle is now a compile error rather
+                // than a silently ignored click.
+                whenFalse: ['call:assertNever(target, "workspace scope")'],
               },
             ],
           },
@@ -1873,7 +1899,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /id: "taste\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.popover[\s\S]*state\.tasteOpen = false/);
   assert.match(
     appSource,
-    /function openSpotlight\(seed = "", spotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+    /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -1911,11 +1937,17 @@ test("global workbench shortcuts respect the topmost modal", () => {
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
+  const typeLensLoader =
+    appSource.match(/function loadSelectedTypeLensData\([\s\S]*?\n}/)?.[0];
   const selectionLoader =
-    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}/)?.[0]
-    ?? "";
-  assert.match(selectionLoader, /return loadSelectedTypeSource\(\)/);
-  assert.match(selectionLoader, /return loadSelectedTypeMetadata\(\)/);
+    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}/)?.[0];
+  assert.ok(typeLensLoader);
+  assert.ok(selectionLoader);
+  assert.match(typeLensLoader, /return loadSelectedTypeSource\(\)/);
+  assert.match(typeLensLoader, /return loadSelectedTypeMetadata\(\)/);
+  assert.match(
+    selectionLoader,
+    /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
   assert.match(
     appSource,
     /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(focusGeneration\)/);
@@ -2166,6 +2198,29 @@ test("shared member views retain scope and filter state", () => {
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
 });
 
+test("initial workspace packet resolution waits for the engine phase", () => {
+  assert.match(
+    appSource,
+    /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
+  assert.match(
+    appSource,
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
+  const restore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /const loc = initialWorkspace\.resolve\(\);[\s\S]*framework: loc\.framework \|\| DEFAULT_REQUESTED_FRAMEWORK[\s\S]*state\.requestedPackage = resolvedLocation\.package;[\s\S]*state\.requestedVersion = resolvedLocation\.version;[\s\S]*state\.requestedFramework = resolvedLocation\.framework;[\s\S]*restoreWorkspaceFromLocation\(\s*resolvedLocation,\s*deepLinkFromLocation\(resolvedLocation\)\)/);
+  const bootstrap = appSource.match(
+    /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
+    ?? "";
+  const initializeAt = bootstrap.indexOf("await initializeEngine(reportEngineStatus);");
+  const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
+  assert.notEqual(initializeAt, -1);
+  assert.notEqual(restoreAt, -1);
+  assert.ok(initializeAt < restoreAt);
+});
+
 test("member entry controls move focus into the resulting member navigation", () => {
   const bindings =
     appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
@@ -2265,9 +2320,13 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
 });
 
 test("Platform Spotlight distinguishes resident content from core readiness", () => {
+  // The runtime scope moved out of `spotlightResults` into its own renderer when the
+  // scope dispatch became exhaustive, so this scans the function that now owns the two
+  // predicates rather than the one that used to.
   const results =
-    appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
+    appSource.match(/function runtimeSpotlightResults\(query: string\): SpotlightResult\[\] \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
+  assert.ok(results, "runtimeSpotlightResults was not found");
   assert.match(
     results,
     /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
@@ -2389,7 +2448,7 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedTypeId = type\?\.id \?\? pkg\.types\[0\]\?\.id \?\? "";[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
-    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*\? memberHistory\.memberSection[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
+    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
     /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
@@ -2954,6 +3013,17 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
     ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+// `memberSectionIdsFor` is the admission set for the member strip, for the URL `?section=`
+// token, and for the share packet's `c` token, so a section the catalog defines but this
+// function omits is defined and never reachable. It used to restate the roster, which the
+// compiler could not check in that direction. This is the gate for it deriving instead:
+// restoring a hand-written list makes a catalog addition stop appearing here.
+test("the full member-section roster is derived from the catalog, not restated", () => {
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }),
+    memberSectionDefinitions.map(([id]) => id));
 });
 
 test("source requests carry exact type and member identities", () => {
@@ -3948,7 +4018,7 @@ test("restored views reconcile normalization before rendering", () => {
     /graphSelection\?\.group\.key !== view\.selectedMemberKey\) \{[\s\S]*?navigationHistory\.normalizeCurrent\(\);[\s\S]*?restorePendingGraphMember\(\)/);
   assert.match(
     apply,
-    /state\.memberSection = isMemberSection\(memberHistory\.memberSection\)[\s\S]*?memberHistory\.memberSection[\s\S]*?navigationHistory\.normalizeCurrent\(\);/);
+    /state\.memberSection = memberHistory\.memberSection;[\s\S]*?navigationHistory\.normalizeCurrent\(\);/);
 });
 
 test("ambiguous call graph targets expose a visible refusal", () => {

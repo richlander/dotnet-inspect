@@ -65,6 +65,9 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
+  floor for generation-scoped artifact identity, typed provenance and
+  diagnostics, acquisition outcomes, and owner-issued guarded access.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
@@ -116,6 +119,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
+- [Item and line limits](design/item-and-line-limits.md): target `-n`,
+  range-only `--rows`, ranked `--top`, line windows, and multi-item printable
+  payload behavior.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.

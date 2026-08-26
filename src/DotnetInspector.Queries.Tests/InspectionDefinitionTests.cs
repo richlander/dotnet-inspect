@@ -927,10 +927,25 @@ public class InspectionDefinitionTests
     public void ProductHomeDemos_ResolveCallGraphByMemberAnchor()
     {
         Assert.Equal(
-            ["stj-serializer", "extensions-callgraph"],
+            [
+                "stj-serializer",
+                "extensions-callgraph",
+                "stj-serialize-callgraph",
+                "config-bind-callgraph",
+                "options-add-callgraph",
+                "di-tryadd-callgraph",
+                "http-addhttpclient-callgraph",
+                "stj-getdecimal-callgraph",
+            ],
             ProductInspectionDemos.HomeScenarioIds);
-        Assert.Equal(2, ProductInspectionDemos.Entries.Count);
+        Assert.Equal(8, ProductInspectionDemos.Entries.Count);
         Assert.True(ProductInspectionDemos.HasScenario("extensions-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("stj-serialize-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("config-bind-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("options-add-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("di-tryadd-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("http-addhttpclient-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("stj-getdecimal-callgraph"));
 
         // Per-demo resolve — does not require materializing the other home demos.
         var callGraph = ProductInspectionDemos.ResolveHomeScenario("extensions-callgraph");
@@ -982,6 +997,67 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void ProductHomeDemos_SinglePackageCallGraphShapes()
+    {
+        // Complementary Call Graph demos: dense outbound STJ Serialize, recursive
+        // ConfigurationBinder.Bind, inbound Options/TryAdd hubs, HttpClient
+        // factory registration, and STJ GetDecimal parse path.
+        var serialize = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        Assert.Equal(ProductDemoSections.CallGraph, serialize.View!.Section);
+        Assert.Equal("1dc14dd1fb", serialize.View.MemberAnchor);
+        Assert.Equal("method:Serialize", serialize.View.MemberKey);
+        Assert.Single(serialize.SelectedContext!.Members);
+        var serializePlan = ProductDemoRunPlan.Create(serialize);
+        Assert.Equal("Serialize", serializePlan.Member!.Name);
+        Assert.Equal("1dc14dd1fb", serializePlan.Member.Anchor);
+
+        var bind = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.ConfigBindCallGraphScenarioId);
+        Assert.Equal("Microsoft.Extensions.Configuration.ConfigurationBinder", bind.View!.Type);
+        Assert.Equal("a6a6257f65", bind.View.MemberAnchor);
+        Assert.Equal("method:Bind", bind.View.MemberKey);
+        Assert.Equal(
+            "Microsoft.Extensions.Configuration.Binder",
+            Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+                bind.SelectedContext!.Members[0]).PackageId);
+
+        var options = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.OptionsAddCallGraphScenarioId);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions",
+            options.View!.Type);
+        Assert.Equal("1e6bfaf2ae", options.View.MemberAnchor);
+        Assert.Equal("method:AddOptions", options.View.MemberKey);
+        Assert.Single(options.SelectedContext!.Members);
+
+        var tryAdd = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.DiTryAddCallGraphScenarioId);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
+            tryAdd.View!.Type);
+        Assert.Equal("6ce164c602", tryAdd.View.MemberAnchor);
+        Assert.Equal("method:TryAdd", tryAdd.View.MemberKey);
+        Assert.Single(tryAdd.SelectedContext!.Members);
+
+        var http = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.HttpAddHttpClientCallGraphScenarioId);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+            http.View!.Type);
+        Assert.Equal("5c44566d15", http.View.MemberAnchor);
+        Assert.Equal("method:AddHttpClient", http.View.MemberKey);
+        Assert.Single(http.SelectedContext!.Members);
+
+        var getDecimal = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjGetDecimalCallGraphScenarioId);
+        Assert.Equal("System.Text.Json.JsonElement", getDecimal.View!.Type);
+        Assert.Equal("cfd9980a6c", getDecimal.View.MemberAnchor);
+        Assert.Equal("method:GetDecimal", getDecimal.View.MemberKey);
+        Assert.Single(getDecimal.SelectedContext!.Members);
+    }
+
+    [Fact]
     public void ProductHomeDemos_AllBindKnownProductSections()
     {
         foreach (var entry in ProductInspectionDemos.Entries)
@@ -996,8 +1072,8 @@ public class InspectionDefinitionTests
     [Fact]
     public void ProductHomeDemos_FactoryRegistry_IsMetadataOnlyUntilResolved()
     {
-        // Catalog surface is two entries; factories are not invoked by listing.
-        Assert.Equal(2, ProductInspectionDemos.Entries.Count);
+        // Catalog surface is eight entries; factories are not invoked by listing.
+        Assert.Equal(8, ProductInspectionDemos.Entries.Count);
         Assert.All(
             ProductInspectionDemos.Entries,
             entry =>
@@ -1007,9 +1083,9 @@ public class InspectionDefinitionTests
                 Assert.NotNull(entry.CreateRecords);
             });
 
-        // Full materialization is opt-in (4 records × 2 demos).
+        // Full materialization is opt-in (4 records × 8 demos).
         var all = ProductInspectionDemos.CreateRegistry();
-        Assert.Equal(8, all.Records.Count);
+        Assert.Equal(32, all.Records.Count);
 
         // Each factory owns exactly one scenario composition.
         foreach (var entry in ProductInspectionDemos.Entries)

@@ -5,6 +5,16 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
+[Item and line limits](item-and-line-limits.md) settles the adjacent
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) vocabulary:
+`-n`/bare `-N` is the plain first/last item count, `--rows` carries only
+absolute ranges, and `--top` is a validated ranked count composed with
+`--order-by`.
+
+[The package query CLI](package-query-cli.md) proposes reusing this model's
+`--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
+`find --package-prefix` package rows.
+
 ## Problem
 
 Table sections are becoming richer. `Performance Triage` now has columns such as
@@ -25,8 +35,8 @@ adding more command-specific flags.
 
 1. Let users filter rows by section field/column without adding bespoke flags.
 2. Make default row ordering discoverable through `--schema`.
-3. Keep `--top` meaningful by defining it as a post-filter, post-order semantic
-   row cap.
+3. Keep `--top` meaningful by requiring a ranking order and defining it as a
+   post-filter, post-order semantic row cap.
 4. Preserve `--columns` and `--fields` as projection, not filtering.
 5. Let existing focused flags, such as `--loop`, lower to the same row-predicate
    engine for compatibility.
@@ -38,7 +48,8 @@ adding more command-specific flags.
 - Do not add a general expression language in the first version.
 - Do not make row predicates span multiple sections.
 - Do not change section selection or scanner backpressure.
-- Do not make `--top` a renderer cap; `--rows N` already owns that role.
+- Do not make `--top` a plain result count; `-n N` owns that role.
+- Do not make `--top` an absolute row range; `--rows N..M` owns that role.
 - Do not require every section to be sortable or filterable.
 
 ## Proposed command model
@@ -71,27 +82,38 @@ Use `--order-by` for explicit row ordering:
 ```bash
 dotnet-inspect library MyApp.dll -S "Performance Triage" \
   --where "Allocation=boxed *" \
-  --order-by "RootReach desc,Confidence desc" \
-  --top 20
+  --top 20 \
+  --order-by "RootReach desc,Confidence desc"
 ```
 
 If `--order-by` is omitted, the selected section's default order applies. That
-default must be discoverable through `--schema`.
+default and whether it is a ranking or stable sequence must be discoverable
+through `--schema`.
 
 ### Top
 
-`--top N` means "take the first N rows after filtering and ordering."
-`--count` reports the post-filter row count before `--top` is applied.
+`--top N` means "rank the filtered rows by the effective order, then take the
+first N." N is one positive decimal integer; zero, negative, overflowed, and
+duplicate values reject rather than removing the bound. It requires an
+explicit `--order-by` unless the section declares that its default order is a
+ranking order. Alphabetical, insertion, and upstream listing order are stable
+sequences, not ranking defaults.
+
+`--top` is mutually exclusive with item-mode `-n`, either item-mode direction,
+and `--count`. It may combine with `-n N --lines` and either line-mode
+direction. An absolute `--rows` range may select positions within the ranked
+result.
 
 Pipeline:
 
 ```text
-select section -> collect rows -> apply --where -> compute --count -> apply order
--> apply --top -> project --columns/--fields -> render
+select section -> collect rows -> apply --where -> apply effective ranking order
+-> apply --top -> intersect --rows range -> project --columns/--fields -> render
 ```
 
-`--rows N` remains a renderer/display cap. It is applied after projection and
-rendering decisions, and should preserve headings and table headers.
+Plain `-n N` follows the same pipeline but makes no ranking claim. `--count`
+branches after filtering and rejects item/range windows. The full cross-shape
+pipeline lives in [Item and line limits](item-and-line-limits.md).
 
 ## Predicate grammar
 
@@ -143,7 +165,9 @@ Rules:
   default.
 - Named composite orders are allowed when declared by the section, for example
   `Triage desc`.
-- `--top` uses the effective order, whether explicit or default.
+- An explicit `--order-by` satisfies `--top`'s ranking requirement.
+- A default order satisfies bare `--top` only when the section declares
+  `DefaultOrderKind = Ranking`.
 
 ## Schema discoverability
 
@@ -154,12 +178,14 @@ Section: Performance Triage
 
 Default order:
   Triage desc
-    1. Loop desc
-    2. Confidence desc (high > medium > low)
-    3. RootReach desc
-    4. Member asc
-    5. IL asc
-    6. Shape asc
+Default order kind: Ranking
+Order expansion:
+  1. Loop desc
+  2. Confidence desc (high > medium > low)
+  3. RootReach desc
+  4. Member asc
+  5. IL asc
+  6. Shape asc
 
 Filterable fields:
   Member, Candidate, Finding, Provenance, RootReach, Shape, Operation, Token,
@@ -174,9 +200,10 @@ Sortable fields:
   CachedSites, OpaquePaths
 ```
 
-This makes the default sort order visible exactly where users and agents already
-learn columns. Candidate ordering is fingerprint order: it is useful for stable
-pagination within one build, not as a semantic priority. Exact token predicates
+This makes the default sort order and its meaning visible exactly where users
+and agents already learn columns. Candidate fingerprint ordering, for example,
+is a `Sequence`: it is useful for stable pagination within one build, not as a
+semantic priority and cannot support bare `--top`. Exact token predicates
 normalize hexadecimal metadata tokens, so `0x2000001` matches rendered
 `0x02000001`.
 
@@ -195,8 +222,8 @@ Equivalent conceptual query:
 
 ```bash
 dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --order-by "Triage desc" \
-  --top 20
+  --top 20 \
+  --order-by "Triage desc"
 ```
 
 Filtered query:
@@ -205,24 +232,26 @@ Filtered query:
 dotnet-inspect library MyApp.dll -S "Performance Triage" \
   --where "Allocation=boxed *" \
   --where "Path=loop body" \
-  --order-by "RootReach desc" \
   --top 10 \
+  --order-by "RootReach desc" \
   --columns "Member,Shape,Allocation,Path,PathConfidence,PostDominance,RootReach,IL"
 ```
 
-Compact note in human output when `--top` is used:
+Compact human output names the explicit ranking:
 
 ```text
 Showing top 10 by RootReach desc after 2 row filters.
 ```
 
-For default ordering:
+For a schema-declared ranking default:
 
 ```text
 Showing top 20 by Performance Triage default order: Loop, Confidence, RootReach.
 ```
 
 Suppress these notes for `--tsv`, `--jsonl`, `--json`, and quiet output.
+Plain `-n` uses "first N" or "last N" wording even when an explicit order is
+present; it never upgrades itself to a ranking claim.
 
 ## Compatibility and lowering
 
@@ -234,7 +263,7 @@ predicates internally:
 | `--loop` | `--where "Loop=loop"` or section-specific loop predicate |
 | `--min-confidence medium` | `--where "Confidence>=medium"` |
 | `--triage-shape box-value-type` | `--where "Shape=box-value-type"` |
-| `--top 20` | unchanged; semantic cap after order |
+| `--top 20` | ranked semantic cap using the declared Performance Triage default order |
 
 This lets command-specific UX remain stable while new columns avoid bespoke
 flags.
@@ -245,6 +274,7 @@ Table sections should declare query metadata alongside their row schema:
 
 ```csharp
 DefaultOrder = "Triage desc";
+DefaultOrderKind = OrderKind.Ranking;
 OrderDescription =
 [
     "Loop desc",
@@ -287,8 +317,15 @@ Error: Field 'RootReach' supports numeric comparisons: =, !=, >=, <=.
 Unsortable sections should reject `--order-by` clearly:
 
 ```text
-Error: Section 'Facts' does not declare sortable fields. Use --rows N to cap
-rendered rows.
+Error: Section 'Facts' does not declare sortable fields. Use -n N to limit its
+declared rows.
+```
+
+A stable but non-ranking default should reject bare `--top`:
+
+```text
+Error: Section 'Files' has a sequence default, not a ranking default.
+Use --top N with --order-by, or use -n N for a positional limit.
 ```
 
 ## Open questions
@@ -298,6 +335,4 @@ rendered rows.
 2. Should field names normalize aliases such as `PathConfidence` and
    `Path Confidence`, or `PostDominance` and `Post Dominance`?
 3. Should `--order-by Confidence` default to descending for ranked fields?
-4. Should a selected section with no default order allow `--top`, or should
-   `--top` require a default or explicit order?
-5. Should `--schema` include examples generated from the section metadata?
+4. Should `--schema` include examples generated from the section metadata?

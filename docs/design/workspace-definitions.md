@@ -12,8 +12,9 @@ contract, lifetime rules, and authorization model.
 This is a design proposal. Implementation has begun: the `package`,
 `platform`, and `embedded` member coordinates and one loader that realizes a
 selected context into exactly one `AssemblyContextGroup` now exist in product
-code. Product code also realizes exact already-acquired descriptors into
-coordinated surface and implementation roles for Browser package workspaces.
+code. Product code also selects and realizes exact already-acquired package
+content into coordinated surface and implementation roles for Browser package
+workspaces.
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -416,14 +417,16 @@ resolved scenario into its selected context, navigation focus, type/member
 selection, and section; CLI and browser encodings consume that plan rather than
 parsing the member selection independently. **Home demos now bind product
 section display names**
-through `ProductDemoSections` (today: `Methods` for STJ; `Call Graph` primary
-bind for the extensions member, expanded at run via `ExpandRunSections` /
-`DemoScenarioRunner` so the closed preset matches the multi-package
-`--caller-package` companion rule: Markdown keeps `Call Graph` + `Callers`;
-table/tsv/jsonl select `Callers` alone (MemberCommand re-adds Callers under
-caller scope, so Call Graph-only tabular silently fell back to a member
-inventory); standalone `--mermaid` keeps `Call Graph`; document `--json` fails
-closed for Call Graph demos until graph sections project into that payload.
+through `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
+Graph` primary bind for multi-package and package-local graph demos, expanded
+at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
+`Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
+caller scope — MemberCommand re-adds Callers under caller scope, so
+Call Graph-only tabular would silently fall back to a member inventory — and
+select `Call Graph` when it does not, so package-local entry points with empty
+Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
+`--json` fails closed for Call Graph demos until graph sections project into
+that payload.
 `ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
 section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
@@ -437,23 +440,45 @@ output from the existing pipelines; multi-package workspaces encode extra
 package members as `--caller-package` for the call-graph demo. **inspect-web**
 loads home-demo catalog and coordinates from the product registry through the
 browser engine (`ListHomeDemos` / `ResolveHomeDemo` /
-`RunHomeDemo` over `ProductInspectionDemos`); host-only share encoding and the
-residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for future
-platform members) live in
-`prototypes/inspect-web/src/product-home-demos.ts`. STJ restores via share deep
-links built from the resolved projection. The member-bound Call Graph button
-passes only the product scenario id to `RunHomeDemo`; the engine resolves the
-workspace, focus, member anchor, and section, opens one aggregate browser
-workspace, and returns its package surfaces, exact activation identity, and
-ordinary Call Graph projection. TypeScript applies that typed result to the UI
-without parsing definition member keys or reconstructing package/query inputs.
-Browser package scopes now adapt their exact selected descriptors into
-product-owned `PackageAssemblyContextRoles`; Browser still owns Wasm
-acquisition, cache/deadline budgets, and package/asset provenance.
+`RunHomeDemo` over `ProductInspectionDemos`). `RunHomeDemo` accepts both
+type-only `Methods` and member-bound `Call Graph` presets: the engine resolves
+the workspace, focus, section, and optional member anchor, opens one aggregate
+browser workspace, and returns its package surfaces plus exact activation
+identity. The focused `BrowserTypeSurface.Api` rows are the browser's ordinary
+Methods-section output; a member-bound run additionally returns the ordinary
+Call Graph projection. The engine rejects other product sections,
+library-scoped views, and runtime-identifier-scoped package workspaces until
+Browser has explicit execution support rather than silently dropping those
+bindings. These properties are gated by
+`ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
+`StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
+`ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
+`ToRunPlan_RejectsUnsupportedBrowserSection`,
+`ToRunPlan_RejectsLibraryScopedView`,
+`ToRunPlan_RejectsRuntimeIdentifierScopes`,
+`ToRunPlan_RejectsFocusOutsideSelectedContext`,
+`HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`, and
+`HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`.
+
+This engine capability does not yet change the home buttons. The current
+TypeScript still restores STJ through a share deep link built from the resolved
+projection and invokes `RunHomeDemo` for Call Graph. The frontend follow-up
+must apply the typed Methods result and then push a canonical shareable
+location; calling the engine without updating location would regress refresh
+and sharing. That follow-up can then delete the host-owned share encoding and
+the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
+future platform members) from
+`prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
+current Call Graph result without parsing definition member keys or
+reconstructing package/query inputs.
+Browser package scopes now adapt product-selected, product-realized package
+participants into Browser coordinate/asset provenance; Browser still owns Wasm
+transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) minted facet ids replacing display-name allow list; (2) realize
 definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding and the browser runtime-pack share encoding for
-platform; (3) Call Graph / Callers structured JSON projection remains the
+`--caller-package` encoding; (3) canonical frontend activation of every home
+demo, including share-location projection and deletion of browser-owned packet
+construction; (4) Call Graph / Callers structured JSON projection remains the
 shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
 today).
 
@@ -671,6 +696,15 @@ scalar as raw UTF-8. The packet uses a purpose-built writer: none of
 `JavaScriptEncoder.Create(UnicodeRanges.All)` implements that complete rule.
 Packet identity below is semantic identity after decoding; canonical emission
 has one byte representation.
+
+The product codec also exposes the JSON boundary directly. `ParseJson` accepts
+the same bounded, duplicate-free semantic shape with insignificant whitespace,
+property reordering, and equivalent string escapes, while `SerializeJson`
+emits the exact compact text used by canonical packet encoding. This is a
+conversion boundary, not a second packet format: parsing JSON followed by
+`Encode` always restores the one canonical base64url representation, and
+decoding a packet followed by `SerializeJson` exposes the JSON that packet
+actually commits to.
 
 The packet separates navigation from binding:
 
@@ -973,6 +1007,8 @@ Implementation must add, at minimum:
   proving rejection rather than U+FFFD substitution —
   `WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly`,
   `Decode_UnicodeAndSignatureVector_RoundTripsExactly`,
+  `JsonConversion_AcceptsEquivalentInputAndRestoresCanonicalPacket`,
+  `JsonConversion_UsesTheSameTypedValidityAndCancellationGates`,
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
@@ -1014,8 +1050,11 @@ Implementation must add, at minimum:
   resolve the static product-registry scenario to `WorkspaceMemberCoordinate`
   plans, member anchor `74b6b4b321`, browser workspace requests, and exact
   activation identity;
-  `BrowserProductHomeDemosTests.ToCallGraphRunPlan_DerivesNonFirstFocusFromNavigation`
-  gates non-first focus derivation from the product navigation plan;
+  `BrowserProductHomeDemosTests.ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`
+  gates type-only Methods lowering and non-first focus derivation from the
+  product navigation plan;
+  `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`
+  gates the real projected type/member surface and expected fixture methods;
   `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`
   gates aggregate workspace projection, non-first focus consumption,
   digest-prefix selection, and graph execution;
@@ -1046,8 +1085,9 @@ Definition records and product demos (this slice):
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the two home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `RendererRegistry` style) of the product home scenarios (Methods tour plus
+  multiple Call Graph shapes); listing is metadata-only and
+  `ResolveHomeScenario` allocates only that demo's peer records and enforces
   `ProductDemoSections` binding; JSON remains the portable load path for external
   definitions;
 - `ProductDemoRunPlan` lowers the resolved context, focus, type/member
@@ -1055,22 +1095,40 @@ Definition records and product demos (this slice):
 - `ProductDemoSections` is the closed allow list of product section display names
   home demos may select until minted view-facet ids land; `ExpandRunSections`
   expands Call Graph binds format-aware (Markdown: Call Graph + Callers;
-  table/tsv/jsonl: Callers);
+  table/tsv/jsonl: Callers with caller scope, Call Graph without);
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
-  two home demos; inspect-web's generated `RunHomeDemo` binding runs the
-  member-bound Call Graph preset from its product scenario id;
+  product home demos; inspect-web's generated `RunHomeDemo` binding runs both
+  type-only Methods and member-bound Call Graph presets from their product
+  scenario ids. `BrowserProductHomeDemosTests` gates host-plan lowering and
+  unsupported bindings; `BrowserEngineBoundaryTests` gates nonempty Methods
+  projection and anchored Call Graph execution;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
   legacy prototype packets, malformed or non-canonical encoding and JSON,
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
-  signatures, and the pinned scalar-escaping rules;
+  signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
+  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  those commands accept inline input or bounded strict UTF-8 stdin/file input
+  and emit BOM-free UTF-8 without acquisition or execution. Stream and file
+  input may carry one terminal LF or CRLF outside the declared payload bound.
+  `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
+  `Dash_ReadsBoundedStandardInputInBothDirections`,
+  `MaximumPacket_DecodePipeEncode_RoundTrips`,
+  `RepeatedTerminalLineEndings_DoNotBypassLimits`,
+  `Encode_RejectsInvalidUtf8FromStandardInput`, and
+  `Encode_RejectsNonUtf8File` gate that CLI boundary.
+  `UnicodePacket_PipesAsUtf8UnderLegacyWindowsCodePage` gates process output
+  under a non-UTF-8 Windows console code page.
+  `Encode_RejectsEmptyFilePathWithoutStackTrace` and
+  `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
+  diagnostics across platform path rules;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;
@@ -1090,12 +1148,15 @@ Definition records and product demos (this slice):
   transposer validates forward input and reverse output through
   `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
   bind a query, or execute the scenario; and
-- `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
-  already-acquired package descriptors as coordinated surface and
-  implementation groups. It owns role-local binding, identity collision
-  rejection, reference-only surfaces, explicit shared-group reuse, and exact
-  participant correspondence. `PackageAssemblyContextRolesTests` gate the
-  product contract;
+- `PackageAssemblyContextSelection` and
+  `InspectionWorkspace.RealizePackageAssemblyContextRoles` select exact,
+  already-acquired package content and realize it as coordinated surface and
+  implementation groups. Product code owns reference-preferred selection,
+  bounded identity decoding, descriptor minting, rejection carriers,
+  role-local binding, identity collision rejection, reference-only surfaces,
+  shared-group reuse, and exact asset/participant correspondence.
+  `PackageAssemblyContextRealizationTests` and
+  `PackageAssemblyContextRolesTests` gate the product contract;
   `BrowserEngineBoundaryTests.WorkspaceBinding_RejectsPackageParticipantsForPlatformScope`,
   `WorkspaceBinding_RejectsEquivalentAssemblyIdentities`,
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
@@ -1104,8 +1165,7 @@ Definition records and product demos (this slice):
 - **not yet:** minted view-facet ids, packet view/query binding, or CLI and
   browser use of the codec and transposer;
   `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
-  package + `--caller-package` encoding, the Browser package path still
-  supplies exact already-acquired descriptors to the product role owner, and
+  package + `--caller-package` encoding, and
   platform still uses the resident runtime-pack share encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and

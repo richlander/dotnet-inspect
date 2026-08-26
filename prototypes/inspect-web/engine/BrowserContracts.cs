@@ -9,6 +9,14 @@ namespace InspectWeb.Engine;
 /// <see cref="Accessibility"/> comes from the product's own
 /// <c>ApiAccessibilityBucket</c> values; the host restates none of them.
 /// </summary>
+/// <param name="InspectionErrors">
+/// The whole entries rendered into <paramref name="InspectionError"/>. The browser uses these
+/// product-owned boundaries when cumulative platform loads deduplicate notices. This transport
+/// pairing is gated by
+/// <c>BrowserEngineBoundaryTests.QueryPackage_FirstTransportTruncationReturnsTypedNotice</c>;
+/// browser accumulation is gated by <c>platform inspection notices survive cumulative surface
+/// loads</c>.
+/// </param>
 /// <param name="InspectionError">
 /// The participants the workspace could not project, if any. A partial surface says so rather
 /// than reading as a complete one.
@@ -24,6 +32,7 @@ public sealed record BrowserPackageSurface(
     BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents,
+    string[] InspectionErrors,
     string? InspectionError);
 
 /// <summary>
@@ -272,10 +281,11 @@ public sealed record BrowserHomeDemoRunActivation(
     string FocusVersion,
     string FocusFramework,
     string TypeId,
-    string MemberName,
-    string MemberKind,
-    string MemberAnchorDigest,
-    string MemberSection);
+    string Section,
+    string? MemberName,
+    string? MemberKind,
+    string? MemberAnchorDigest,
+    string? MemberSection);
 
 /// <summary>
 /// Browser result of running one product home demo through the normal package
@@ -481,6 +491,23 @@ public sealed record BrowserOpportunityItem(
     string? SourceAssemblyCulture,
     string? SourceAssemblyPublicKeyToken);
 
+public sealed record BrowserPackagePerformance(
+    BrowserPerformanceMember[] Members,
+    string? InspectionError,
+    int NonPublicOpportunities,
+    int TotalOpportunities);
+
+public sealed record BrowserPerformanceMember(
+    string Assembly,
+    string TypeId,
+    string MemberName,
+    string StableSelector,
+    int[] BodyTokens,
+    int OpportunityCount,
+    int InLoopCount,
+    string[] Shapes,
+    string Confidence);
+
 /// <summary>
 /// One progressively acquired member call graph, projected through
 /// <c>ILInspector.CallGraph.CallGraphProjection</c>. Graph identity, direction, cycles,
@@ -562,6 +589,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
+[JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserSource))]

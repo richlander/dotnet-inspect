@@ -233,6 +233,23 @@ public sealed class SourceLinkService : IDisposable
             limits);
     }
 
+    public static SourceLinkService OpenEmbeddedPdbOnlyPrefetched(
+        string assemblyPath,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.OpenEmbeddedPdbOnlyPrefetched(
+                assemblyPath,
+                limits.MaxEmbeddedPdbBytes,
+                log,
+                limits.EmbeddedPdbBudget),
+            DefaultCache,
+            log,
+            limits);
+    }
+
     public static SourceLinkService OpenEmbeddedPdbOnly(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null)
@@ -259,6 +276,24 @@ public sealed class SourceLinkService : IDisposable
         ArgumentNullException.ThrowIfNull(limits);
         return new(
             PdbContext.OpenEmbeddedPdbOnly(
+                assembly,
+                limits.MaxEmbeddedPdbBytes,
+                log,
+                limits.EmbeddedPdbBudget),
+            cache,
+            log,
+            limits);
+    }
+
+    public static SourceLinkService OpenEmbeddedPdbOnlyPrefetched(
+        ResolvedAssemblyReference assembly,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.OpenEmbeddedPdbOnlyPrefetched(
                 assembly,
                 limits.MaxEmbeddedPdbBytes,
                 log,

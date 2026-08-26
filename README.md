@@ -123,6 +123,21 @@ Windows Metadata (`.winmd`) is not a supported input format.
 
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
 
+Discover NuGet.org packages by ID prefix without downloading package archives:
+
+```bash
+dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
+```
+
+Patternless `--package-prefix` streams the latest listed package metadata and
+exact `.nuspec` manifests, including owners and declared dependency groups.
+`-t` limits packages rather than flattened dependency rows. Supplying a pattern
+keeps the existing API-search behavior and may acquire package archives:
+
+```bash
+dotnet-inspect find JsonSerializer --package-prefix Microsoft.
+```
+
 For API and relationship commands, `--project` means an existing
 `project.assets.json` restored-assets context. Passing a `.csproj` or project
 directory only locates that file; dotnet-inspect does not restore or build, so
@@ -211,7 +226,7 @@ permits a selected non-public member.
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
+| API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Patternless `find --package-prefix PREFIX` discovers latest NuGet.org package manifests without downloading archives. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified PDB Source evidence. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods in one retained assembly, with explicit exact, near, different, unsupported, failed, limit-reached, and ambiguous-correspondence results. Add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Explicit package-set Integration graphs, type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors, and subclasses. Add `--project` to search project-referenced packages. |
@@ -219,6 +234,7 @@ permits a selected non-public member.
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `member M --where "Kind=ObjectCreationExpression"`; `type T --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member, type, or assembly for exact stable rendered-syntax kinds and ranges, diffs checksum-verified PDB Source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
+| Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -230,7 +246,7 @@ permits a selected non-public member.
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, async methods, and rendered body shapes (`--where "Kind=<ID>"`). |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), checksum-verified PDB Source, and IL. |
-| `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet.org package manifests. |
 | `match A B` | Compare two unambiguous `Type.Member` names from one retained assembly by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified PDB Source implementation evidence. |
@@ -239,8 +255,33 @@ permits a selected non-public member.
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
+| `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill sourcelink`, `skill performance`). |
+
+Convert a browser `w` query value to its exact compact JSON shape:
+
+```bash
+dotnet-inspect workspace-state decode "$w"
+dotnet-inspect workspace-state decode "$w" | jq
+```
+
+Convert JSON back to the one canonical base64url packet:
+
+```bash
+dotnet-inspect workspace-state encode --file workspace-state.json
+printf '%s' "$json" | dotnet-inspect workspace-state encode -
+```
+
+Bounded stdin and file input use strict UTF-8 and may end with one LF or CRLF;
+that transport line ending does not count against the packet or JSON payload
+limit.
+
+Encoding accepts equivalent duplicate-free JSON whitespace, property order, and
+string escapes, then validates the complete v1 shape and emits its canonical
+packet. Decoding requires a canonical packet and emits the exact JSON text
+used by that packet. Both directions are bounded, local conversions: they do
+not acquire artifacts, authorize package sources, or execute a workspace.
 
 Remote dependency trees requested with `depends --package`,
 `package -S Dependencies --tree`, or the legacy `package --dependencies` alias
@@ -592,7 +633,14 @@ evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
 hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
 rendering as a machine payload), `PDB Source` (Portable-PDB-selected,
 checksum-verified source acquired locally or through SourceLink),
-and `IL`. The decompiler is exception-safe by construction and degrades
+`Source Diff` (PDB Source compared with Decompiled Source), and `IL`.
+`Source Diff` names the PDB-selected document and whether its bytes matched the
+checksum exactly or after CR/LF normalization, without claiming independent
+build provenance. Normal output uses bounded unified hunks for review; if it
+reports a partial presentation, use `-v:d` to emit complete line evidence.
+Source convergence remains independent of compile-back fidelity: similar text
+does not prove equivalent IL, and different text does not prove incorrect
+behavior. The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
 `IlOnly` → `Failed`) instead of emitting plausible-but-wrong source, with a

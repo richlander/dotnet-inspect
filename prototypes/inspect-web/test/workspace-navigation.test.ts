@@ -7,6 +7,8 @@ import {
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  parseWorkspaceRoute,
+  resolveWorkspaceRoute,
   shouldInterceptLinkClick,
   workspaceViewSignature,
   type LinkNavigationClick,
@@ -293,6 +295,80 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.workspaceNotice, "");
 });
 
+test("workspace route preflight defers packet decoding", () => {
+  const location = locationSnapshot(
+    "https://inspect.example/?package=Visible.Package&w=opaque#metadata");
+  const route = parseWorkspaceRoute(location);
+
+  assert.equal(route.encodedWorkspaceState, "opaque");
+  assert.equal(route.hasWorkspaceState, true);
+  assert.equal(route.visible.package, "Visible.Package");
+  assert.deepEqual(route.visible.tabs, []);
+  assert.equal(route.visible.workspaceNotice, "");
+
+  let decodeCalls = 0;
+  const resolved = resolveWorkspaceRoute(route, value => {
+    decodeCalls++;
+    assert.equal(value, "opaque");
+    return { error: "The product decoder rejected this packet." };
+  });
+
+  assert.equal(decodeCalls, 1);
+  assert.equal(resolved.package, "Visible.Package");
+  assert.deepEqual(resolved.tabs, []);
+  assert.equal(
+    resolved.workspaceNotice,
+    "The product decoder rejected this packet.");
+});
+
+test("workspace route resolution skips the decoder without packet state", () => {
+  const route = parseWorkspaceRoute(locationSnapshot(
+    "https://inspect.example/packages/Example.Package/1.0.0#source"));
+  let decodeCalls = 0;
+  const resolved = resolveWorkspaceRoute(route, () => {
+    decodeCalls++;
+    return { error: "unexpected" };
+  });
+
+  assert.equal(route.encodedWorkspaceState, null);
+  assert.equal(route.hasWorkspaceState, false);
+  assert.equal(decodeCalls, 0);
+  assert.equal(resolved.package, "Example.Package");
+  assert.equal(resolved.workspaceNotice, "");
+});
+
+test("location preflight snapshots once and defers decoding", () => {
+  let currentCalls = 0;
+  let decodeCalls = 0;
+  const persistence = createWorkspaceLocationPersistence({
+    current() {
+      currentCalls++;
+      return locationSnapshot(
+        "https://inspect.example/?package=Visible.Package&w=opaque");
+    },
+    replace() {},
+    push() {},
+  });
+
+  const preflight = persistence.preflightCurrent();
+  assert.equal(currentCalls, 1);
+  assert.equal(decodeCalls, 0);
+  assert.equal(preflight.visible.package, "Visible.Package");
+  assert.equal(preflight.hasWorkspaceState, true);
+
+  const resolved = preflight.resolve(value => {
+    decodeCalls++;
+    assert.equal(value, "opaque");
+    return { error: "The product decoder rejected this packet." };
+  });
+
+  assert.equal(currentCalls, 1);
+  assert.equal(decodeCalls, 1);
+  assert.equal(
+    resolved.workspaceNotice,
+    "The product decoder rejected this packet.");
+});
+
 test("graph member URLs retain exact identity instead of a lossy body target", () => {
   const graphTarget = {
     assembly: "Example.Second",
@@ -414,6 +490,21 @@ test("legacy workspace packets retain visible-location authority", () => {
   assert.equal(parsed.active, 1);
 });
 
+test("unknown workspace view and member-section tokens are ignored", () => {
+  const unknownLens = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package"
+      + "&section=history#implementation"));
+  assert.equal(unknownLens.lens, null);
+  assert.equal(unknownLens.atPackageRoot, false);
+  assert.equal(unknownLens.packageLens, null);
+  assert.equal(unknownLens.section, null);
+
+  const unknownPackageLens = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package#pkg:files"));
+  assert.equal(unknownPackageLens.atPackageRoot, true);
+  assert.equal(unknownPackageLens.packageLens, "overview");
+});
+
 test("invalid and oversized workspace packets stay visible", () => {
   const invalid = parseWorkspaceLocation(locationSnapshot(
     "https://inspect.example/?package=Example.Package&w=not-base64"));
@@ -432,6 +523,36 @@ test("invalid and oversized workspace packets stay visible", () => {
     hash: "",
   });
   assert.match(oversized.workspaceNotice, /65536-character limit/);
+});
+
+test("rich workspace packets keep valid member sections and drop invalid ones", () => {
+  function richPacket(section: unknown) {
+    return Buffer.from(JSON.stringify({
+      t: [["Example.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Serialize",
+      c: section,
+    })).toString("base64url");
+  }
+
+  const valid = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${richPacket("call-graph")}`));
+  assert.equal(valid.section, "call-graph");
+  assert.equal(valid.workspaceNotice, "");
+
+  // The share packet is untrusted input, so an unknown token must not reach the
+  // MemberSection-typed field just because it is a string.
+  for (const hostile of ["history", "", "Overview", "call-graph "]) {
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?w=${richPacket(hostile)}`));
+    assert.equal(parsed.section, null, hostile);
+    assert.equal(parsed.type, "Example.Widget", hostile);
+  }
+
+  const nonString = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${richPacket(7)}`));
+  assert.equal(nonString.section, null);
 });
 
 test("malformed rich packet fields cannot override the visible package", () => {

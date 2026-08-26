@@ -13,6 +13,8 @@ public sealed class PackageSourceClientTests
         "https://azuresearch-usnc.nuget.org/query";
     private const string GalleryVersions =
         "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json";
+    private const string GalleryManifest =
+        "https://globalcdn.nuget.org/v3-flatcontainer/contoso/1.0.0/contoso.nuspec";
     private const string GalleryRegistration =
         "https://globalcdn.nuget.org/v3/registration5-gz-semver2/contoso/index.json";
     private const string GalleryRegistrationPage =
@@ -36,6 +38,8 @@ public sealed class PackageSourceClientTests
         "https://feed.example/v3/flat/contoso/index.json";
     private const string Package =
         "https://feed.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+    private const string Manifest =
+        "https://feed.example/v3/flat/contoso/1.0.0/contoso.nuspec";
 
     [Fact]
     public void GalleryAndCanonicalV3ShareProducerIdentity()
@@ -203,6 +207,7 @@ public sealed class PackageSourceClientTests
                 }
                 """,
             [Versions] = """{"versions":["1.0.0"]}""",
+            [Manifest] = "<package />",
             [Package] = "package bytes",
         };
         HttpMessageHandler client = handler;
@@ -218,6 +223,7 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceCapabilities.Search
                 | PackageSourceCapabilities.VersionEnumeration
+                | PackageSourceCapabilities.Manifest
                 | PackageSourceCapabilities.PackagePayload,
             runtime.Capabilities);
         PackageVersionResult versions = Succeeded(
@@ -236,6 +242,17 @@ public sealed class PackageSourceClientTests
             PackageListingState.Unknown,
             candidate.ListingState);
         Assert.False(versions.HasAuthoritativeListingState);
+        PackageSourceManifest manifest = Succeeded(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(candidate.Coordinate, manifest.Coordinate);
+        Assert.Equal(runtime.Identity, manifest.Producer);
+        Assert.Equal(PackageSourceKind.NuGetV3, manifest.TransportKind);
+        Assert.Equal(
+            "<package />",
+            Encoding.UTF8.GetString(manifest.Content.Span));
         PackageSourcePayload packagePayload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -254,7 +271,14 @@ public sealed class PackageSourceClientTests
             await reader.ReadToEndAsync(
                 TestContext.Current.CancellationToken));
         Assert.Equal(
-            ["user:token", "user:token", "user:token", "user:token"],
+            [
+                "user:token",
+                "user:token",
+                "user:token",
+                "user:token",
+                "user:token",
+                "user:token",
+            ],
             handler.Authentication.Select(DecodeBasic));
     }
 
@@ -590,6 +614,9 @@ public sealed class PackageSourceClientTests
         string signedPackage =
             "https://feed.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg"
             + expectedQuery;
+        string signedManifest =
+            "https://feed.example/v3/flat/contoso/1.0.0/contoso.nuspec"
+            + expectedQuery;
         var handler = new RecordingHandler
         {
             [ServiceIndex] = $$"""
@@ -604,6 +631,7 @@ public sealed class PackageSourceClientTests
                 }
                 """,
             [signedVersions] = """{"versions":["1.0.0"]}""",
+            [signedManifest] = "<package />",
             [signedPackage] = "package bytes",
         };
         HttpMessageHandler client = handler;
@@ -618,6 +646,11 @@ public sealed class PackageSourceClientTests
                     "contoso",
                     TestContext.Current.CancellationToken))
                 .Candidates);
+        Succeeded(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
         PackageSourcePayload payload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -630,13 +663,15 @@ public sealed class PackageSourceClientTests
                 ServiceIndex,
                 signedVersions,
                 ServiceIndex,
+                signedManifest,
+                ServiceIndex,
                 signedPackage,
             ],
             handler.Requested);
     }
 
     [Fact]
-    public async Task V3VersionAndPackageDoNotSendCredentialCrossOrigin()
+    public async Task V3VersionManifestAndPackageDoNotSendCredentialCrossOrigin()
     {
         const string crossOriginBase =
             "https://packages.example/flat/";
@@ -644,6 +679,8 @@ public sealed class PackageSourceClientTests
             "https://packages.example/flat/contoso/index.json";
         const string crossOriginPackage =
             "https://packages.example/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+        const string crossOriginManifest =
+            "https://packages.example/flat/contoso/1.0.0/contoso.nuspec";
         var handler = new RecordingHandler
         {
             [ServiceIndex] = $$"""
@@ -658,6 +695,7 @@ public sealed class PackageSourceClientTests
                 }
                 """,
             [crossOriginVersions] = """{"versions":["1.0.0"]}""",
+            [crossOriginManifest] = "<package />",
             [crossOriginPackage] = "package bytes",
         };
         HttpMessageHandler client = handler;
@@ -675,6 +713,11 @@ public sealed class PackageSourceClientTests
                     "contoso",
                     TestContext.Current.CancellationToken))
                 .Candidates);
+        Succeeded(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
         PackageSourcePayload payload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -683,7 +726,14 @@ public sealed class PackageSourceClientTests
         await payload.Content.DisposeAsync();
 
         Assert.Equal(
-            ["user:token", null, "user:token", null],
+            [
+                "user:token",
+                null,
+                "user:token",
+                null,
+                "user:token",
+                null,
+            ],
             handler.Authentication.Select(DecodeBasic));
     }
 
@@ -1487,12 +1537,15 @@ public sealed class PackageSourceClientTests
                   "data": [
                     {
                       "id": "Contoso",
-                      "version": "1.0.0"
+                      "version": "1.0.0",
+                      "authors": ["Contoso"],
+                      "owners": ["Contoso", "Partner"]
                     }
                   ]
                 }
                 """,
             [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryManifest] = "<package />",
             [GalleryRegistration] = """
                 {
                   "items": [
@@ -1518,6 +1571,7 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceCapabilities.Search
                 | PackageSourceCapabilities.VersionEnumeration
+                | PackageSourceCapabilities.Manifest
                 | PackageSourceCapabilities.PackagePayload
                 | PackageSourceCapabilities.SymbolPayload,
             runtime.Capabilities);
@@ -1538,6 +1592,16 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageListingState.Listed,
             match.Candidate.ListingState);
+        Assert.Equal(["Contoso", "Partner"], match.Metadata.Owners);
+        PackageSearchMatch prefixMatch = Assert.Single(
+            Succeeded(
+                await runtime.SearchByPrefixAsync(
+                    "Contoso",
+                    take: 1,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Matches);
+        Assert.Equal(match.Candidate, prefixMatch.Candidate);
         PackageVersionResult versions = Succeeded(
             await runtime.GetVersionsAsync(
                 "Contoso",
@@ -1549,6 +1613,15 @@ public sealed class PackageSourceClientTests
             PackageListingState.Listed,
             version.ListingState);
         Assert.True(versions.HasAuthoritativeListingState);
+        PackageSourceManifest manifest = Succeeded(
+            await runtime.GetManifestAsync(
+                "Contoso",
+                "1.0",
+                TestContext.Current.CancellationToken));
+        Assert.Equal("<package />", Encoding.UTF8.GetString(manifest.Content.Span));
+        Assert.Equal(match.Candidate.Coordinate, manifest.Coordinate);
+        Assert.Equal(runtime.Identity, manifest.Producer);
+        Assert.Equal(PackageSourceKind.NuGetGallery, manifest.TransportKind);
         PackageSourcePayload packagePayload = Succeeded(
             await runtime.GetPackageAsync(
                 "Contoso",
@@ -1591,18 +1664,27 @@ public sealed class PackageSourceClientTests
             url => url.StartsWith(
                 $"{GallerySearch}?",
                 StringComparison.Ordinal));
-        string searchRequest = Assert.Single(
-            handler.Requested,
-            url => url.StartsWith(
-                GallerySearch,
-                StringComparison.Ordinal));
-        Assert.Contains("q=contoso", searchRequest);
-        Assert.Contains("prerelease=false", searchRequest);
-        Assert.Contains("semVerLevel=2.0.0", searchRequest);
+        string[] searchRequests =
+        [
+            .. handler.Requested.Where(
+                url => url.StartsWith(
+                    GallerySearch,
+                    StringComparison.Ordinal)),
+        ];
+        Assert.Equal(2, searchRequests.Length);
+        Assert.All(
+            searchRequests,
+            searchRequest =>
+            {
+                Assert.Contains("q=Contoso", searchRequest, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("prerelease=false", searchRequest);
+                Assert.Contains("semVerLevel=2.0.0", searchRequest);
+            });
         Assert.Equal(
             [
                 GalleryVersions,
                 GalleryRegistration,
+                GalleryManifest,
                 GalleryPackage,
                 GallerySymbols,
             ],
@@ -2841,6 +2923,56 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryMissingManifestIsTypedAbsence()
+    {
+        var handler = new RecordingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.NotFound, failure.Kind);
+        Assert.Equal(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            failure.Coordinate);
+        Assert.Equal(
+            PackageSourceCapabilities.Manifest,
+            failure.Capability);
+        Assert.Equal([GalleryManifest], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryManifestHonorsMetadataBound()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryManifest] = "<package />",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxManifestResponseBytes = 8,
+                });
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetManifestAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
+        Assert.Equal([GalleryManifest], handler.Requested);
+    }
+
+    [Fact]
     public async Task GalleryRejectsInvalidVersionMetadata()
     {
         var handler = new RecordingHandler
@@ -3734,6 +3866,7 @@ public sealed class PackageSourceClientTests
     [Theory]
     [InlineData("search")]
     [InlineData("versions")]
+    [InlineData("manifest")]
     [InlineData("package")]
     public async Task GalleryRetriesTransientFailuresWithinOneOperation(
         string operation)
@@ -3760,6 +3893,13 @@ public sealed class PackageSourceClientTests
                             "contoso",
                             TestContext.Current.CancellationToken))
                     .Candidates);
+                break;
+            case "manifest":
+                Succeeded(
+                    await runtime.GetManifestAsync(
+                        "contoso",
+                        "1.0.0",
+                        TestContext.Current.CancellationToken));
                 break;
             case "package":
                 PackageSourcePayload payload = Succeeded(
@@ -4536,7 +4676,9 @@ public sealed class PackageSourceClientTests
                 : url.Equals(GalleryVersions, StringComparison.Ordinal)
                     ? new StringContent(
                         """{"versions":["1.0.0"]}""")
-                    : new ByteArrayContent("package bytes"u8.ToArray());
+                    : url.Equals(GalleryManifest, StringComparison.Ordinal)
+                        ? new StringContent("<package />")
+                        : new ByteArrayContent("package bytes"u8.ToArray());
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
