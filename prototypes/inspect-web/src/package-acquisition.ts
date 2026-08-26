@@ -427,7 +427,10 @@ export function createPackageAcquisition(
       return enqueueRuntimeRequest(async () => {
         if (!isCurrent()) return { packageModel: null, error: null };
         const requestedFramework = framework || "";
-        const requestedVersion = platformVersion || "";
+        const requestedVersion =
+          platformVersion.toLowerCase() === "latest"
+            ? ""
+            : platformVersion;
         const existing = dependencies.runtimePackage();
         if (existing
           && runtimePackIsResident(existing)
@@ -481,7 +484,10 @@ export function createPackageAcquisition(
       return enqueueRuntimeRequest(async () => {
         if (!isCurrent()) return { packageModel: null, error: null };
         const requestedFramework = framework || "";
-        const requestedVersion = platformVersion || "";
+        const requestedVersion =
+          platformVersion.toLowerCase() === "latest"
+            ? ""
+            : platformVersion;
         const requestedAssembly = assemblyFileName
           .replace(/\.dll$/i, "");
         const resident = dependencies.runtimePackage();

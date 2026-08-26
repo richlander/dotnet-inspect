@@ -279,6 +279,62 @@ export interface WorkspaceUrlState {
   view: BrowserWorkspaceShareView;
 }
 
+export interface PackageRootUrlState {
+  package: string;
+  version: string;
+  framework: string;
+  lens: PackageLens;
+}
+
+export interface WorkspaceShareCaptureTopology {
+  contexts: BrowserWorkspaceShareContext[];
+  selectedContextId: string;
+}
+
+export function workspaceShareCaptureTopology(
+  tabs: readonly BrowserWorkspaceShareTab[],
+  activeIndex: number,
+  basis: BrowserWorkspaceShareState | null,
+  callGraph: boolean,
+): WorkspaceShareCaptureTopology {
+  const preservesBasis = basis
+    && basis.tabs.length === tabs.length
+    && basis.tabs.every((tab, index) => tab.id === tabs[index]?.id);
+  const contexts = preservesBasis
+    ? basis.contexts.map(context => ({
+        id: context.id,
+        tabIds: context.tabIds.slice(),
+      }))
+    : tabs.map((tab, index) => ({
+        id: `g${index}`,
+        tabIds: [tab.id],
+      }));
+  let selectedContextId = preservesBasis
+    ? basis.selectedContextId
+    : contexts[activeIndex]?.id ?? contexts[0]?.id ?? "";
+
+  if (!preservesBasis && callGraph) {
+    const activeTab = tabs[activeIndex];
+    const packageTabIds = tabs
+      .filter(tab => tab.kind === "package")
+      .map(tab => tab.id);
+    if (activeTab?.kind === "package" && packageTabIds.length > 1) {
+      const rootFirst = [
+        activeTab.id,
+        ...packageTabIds.filter(id => id !== activeTab.id),
+      ];
+      const context = {
+        id: `g${contexts.length}`,
+        tabIds: rootFirst,
+      };
+      contexts.push(context);
+      selectedContextId = context.id;
+    }
+  }
+
+  return { contexts, selectedContextId };
+}
+
 export interface DecodedShareState {
   state: BrowserWorkspaceShareState;
   tabs: WorkspaceTab[];
@@ -337,6 +393,7 @@ function decodeWorkspaceShareState(
 
   const state = result.state;
   const tabs: WorkspaceTab[] = [];
+  let platformTabCount = 0;
   for (const tab of state.tabs) {
     if (tab.runtimeIdentifier) {
       return {
@@ -356,6 +413,12 @@ function decodeWorkspaceShareState(
       continue;
     }
     if (tab.kind === "group" && tab.source === ":Platform") {
+      platformTabCount++;
+      if (platformTabCount > 1) {
+        return {
+          error: "The shared workspace contains multiple Platform tabs, which this browser cannot retain independently.",
+        };
+      }
       tabs.push({
         id: "Microsoft.NETCore.App",
         version: tab.version ?? "latest",
@@ -383,6 +446,11 @@ function decodeWorkspaceShareState(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
+  if (state.view.lens && !isTypeLens(state.view.lens)) {
+    return {
+      error: `The shared workspace view lens '${state.view.lens}' is not supported by this browser.`,
+    };
+  }
   if (state.view.libraries.length > 1) {
     return {
       error: "The shared workspace selects multiple libraries, which this browser cannot activate.",
@@ -596,11 +664,26 @@ export function buildWorkspaceStateUrl(
   return url;
 }
 
+export function buildPackageRootStateUrl(
+  base: string,
+  state: PackageRootUrlState,
+): URL {
+  const url = new URL(base);
+  url.pathname = "/";
+  url.search = "";
+  url.searchParams.set("package", state.package);
+  url.searchParams.set("version", state.version);
+  url.searchParams.set("framework", state.framework);
+  url.hash = state.lens === "overview" ? "pkg" : `pkg:${state.lens}`;
+  return url;
+}
+
 export interface WorkspaceLocationPersistence {
   parseCurrent(): ParsedWorkspaceLocation;
   preflightCurrent(): WorkspaceLocationPreflight;
   build(state: WorkspaceUrlState, base?: string): URL;
   sync(state: WorkspaceUrlState): void;
+  replace(url: string): void;
   push(url: string): void;
 }
 
@@ -643,6 +726,13 @@ export function createWorkspaceLocationPersistence(
         dependencies.replace(build(state).toString());
       } catch {
         // Sandboxed frames and overlong state can reject address-bar persistence.
+      }
+    },
+    replace(url) {
+      try {
+        dependencies.replace(url);
+      } catch {
+        // Sandboxed frames may reject browser-history changes.
       }
     },
     push(url) {

@@ -132,12 +132,21 @@ export function productHomeDemoLocationHref(
   if (!focusTab) {
     throw new Error(`Product home demo '${demo.id}' has no active navigation tab.`);
   }
+  const groupTabs = tabs.filter(tab => tab.kind === "group");
+  if (groupTabs.length > 1) {
+    throw new Error(
+      `Product home demo '${demo.id}' has multiple platform group tabs.`);
+  }
+  const contextTabIds = [
+    ...groupTabs.map(tab => tab.id),
+    ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
+  ];
   return locationHref({
     package: focusTab.source,
     tabs,
     contexts: [{
       id: "g0",
-      tabIds: tabs.map(tab => tab.id),
+      tabIds: contextTabIds,
     }],
     activeTabId: focusTab.id,
     selectedContextId: "g0",

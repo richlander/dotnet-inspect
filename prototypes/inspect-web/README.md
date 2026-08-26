@@ -149,9 +149,11 @@ later family download cannot evict bytes that the unregistered candidate still
 holds. Shared links carry the canonical `:Platform` group version and selected library
 identity. An exact version bypasses discovery, keys retained Platform state
 separately from floating acquisition, and follows every later assembly and
-query operation; a different resident patch cannot satisfy it.
-`PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` gates
-that behavior. Initial member graphs use the same escaped definition identity
+query operation; a different resident patch cannot satisfy it. A missing pin or
+the Browser `latest` sentinel remains floating and uses version discovery.
+`PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+Initial member graphs use the same escaped definition identity
 as subsequent graph descent. Platform graph loads and descents also carry the target's complete
 assembly identity and reject an acquired root that is not binding-equivalent,
 rather than applying a valid selector to a different assembly version or
@@ -773,13 +775,19 @@ binding context, portable member anchors/signatures, section, and sorted library
 scope cross the generated bridge as long-form records. The selected context,
 not every open tab, bounds package Call Graph expansion.
 
-Browser activation supports package tabs and exact `:Platform` group tabs
-without RIDs. Unsupported groups, runtime identifiers, multiple selected
-libraries, unknown sections, package-root facets, unresolved graph targets,
+Browser activation supports package tabs and one exact or floating `:Platform`
+group tab without RIDs. Canonical activation is atomic: any unavailable tab,
+library, type, member, or applicable member section leaves the original URL
+intact and reports the failed restore rather than activating a partial
+workspace. Unsupported groups, multiple Platform tabs, runtime identifiers,
+multiple selected libraries, unknown lenses or sections, package-root facets,
+unresolved graph targets,
 ambiguous overloads, and members without a portable product identity fail
 visibly rather than producing lossy state. Filters and browse presentation stay
-session-local. URL synchronization retains the last valid canonical URL while a
-transient view is not projectable; explicit Share reports the refusal.
+session-local. A package-root view drops stale `w=` state and uses the ordinary
+Browser package route until product facet ids exist. Other transient,
+non-projectable views retain the last valid canonical URL; explicit Share
+reports the refusal.
 `test/workspace-navigation.test.ts` gates that the route preflight cannot decode
 the packet and that later resolution invokes exactly one decoder.
 `dotnet-inspect.ts` remains the sole mutable

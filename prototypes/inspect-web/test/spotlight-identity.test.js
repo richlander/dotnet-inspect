@@ -2163,7 +2163,7 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.match(
     capture,
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
-  assert.match(capture, /libraries = state\.package\.isRuntimePack && state\.libraryScope/);
+  assert.match(capture, /libraries = state\.libraryScope/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);
   assert.doesNotMatch(capture, /memberAccessibilityFilter:/);
@@ -2211,6 +2211,29 @@ test("the selected canonical context bounds call graph workspace membership", ()
   assert.match(
     loader,
     /const workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
+});
+
+test("canonical restoration is atomic and history adopts the active packet basis", () => {
+  const restore = appSource.match(
+    /async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0] ?? "";
+  const history = appSource.match(
+    /window\.addEventListener\("popstate"[\s\S]*?\n}\);/)?.[0] ?? "";
+  const sync = appSource.match(
+    /function syncUrl\(\)[\s\S]*?\n}/)?.[0] ?? "";
+
+  assert.match(
+    restore,
+    /failedTabCount[\s\S]*loc\.shareState && failedTabCount > 0[\s\S]*failCanonicalWorkspaceRestore/);
+  assert.match(
+    restore,
+    /canonicalViewRestorationFailure\(targetModel, deep\)[\s\S]*failCanonicalWorkspaceRestore/);
+  assert.match(
+    history,
+    /state\.workspaceShareBasis = loc\.shareState/);
+  assert.match(sync, /state\.atPackageRoot/);
+  assert.match(
+    sync,
+    /workspaceLocation\.replace\(buildPackageRootStateUrl/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {

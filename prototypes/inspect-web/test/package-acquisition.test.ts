@@ -939,6 +939,26 @@ test("an exact platform version bypasses a different resident patch", async () =
   assert.deepEqual(retainedVersions, ["10.0.1"]);
 });
 
+test("the latest platform sentinel remains a floating acquisition", async () => {
+  const calls: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async (framework, platformVersion) => {
+      calls.push(`${framework}@${platformVersion}`);
+      return JSON.stringify(
+        runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+    },
+    runtimePackage: () => null,
+  }));
+
+  const result = await acquisition.loadRuntimePack(
+    "net10.0",
+    () => true,
+    "latest");
+
+  assert.deepEqual(calls, ["net10.0@"]);
+  assert.ok(result.packageModel);
+});
+
 test("platform assembly residency includes the requested pack", async () => {
   const resident = createRuntimePackageModel(
     runtimeSurface(

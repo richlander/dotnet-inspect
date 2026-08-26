@@ -1142,9 +1142,14 @@ Definition records and product demos (this slice):
   sharing. The active navigation tab and selected query context remain
   independent; the selected context bounds cross-package Call Graph expansion.
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
-  while unsupported groups, RIDs, multi-library Browser views, package facets,
-  pending graph targets, and members without portable anchor/signature identity
-  fail visibly instead of being flattened; and
+  while an absent pin remains floating. Browser activation accepts at most one
+  Platform tab and is atomic: an unavailable coordinate, selected library,
+  type, member, or applicable section restores no partial workspace and leaves
+  the source URL intact. Unsupported groups, RIDs, multi-library Browser views,
+  unknown lenses or sections, package facets, pending graph targets, and
+  members without portable anchor/signature identity fail visibly instead of
+  being flattened. Package-root navigation uses the ordinary Browser route,
+  without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI
   use of the codec/transposer for executable `-W`, or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still

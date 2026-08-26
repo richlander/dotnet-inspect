@@ -258,6 +258,10 @@ test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
 test("unversioned platform residual maps to the browser runtime pack", () => {
   const href = demoHref(unversionedRuntimeResolved);
   assert.ok(href);
+  assert.deepEqual(encodedDemoState?.contexts, [{
+    id: "g0",
+    tabIds: ["t1", "t0"],
+  }]);
   const { url, location } = parseDemoHref(href);
   assert.equal(url.searchParams.get("package"), PLATFORM_RUNTIME_PACK.source);
   assert.deepEqual(location.tabs, [

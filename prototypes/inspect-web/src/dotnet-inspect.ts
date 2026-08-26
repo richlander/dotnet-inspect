@@ -81,9 +81,11 @@ import {
 } from "./member-filtering.ts";
 import {
   bindWorkspaceLinkNavigation,
+  buildPackageRootStateUrl,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  workspaceShareCaptureTopology,
   workspaceViewSignature,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
@@ -5919,50 +5921,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   const activeTab = tabs[activeIndex];
   if (!activeTab) return null;
 
-  let contexts;
-  let selectedContextId;
   const basis = state.workspaceShareBasis;
-  const preservesBasis = basis
-    && basis.tabs.length === tabs.length
-    && basis.tabs.every((tab, index) => tab.id === tabs[index]?.id);
-  if (preservesBasis) {
-    contexts = basis.contexts.map(context => ({
-      id: context.id,
-      tabIds: context.tabIds.slice(),
-    }));
-    selectedContextId = basis.selectedContextId;
-  } else {
-    contexts = tabs.map((tab, index) => ({
-      id: `g${index}`,
-      tabIds: [tab.id],
-    }));
-    selectedContextId = contexts[activeIndex]?.id ?? contexts[0]?.id ?? "";
-  }
-
-  const packageTabIds = tabs
-    .filter(tab => tab.kind === "package")
-    .map(tab => tab.id);
-  if (state.memberSection === "call-graph"
-    && packageTabIds.length > 1
-    && !state.package.isRuntimePack) {
-    const rootFirst = [
-      activeTab.id,
-      ...packageTabIds.filter(id => id !== activeTab.id),
-    ];
-    const existing = contexts.find(context =>
-      context.tabIds.length === rootFirst.length
-      && context.tabIds.every((id, index) => id === rootFirst[index]));
-    if (existing) {
-      selectedContextId = existing.id;
-    } else {
-      const context = {
-        id: `g${contexts.length}`,
-        tabIds: rootFirst,
-      };
-      contexts.push(context);
-      selectedContextId = context.id;
-    }
-  }
+  const { contexts, selectedContextId } = workspaceShareCaptureTopology(
+    tabs,
+    activeIndex,
+    basis,
+    state.memberSection === "call-graph");
 
   const type = selectedType();
   const member = selectedMember(type);
@@ -5988,7 +5952,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     }
   }
 
-  const libraries = state.package.isRuntimePack && state.libraryScope
+  const libraries = state.libraryScope
     ? [...state.libraryScope].sort((left, right) =>
         left < right ? -1 : left > right ? 1 : 0)
     : [];
@@ -6023,6 +5987,16 @@ function buildStateUrl(base = location.href) {
 // back/forward buttons authoritative and avoids flooding browser history on every render.
 function syncUrl() {
   try {
+    if (state.atPackageRoot && state.package && !state.loading) {
+      document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+      workspaceLocation.replace(buildPackageRootStateUrl(location.href, {
+        package: state.package.id,
+        version: state.package.version,
+        framework: state.package.activeFramework,
+        lens: state.packageLens,
+      }).toString());
+      return;
+    }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
@@ -6036,6 +6010,57 @@ function syncUrl() {
 // type/member/overload/section still exist.
 type DeepLink = WorkspaceDeepLink;
 
+function canonicalViewRestorationFailure(
+  pkg: AppPackage,
+  deep: DeepLink,
+): string | null {
+  const requestedType = deep.type
+    ? pkg.types.find(type => type.id === deep.type)
+    : null;
+  if (deep.type && !requestedType) {
+    return `The shared type '${deep.type}' is no longer available.`;
+  }
+  if (requestedType
+    && state.libraryScope
+    && !state.libraryScope.has(libraryKey(requestedType))) {
+    return `The shared type '${deep.type}' is not part of the selected library.`;
+  }
+  if (!deep.memberAnchor && !deep.memberSignature) return null;
+  if (!deep.type) {
+    return "The shared member has no declaring type and cannot be restored.";
+  }
+
+  if (!requestedType) {
+    return `The shared member's declaring type '${deep.type}' is no longer available.`;
+  }
+  const matches = memberGroups(requestedType).flatMap(group =>
+    group.overloads.map(overload => ({
+      group,
+      overload,
+    }))).filter(candidate =>
+      deep.memberAnchor
+        ? candidate.overload.anchorDigest === deep.memberAnchor
+        : candidate.overload.canonicalSignature === deep.memberSignature);
+  if (matches.length === 0) {
+    return "The shared member is no longer available.";
+  }
+  if (matches.length > 1) {
+    return "The shared member identity is ambiguous.";
+  }
+
+  const selection = matches[0]!;
+  const hasSelectedBody = selection.overload.bodySelectors.length > 0
+    || selection.overload.metadataToken != null;
+  if (deep.section
+    && !memberSectionIdsFor(
+      selection.group,
+      pkg.isRuntimePack,
+      hasSelectedBody).includes(deep.section)) {
+    return `The shared member section '${deep.section}' is not available for this member.`;
+  }
+  return null;
+}
+
 function applyDeepLink(deep: DeepLink | null | undefined) {
   const pkg = state.package;
   if (!pkg) return;
@@ -6044,8 +6069,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   // in-app link click that means to preserve the current type-list filter. Clear the
   // type/namespace/kind filters so a value left over from Browse elsewhere doesn't hide the
   // restored type from the list (library scope is deliberately left alone: for a platform
-  // link it is already restored by applyPlatformLibraryScope before this runs, and clearing
-  // it here would undo that restoration).
+  // link it is already restored by applyPlatformLibraryScope, and for a package link it is
+  // restored from the selected canonical library before this runs).
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -6070,15 +6095,6 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   resetMemberFilters();
-  // Only the .NET Platform pseudo-package's library scope is carried across a restore (via
-  // applyPlatformLibraryScope, which every restore path already runs before reaching here). A
-  // regular package's scope is never part of that restored view, so any value still set here
-  // is leftover session state from a previously viewed package. Clear it before computing a
-  // fallback default type below (not merely after), so that leftover scope can't narrow which
-  // type the fallback picks -- e.g. two unrelated packages happening to share an assembly name.
-  if (!isRuntimePackId(pkg.id)) {
-    state.libraryScope = null;
-  }
   state.selectedTypeId = restoreType
     ? deep?.type ?? ""
     : defaultVisibleTypeId(pkg);
@@ -6091,8 +6107,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
     reconcileAccessibilityFilter(selected);
-    // A regular package's scope was already cleared above. For the platform pseudo-package,
-    // only clear the restored scope if the selected type doesn't actually belong to it --
+    // For the platform pseudo-package, only clear the restored scope if the selected type
+    // doesn't actually belong to it --
     // defaultVisibleTypeId now prefers a type within libraryScope even when none of that
     // scope's types pass the accessibility filter (see its own comment), so this should only
     // trigger when the scope's library genuinely has no types at all.
@@ -8658,7 +8674,10 @@ async function restoreWorkspaceFromLocation(
       === target.framework.toLowerCase();
   const matchesTarget = (tab: RestorableCoordinate) =>
     isRuntimePackId(tab.id)
-      ? isRuntimePackId(target.id) && matchesFramework(tab)
+      ? isRuntimePackId(target.id)
+        && (target.version.toLowerCase() === "latest"
+          || tab.version.toLowerCase() === target.version.toLowerCase())
+        && matchesFramework(tab)
       : (tab.id.toLowerCase() === target.id.toLowerCase()
         && tab.version.toLowerCase() === target.version.toLowerCase()
         && matchesFramework(tab));
@@ -8679,6 +8698,7 @@ async function restoreWorkspaceFromLocation(
   // flashes into view before the target resolves.
   let loadedTargetModel: AppPackage | null = null;
   let runtimeFailureMessage = "";
+  let failedTabCount = 0;
   for (const tab of tabs) {
     let loaded: AppPackage | null;
     if (isRuntimePackId(tab.id)) {
@@ -8704,7 +8724,17 @@ async function restoreWorkspaceFromLocation(
       });
     }
     if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!loaded) failedTabCount++;
     if (loaded && matchesTarget(tab)) loadedTargetModel = loaded;
+  }
+
+  if (loc.shareState && failedTabCount > 0) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      deep,
+      state.queryNotice
+        || "The shared workspace could not be restored completely.");
+    return;
   }
 
   const targetModel = loadedTargetModel ?? state.packages.find(matchesTarget);
@@ -8722,8 +8752,31 @@ async function restoreWorkspaceFromLocation(
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (!navigationSequence.isCurrent(navigationSeq)) return;
-      if (!scoped) return;
+      if (!scoped) {
+        if (loc.shareState) {
+          failCanonicalWorkspaceRestore(
+            loc,
+            deep,
+            `The shared Platform library '${loc.library}' could not be restored.`);
+        }
+        return;
+      }
       applyLocationView(loc);
+    } else {
+      const libraryFailure = applyLoadedPackageLibraryScope(
+        targetModel,
+        loc.library);
+      if (loc.shareState && libraryFailure) {
+        failCanonicalWorkspaceRestore(loc, deep, libraryFailure);
+        return;
+      }
+    }
+    const viewFailure = loc.shareState
+      ? canonicalViewRestorationFailure(targetModel, deep)
+      : null;
+    if (loc.shareState && viewFailure) {
+      failCanonicalWorkspaceRestore(loc, deep, viewFailure);
+      return;
     }
     applyDeepLink(deep);
     state.workspaceShareBasis = loc.shareState;
@@ -8751,6 +8804,20 @@ async function restoreWorkspaceFromLocation(
     state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
     render();
   }
+}
+
+function failCanonicalWorkspaceRestore(
+  loc: ParsedLocation,
+  deep: DeepLink,
+  message: string,
+) {
+  clearWorkspacePackages();
+  state.loading = false;
+  state.home = false;
+  state.errorTitle = "Workspace restore failed";
+  state.error = message;
+  state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
+  render();
 }
 
 function applyLocationView(loc: ParsedLocation) {
@@ -9395,6 +9462,21 @@ window.addEventListener("popstate", () => {
         restorePlatformScopeThenDeepLink(loc, navigationSeq),
         "Restoring platform history");
     } else {
+      const libraryFailure = applyLoadedPackageLibraryScope(
+        state.package,
+        loc.library);
+      const viewFailure = loc.shareState
+        ? canonicalViewRestorationFailure(state.package, loc)
+        : null;
+      const restorationFailure = libraryFailure ?? viewFailure;
+      if (loc.shareState && restorationFailure) {
+        failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          restorationFailure);
+        return;
+      }
+      state.workspaceShareBasis = loc.shareState;
       applyDeepLink(loc);
       render();
       observeAsync(loadSelectionData(), "Loading selection data");
@@ -9431,7 +9513,24 @@ async function restorePlatformScopeThenDeepLink(
       loc,
       navigationSequence.current()));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!scoped) return;
+  if (!scoped) {
+    if (loc.shareState) {
+      failCanonicalWorkspaceRestore(
+        loc,
+        loc,
+        `The shared Platform library '${loc.library}' could not be restored.`);
+    }
+    return;
+  }
+  const pkg = state.package;
+  const viewFailure = pkg && loc.shareState
+    ? canonicalViewRestorationFailure(pkg, loc)
+    : null;
+  if (loc.shareState && viewFailure) {
+    failCanonicalWorkspaceRestore(loc, loc, viewFailure);
+    return;
+  }
+  state.workspaceShareBasis = loc.shareState;
   applyLocationView(loc);
   applyDeepLink(loc);
   state.loading = false;
@@ -9468,6 +9567,24 @@ async function applyPlatformLibraryScope(
     }));
 }
 
+function applyLoadedPackageLibraryScope(
+  pkg: AppPackage,
+  requestedLibraryKey: string | null,
+): string | null {
+  const requested = (requestedLibraryKey ?? "").replace(/\.dll$/i, "");
+  if (!requested) {
+    state.libraryScope = null;
+    return null;
+  }
+  const matchingType = pkg.types.find(type =>
+    libraryKey(type).toLowerCase() === requested.toLowerCase());
+  if (!matchingType) {
+    return `The shared library '${requestedLibraryKey}' is not available in ${pkg.id}.`;
+  }
+  state.libraryScope = new Set([libraryKey(matchingType)]);
+  return null;
+}
+
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
 // has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant),
 // re-scope to the captured library, and re-apply the deep link, mirroring
@@ -9497,10 +9614,34 @@ async function restoreRuntimePackFromHistory(
         deep,
         navigationSequence.current()));
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    if (!scoped) return;
+    if (!scoped) {
+      if (loc.shareState) {
+        failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          `The shared Platform library '${loc.library}' could not be restored.`);
+      }
+      return;
+    }
+    const viewFailure = loc.shareState
+      ? canonicalViewRestorationFailure(pack, deep)
+      : null;
+    if (loc.shareState && viewFailure) {
+      failCanonicalWorkspaceRestore(loc, deep, viewFailure);
+      return;
+    }
+    state.workspaceShareBasis = loc.shareState;
     applyLocationView(loc);
     applyDeepLink(deep);
     state.loading = false;
+  } else if (loc.shareState) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      deep,
+      `The shared Platform could not be restored: ${runtimeResult.failureMessage
+        || state.runtimePackError
+        || "runtime pack acquisition failed."}`);
+    return;
   } else {
     appendQueryNotice(
       `Workspace restore was incomplete: ${loc.package}: ${runtimeResult.failureMessage

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
   createNavigationHistory,
   createNavigationSequence,
@@ -10,6 +11,7 @@ import {
   parseWorkspaceRoute,
   resolveWorkspaceRoute,
   shouldInterceptLinkClick,
+  workspaceShareCaptureTopology,
   workspaceViewSignature,
   type LinkNavigationClick,
   type WorkspaceLocationSnapshot,
@@ -345,6 +347,133 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
   assert.equal(parsed.workspaceNotice, "");
+});
+
+test("canonical context capture does not broaden a selected subset for Call Graph", () => {
+  const basis: BrowserWorkspaceShareState = {
+    tabs: [
+      {
+        id: "t0",
+        kind: "package",
+        source: "A",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "t1",
+        kind: "package",
+        source: "B",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "t2",
+        kind: "package",
+        source: "C",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+    ],
+    contexts: [{ id: "g0", tabIds: ["t0", "t1"] }],
+    activeTabId: "t0",
+    selectedContextId: "g0",
+    view: {
+      lens: "api",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: "Call Graph",
+      libraries: [],
+    },
+  };
+
+  const captured = workspaceShareCaptureTopology(
+    basis.tabs,
+    0,
+    basis,
+    true);
+
+  assert.deepEqual(captured, {
+    contexts: [{ id: "g0", tabIds: ["t0", "t1"] }],
+    selectedContextId: "g0",
+  });
+});
+
+test("Browser-created Call Graph state synthesizes root-first package context", () => {
+  const tabs = workspaceState().tabs;
+
+  const captured = workspaceShareCaptureTopology(tabs, 1, null, true);
+
+  assert.deepEqual(captured.contexts.at(-1), {
+    id: "g2",
+    tabIds: ["t1", "t0"],
+  });
+  assert.equal(captured.selectedContextId, "g2");
+});
+
+test("package-root URLs discard stale workspace state and restore the package lens", () => {
+  const url = buildPackageRootStateUrl(
+    "https://inspect.example/?package=Old&w=stale#api",
+    {
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+      lens: "dependencies",
+    });
+
+  assert.equal(url.searchParams.get("w"), null);
+  assert.equal(url.searchParams.get("package"), "Example.Package");
+  assert.equal(url.hash, "#pkg:dependencies");
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => rejected("unexpected"));
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.packageLens, "dependencies");
+  assert.equal(parsed.version, "1.2.3");
+});
+
+test("unsupported canonical lenses fail visibly before activation", () => {
+  const state = workspaceState();
+  state.view.lens = "future-lens";
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?package=Visible&w=opaque"),
+    () => decoded(state));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(parsed.workspaceNotice, /future-lens.*not supported/);
+});
+
+test("multiple canonical Platform tabs fail visibly before activation", () => {
+  const state = workspaceState();
+  state.tabs = [
+    {
+      id: "t0",
+      kind: "group",
+      source: ":Platform",
+      version: "10.0.10",
+      framework: "net10.0",
+      runtimeIdentifier: null,
+    },
+    {
+      id: "t1",
+      kind: "group",
+      source: ":Platform",
+      version: "10.0.11",
+      framework: "net10.0",
+      runtimeIdentifier: null,
+    },
+  ];
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?package=Visible&w=opaque"),
+    () => decoded(state));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(parsed.workspaceNotice, /multiple Platform tabs/);
 });
 
 test("workspace route preflight defers packet decoding", () => {

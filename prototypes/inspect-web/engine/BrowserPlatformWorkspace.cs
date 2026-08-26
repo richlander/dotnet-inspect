@@ -1232,6 +1232,9 @@ internal static class BrowserPlatformWorkspace
 
     static string? NormalizeOptionalVersion(string? platformVersion) =>
         string.IsNullOrEmpty(platformVersion)
+        || platformVersion.Equals(
+            "latest",
+            StringComparison.OrdinalIgnoreCase)
             ? null
             : platformVersion;
 
