@@ -128,6 +128,43 @@ test("scope bar binding tolerates an empty strip", () => {
     recordingActions([])));
 });
 
+test("scope bar bindings ignore missing and unknown dataset values", () => {
+  const root = new FakeRoot();
+  root.add(
+    "[data-scope]",
+    new FakeElement(),
+    new FakeElement({ scope: "assembly" }));
+  root.add(
+    "[data-package-lens]",
+    new FakeElement(),
+    new FakeElement({ packageLens: "files" }));
+  root.add(
+    "[data-lens]",
+    new FakeElement(),
+    new FakeElement({ lens: "implementation" }));
+  root.add(
+    "[data-member-section]",
+    new FakeElement(),
+    new FakeElement({ memberSection: "history" }));
+  const calls: string[] = [];
+  bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  for (const selector of [
+    "[data-scope]",
+    "[data-package-lens]",
+    "[data-lens]",
+    "[data-member-section]",
+  ]) {
+    for (const element of root.querySelectorAll(selector)) {
+      element.dispatch("click");
+    }
+  }
+
+  assert.deepEqual(calls, []);
+});
+
 test("package scope marks only the package segment and the active package lens", () => {
   const html = renderScopeBar({
     scope: "package",

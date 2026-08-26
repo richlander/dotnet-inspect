@@ -31,6 +31,7 @@ internal static class BrowserSurfaceProjection
         BrowserTypeSurface[] Types,
         BrowserAccessibilityDescriptor[] Accessibility,
         int TotalMembers,
+        string[] InspectionErrors,
         string? InspectionError,
         bool IsTruncated);
 
@@ -146,9 +147,10 @@ internal static class BrowserSurfaceProjection
             (null, { } only) => only,
             var (left, right) => $"{left}; {right}",
         };
-        string? notice = Notice(
+        string[] noticeEntries = NoticeEntries(
             [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
             truncation);
+        string? notice = Notice(noticeEntries);
         BrowserTypeSurface[] identified =
         [
             .. types
@@ -162,6 +164,7 @@ internal static class BrowserSurfaceProjection
             identified
                 .Where(type => IsDefaultBucket(surfaces, type))
                 .Sum(type => type.Members),
+            noticeEntries,
             notice,
             truncation is not null);
     }
@@ -492,7 +495,7 @@ internal static class BrowserSurfaceProjection
     /// Participant failures plus partial API extraction from otherwise available participants.
     /// The latter is summarized without echoing artifact-authored metadata into the notice.
     /// </summary>
-    internal static string? ApiSurfaceFailures(
+    internal static string[] ApiSurfaceFailureEntries(
         ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries)
     {
         var failures = new List<string>();
@@ -509,28 +512,34 @@ internal static class BrowserSurfaceProjection
             }
         }
 
-        return failures.Count == 0 ? null : string.Join("; ", failures);
+        return [.. failures];
     }
 
     /// <summary>
-    /// The response's visible notice: participant failures, partial extraction, and an explicit
-    /// bounded-projection truncation, or null when there is nothing to report. A truncation is
-    /// carried beside the failures rather than instead of them, so a bounded response never reads
-    /// as a complete one.
+    /// The response's structured notice entries: participant failures, partial extraction, and an
+    /// explicit bounded-projection truncation. Keeping these boundaries beside the rendered
+    /// notice lets cumulative consumers deduplicate whole entries without parsing their text.
+    /// <c>BrowserEngineBoundaryTests.QueryPackage_FirstTransportTruncationReturnsTypedNotice</c>
+    /// verifies that the transport emits both forms consistently.
     /// </summary>
-    internal static string? Notice(
+    internal static string[] NoticeEntries(
         ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries,
         string? truncation)
     {
-        string? failures = ApiSurfaceFailures(entries);
-        return (failures, truncation) switch
-        {
-            (null, null) => null,
-            (null, { } only) => only,
-            ({ } only, null) => only,
-            var (left, right) => $"{left}; {right}",
-        };
+        string[] failures = ApiSurfaceFailureEntries(entries);
+        return truncation is null ? failures : [.. failures, truncation];
     }
+
+    internal static string? Notice(IEnumerable<string> entries)
+    {
+        string[] notices = [.. entries];
+        return notices.Length == 0 ? null : string.Join("; ", notices);
+    }
+
+    internal static string? Notice(
+        ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries,
+        string? truncation) =>
+        Notice(NoticeEntries(entries, truncation));
 
     /// <summary>
     /// The value an available entry produced, or a visible failure naming why the participant
