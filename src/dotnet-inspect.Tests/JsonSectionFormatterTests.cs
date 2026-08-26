@@ -509,15 +509,61 @@ public class JsonSectionFormatterTests
         formatter.FormatHeading(TextWriter.Null, 2, "Tree", null);
         formatter.FormatTree(
             TextWriter.Null,
-            [new TreeNode("Shared") { Badge = "Again", State = TreeNodeState.Revisit }],
+            [
+                new TreeNode(
+                    "Root",
+                    [new TreeNode("Shared") { Badge = "Again", State = TreeNodeState.Revisit }])
+                {
+                    Badge = "Root Badge",
+                },
+            ],
             new MarkoutWriterOptions { IncludeBadges = false });
 
         using var document = JsonDocument.Parse(formatter.Finish());
-        var node = document.RootElement.GetProperty("tree")[0];
+        var root = document.RootElement.GetProperty("tree")[0];
+        var child = root.GetProperty("children")[0];
 
-        Assert.Equal(["text", "state"], node.EnumerateObject().Select(property => property.Name).ToArray());
-        Assert.False(node.TryGetProperty("badge", out _));
-        Assert.Equal("revisit", node.GetProperty("state").GetString());
+        Assert.Equal(["text", "children"], root.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.False(root.TryGetProperty("badge", out _));
+        Assert.Equal(["text", "state"], child.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.False(child.TryGetProperty("badge", out _));
+        Assert.Equal("Shared", child.GetProperty("text").GetString());
+        Assert.Equal("revisit", child.GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public void DeferredSerialization_SnapshotsBatchRowsAndTypedTrees()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        var row = new[] { "before" };
+        formatter.FormatHeading(TextWriter.Null, 2, "Rows", null);
+        formatter.FormatTable(TextWriter.Null, ["value"], [row], 0, new MarkoutWriterOptions());
+
+        var tree = new TreeNode("Root", [new TreeNode("Child")])
+        {
+            Badge = "Before",
+            State = TreeNodeState.Revisit,
+        };
+        formatter.FormatHeading(TextWriter.Null, 2, "Tree", null);
+        formatter.FormatTree(TextWriter.Null, [tree], new MarkoutWriterOptions());
+
+        row[0] = "after";
+        tree.Text = "Changed";
+        tree.Badge = "After";
+        tree.State = TreeNodeState.Normal;
+        tree.Children!.Clear();
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var root = document.RootElement;
+        var capturedTree = root.GetProperty("tree")[0];
+
+        Assert.Equal("before", root.GetProperty("rows")[0].GetProperty("value").GetString());
+        Assert.Equal("Root", capturedTree.GetProperty("text").GetString());
+        Assert.Equal("Before", capturedTree.GetProperty("badge").GetString());
+        Assert.Equal("revisit", capturedTree.GetProperty("state").GetString());
+        Assert.Equal("Child", capturedTree.GetProperty("children")[0].GetProperty("text").GetString());
     }
 
     [Fact]

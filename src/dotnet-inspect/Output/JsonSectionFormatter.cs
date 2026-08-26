@@ -57,7 +57,12 @@ internal sealed class JsonSectionFormatter :
     }
 
     private sealed record LabeledArray(string Name, string[] Values);
-    private sealed record ProjectedTreeNode(TreeNode Node, bool IncludeBadge);
+    private sealed record ProjectedTreeNode(
+        string Text,
+        string? Badge,
+        TreeNodeState State,
+        ProjectedTreeNode[] Children,
+        bool IncludeBadge);
 
     private sealed class Section(string name, SectionKind kind)
     {
@@ -142,7 +147,7 @@ internal sealed class JsonSectionFormatter :
                 ValidateRowWidth(row.Length);
 
             foreach (var row in rows)
-                Rows.Add(row);
+                Rows.Add(row.ToArray());
         }
 
         public void AddRow(ReadOnlySpan<string> values)
@@ -299,7 +304,7 @@ internal sealed class JsonSectionFormatter :
 
         var section = RequireSection(SectionKind.Tree);
         foreach (var node in nodes)
-            section.Tree.Add(new ProjectedTreeNode(node, options.IncludeBadges));
+            section.Tree.Add(SnapshotTreeNode(node, options.IncludeBadges));
     }
 
     public void FormatTreeNode(TextWriter writer, string text, string prefix)
@@ -422,7 +427,7 @@ internal sealed class JsonSectionFormatter :
             case SectionKind.Tree:
                 json.WriteStartArray(key);
                 foreach (var node in section.Tree)
-                    WriteTreeNode(json, node.Node, node.IncludeBadge);
+                    WriteTreeNode(json, node);
                 json.WriteEndArray();
                 break;
 
@@ -436,19 +441,27 @@ internal sealed class JsonSectionFormatter :
         }
     }
 
-    private static void WriteTreeNode(Utf8JsonWriter json, TreeNode node, bool includeBadge)
+    private static ProjectedTreeNode SnapshotTreeNode(TreeNode node, bool includeBadge)
+    {
+        var children = node.Children is { Count: > 0 }
+            ? node.Children.Select(child => SnapshotTreeNode(child, includeBadge)).ToArray()
+            : [];
+        return new ProjectedTreeNode(node.Text, node.Badge, node.State, children, includeBadge);
+    }
+
+    private static void WriteTreeNode(Utf8JsonWriter json, ProjectedTreeNode node)
     {
         json.WriteStartObject();
         json.WriteString("text", RenderInlineValue(node.Text));
-        if (includeBadge && !string.IsNullOrEmpty(node.Badge))
+        if (node.IncludeBadge && !string.IsNullOrEmpty(node.Badge))
             json.WriteString("badge", RenderInlineValue(node.Badge));
         if (node.State != TreeNodeState.Normal)
             json.WriteString("state", TreeStateMachineName(node.State));
-        if (node.Children is { Count: > 0 } children)
+        if (node.Children.Length > 0)
         {
             json.WriteStartArray("children");
-            foreach (var child in children)
-                WriteTreeNode(json, child, includeBadge);
+            foreach (var child in node.Children)
+                WriteTreeNode(json, child);
             json.WriteEndArray();
         }
         json.WriteEndObject();

@@ -607,6 +607,8 @@ Existing pilot coverage proves only the currently wired slice:
   inline slots, string value kinds, deterministic tree properties, and
   structural node state. `TreeBadgeSelection_DoesNotSuppressStructuralState`
   gates badge selection independently from structural state.
+- `DeferredSerialization_SnapshotsBatchRowsAndTypedTrees` gates formatter
+  ownership of mutable callback inputs until the buffered document is encoded.
 - The mixed-content, duplicate-key, over-wide-row, and streaming-callback tests
   in `JsonSectionFormatterTests` gate visible failure for the formatter's known
   loss cases.
