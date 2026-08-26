@@ -824,6 +824,8 @@ The target is complete only when tests equivalent to these exist:
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `LeaseScopedPath_IsNotADesignationGrant`
 - `ArtifactSetSession_DisposesEveryContributingLease`
+- `ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease`
+- `ArtifactSetSession_SealRejectsAcquisitionInProgress`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
 - `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
@@ -885,7 +887,8 @@ one retained snapshot for every minted registration.
 `ArtifactSetSessionTests` enforce multi-source contribution, sealed-generation
 immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
-query revocation, and role assignment separate from provenance.
+late-outcome lease disposal, seal exclusion during acquisition, query revocation,
+and role assignment separate from provenance.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
