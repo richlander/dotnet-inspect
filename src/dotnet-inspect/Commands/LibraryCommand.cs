@@ -705,6 +705,9 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return Math.Max(
                     IntegrityExitCode(inspection),
@@ -865,6 +868,9 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
@@ -976,6 +982,9 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return Math.Max(
                     IntegrityExitCode(inspection),

@@ -11109,6 +11109,60 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var commands = root.Subcommands
+            .Where(command =>
+                command.Options.Any(option => option.Name == "--json")
+                && command.Options.Any(option => option.Name is "--fields" or "--columns"))
+            .Select(command => command.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                "extensions",
+                "find",
+                "implements",
+                "library",
+                "member",
+                "package",
+                "project",
+                "timeline",
+                "type",
+                "vocabulary",
+            },
+            commands);
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("implements")]
+    [InlineData("extensions")]
+    public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed(string command)
+    {
+        string[] args = command switch
+        {
+            "library" =>
+                [command, TestAssemblyPath, "-S", "Library Info", "--fields", "Assembly Version", "--json", "--tips", "q"],
+            "implements" =>
+                [command, "IDisposable", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--tips", "q"],
+            "extensions" =>
+                [command, "String", "--library", TestAssemblyPath, "--columns", "Method", "--json", "--tips", "q"],
+            _ => throw new ArgumentOutOfRangeException(nameof(command)),
+        };
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires lowered JSON", error);
+        Assert.Contains("does not support yet", error);
+    }
+
+    [Fact]
     public async Task Router_RewrittenCommand_IsAudited()
     {
         // The router captures projection flags as raw tokens, so the outer invocation records
@@ -21954,7 +22008,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_JsonIgnoresColumnProjection()
+    public async Task ProjectedJsonRoutingAudit_PackageTypedDocumentFailsClosed()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.JsonProjection",
@@ -21968,13 +22022,35 @@ public partial class CommandExecutionTests
                 "package", packagePath, packagePath,
                 "--json", "--columns", "Package", "--tips", "q");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            using var _ = JsonDocument.Parse(output);
-            Assert.Equal(0, multiExit);
-            Assert.Empty(multiError);
-            using var multi = JsonDocument.Parse(multiOutput);
-            Assert.Equal(2, multi.RootElement.GetArrayLength());
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires lowered JSON", error);
+            Assert.Equal(1, multiExit);
+            Assert.Empty(multiOutput);
+            Assert.Contains("requires lowered JSON", multiError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageAllLibrariesLensRejectsProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries",
+                "-S", "Library Info", "--json", "--fields", "Assembly Version",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--all-libraries cannot be combined with --fields",
+                error);
         }
         finally
         {
@@ -29932,7 +30008,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Columns_ReturnsClearUnsupportedError()
+    public async Task ProjectedJsonRoutingAudit_ProjectRejectsProjection()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
@@ -29941,7 +30017,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--columns", "Package");
+                projectPath, "-S", "Skills", "--columns", "Package", "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);

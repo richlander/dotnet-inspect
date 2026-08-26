@@ -1060,6 +1060,9 @@ public class PackageCommand
             }
             else
             {
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
                     ProjectionDiagnostics.DiagnoseRendered(
@@ -1209,6 +1212,9 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                return 1;
+
             Console.WriteLine(JsonSerializer.Serialize(
                 results.Select(PackageInspectionJson.Create).ToArray(),
                 PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
