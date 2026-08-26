@@ -18,6 +18,7 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<MethodResultSink> ResultSinks,
     ImmutableArray<FieldStoreFact> FieldStores,
     ImmutableArray<FieldLoadFact> FieldLoads,
+    ImmutableArray<MethodReturnFlow> ReturnFlows,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,

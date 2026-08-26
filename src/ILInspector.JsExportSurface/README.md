@@ -61,10 +61,31 @@ implementation. The root getter must pass its own `this` receiver to the
 context's `Options` getter and an exact `ldtoken` of the registered root type
 to trusted `JsonSerializerOptions.GetTypeInfo`, and the `GetTypeInfo` result
 must be the value stored into the instance cache field that the getter's entry
-reload reads back. The context initializer must construct the default options
+reload reads back, and *every* reachable return of that getter must hand back
+either the cache load or that same fresh `GetTypeInfo` result. A getter has a
+cached path and a fresh path that merge at a shared `ret`, so proving one store
+and one load leaves the fresh path's returned value unproven; the complete set
+of return alternatives comes from Analysis's `MethodReturnFlow`, and a null,
+unresolved, or extra alternative fails closed. Cache field loads and stores are
+linked by `FieldIdentity`, which canonicalizes a unique local `MemberRef`
+name-and-signature match to its reader-local `FieldDef`. A colliding external
+scope, duplicate match, signature mismatch, or otherwise unresolved access
+cannot stand in for that field and fails closed.
+The context initializer must construct the default options
 into a static field, load that field into the `JsonSerializerOptions` copy
 constructor, pass the copy to the context constructor, and store the constructed
-context into the exact field `Default` returns. Every one of those calls and
+context into the exact field `Default` returns. The generated context
+constructor reached by that chain must itself forward to
+`JsonSerializerContext::.ctor(JsonSerializerOptions)`, passing its own `this` as
+receiver and its own options parameter as the argument, so a constructor that
+drops the caller's authenticated options on the floor cannot inherit their
+trust. That check rests on Analysis proving an `ldarg` is the *original*
+argument: a slot that is reassigned by `starg`, merged from several definitions,
+or address-taken by `ldarga` no longer resolves as an argument at all. A
+diagnosed, incomplete, or unreachable constructor body fails rather than being
+skipped. The base-constructor call must dominate every normal return, so an
+early-return branch cannot bypass forwarding while leaving one authentic call
+reachable. Every one of those calls and
 field accesses must be reachable from its body entry. Unrelated static
 initialization in the same generated `.cctor` — for example a user-written
 partial's own `public static readonly JsonSerializerOptions` — is allowed,
@@ -134,6 +155,15 @@ publishes:
 - `Build_RejectsGeneratedContextWithUnlinkedDefaultInstance` — all three
   expected constructors still run; only the store that links the constructed
   context to the field `Default` returns is removed.
+- `Build_RejectsGeneratedRootGetterThatReturnsNullOnTheFreshPath` — the cache
+  load, the trusted `GetTypeInfo` call, and the cache store all survive; only
+  the fresh path's returned value becomes `ldnull`. Its companion
+  `PatchedRootGetter_ReportsNullAsAProvenReturnAlternative` asserts the patched
+  body is not merely unresolvable, so the rejection is the return-flow check
+  doing work rather than a decode failure.
+- `Build_RejectsGeneratedContextConstructorThatDropsOptions` — the generated context
+  constructor still calls the `JsonSerializerContext` base constructor with its
+  own `this`; only the forwarded options argument becomes `ldnull`.
 - `Build_RejectsUnreachableGeneratedWrapperEntry` — the wrapper still contains
   its call to the generated stub, but returns before reaching it.
 - `Build_RejectsRegistrationWithMismatchedSignatureHash` — the registration
@@ -158,6 +188,19 @@ through a compatibility table; it is not a reimplementation of the runtime's
 — a delegate parameter, or a `[JSMarshalAs]` override that redirects marshaling
 — fails visibly with an unsupported-surface message rather than being published
 on weaker evidence.
+
+`[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
+rejects for a different reason: the descriptor is real and the wrapper is
+genuine, but no consumer can describe it yet. `tsbindgen`'s `TsTypeMapper` emits
+every `long` as TypeScript `number`, which is the wrong type for a JavaScript
+`BigInt` and would silently truncate at 2^53. Until descriptor-aware TypeScript
+types exist, an export carrying the `get_BigInt64` descriptor fails with a
+"recognized but not supported" message naming the override and pointing at
+`[JSMarshalAs<JSType.Number>]`. The `get_Int52` descriptor — which `number` does
+describe — keeps publishing unchanged.
+`JsExportSurfaceBuilderTests.Build_RejectsBigIntMarshaledLongExport` and
+`Build_PublishesNumberMarshaledLongExport` gate the pair against compiler
+output, not hand-composed metadata.
 
 Generated serializer-root properties use System.Text.Json's default name
 grammar: a vector appends `Array`, while a rank-*N* multidimensional array

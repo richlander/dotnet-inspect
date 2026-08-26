@@ -92,6 +92,11 @@ public sealed record ResolvedValueSource(
     /// <summary>Field name for a resolved field load; null otherwise.</summary>
     public string? Name { get; init; }
 
+    /// <summary>
+    /// Canonical field identity for a resolved field load; null otherwise.
+    /// </summary>
+    public FieldIdentity? FieldIdentity { get; init; }
+
     /// <summary>True when this producer is a call, callvirt, or newobj result.</summary>
     public bool IsCallResult
         => Kind is ResolvedValueSourceKind.CallResult
@@ -332,6 +337,10 @@ public sealed class SpanArgumentSources :
 /// could not be resolved.
 /// </param>
 /// <param name="FieldName">Resolved field name, or null.</param>
+/// <param name="Identity">
+/// Canonical field identity, including the local <c>FieldDef</c> token when
+/// available; null when the operand could not be resolved unambiguously.
+/// </param>
 /// <param name="ReceiverArgumentIndex">
 /// For an instance store, the argument slot Analysis proved supplies the
 /// receiver; -1 for a static store or an unproven receiver.
@@ -356,6 +365,7 @@ public sealed record FieldStoreFact(
     bool IsStatic,
     TypeRef? DeclaringType,
     string? FieldName,
+    FieldIdentity? Identity,
     int ReceiverArgumentIndex,
     ResolvedValueSet Value,
     bool? IsReachable);
@@ -377,6 +387,10 @@ public sealed record FieldStoreFact(
 /// could not be resolved.
 /// </param>
 /// <param name="FieldName">Resolved field name, or null.</param>
+/// <param name="Identity">
+/// Canonical field identity, including the local <c>FieldDef</c> token when
+/// available; null when the operand could not be resolved unambiguously.
+/// </param>
 /// <param name="ReceiverArgumentIndex">
 /// For an instance load, the argument slot Analysis proved supplies the
 /// receiver; -1 for a static load or an unproven receiver.
@@ -400,5 +414,6 @@ public sealed record FieldLoadFact(
     bool IsStatic,
     TypeRef? DeclaringType,
     string? FieldName,
+    FieldIdentity? Identity,
     int ReceiverArgumentIndex,
     bool? IsReachable);

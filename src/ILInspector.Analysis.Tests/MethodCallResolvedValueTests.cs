@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 
+using ILInspector.ControlFlow;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -23,6 +25,7 @@ public sealed class MethodCallResolvedValueTests
     const int StaticFieldToken = 0x04000001;
     const int InstanceFieldToken = 0x04000002;
     const int OpaqueFieldToken = 0x04000003;
+    const int AliasedStaticFieldToken = 0x0A00000B;
     const int WidgetTypeToken = 0x01000001;
     const int AlphaStringToken = 0x70000001;
 
@@ -218,10 +221,479 @@ public sealed class MethodCallResolvedValueTests
         Assert.Null(CallAt(calls.ToImmutable(), 0x0001).IsReachable);
     }
 
+    /// <summary>
+    /// Gates the "original argument" half of argument provenance: a load is the
+    /// caller's value only when the entry definition is the single definition
+    /// reaching that exact use.
+    /// </summary>
     [Fact]
-    public void CollectsFieldStoreFacts()
+    public void LeavesReassignedArgumentValuesUnresolved()
     {
         byte[] il =
+        [
+            0x02,                               // IL_0000 ldarg.0
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_0001 call Sink
+            0x14,                               // IL_0006 ldnull
+            0x10, 0x00,                         // IL_0007 starg.s 0
+            0x02,                               // IL_0009 ldarg.0
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_000A call Sink
+            0x2A,                               // IL_000F ret
+        ];
+
+        ImmutableArray<DirectCall> calls = Analyze(il, ObjectParameter());
+
+        ResolvedValueSource original = SingleArgument(calls, 0x0001);
+        Assert.Equal(ResolvedValueSourceKind.Argument, original.Kind);
+        Assert.Equal(0, original.ArgumentIndex);
+        Assert.False(
+            CallAt(calls, 0x000A).ResolvedArgumentValues[0].IsResolved);
+    }
+
+    /// <summary>
+    /// Gates the merged case: a load that two definitions reach is not the
+    /// caller's value on every path, so it fails closed rather than picking one.
+    /// </summary>
+    [Fact]
+    public void LeavesMergedArgumentValuesUnresolved()
+    {
+        byte[] il =
+        [
+            0x02,                               // IL_0000 ldarg.0
+            0x2C, 0x03,                         // IL_0001 brfalse.s IL_0006
+            0x14,                               // IL_0003 ldnull
+            0x10, 0x00,                         // IL_0004 starg.s 0
+            0x02,                               // IL_0006 ldarg.0
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_0007 call Sink
+            0x2A,                               // IL_000C ret
+        ];
+
+        ImmutableArray<DirectCall> calls = Analyze(il, ObjectParameter());
+
+        Assert.False(
+            CallAt(calls, 0x0007).ResolvedArgumentValues[0].IsResolved);
+    }
+
+    /// <summary>
+    /// Gates the addressed case: once the slot has been handed out by
+    /// reference, an unrelated byref write cannot be ruled out without alias
+    /// analysis, so neither the address nor any load of the slot resolves.
+    /// </summary>
+    [Fact]
+    public void LeavesAddressedArgumentValuesUnresolved()
+    {
+        byte[] il =
+        [
+            0x0F, 0x00,                         // IL_0000 ldarga.s 0
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_0002 call Sink
+            0x02,                               // IL_0007 ldarg.0
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_0008 call Sink
+            0x2A,                               // IL_000D ret
+        ];
+
+        ImmutableArray<DirectCall> calls = Analyze(il, ObjectParameter());
+
+        Assert.False(
+            CallAt(calls, 0x0002).ResolvedArgumentValues[0].IsResolved);
+        Assert.False(
+            CallAt(calls, 0x0008).ResolvedArgumentValues[0].IsResolved);
+    }
+
+    /// <summary>
+    /// Gates <see cref="FieldIdentity"/>: a <c>MemberRef</c> alias and the
+    /// <c>FieldDef</c> it names carry different tokens for the same runtime
+    /// field, so a consumer counting writes by token would see one where there
+    /// are two.
+    /// </summary>
+    [Fact]
+    public void LinksAliasedFieldAccessesByIdentity()
+    {
+        byte[] il =
+        [
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0000 call Producer
+            0x80, 0x01, 0x00, 0x00, 0x04,       // IL_0005 stsfld Static
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_000A call Producer
+            0x80, 0x0B, 0x00, 0x00, 0x0A,       // IL_000F stsfld Static (alias)
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0014 call Producer
+            0x80, 0x03, 0x00, 0x00, 0x04,       // IL_0019 stsfld Opaque
+            0x2A,                               // IL_001E ret
+        ];
+
+        ImmutableArray<FieldStoreFact> stores =
+            AnalyzeFieldStores(il, ObjectParameter());
+
+        FieldStoreFact declared = Assert.Single(
+            stores,
+            store => store.ILOffset == 0x0005);
+        FieldStoreFact aliased = Assert.Single(
+            stores,
+            store => store.ILOffset == 0x000F);
+        FieldStoreFact other = Assert.Single(
+            stores,
+            store => store.ILOffset == 0x0019);
+
+        Assert.NotEqual(declared.FieldToken, aliased.FieldToken);
+        Assert.NotNull(declared.Identity);
+        Assert.Equal(declared.Identity, aliased.Identity);
+        Assert.NotEqual(declared.Identity, other.Identity);
+    }
+
+    [Fact]
+    public void FieldIdentity_DistinguishesDeclaringTypeOrigins()
+    {
+        MetadataTypeDefinitionName typeName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixtures",
+                    ["Context"]))
+            .Name;
+        var assembly = new AssemblyReferenceIdentity(
+            "Fixture",
+            new Version(1, 0),
+            null,
+            null);
+        TypeRef local = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Context",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(assembly),
+                typeName));
+        TypeRef localAlias = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Context",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(assembly),
+                typeName));
+        TypeRef externalCollision = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Context",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(assembly),
+                typeName));
+
+        FieldIdentity expected =
+            FieldIdentity.TryCreate(local, "Default")!;
+        Assert.Equal(
+            expected,
+            FieldIdentity.TryCreate(localAlias, "Default"));
+        Assert.NotEqual(
+            expected,
+            FieldIdentity.TryCreate(externalCollision, "Default"));
+    }
+
+    /// <summary>
+    /// Gates the fail-closed half of <see cref="FieldIdentity"/>: an operand
+    /// whose declaring type or name could not be resolved yields no identity at
+    /// all, so a consumer cannot mistake it for a distinct field.
+    /// </summary>
+    [Fact]
+    public void LeavesUnresolvableFieldAccessesWithoutIdentity()
+    {
+        byte[] il =
+        [
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0000 call Producer
+            0x80, 0x99, 0x00, 0x00, 0x04,       // IL_0005 stsfld <unknown>
+            0x2A,                               // IL_000A ret
+        ];
+
+        Assert.Null(
+            Assert.Single(AnalyzeFieldStores(il, ObjectParameter()))
+                .Identity);
+    }
+
+    /// <summary>
+    /// Gates the whole-body return fact on the cache shape a source generator
+    /// emits: two paths merging at one <c>ret</c>, where the evaluation-stack
+    /// join alone knows nothing.
+    /// </summary>
+    [Fact]
+    public void ResolvesReturnAlternativesAcrossControlFlowMerge()
+    {
+        byte[] il =
+        [
+            0x7E, 0x01, 0x00, 0x00, 0x04,       // IL_0000 ldsfld Static
+            0x25,                               // IL_0005 dup
+            0x2D, 0x06,                         // IL_0006 brtrue.s IL_000E
+            0x26,                               // IL_0008 pop
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0009 call Producer
+            0x2A,                               // IL_000E ret
+        ];
+
+        MethodReturnFlow flow =
+            AnalyzeReturnFlow(il, ObjectParameter());
+
+        Assert.Equal([0x000E], flow.ReturnOffsets);
+        Assert.True(flow.Value.IsResolved);
+        Assert.Collection(
+            flow.Value.Sources,
+            cached =>
+            {
+                Assert.Equal(
+                    ResolvedValueSourceKind.StaticFieldLoad,
+                    cached.Kind);
+                Assert.Equal(0x0000, cached.ILOffset);
+            },
+            fresh =>
+            {
+                Assert.Equal(
+                    ResolvedValueSourceKind.CallResult,
+                    fresh.Kind);
+                Assert.Equal(0x0009, fresh.ILOffset);
+            });
+    }
+
+    /// <summary>
+    /// Gates failing closed: one unproven alternative leaves the whole fact
+    /// unresolved rather than reporting the alternatives it did prove.
+    /// </summary>
+    [Fact]
+    public void LeavesUnprovenReturnAlternativeUnresolved()
+    {
+        byte[] il =
+        [
+            0x7E, 0x01, 0x00, 0x00, 0x04,       // IL_0000 ldsfld Static
+            0x25,                               // IL_0005 dup
+            0x2D, 0x02,                         // IL_0006 brtrue.s IL_000A
+            0x26,                               // IL_0008 pop
+            0x06,                               // IL_0009 ldloc.0
+            0x2A,                               // IL_000A ret
+        ];
+
+        MethodReturnFlow flow =
+            AnalyzeReturnFlow(il, ObjectParameter(), [s_object]);
+
+        Assert.False(flow.Value.IsResolved);
+        Assert.Empty(flow.Value.Sources);
+    }
+
+    [Fact]
+    public void LeavesValueChangingUnaryReturnUnresolved()
+    {
+        byte[] il =
+        [
+            0x17,                               // IL_0000 ldc.i4.1
+            0x65,                               // IL_0001 neg
+            0x2A,                               // IL_0002 ret
+        ];
+
+        Assert.False(AnalyzeReturnFlow(il, []).Value.IsResolved);
+    }
+
+    [Fact]
+    public void LeavesReachableJumpCompletionUnresolved()
+    {
+        byte[] il =
+        [
+            0x02,                               // IL_0000 ldarg.0
+            0x2D, 0x05,                         // IL_0001 brtrue.s IL_0008
+            0x27, 0x04, 0x00, 0x00, 0x0A,       // IL_0003 jmp Producer
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0008 call Producer
+            0x2A,                               // IL_000D ret
+        ];
+
+        MethodReturnFlow flow =
+            AnalyzeReturnFlow(il, ObjectParameter());
+
+        Assert.Equal([0x000D], flow.ReturnOffsets);
+        Assert.False(flow.Value.IsResolved);
+    }
+
+    /// <summary>
+    /// Gates the reachability filter: a <c>ret</c> no execution can arrive at
+    /// contributes nothing and does not spoil the proven alternatives.
+    /// </summary>
+    [Fact]
+    public void SkipsUnreachableReturnAlternatives()
+    {
+        byte[] il =
+        [
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0000 call Producer
+            0x2A,                               // IL_0005 ret
+            0x14,                               // IL_0006 ldnull
+            0x2A,                               // IL_0007 ret
+        ];
+
+        MethodReturnFlow flow =
+            AnalyzeReturnFlow(il, ObjectParameter());
+
+        Assert.Equal([0x0005], flow.ReturnOffsets);
+        Assert.True(flow.Value.IsResolved);
+        ResolvedValueSource only = Assert.Single(flow.Value.Sources);
+        Assert.Equal(ResolvedValueSourceKind.CallResult, only.Kind);
+    }
+
+    /// <summary>
+    /// Gates the EH boundary: catch/filter entry stacks are injected by the
+    /// runtime and do not inherit values from protected-block exits.
+    /// </summary>
+    [Fact]
+    public void LeavesExceptionHandlerEntryValueUnresolved()
+    {
+        byte[] il =
+        [
+            0x14,                               // IL_0000 ldnull
+            0x7A,                               // IL_0001 throw
+            0x2A,                               // IL_0002 ret (catch entry)
+        ];
+        ImmutableArray<DecodedInstruction> decoded =
+            InstructionDecoder.Decode(il);
+        var instructions = new MethodInstructions(
+            decoded,
+            new BlockGraph(
+                [
+                    new InstructionBlock(
+                        0,
+                        0,
+                        1,
+                        new BlockEdges(
+                            [1, 2],
+                            [],
+                            ExitsMethod: false,
+                            LeavesRegion: false)),
+                    new InstructionBlock(
+                        1,
+                        1,
+                        2,
+                        new BlockEdges(
+                            [],
+                            [],
+                            ExitsMethod: true,
+                            LeavesRegion: false)),
+                    new InstructionBlock(
+                        2,
+                        2,
+                        3,
+                        new BlockEdges(
+                            [],
+                            [],
+                            ExitsMethod: true,
+                            LeavesRegion: false)),
+                ],
+                [
+                    new ExceptionRegionModel(
+                        HandlerKind.Catch,
+                        TryStart: 0,
+                        TryEnd: 1,
+                        HandlerStart: 2,
+                        HandlerEnd: 3,
+                        FilterStart: -1,
+                        FilterEnd: -1),
+                ],
+                IsComplete: true,
+                IncompleteReason: null));
+        var returnFlows =
+            ImmutableArray.CreateBuilder<MethodReturnFlow>();
+
+        MethodCallAnalysis.Collect(
+            Context(instructions, ObjectParameter(), [], s_object),
+            new ValueResolver(),
+            static _ => AllocationMultiplicity.Once,
+            ImmutableArray.CreateBuilder<DirectCall>(),
+            ImmutableArray.CreateBuilder<UnsafeEvidence>(),
+            includeIndirectOpcodes: false,
+            includeCallValueFlow: true,
+            resultSinks: ImmutableArray.CreateBuilder<MethodResultSink>(),
+            fieldStores: ImmutableArray.CreateBuilder<FieldStoreFact>(),
+            fieldLoads: ImmutableArray.CreateBuilder<FieldLoadFact>(),
+            returnFlows: returnFlows);
+
+        MethodReturnFlow flow = Assert.Single(returnFlows);
+        Assert.Equal([0x0002], flow.ReturnOffsets);
+        Assert.False(flow.Value.IsResolved);
+        Assert.Empty(flow.Value.Sources);
+    }
+
+    /// <summary>
+    /// Gates the void non-action boundary: a void body has no returned value to
+    /// describe, so no fact is emitted at all.
+    /// </summary>
+    [Fact]
+    public void OmitsReturnFlowForVoidBodies()
+    {
+        byte[] il =
+        [
+            0x2A,                               // IL_0000 ret
+        ];
+
+        var returnFlows =
+            ImmutableArray.CreateBuilder<MethodReturnFlow>();
+        MethodCallAnalysis.Collect(
+            Context(il, ObjectParameter(), []),
+            new ValueResolver(),
+            static _ => AllocationMultiplicity.Once,
+            ImmutableArray.CreateBuilder<DirectCall>(),
+            ImmutableArray.CreateBuilder<UnsafeEvidence>(),
+            includeIndirectOpcodes: false,
+            includeCallValueFlow: true,
+            returnFlows: returnFlows);
+
+        Assert.Empty(returnFlows);
+    }
+
+    [Fact]
+    public void CollectsReturnFlowWithoutResultSinkBuilder()
+    {
+        byte[] il =
+        [
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0000 call Producer
+            0x2A,                               // IL_0005 ret
+        ];
+        var returnFlows =
+            ImmutableArray.CreateBuilder<MethodReturnFlow>();
+
+        MethodCallAnalysis.Collect(
+            Context(il, [], [], returnType: s_object),
+            new ValueResolver(),
+            static _ => AllocationMultiplicity.Once,
+            ImmutableArray.CreateBuilder<DirectCall>(),
+            ImmutableArray.CreateBuilder<UnsafeEvidence>(),
+            includeIndirectOpcodes: false,
+            includeCallValueFlow: true,
+            returnFlows: returnFlows);
+
+        Assert.True(Assert.Single(returnFlows).Value.IsResolved);
+    }
+
+    [Fact]
+    public void DoesNotCreditCallThatCanBeSkippedByNormalReturn()
+    {
+        byte[] il =
+        [
+            0x02,                               // IL_0000 ldarg.0
+            0x2D, 0x01,                         // IL_0001 brtrue.s IL_0004
+            0x2A,                               // IL_0003 ret
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0004 call Producer
+            0x26,                               // IL_0009 pop
+            0x2A,                               // IL_000A ret
+        ];
+
+        DirectCall call = Assert.Single(
+            Analyze(il, ObjectParameter()));
+
+        Assert.True(call.IsReachable);
+        Assert.False(call.DominatesEveryNormalReturn);
+    }
+
+    [Fact]
+    public void CreditsCallThatDominatesEveryNormalReturn()
+    {
+        byte[] il =
+        [
+            0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0000 call Producer
+            0x26,                               // IL_0005 pop
+            0x2A,                               // IL_0006 ret
+        ];
+
+        Assert.True(
+            Assert.Single(Analyze(il, []))
+                .DominatesEveryNormalReturn);
+    }
+
+    [Fact]
+    public void CollectsFieldStoreFacts()
+    {        byte[] il =
         [
             0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_0000 call Producer
             0x80, 0x01, 0x00, 0x00, 0x04,       // IL_0005 stsfld Static
@@ -572,6 +1044,32 @@ public sealed class MethodCallResolvedValueTests
         return fieldLoads.ToImmutable();
     }
 
+    static MethodReturnFlow AnalyzeReturnFlow(
+        byte[] il,
+        ImmutableArray<TypeRef> parameters,
+        ImmutableArray<TypeRef> locals = default)
+    {
+        var returnFlows =
+            ImmutableArray.CreateBuilder<MethodReturnFlow>();
+        MethodCallAnalysis.Collect(
+            Context(
+                il,
+                parameters,
+                locals.IsDefault ? [] : locals,
+                returnType: s_object),
+            new ValueResolver(),
+            static _ => AllocationMultiplicity.Once,
+            ImmutableArray.CreateBuilder<DirectCall>(),
+            ImmutableArray.CreateBuilder<UnsafeEvidence>(),
+            includeIndirectOpcodes: false,
+            includeCallValueFlow: true,
+            resultSinks: ImmutableArray.CreateBuilder<MethodResultSink>(),
+            fieldStores: ImmutableArray.CreateBuilder<FieldStoreFact>(),
+            fieldLoads: ImmutableArray.CreateBuilder<FieldLoadFact>(),
+            returnFlows: returnFlows);
+        return Assert.Single(returnFlows.ToImmutable());
+    }
+
     static ImmutableArray<MethodResultSink> AnalyzeResultSinks(
         byte[] il,
         ImmutableArray<TypeRef> parameters,
@@ -614,11 +1112,21 @@ public sealed class MethodCallResolvedValueTests
     static MethodBodyAnalysisContext Context(
         byte[] il,
         ImmutableArray<TypeRef> parameters,
-        ImmutableArray<TypeRef> locals)
+        ImmutableArray<TypeRef> locals,
+        TypeRef? returnType = null)
     {
         MethodInstructions instructions =
             MethodInstructions.Decode(il, il.Length, []);
         Assert.True(instructions.IsComplete);
+        return Context(instructions, parameters, locals, returnType);
+    }
+
+    static MethodBodyAnalysisContext Context(
+        MethodInstructions instructions,
+        ImmutableArray<TypeRef> parameters,
+        ImmutableArray<TypeRef> locals,
+        TypeRef? returnType = null)
+    {
         return new MethodBodyAnalysisContext(
             new MethodIdentity(
                 "Fixture",
@@ -626,7 +1134,7 @@ public sealed class MethodCallResolvedValueTests
                 TypeRef.Definition("Fixture", "Fixtures", "Caller"),
                 "M",
                 parameters,
-                s_void,
+                returnType ?? s_void,
                 MetadataToken: 0x06000001,
                 IsStatic: true),
             instructions,
@@ -724,6 +1232,7 @@ public sealed class MethodCallResolvedValueTests
             => fieldToken switch
             {
                 StaticFieldToken => (s_widget, "Static"),
+                AliasedStaticFieldToken => (s_widget, "Static"),
                 InstanceFieldToken => (s_widget, "Instance"),
                 OpaqueFieldToken => (s_widget, "Opaque"),
                 _ => (null, null),

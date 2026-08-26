@@ -92,6 +92,20 @@ general expressions or guess from display text.
 `DoesNotGuessFirstArgumentStringLiteralAcrossMerge` gate the positive and
 fail-closed boundaries.
 
+`TypedStackResult.BlockExit` records the evaluation stack each block left
+behind, alongside the per-offset `StackBefore` map. A merge erases provenance at
+the join, so the value a predecessor contributed is recoverable only from what
+that block had on the stack when it exited; an unvisited block keeps a default
+exit, which is how a consumer distinguishes "never reached" from "reached and
+left nothing".
+`SubstrateTests.Retains_per_block_exit_stacks_including_unreached_blocks` gates
+it. Value-changing unary and shift operations stamp their own producer offset
+rather than retaining the input's provenance;
+`SubstrateTests.Value_changing_unary_operations_stamp_their_own_provenance`
+gates that boundary. Analysis builds `MethodReturnFlow` on top of it — see
+`docs/design/type-member-api-representation.md` — and the substrate itself stays
+model-free.
+
 For consumers that must prove a complete result envelope rather than one
 successful call-result path, Analysis also exposes `MethodResultSink`: every
 physical `ret` and each single-argument call has either all directly proven

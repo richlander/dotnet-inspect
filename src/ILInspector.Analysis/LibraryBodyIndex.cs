@@ -71,6 +71,7 @@ public sealed class LibraryBodyIndex
         ResultSinks = analysis.Methods.ResultSinks;
         FieldStores = analysis.Methods.FieldStores;
         FieldLoads = analysis.Methods.FieldLoads;
+        ReturnFlows = analysis.Methods.ReturnFlows;
         _physicalDirectCalls =
         [
             .. DirectCalls.Select(static call =>
@@ -153,6 +154,15 @@ public sealed class LibraryBodyIndex
     /// where a cached read never reaches a resolvable stack slot.
     /// </summary>
     public ImmutableArray<FieldLoadFact> FieldLoads { get; }
+
+    /// <summary>
+    /// The union of proven producers each non-void body can return, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. Present with an unresolved value whenever any reachable
+    /// return went unproven, so a consumer asking "can this method return
+    /// anything else?" fails closed.
+    /// </summary>
+    public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
@@ -1015,7 +1025,8 @@ public sealed class LibraryBodyIndex
         ImmutableArray<DirectCall> directCalls = default,
         ImmutableArray<MethodResultSink> resultSinks = default,
         ImmutableArray<FieldStoreFact> fieldStores = default,
-        ImmutableArray<FieldLoadFact> fieldLoads = default)
+        ImmutableArray<FieldLoadFact> fieldLoads = default,
+        ImmutableArray<MethodReturnFlow> returnFlows = default)
         => new(
             path: "",
             analysis: new(
@@ -1026,6 +1037,7 @@ public sealed class LibraryBodyIndex
                     ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
                     FieldStores: fieldStores.IsDefault ? [] : fieldStores,
                     FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
+                    ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),

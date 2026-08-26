@@ -3786,6 +3786,220 @@ public sealed class JsExportSurfaceBuilderTests
         return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
 
+    /// <summary>
+    /// TypeScript emission describes every <c>long</c> as <c>number</c>, which
+    /// is the wrong type for a JavaScript <c>BigInt</c>. Until descriptor-aware
+    /// TypeScript types exist, an authentic
+    /// <c>[JSMarshalAs&lt;JSType.BigInt&gt;] long</c> export is rejected
+    /// visibly rather than published under a type that misdescribes it.
+    /// </summary>
+    [Fact]
+    public void Build_RejectsBigIntMarshaledLongExport()
+    {
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildMarshaledLongSurface(
+                    nameof(BigIntMarshalFixture),
+                    nameof(BigIntMarshalFixture.EchoBigInt)));
+
+        Assert.Contains(
+            "recognized but not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "get_BigInt64",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[JSMarshalAs<JSType.Number>]",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The close negative for the rejection above: the Int52 descriptor is what
+    /// <c>number</c> does describe, so the same <c>long</c> keeps publishing.
+    /// </summary>
+    [Fact]
+    public void Build_PublishesNumberMarshaledLongExport()
+    {
+        JsExportFunction function = Assert.Single(
+            BuildMarshaledLongSurface(
+                nameof(Int52MarshalFixture),
+                nameof(Int52MarshalFixture.EchoInt52)).Functions);
+
+        Assert.Equal(
+            nameof(Int52MarshalFixture.EchoInt52),
+            function.Name);
+    }
+
+    static JsExportSurface BuildMarshaledLongSurface(
+        string typeName,
+        string exportName)
+    {
+        string path =
+            typeof(BigIntMarshalFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name == typeName);
+        Assert.Contains(
+            fixture.Members,
+            member => member.Name == exportName);
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+        return JsExportSurfaceBuilder.Build(
+            extracted,
+            OpenWireContractBodyIndex(path));
+    }
+
+    /// <summary>
+    /// Gates <see cref="FieldIdentity"/> linking for the generated default
+    /// instance: a second static write through a <c>MemberRef</c> alias names
+    /// the same runtime field under a different metadata token, so token
+    /// equality would count one write where there are two.
+    /// </summary>
+    [Fact]
+    public void Build_RejectsAliasedSecondWriteToGeneratedDefaultInstanceField()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        FieldStoreFact instanceStore = Assert.Single(
+            bodyIndex.FieldStores,
+            store => store.IsStatic
+                && store.FieldName == "<Default>k__BackingField"
+                && store.DeclaringType?.Name == "FixtureJsonContext");
+        Assert.NotNull(instanceStore.Identity);
+
+        // The control: an unrelated static field under a fresh token is not
+        // this field, so the surface still publishes.
+        Assert.Contains(
+            "Ping",
+            BuildWith(
+                path,
+                bodyIndex,
+                instanceStore with
+                {
+                    FieldToken = instanceStore.FieldToken + 0x100,
+                    FieldName = "s_unrelatedInstance",
+                    Identity = FieldIdentity.TryCreate(
+                        instanceStore.DeclaringType,
+                        "s_unrelatedInstance"),
+                }).Functions.Select(function => function.Name));
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildWith(
+                    path,
+                    bodyIndex,
+                    instanceStore with
+                    {
+                        ILOffset = instanceStore.ILOffset + 0x1000,
+                        FieldToken = instanceStore.FieldToken + 0x100,
+                    }));
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Gates the fail-closed half of <see cref="FieldIdentity"/>: a static
+    /// write whose own field could not be resolved might be a write to the
+    /// authenticated field, and "might be" has to reject.
+    /// </summary>
+    [Fact]
+    public void Build_RejectsUnidentifiedSecondStaticWrite()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        FieldStoreFact instanceStore = Assert.Single(
+            bodyIndex.FieldStores,
+            store => store.IsStatic
+                && store.FieldName == "<Default>k__BackingField"
+                && store.DeclaringType?.Name == "FixtureJsonContext");
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildWith(
+                    path,
+                    bodyIndex,
+                    instanceStore with
+                    {
+                        ILOffset = instanceStore.ILOffset + 0x1000,
+                        FieldToken = instanceStore.FieldToken + 0x100,
+                        DeclaringType = null,
+                        FieldName = null,
+                        Identity = null,
+                    }));
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsContextBaseConstructorCallThatCanBeSkipped()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        DirectCall baseCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.DeclaringType.Name
+                    == "FixtureJsonContext"
+                && call.EvidenceMethod.Name == ".ctor"
+                && call.EvidenceMethod.ParameterTypes.Length == 1
+                && call.Callee.DeclaringType.Name
+                    == "JsonSerializerContext"
+                && call.Callee.Name == ".ctor");
+        Assert.True(baseCall.DominatesEveryNormalReturn);
+        ImmutableArray<DirectCall> calls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call == baseCall
+                    ? call with
+                    {
+                        DominatesEveryNormalReturn = false,
+                    }
+                    : call),
+        ];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    ExtractApiSurface(path),
+                    LibraryBodyIndex.FromEvidence(
+                        bodyIndex.Methods,
+                        [],
+                        diagnostics: bodyIndex.Diagnostics,
+                        directCalls: calls,
+                        resultSinks: bodyIndex.ResultSinks,
+                        fieldStores: bodyIndex.FieldStores,
+                        fieldLoads: bodyIndex.FieldLoads,
+                        returnFlows: bodyIndex.ReturnFlows)));
+
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    static JsExportSurface BuildWith(
+        string path,
+        LibraryBodyIndex bodyIndex,
+        FieldStoreFact extraStore)
+        => JsExportSurfaceBuilder.Build(
+            ExtractApiSurface(path),
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: bodyIndex.DirectCalls,
+                resultSinks: bodyIndex.ResultSinks,
+                fieldStores: [.. bodyIndex.FieldStores, extraStore],
+                fieldLoads: bodyIndex.FieldLoads,
+                returnFlows: bodyIndex.ReturnFlows));
+
     static ApiSurface ExtractApiSurface(string path)
     {
         using FileStream stream = File.OpenRead(path);

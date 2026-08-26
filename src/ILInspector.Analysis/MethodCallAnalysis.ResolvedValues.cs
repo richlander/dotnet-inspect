@@ -109,6 +109,8 @@ internal static partial class MethodCallAnalysis
             int token = MethodInstructionFacts.OperandInt32(instruction);
             (TypeRef? declaringType, string? name) =
                 resolver.ResolveFieldOwner(token);
+            FieldIdentity? fieldIdentity =
+                resolver.ResolveFieldIdentity(token);
             ResolvedValueSet value = sources.ResolveStackSlot(
                 instruction.Offset,
                 depthFromTop: 0);
@@ -120,6 +122,7 @@ internal static partial class MethodCallAnalysis
                 isStatic,
                 declaringType,
                 name,
+                fieldIdentity,
                 isStatic
                     ? -1
                     : ReceiverArgument(instruction.Offset, depthFromTop: 1),
@@ -133,6 +136,8 @@ internal static partial class MethodCallAnalysis
             int token = MethodInstructionFacts.OperandInt32(instruction);
             (TypeRef? declaringType, string? name) =
                 resolver.ResolveFieldOwner(token);
+            FieldIdentity? fieldIdentity =
+                resolver.ResolveFieldIdentity(token);
             fieldLoads.Add(new FieldLoadFact(
                 context.Method,
                 context.Method,
@@ -141,6 +146,7 @@ internal static partial class MethodCallAnalysis
                 isStatic,
                 declaringType,
                 name,
+                fieldIdentity,
                 isStatic
                     ? -1
                     : ReceiverArgument(instruction.Offset, depthFromTop: 0),
@@ -215,10 +221,317 @@ internal static partial class MethodCallAnalysis
         }
     }
 
+    /// <summary>
+    /// Marks calls whose block dominates every reachable ordinary
+    /// <c>ret</c>, provided the body has no reachable <c>jmp</c> completion.
+    /// </summary>
+    static void CollectNormalReturnDominance(
+        MethodBodyAnalysisContext context,
+        ImmutableArray<bool> reachability,
+        ImmutableArray<DirectCall>.Builder calls)
+    {
+        if (reachability.IsDefaultOrEmpty)
+            return;
+
+        int[] returnBlocks =
+        [
+            .. context.Instructions.Instructions
+                .Where(instruction =>
+                    instruction.OpCode == ILOpCode.Ret
+                    && IsReachableAt(
+                        context,
+                        reachability,
+                        instruction.Offset) == true)
+                .Select(instruction =>
+                    context.Blocks.BlockIndexAt(instruction.Offset))
+                .Where(index => index >= 0)
+                .Distinct(),
+        ];
+        bool hasJumpCompletion =
+            context.Instructions.Instructions.Any(instruction =>
+                instruction.OpCode == ILOpCode.Jmp
+                && IsReachableAt(
+                    context,
+                    reachability,
+                    instruction.Offset) == true);
+        if (returnBlocks.Length == 0 || hasJumpCompletion)
+            return;
+
+        var dominators = Dominators.Of(
+            context.Blocks.Blocks
+                .Select(static block => block.Edges)
+                .ToArray());
+        for (int index = 0; index < calls.Count; index++)
+        {
+            DirectCall call = calls[index];
+            int callBlock = context.Blocks.BlockIndexAt(call.ILOffset);
+            if (call.IsReachable == true
+                && callBlock >= 0
+                && returnBlocks.All(returnBlock =>
+                    dominators.Dominates(callBlock, returnBlock)))
+            {
+                calls[index] = call with
+                {
+                    DominatesEveryNormalReturn = true,
+                };
+            }
+        }
+    }
+
+    /// <summary>
+    /// Projects one <see cref="MethodReturnFlow"/> for a non-void body: the union of proven
+    /// producers across every reachable <c>ret</c>.
+    /// </summary>
+    /// <remarks>
+    /// Emitted for non-void bodies only, and always emitted for those — an unproven return
+    /// produces an unresolved fact rather than no fact, so a consumer sees the failure instead
+    /// of an absent row it could read as "nothing to check".
+    /// </remarks>
+    static void CollectReturnFlow(
+        MethodBodyAnalysisContext context,
+        ImmutableArray<bool> reachability,
+        StackValueSourceResolver sources,
+        ImmutableArray<MethodReturnFlow>.Builder returnFlows)
+    {
+        if (IsCoreVoid(context.Method.ReturnType))
+            return;
+
+        var offsets = ImmutableArray.CreateBuilder<int>();
+        var merged = new List<ResolvedValueSource>();
+        bool resolved = true;
+        foreach (DecodedInstruction instruction
+            in context.Instructions.Instructions)
+        {
+            if (instruction.OpCode == ILOpCode.Jmp)
+            {
+                bool? jumpReachable =
+                    IsReachableAt(
+                        context,
+                        reachability,
+                        instruction.Offset);
+                if (jumpReachable != false)
+                    resolved = false;
+                continue;
+            }
+            if (instruction.OpCode != ILOpCode.Ret)
+                continue;
+            bool? reachable =
+                IsReachableAt(context, reachability, instruction.Offset);
+            if (reachable == false)
+                continue;
+            offsets.Add(instruction.Offset);
+            if (reachable != true)
+            {
+                resolved = false;
+                continue;
+            }
+
+            ResolvedValueSet value =
+                sources.ResolveReturnedValue(instruction.Offset);
+            if (!value.IsResolved)
+            {
+                resolved = false;
+                continue;
+            }
+
+            foreach (ResolvedValueSource candidate in value.Sources)
+            {
+                if (!merged.Contains(candidate))
+                    merged.Add(candidate);
+            }
+        }
+
+        if (merged.Count == 0)
+            resolved = false;
+
+        merged.Sort(static (left, right) =>
+        {
+            int byOffset = left.ILOffset.CompareTo(right.ILOffset);
+            return byOffset != 0
+                ? byOffset
+                : ((int)left.Kind).CompareTo((int)right.Kind);
+        });
+        returnFlows.Add(new MethodReturnFlow(
+            context.Method,
+            context.Method,
+            offsets.ToImmutable(),
+            resolved
+                ? new([.. merged], isResolved: true)
+                : ResolvedValueSet.Unresolved));
+    }
+
+    static bool IsCoreVoid(TypeRef type)
+        => type.Equals(TypeRef.CoreLib("System", "Void"));
+
     sealed partial class StackValueSourceResolver
     {
+        HashSet<int>? _addressedArgumentSlots;
+        Dictionary<int, LocalUse>? _argumentUsesByOffset;
+
         static ResolvedValueSet Single(ResolvedValueSource source)
             => new([source], isResolved: true);
+
+        /// <summary>
+        /// The proven producers of the value one <c>ret</c> hands back, expanded across a
+        /// control-flow merge when the evaluation-stack join left no single producer.
+        /// </summary>
+        internal ResolvedValueSet ResolveReturnedValue(int returnOffset)
+        {
+            if (!IsComplete)
+                return ResolvedValueSet.Unresolved;
+
+            ImmutableArray<StackValue> stack =
+                _stack.StackBeforeOffset(returnOffset);
+            if (stack.IsEmpty)
+                return ResolvedValueSet.Unresolved;
+
+            int slotIndex = stack.Length - 1;
+            if (stack[slotIndex].ProducerOffset != StackValue.NoProducer)
+                return ResolveValue(stack[slotIndex].ProducerOffset, []);
+
+            // The join collapsed the producer. The alternatives are whatever each reachable
+            // predecessor left in that slot, so walk them instead of guessing.
+            int blockIndex = _context.Blocks.BlockIndexAt(returnOffset);
+            return blockIndex < 0
+                    || !IsSlotFromBlockEntry(blockIndex, stack, slotIndex)
+                ? ResolvedValueSet.Unresolved
+                : ResolveMergedSlot(blockIndex, slotIndex, [], []);
+        }
+
+        /// <summary>
+        /// Unions the resolved values every reachable predecessor of
+        /// <paramref name="blockIndex"/> leaves in stack slot <paramref name="slotIndex"/>.
+        /// </summary>
+        ResolvedValueSet ResolveMergedSlot(
+            int blockIndex,
+            int slotIndex,
+            HashSet<int> visitedBlocks,
+            HashSet<int> resolving)
+        {
+            if (IsExceptionEntryBlock(blockIndex)
+                || !visitedBlocks.Add(blockIndex))
+                return ResolvedValueSet.Unresolved;
+
+            ImmutableArray<int> predecessors =
+                PredecessorsOf(blockIndex);
+            if (predecessors.IsEmpty)
+                return ResolvedValueSet.Unresolved;
+
+            var merged = new List<ResolvedValueSource>();
+            foreach (int predecessor in predecessors)
+            {
+                ImmutableArray<StackValue> exit =
+                    _stack.BlockExitAt(predecessor);
+                if (exit.IsDefault)
+                    continue; // Never reached, so it contributes no runtime value.
+                if (slotIndex >= exit.Length)
+                    return ResolvedValueSet.Unresolved;
+
+                ResolvedValueSet value =
+                    exit[slotIndex].ProducerOffset != StackValue.NoProducer
+                        ? ResolveValue(
+                            exit[slotIndex].ProducerOffset,
+                            resolving)
+                        : IsSlotFromBlockEntry(predecessor, exit, slotIndex)
+                            ? ResolveMergedSlot(
+                                predecessor,
+                                slotIndex,
+                                visitedBlocks,
+                                resolving)
+                            : ResolvedValueSet.Unresolved;
+                if (!value.IsResolved)
+                    return ResolvedValueSet.Unresolved;
+
+                foreach (ResolvedValueSource candidate in value.Sources)
+                {
+                    if (!merged.Contains(candidate))
+                        merged.Add(candidate);
+                }
+            }
+
+            return merged.Count == 0
+                ? ResolvedValueSet.Unresolved
+                : new([.. merged], isResolved: true);
+        }
+
+        /// <summary>
+        /// Whether <paramref name="observed"/> still holds in slot
+        /// <paramref name="slotIndex"/> the value the block was entered with, which is what
+        /// makes the block's own entry merge the right place to keep walking.
+        /// </summary>
+        /// <remarks>
+        /// The slot is compared, not merely the block's instructions, so a block that pops the
+        /// merged value and pushes an unrelated one in its place cannot be mistaken for a
+        /// pass-through. Every in-block push records its producer, so a slot that is still
+        /// <see cref="StackValue.NoProducer"/> and equal to the entry value came from the join.
+        /// </remarks>
+        bool IsSlotFromBlockEntry(
+            int blockIndex,
+            ImmutableArray<StackValue> observed,
+            int slotIndex)
+        {
+            if (blockIndex < 0
+                || blockIndex >= _context.Blocks.Blocks.Length
+                || observed.IsDefault
+                || slotIndex >= observed.Length)
+            {
+                return false;
+            }
+
+            return _stack.StackBefore.TryGetValue(
+                    _context.Blocks.Blocks[blockIndex].Start,
+                    out ImmutableArray<StackValue> entry)
+                && slotIndex < entry.Length
+                && observed[slotIndex] == entry[slotIndex];
+        }
+
+        ImmutableArray<int> PredecessorsOf(int blockIndex)
+        {
+            if (_predecessors.IsDefault)
+            {
+                var builders =
+                    new List<int>[_context.Blocks.Blocks.Length];
+                for (int index = 0;
+                    index < _context.Blocks.Blocks.Length;
+                    index++)
+                {
+                    foreach (int successor
+                        in _context.Blocks.Blocks[index].Edges.Successors)
+                    {
+                        if (successor < 0 || successor >= builders.Length)
+                            continue;
+                        (builders[successor] ??= []).Add(index);
+                    }
+                }
+
+                _predecessors =
+                    [.. builders.Select(static list =>
+                        list is null
+                            ? ImmutableArray<int>.Empty
+                            : [.. list])];
+            }
+
+            return blockIndex >= 0 && blockIndex < _predecessors.Length
+                ? _predecessors[blockIndex]
+                : [];
+        }
+
+        bool IsExceptionEntryBlock(int blockIndex)
+        {
+            if (blockIndex < 0
+                || blockIndex >= _context.Blocks.Blocks.Length)
+            {
+                return false;
+            }
+
+            int start = _context.Blocks.Blocks[blockIndex].Start;
+            return _context.Blocks.Regions.Any(region =>
+                start == region.HandlerStart
+                || region.Kind == HandlerKind.Filter
+                    && start == region.FilterStart);
+        }
+
+        ImmutableArray<ImmutableArray<int>> _predecessors;
 
         internal ResolvedValueSet ResolveArgumentValue(
             int callOffset,
@@ -350,26 +663,27 @@ internal static partial class MethodCallAnalysis
                     {
                         int token = MethodInstructionFacts.OperandInt32(
                             instruction);
-                        (TypeRef? declaringType, string? name) =
-                            _resolver.ResolveFieldOwner(token);
-                        return name is null
+                        FieldIdentity? field =
+                            _resolver.ResolveFieldIdentity(token);
+                        return field is null
                             ? ResolvedValueSet.Unresolved
                             : Single(new ResolvedValueSource(
                                 ResolvedValueSourceKind.StaticFieldLoad,
                                 producerOffset)
                             {
                                 Token = token,
-                                Type = declaringType,
-                                Name = name,
+                                Type = field.DeclaringType,
+                                Name = field.Name,
+                                FieldIdentity = field,
                             });
                     }
                     case ILOpCode.Ldfld:
                     {
                         int token = MethodInstructionFacts.OperandInt32(
                             instruction);
-                        (TypeRef? declaringType, string? name) =
-                            _resolver.ResolveFieldOwner(token);
-                        if (name is null)
+                        FieldIdentity? field =
+                            _resolver.ResolveFieldIdentity(token);
+                        if (field is null)
                             return ResolvedValueSet.Unresolved;
                         ResolvedValueSet receiver = ResolveStackSlot(
                             producerOffset,
@@ -385,8 +699,9 @@ internal static partial class MethodCallAnalysis
                             producerOffset)
                         {
                             Token = token,
-                            Type = declaringType,
-                            Name = name,
+                            Type = field.DeclaringType,
+                            Name = field.Name,
+                            FieldIdentity = field,
                             ArgumentIndex = slot.ArgumentIndex,
                         });
                     }
@@ -412,12 +727,16 @@ internal static partial class MethodCallAnalysis
 
                 if (access.IsArgument)
                 {
-                    return Single(new ResolvedValueSource(
-                        ResolvedValueSourceKind.Argument,
-                        producerOffset)
-                    {
-                        ArgumentIndex = access.Slot,
-                    });
+                    return IsOriginalArgumentLoad(
+                        access.Slot,
+                        instruction.Offset)
+                        ? Single(new ResolvedValueSource(
+                            ResolvedValueSourceKind.Argument,
+                            producerOffset)
+                        {
+                            ArgumentIndex = access.Slot,
+                        })
+                        : ResolvedValueSet.Unresolved;
                 }
 
                 return ResolveLocalLoad(instruction, access, resolving);
@@ -521,5 +840,61 @@ internal static partial class MethodCallAnalysis
                 _context.Instructions,
                 _context.Method.ParameterTypes.Length
                     + (_context.Method.IsStatic ? 0 : 1));
+
+        /// <summary>
+        /// Whether this exact <c>ldarg</c> still holds the incoming argument: its only reaching
+        /// definition is the entry definition <see cref="ReachingDefinitions"/> seeds at
+        /// <see cref="ILInspector.Analysis.ReachingDefinitions.EntryDefinitionOffset"/>, and the
+        /// slot is never addressed anywhere in the body.
+        /// </summary>
+        /// <remarks>
+        /// A <c>starg</c> rewrites the slot, a merge can carry either value, and an
+        /// <c>ldarga</c> lets a byref write land without a visible store — none of which can be
+        /// attributed without alias analysis, so all three stay unresolved. An <c>ldarga</c>
+        /// itself pushes a managed pointer rather than the argument, and is rejected by the same
+        /// addressed-slot test. <c>MethodCallResolvedValueTests.LeavesReassignedArgumentValuesUnresolved</c>,
+        /// <c>LeavesMergedArgumentValuesUnresolved</c>, and
+        /// <c>LeavesAddressedArgumentValuesUnresolved</c> gate the boundary.
+        /// </remarks>
+        bool IsOriginalArgumentLoad(int slot, int offset)
+        {
+            ReachingDefinitionsResult reaching = EnsureReachingDefinitions();
+            if (!reaching.IsComplete)
+                return false;
+
+            EnsureArgumentUseIndex(reaching);
+            return !_addressedArgumentSlots!.Contains(slot)
+                && _argumentUsesByOffset!.TryGetValue(offset, out LocalUse? use)
+                && use.Slot == slot
+                && !use.Address
+                && use.ReachingDefinitions is
+                    [
+                        {
+                            Offset:
+                                ILInspector.Analysis.ReachingDefinitions
+                                    .EntryDefinitionOffset,
+                        },
+                    ];
+        }
+
+        void EnsureArgumentUseIndex(ReachingDefinitionsResult reaching)
+        {
+            if (_argumentUsesByOffset is not null)
+                return;
+
+            var addressed = new HashSet<int>();
+            var usesByOffset = new Dictionary<int, LocalUse>();
+            foreach (LocalUse use in reaching.Uses)
+            {
+                if (!use.IsArgument)
+                    continue;
+                if (use.Address)
+                    addressed.Add(use.Slot);
+                usesByOffset[use.Offset] = use;
+            }
+
+            _addressedArgumentSlots = addressed;
+            _argumentUsesByOffset = usesByOffset;
+        }
     }
 }

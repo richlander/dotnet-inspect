@@ -2830,6 +2830,108 @@ public class LibraryBodyIndexTests
         return image.ToArray();
     }
 
+    static byte[] EmitFieldAliasAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("FieldAlias.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("FieldAlias"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Context"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var int32FieldSignature = new BlobBuilder();
+        new BlobEncoder(int32FieldSignature)
+            .FieldSignature()
+            .Int32();
+        BlobHandle int32Field =
+            metadata.GetOrAddBlob(int32FieldSignature);
+        FieldDefinitionHandle definition =
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public | FieldAttributes.Static,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+        MemberReferenceHandle alias =
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        var int64FieldSignature = new BlobBuilder();
+        new BlobEncoder(int64FieldSignature)
+            .FieldSignature()
+            .Int64();
+        MemberReferenceHandle wrongSignature =
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(int64FieldSignature));
+
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        var il = new BlobBuilder();
+        foreach (EntityHandle field in new EntityHandle[]
+            {
+                alias,
+                definition,
+                wrongSignature,
+            })
+        {
+            il.WriteByte((byte)ILOpCode.Ldc_i4_0);
+            il.WriteByte((byte)ILOpCode.Stsfld);
+            il.WriteInt32(MetadataTokens.GetToken(field));
+        }
+        il.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int body = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(il),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            body,
+            default);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static byte[] BuildMethodImplAsyncSourceAssembly(
         bool includeMethodImpl,
         byte siblingSignatureHeader = 0x20,
@@ -6833,6 +6935,29 @@ public class LibraryBodyIndexTests
         Assert.Contains(
             jsonWire.DirectCalls,
             call => call.ReceiverSource is not null);
+    }
+
+    [Fact]
+    public void FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "FieldAlias.dll",
+                ImmutableArray.Create(EmitFieldAliasAssembly()),
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        FieldStoreFact[] stores =
+        [
+            .. index.FieldStores.OrderBy(store => store.ILOffset),
+        ];
+
+        Assert.Equal(3, stores.Length);
+        Assert.NotNull(stores[0].Identity);
+        Assert.Equal(stores[0].Identity, stores[1].Identity);
+        Assert.Equal(
+            stores[1].FieldToken,
+            stores[0].Identity!.LocalDefinitionToken);
+        Assert.Null(stores[2].Identity);
     }
 
     [Fact]

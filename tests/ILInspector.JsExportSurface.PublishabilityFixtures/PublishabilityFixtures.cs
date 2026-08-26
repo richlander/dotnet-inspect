@@ -337,3 +337,30 @@ public static partial class IndexedRootExports
             new IndexedRootDto { Value = 42 },
             IndexedRootJsonContext.Default[0]);
 }
+
+/// <summary>
+/// A <c>long</c> export marshaled as a JavaScript <c>BigInt</c>. TypeScript emission maps every
+/// <c>long</c> to <c>number</c>, which silently misdescribes this wire shape, so the surface must
+/// reject it visibly rather than publish it.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public static partial class BigIntMarshalFixture
+{
+    [JSExport]
+    [return: JSMarshalAs<JSType.BigInt>]
+    public static long EchoBigInt(
+        [JSMarshalAs<JSType.BigInt>] long value) => value;
+}
+
+/// <summary>
+/// The close negative: the same <c>long</c> export marshaled as a JavaScript number, which
+/// <c>number</c> does describe and which must keep publishing.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public static partial class Int52MarshalFixture
+{
+    [JSExport]
+    [return: JSMarshalAs<JSType.Number>]
+    public static long EchoInt52(
+        [JSMarshalAs<JSType.Number>] long value) => value;
+}

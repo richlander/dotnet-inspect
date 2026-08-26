@@ -1103,6 +1103,7 @@ public static class JsExportSurfaceBuilder
                 managed,
                 isReturn,
                 out string[] factoryNames,
+                out string[] unsupportedFactoryNames,
                 out TypeRef? elementType))
         {
             throw new UnsupportedJsExportSurfaceException(
@@ -1119,8 +1120,30 @@ public static class JsExportSurfaceBuilder
                 factoryOffset,
                 out DirectCall? factory)
             || factory.IsReachable != true
-            || !IsJsMarshalerTypeFactory(factory.Callee)
-            || !factoryNames.Contains(factory.Callee.Name, StringComparer.Ordinal))
+            || !IsJsMarshalerTypeFactory(factory.Callee))
+        {
+            return false;
+        }
+
+        // An authentic descriptor the TypeScript type system cannot describe is a supported
+        // wire shape this tool does not support yet, which is a different answer from "this
+        // is not a generated JS export" and has to read that way.
+        if (unsupportedFactoryNames.Contains(
+            factory.Callee.Name,
+            StringComparer.Ordinal))
+        {
+            throw new UnsupportedJsExportSurfaceException(
+                location,
+                $"JS export marshaling of '{managed.ToDisplayString()}' as "
+                    + $"'{factory.Callee.Name}' is recognized but not supported: "
+                    + "TypeScript emission describes every 'long' as 'number', "
+                    + "which does not describe a JavaScript BigInt. Use "
+                    + "[JSMarshalAs<JSType.Number>] instead");
+        }
+
+        if (!factoryNames.Contains(
+            factory.Callee.Name,
+            StringComparer.Ordinal))
         {
             return false;
         }
@@ -1145,18 +1168,33 @@ public static class JsExportSurfaceBuilder
     /// and the element type whose own descriptor a composite factory must carry.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A managed type maps to a small set rather than to one name because
     /// <c>[JSMarshalAs]</c> legitimately selects among the alternatives for the
     /// same declared type. Returning false means "not recognized", which the
     /// caller reports rather than silently accepting.
+    /// </para>
+    /// <para>
+    /// <paramref name="unsupportedFactoryNames"/> holds the descriptors that are
+    /// authentic for the managed type but that this tool cannot describe in
+    /// TypeScript yet. <c>get_BigInt64</c> is the case: <c>TsTypeMapper</c> emits
+    /// every <c>long</c> as <c>number</c>, which silently misdescribes a
+    /// JavaScript <c>BigInt</c>, so the surface rejects it visibly instead.
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsBigIntMarshaledLongExport</c>
+    /// and
+    /// <c>JsExportSurfaceBuilderTests.Build_PublishesNumberMarshaledLongExport</c>
+    /// gate the pair.
+    /// </para>
     /// </remarks>
     static bool TryGetMarshalerRule(
         TypeRef managed,
         bool isReturn,
         out string[] factoryNames,
+        out string[] unsupportedFactoryNames,
         out TypeRef? elementType)
     {
         factoryNames = [];
+        unsupportedFactoryNames = [];
         elementType = null;
         switch (managed.Kind)
         {
@@ -1231,7 +1269,7 @@ public static class JsExportSurfaceBuilder
             ("System", "Byte") => ["get_Byte"],
             ("System", "Int16") => ["get_Int16"],
             ("System", "Int32") => ["get_Int32"],
-            ("System", "Int64") => ["get_BigInt64", "get_Int52"],
+            ("System", "Int64") => ["get_Int52"],
             ("System", "Single") => ["get_Single"],
             ("System", "Double") => ["get_Double"],
             ("System", "IntPtr") => ["get_IntPtr"],
@@ -1241,6 +1279,11 @@ public static class JsExportSurfaceBuilder
             ("System", "Object") => ["get_Object"],
             _ => [],
         };
+        if (managed is { Namespace: "System", Name: "Int64" })
+        {
+            unsupportedFactoryNames = ["get_BigInt64"];
+        }
+
         return factoryNames.Length != 0
             && HasExactDefinitionName(
                 managed,
@@ -1524,21 +1567,34 @@ public static class JsExportSurfaceBuilder
             context,
             defaultGetterToken,
             staticConstructor,
-            callsByMethod);
+            callsByMethod,
+            incompleteBodyTokens);
     }
 
     /// <summary>
     /// Requires the <c>GetTypeInfo</c> result to reach the generated cache
-    /// field on this instance, and the getter's cached read to come from that
-    /// same field.
+    /// field on this instance, the getter's cached read to come from that same
+    /// field, and every reachable return to hand back one of those two values.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The generated getter returns a value merged from the cached-read path and
     /// the freshly-created path, so call-only result-sink completeness cannot
     /// prove it. Linking the store and the load instead is what rejects a body
-    /// that keeps every trusted call but drops the result on the floor.
-    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo</c>
-    /// gates it.
+    /// that keeps every trusted call but drops the result on the floor, and the
+    /// Analysis-owned <see cref="MethodReturnFlow"/> is what rejects a body that
+    /// stores the fresh value correctly and then returns something else.
+    /// </para>
+    /// <para>
+    /// The store and load are linked by <see cref="FieldIdentity"/> rather than
+    /// by metadata token, because a <c>MemberRef</c> alias would otherwise let a
+    /// second write to the same field masquerade as a write to another one.
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo</c>,
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedRootGetterThatReturnsNullOnTheFreshPath</c>,
+    /// and
+    /// <c>GeneratedJsExportAuthenticationTests.PatchedRootGetter_ReportsNullAsAProvenReturnAlternative</c>
+    /// gate it.
+    /// </para>
     /// </remarks>
     static bool HasAuthenticatedRootCacheFlow(
         LibraryBodyIndex bodyIndex,
@@ -1555,8 +1611,8 @@ public static class JsExportSurfaceBuilder
             || cacheStore.IsStatic
             || cacheStore.IsReachable != true
             || cacheStore.ReceiverArgumentIndex != 0
-            || cacheStore.DeclaringType is not { } cacheOwner
-            || !IsContextType(cacheOwner, context)
+            || cacheStore.Identity is not { } cacheField
+            || !IsContextType(cacheField.DeclaringType, context)
             || cacheStore.Value.Single is not
                 {
                     Kind: ResolvedValueSourceKind.CallResult,
@@ -1572,11 +1628,79 @@ public static class JsExportSurfaceBuilder
             .. bodyIndex.FieldLoads.Where(load =>
                 load.EvidenceMethod.MetadataToken == rootGetterToken),
         ];
-        return loads is [var cacheLoad]
-            && !cacheLoad.IsStatic
-            && cacheLoad.IsReachable == true
-            && cacheLoad.FieldToken == cacheStore.FieldToken
-            && cacheLoad.ReceiverArgumentIndex == 0;
+        if (loads is not [var cacheLoad]
+            || cacheLoad.IsStatic
+            || cacheLoad.IsReachable != true
+            || cacheLoad.Identity is not { } loadedField
+            || !loadedField.Equals(cacheField)
+            || cacheLoad.ReceiverArgumentIndex != 0)
+        {
+            return false;
+        }
+
+        return HasAuthenticatedRootReturnFlow(
+            bodyIndex,
+            rootGetterToken,
+            cacheField,
+            cacheLoad.ILOffset,
+            typeInfoCallOffset);
+    }
+
+    /// <summary>
+    /// Requires every reachable return of the generated root getter to hand back
+    /// either the authenticated cache read or the freshly authenticated
+    /// <c>GetTypeInfo</c> result, and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// Both alternatives must be present: a getter that only ever returns the
+    /// cache field never proves the fresh path, and a getter that only ever
+    /// returns the fresh result is not the caching shape this authentication
+    /// describes. An unresolved fact, a null, or any third source fails closed.
+    /// </remarks>
+    static bool HasAuthenticatedRootReturnFlow(
+        LibraryBodyIndex bodyIndex,
+        int rootGetterToken,
+        FieldIdentity cacheField,
+        int cacheLoadOffset,
+        int typeInfoCallOffset)
+    {
+        MethodReturnFlow[] flows =
+        [
+            .. bodyIndex.ReturnFlows.Where(flow =>
+                flow.EvidenceMethod.MetadataToken == rootGetterToken),
+        ];
+        if (flows is not [{ Value.IsResolved: true } returnFlow]
+            || returnFlow.ReturnOffsets.IsDefaultOrEmpty)
+        {
+            return false;
+        }
+
+        bool cached = false;
+        bool fresh = false;
+        foreach (ResolvedValueSource source in returnFlow.Value.Sources)
+        {
+            switch (source)
+            {
+                case
+                {
+                    Kind: ResolvedValueSourceKind.InstanceFieldLoad,
+                    ArgumentIndex: 0,
+                    FieldIdentity: { } returnedField,
+                }
+                    when source.ILOffset == cacheLoadOffset
+                        && cacheField.Equals(returnedField):
+                    cached = true;
+                    break;
+                case { Kind: ResolvedValueSourceKind.CallResult }
+                    when source.ILOffset == typeInfoCallOffset:
+                    fresh = true;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        return cached && fresh;
     }
 
     /// <summary>
@@ -1593,14 +1717,17 @@ public static class JsExportSurfaceBuilder
     /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedContextWithUnlinkedDefaultInstance</c>
     /// and
     /// <c>GeneratedJsExportAuthenticationTests.Build_AcceptsGeneratedContextWithUnrelatedStaticOptions</c>
-    /// gate the pair.
+    /// gate the pair, and
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedContextConstructorThatDropsOptions</c>
+    /// gates the constructor's own forwarding.
     /// </remarks>
     static bool HasAuthenticatedDefaultInstanceChain(
         LibraryBodyIndex bodyIndex,
         ApiType context,
         int defaultGetterToken,
         MethodIdentity staticConstructor,
-        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> callsByMethod)
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> callsByMethod,
+        IReadOnlySet<int> incompleteBodyTokens)
     {
         MethodResultSink[] returns =
         [
@@ -1612,10 +1739,9 @@ public static class JsExportSurfaceBuilder
             || defaultReturn.ResolvedValue?.Single is not
                 {
                     Kind: ResolvedValueSourceKind.StaticFieldLoad,
-                    Token: var instanceFieldToken,
-                    Type: { } instanceFieldOwner,
+                    FieldIdentity: { } instanceField,
                 }
-            || !IsContextType(instanceFieldOwner, context)
+            || !IsContextType(instanceField.DeclaringType, context)
             || !callsByMethod.TryGetValue(
                 staticConstructor.MetadataToken,
                 out ImmutableArray<DirectCall> initializerCalls))
@@ -1626,7 +1752,7 @@ public static class JsExportSurfaceBuilder
         if (!TryGetSingleStaticInitialization(
                 bodyIndex,
                 staticConstructor,
-                instanceFieldToken,
+                instanceField,
                 out ResolvedValueSource? instanceValue)
             || instanceValue is not
                 {
@@ -1655,7 +1781,12 @@ public static class JsExportSurfaceBuilder
                 {
                     Kind: ResolvedValueSourceKind.NewObjectResult,
                     ILOffset: var copyOffset,
-                })
+                }
+            || !HasAuthenticatedContextConstructorForwarding(
+                bodyIndex,
+                context,
+                contextConstruction,
+                incompleteBodyTokens))
         {
             return false;
         }
@@ -1671,10 +1802,9 @@ public static class JsExportSurfaceBuilder
             || copyConstruction.ResolvedArgumentValues[0].Single is not
                 {
                     Kind: ResolvedValueSourceKind.StaticFieldLoad,
-                    Token: var optionsFieldToken,
-                    Type: { } optionsFieldOwner,
+                    FieldIdentity: { } optionsField,
                 }
-            || !IsContextType(optionsFieldOwner, context))
+            || !IsContextType(optionsField.DeclaringType, context))
         {
             return false;
         }
@@ -1682,7 +1812,7 @@ public static class JsExportSurfaceBuilder
         if (!TryGetSingleStaticInitialization(
                 bodyIndex,
                 staticConstructor,
-                optionsFieldToken,
+                optionsField,
                 out ResolvedValueSource? optionsValue)
             || optionsValue is not
                 {
@@ -1704,23 +1834,36 @@ public static class JsExportSurfaceBuilder
 
     /// <summary>
     /// The provenance of the one reachable static write to
-    /// <paramref name="fieldToken"/> anywhere in the assembly, which must live in
+    /// <paramref name="field"/> anywhere in the assembly, which must live in
     /// the context's static constructor. A second write — proven or not — fails
     /// closed; writes to unrelated fields are ignored.
     /// </summary>
+    /// <remarks>
+    /// Candidates are selected by <see cref="FieldIdentity"/>, not by metadata
+    /// token, so a second write through a <c>MemberRef</c> alias for the same
+    /// field is still a second write. A static store whose own identity could
+    /// not be resolved is counted as a candidate rather than skipped, because
+    /// "might be this field" has to fail closed the same way "is this field
+    /// twice" does.
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsAliasedSecondWriteToGeneratedDefaultInstanceField</c>
+    /// gates the aliasing case.
+    /// </remarks>
     static bool TryGetSingleStaticInitialization(
         LibraryBodyIndex bodyIndex,
         MethodIdentity staticConstructor,
-        int fieldToken,
+        FieldIdentity field,
         out ResolvedValueSource? value)
     {
         value = null;
         FieldStoreFact[] stores =
         [
             .. bodyIndex.FieldStores.Where(store =>
-                store.IsStatic && store.FieldToken == fieldToken),
+                store.IsStatic
+                && (store.Identity is null
+                    || field.Equals(store.Identity))),
         ];
-        if (stores is not [var store]
+        if (stores is not [{ Identity: { } storedField } store]
+            || !field.Equals(storedField)
             || store.EvidenceMethod.MetadataToken
                 != staticConstructor.MetadataToken
             || store.IsReachable != true)
@@ -1731,6 +1874,93 @@ public static class JsExportSurfaceBuilder
         value = store.Value.Single;
         return value is not null;
     }
+
+    /// <summary>
+    /// Requires the generated context constructor to forward its own arguments
+    /// to <c>JsonSerializerContext..ctor(JsonSerializerOptions)</c>: the base
+    /// call's receiver must be the original <c>this</c> and its options
+    /// argument the original options parameter.
+    /// </summary>
+    /// <remarks>
+    /// Without this, authenticating the caller's construction inputs proves only
+    /// what was handed to the constructor, not what the constructor did with
+    /// them — a body that passes <c>null</c> to the base would still present a
+    /// perfectly linked static-initializer chain. The argument provenance this
+    /// relies on is the hardened original-argument form, so a body that
+    /// reassigns or takes the address of either parameter first cannot pass.
+    /// The base call must also dominate every normal constructor return, so a
+    /// conditional early return cannot bypass initialization while leaving one
+    /// authentic call reachable.
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsContextBaseConstructorCallThatCanBeSkipped</c>
+    /// gates that boundary.
+    /// </remarks>
+    static bool HasAuthenticatedContextConstructorForwarding(
+        LibraryBodyIndex bodyIndex,
+        ApiType context,
+        DirectCall contextConstruction,
+        IReadOnlySet<int> incompleteBodyTokens)
+    {
+        int constructorToken = contextConstruction.CalleeDefinitionToken;
+        if (constructorToken == 0
+            || incompleteBodyTokens.Contains(constructorToken))
+        {
+            return false;
+        }
+
+        MethodIdentity? constructor = bodyIndex.Methods.SingleOrDefault(
+            method => method.MetadataToken == constructorToken);
+        if (constructor is null
+            || constructor.IsStatic
+            || constructor.Name != ".ctor"
+            || !IsContextType(constructor.DeclaringType, context))
+        {
+            return false;
+        }
+
+        if (!bodyIndex.GetDirectCallsByEvidenceMethod().TryGetValue(
+                constructorToken,
+                out ImmutableArray<DirectCall> constructorCalls))
+        {
+            return false;
+        }
+
+        DirectCall[] baseCalls =
+        [
+            .. constructorCalls.Where(call =>
+                IsJsonSerializerContextConstructor(call.Callee)),
+        ];
+        return baseCalls is [var baseCall]
+            && baseCall.Kind == CallKind.Call
+            && baseCall.IsReachable == true
+            && baseCall.DominatesEveryNormalReturn
+            && baseCall.ResolvedReceiverValue?.Single is
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: 0,
+                }
+            && baseCall.ResolvedArgumentValues.Count == 1
+            && baseCall.ResolvedArgumentValues[0].Single is
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: 1,
+                };
+    }
+
+    static bool IsJsonSerializerContextConstructor(MemberRef method) =>
+        method.Kind is MemberKind.Constructor or MemberKind.Method
+        && method.HasThis
+        && method.GenericArity == 0
+        && method.Name == ".ctor"
+        && IsTrustedSystemTextJsonType(
+            method.DeclaringType,
+            "System.Text.Json.Serialization",
+            "JsonSerializerContext")
+        && IsCoreVoid(method.ReturnType)
+        && method.ParameterTypes is [var options]
+        && IsTrustedSystemTextJsonType(
+            options,
+            "System.Text.Json",
+            "JsonSerializerOptions");
 
     static bool IsJsonSerializerContextOptionsGetter(
         MemberRef method) =>

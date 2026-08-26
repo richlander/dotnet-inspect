@@ -35,6 +35,8 @@ public sealed class GeneratedJsExportAuthenticationTests
     const byte LdcI4 = 0x20;
     const byte Call = 0x28;
     const byte StsFld = 0x80;
+    const byte LdArg1 = 0x03;
+    const byte LdLoc0 = 0x06;
 
     [Fact]
     public void Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo()
@@ -66,6 +68,166 @@ public sealed class GeneratedJsExportAuthenticationTests
             "no authentic source-generated implementation",
             BuildPatchedFixture(image, "root-getter-discards-type-info"),
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The generated getter merges a cached path and a fresh path at one
+    /// shared <c>ret</c>. Proving the fresh value reaches the cache field does
+    /// not prove it is what the getter hands back, so this replaces the load
+    /// the fresh path returns with <c>null</c> and leaves every other link —
+    /// the trusted calls, the cast, the cache store, the cached read — intact.
+    /// </summary>
+    [Fact]
+    public void Build_RejectsGeneratedRootGetterThatReturnsNullOnTheFreshPath()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        MethodIdentity getter = Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name == "get_WidgetDto"
+                && method.DeclaringType.Name == "FixtureJsonContext");
+        FieldStoreFact cacheStore = Assert.Single(
+            bodyIndex.FieldStores,
+            store => store.EvidenceMethod.MetadataToken
+                == getter.MetadataToken);
+
+        // The cache store is a 5-byte stfld, and the generated fresh path
+        // reloads the value it just cached immediately afterwards.
+        PatchIl(
+            image,
+            getter.MetadataToken,
+            cacheStore.ILOffset + 5,
+            expected: [LdLoc0],
+            replacement: [LdNull]);
+
+        string message = BuildPatchedFixture(
+            image,
+            "root-getter-returns-null");
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Non-vacuity for the return-flow gate: the patch above changes the
+    /// getter's proven return alternatives from "cache field or trusted
+    /// GetTypeInfo result" to "cache field or null", which is exactly the
+    /// distinction <see cref="MethodReturnFlow"/> exists to make.
+    /// </summary>
+    [Fact]
+    public void PatchedRootGetter_ReportsNullAsAProvenReturnAlternative()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        MethodIdentity getter = Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name == "get_WidgetDto"
+                && method.DeclaringType.Name == "FixtureJsonContext");
+        FieldStoreFact cacheStore = Assert.Single(
+            bodyIndex.FieldStores,
+            store => store.EvidenceMethod.MetadataToken
+                == getter.MetadataToken);
+
+        MethodReturnFlow authentic = RootGetterReturnFlow(bodyIndex);
+        Assert.True(authentic.Value.IsResolved);
+        Assert.Collection(
+            authentic.Value.Sources.OrderBy(source => source.Kind),
+            call => Assert.Equal(
+                ResolvedValueSourceKind.CallResult,
+                call.Kind),
+            load =>
+            {
+                Assert.Equal(
+                    ResolvedValueSourceKind.InstanceFieldLoad,
+                    load.Kind);
+                Assert.Equal(cacheStore.FieldName, load.Name);
+            });
+
+        PatchIl(
+            image,
+            getter.MetadataToken,
+            cacheStore.ILOffset + 5,
+            expected: [LdLoc0],
+            replacement: [LdNull]);
+
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            $"jsexport-return-flow-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            MethodReturnFlow patched = RootGetterReturnFlow(
+                OpenWireContractBodyIndex(path));
+            Assert.True(patched.Value.IsResolved);
+            Assert.Contains(
+                patched.Value.Sources,
+                source => source.Kind
+                    == ResolvedValueSourceKind.NullReference);
+            Assert.DoesNotContain(
+                patched.Value.Sources,
+                source => source.Kind
+                    == ResolvedValueSourceKind.CallResult);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Authenticating what the static initializer hands to the generated
+    /// context constructor says nothing about what the constructor does with
+    /// it. This drops the forwarded options on the floor while every link the
+    /// caller-side chain checks stays in place.
+    /// </summary>
+    [Fact]
+    public void Build_RejectsGeneratedContextConstructorThatDropsOptions()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        MethodIdentity constructor = Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name == ".ctor"
+                && method.DeclaringType.Name == "FixtureJsonContext"
+                && method.ParameterTypes.Length == 1);
+        DirectCall baseCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == constructor.MetadataToken
+                && call.Callee.Name == ".ctor"
+                && call.Callee.DeclaringType.Name
+                    == "JsonSerializerContext");
+
+        // The forwarded argument is the single byte immediately before the
+        // base call.
+        PatchIl(
+            image,
+            constructor.MetadataToken,
+            baseCall.ILOffset - 1,
+            expected: [LdArg1],
+            replacement: [LdNull]);
+
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            BuildPatchedFixture(image, "context-ctor-drops-options"),
+            StringComparison.Ordinal);
+    }
+
+    static MethodReturnFlow RootGetterReturnFlow(
+        LibraryBodyIndex bodyIndex)
+    {
+        MethodIdentity getter = Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name == "get_WidgetDto"
+                && method.DeclaringType.Name == "FixtureJsonContext");
+        return Assert.Single(
+            bodyIndex.ReturnFlows,
+            flow => flow.EvidenceMethod.MetadataToken
+                == getter.MetadataToken);
     }
 
     [Fact]

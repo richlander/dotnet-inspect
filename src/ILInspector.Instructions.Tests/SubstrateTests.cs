@@ -258,10 +258,63 @@ public class StackTypeInterpreterTests
         Assert.Equal(StackValue.NoProducer, merged.ProducerOffset); // but provenance is ambiguous
     }
 
+    [Theory]
+    [InlineData(0x65)] // neg
+    [InlineData(0x66)] // not
+    public void Value_changing_unary_operations_stamp_their_own_provenance(
+        byte operation)
+    {
+        byte[] il = [0x17, operation, 0x2A];
+        TypedStackResult stack = MethodInstructions
+            .Decode(il, il.Length, [])
+            .InterpretStack(methodReturnsValue: true);
+
+        Assert.True(stack.IsComplete);
+        StackValue returned = Assert.Single(stack.StackBeforeOffset(2));
+        Assert.Equal(StackType.Int32, returned.Type);
+        Assert.Equal(1, returned.ProducerOffset);
+    }
+
+    /// <summary>
+    /// Gate for <see cref="TypedStackResult.BlockExit"/>: a merge erases provenance at the join,
+    /// so the value each predecessor contributed is only recoverable from what that block left on
+    /// the stack when it exited. An unvisited block keeps a default exit, which is how a consumer
+    /// tells "never reached" from "reached and left nothing".
+    /// </summary>
+    [Fact]
+    public void Retains_per_block_exit_stacks_including_unreached_blocks()
+    {
+        // ldc.i4.0 ; brtrue.s +3 ; ldc.i4.1 ; br.s +1 ; ldc.i4.2 ; ret
+        // then an unreachable ldc.i4.3 ; ret past the return.
+        byte[] il = [0x16, 0x2D, 0x03, 0x17, 0x2B, 0x01, 0x18, 0x2A, 0x19, 0x2A];
+        var mi = MethodInstructions.Decode(il, il.Length, []);
+        var ts = mi.InterpretStack(methodReturnsValue: true);
+
+        Assert.True(ts.IsComplete);
+        Assert.Equal(mi.Blocks.Blocks.Length, ts.BlockExit.Length);
+
+        // The join at ret has no producer, but each predecessor's exit still names one.
+        Assert.Equal(
+            StackValue.NoProducer,
+            Assert.Single(ts.StackBeforeOffset(7)).ProducerOffset);
+        Assert.Equal(
+            [3, 6],
+            mi.Blocks.Blocks
+                .Select((_, index) => index)
+                .Where(index => mi.Blocks.Blocks[index].Edges.Successors
+                    .Contains(mi.Blocks.BlockIndexAt(7)))
+                .Select(index => Assert.Single(ts.BlockExitAt(index)).ProducerOffset)
+                .Order());
+
+        int unreached = mi.Blocks.BlockIndexAt(8);
+        Assert.True(unreached >= 0);
+        Assert.True(ts.BlockExitAt(unreached).IsDefault);
+        Assert.True(ts.BlockExitAt(mi.Blocks.Blocks.Length).IsDefault);
+    }
+
     [Fact]
     public void Reports_incomplete_when_a_call_signature_is_unresolved()
-    {
-        // ldarg.0 ; call <token 06000001> ; ret  — default resolver cannot resolve the call.
+    {        // ldarg.0 ; call <token 06000001> ; ret  — default resolver cannot resolve the call.
         byte[] il = [0x02, 0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
         var ts = MethodInstructions.Decode(il, il.Length, []).InterpretStack(methodReturnsValue: false);
 

@@ -32,6 +32,17 @@ internal interface IMethodCallResolver
     /// </summary>
     (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
         => (null, null);
+
+    /// <summary>
+    /// Reader-local field identity, canonicalizing a local
+    /// <c>MemberRef</c> alias to its <c>FieldDef</c> when possible.
+    /// </summary>
+    FieldIdentity? ResolveFieldIdentity(int fieldToken)
+    {
+        (TypeRef? declaringType, string? name) =
+            ResolveFieldOwner(fieldToken);
+        return FieldIdentity.TryCreate(declaringType, name);
+    }
 }
 
 /// <summary>
@@ -56,7 +67,8 @@ internal static partial class MethodCallAnalysis
         bool includeCallValueFlow = true,
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
-        ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null)
+        ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null,
+        ImmutableArray<MethodReturnFlow>.Builder? returnFlows = null)
     {
         var caller = context.Method;
         ReachingDefinitionsResult? reaching = null;
@@ -158,7 +170,7 @@ internal static partial class MethodCallAnalysis
             }
         }
 
-        if (includeCallValueFlow && resultSinks is not null)
+        if (includeCallValueFlow)
         {
             var callsByOffset = calls.ToDictionary(call => call.ILOffset);
             var sources = new StackValueSourceResolver(
@@ -166,13 +178,20 @@ internal static partial class MethodCallAnalysis
                 callsByOffset,
                 reaching,
                 resolver);
+            CollectNormalReturnDominance(
+                context,
+                reachability,
+                calls);
             CollectArgumentSources(calls, sources);
             CollectResolvedValues(calls, sources);
-            CollectResultSinks(
-                context,
-                callsByOffset,
-                resultSinks,
-                sources);
+            if (resultSinks is not null)
+            {
+                CollectResultSinks(
+                    context,
+                    callsByOffset,
+                    resultSinks,
+                    sources);
+            }
             if (fieldStores is not null && fieldLoads is not null)
             {
                 CollectFieldAccesses(
@@ -182,6 +201,14 @@ internal static partial class MethodCallAnalysis
                     reachability,
                     fieldStores,
                     fieldLoads);
+            }
+            if (returnFlows is not null)
+            {
+                CollectReturnFlow(
+                    context,
+                    reachability,
+                    sources,
+                    returnFlows);
             }
             reaching = sources.ReachingDefinitions;
         }

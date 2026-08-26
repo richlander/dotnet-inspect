@@ -403,6 +403,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             int fieldToken)
             => owner.ResolveFieldOwner(fieldToken, scope);
 
+        public FieldIdentity? ResolveFieldIdentity(int fieldToken)
+            => owner.ResolveFieldIdentity(fieldToken, scope);
+
         public string? ResolveUserString(int token)
         {
             if ((token & unchecked((int)0xFF000000))
@@ -478,6 +481,96 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             return (null, null);
         }
+    }
+
+    FieldIdentity? ResolveFieldIdentity(
+        int fieldToken,
+        GenericScope callerScope)
+    {
+        try
+        {
+            EntityHandle handle = MetadataTokens.EntityHandle(fieldToken);
+            (TypeRef? declaringType, string? name) =
+                ResolveFieldOwner(fieldToken, callerScope);
+            FieldIdentity? fallback =
+                FieldIdentity.TryCreate(declaringType, name);
+            if (fallback is null)
+                return null;
+
+            if (handle.Kind == HandleKind.FieldDefinition)
+            {
+                return FieldIdentity.CreateLocal(
+                    declaringType!,
+                    name!,
+                    fieldToken);
+            }
+            if (handle.Kind != HandleKind.MemberReference)
+                return fallback;
+
+            MemberReference member =
+                _reader.GetMemberReference((MemberReferenceHandle)handle);
+            if (member.Parent.Kind != HandleKind.TypeDefinition)
+                return fallback;
+
+            FieldDefinitionHandle[] matches =
+            [
+                .. _reader
+                    .GetTypeDefinition(
+                        (TypeDefinitionHandle)member.Parent)
+                    .GetFields()
+                    .Where(field =>
+                        FieldMatchesMemberReference(
+                            member,
+                            field,
+                            name!)),
+            ];
+            return matches is [var match]
+                ? FieldIdentity.CreateLocal(
+                    declaringType!,
+                    name!,
+                    MetadataTokens.GetToken(match))
+                : null;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    bool FieldMatchesMemberReference(
+        MemberReference member,
+        FieldDefinitionHandle fieldHandle,
+        string name)
+    {
+        FieldDefinition field =
+            _reader.GetFieldDefinition(fieldHandle);
+        if (_reader.GetString(field.Name) != name
+            || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                member.Signature,
+                SignatureBlobGuard.Kind.Field)
+            || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                field.Signature,
+                SignatureBlobGuard.Kind.Field))
+        {
+            return false;
+        }
+
+        BlobReader left = _reader.GetBlobReader(member.Signature);
+        BlobReader right = _reader.GetBlobReader(field.Signature);
+        if (left.Length != right.Length)
+            return false;
+        while (left.RemainingBytes > 0)
+        {
+            if (left.ReadByte() != right.ReadByte())
+                return false;
+        }
+        return true;
     }
 
     bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)

@@ -44,6 +44,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
         var fieldStores = ImmutableArray.CreateBuilder<FieldStoreFact>();
         var fieldLoads = ImmutableArray.CreateBuilder<FieldLoadFact>();
+        var returnFlows =
+            ImmutableArray.CreateBuilder<MethodReturnFlow>();
         var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
@@ -170,6 +172,20 @@ internal sealed class LibraryBodyAnalysisAccumulator
                             : load with { Caller = declared };
                     }));
             }
+            if (!r.ReturnFlows.IsDefaultOrEmpty)
+            {
+                returnFlows.AddRange(
+                    r.ReturnFlows.Select(flow =>
+                    {
+                        MethodIdentity declared =
+                            ResolveDeclaredMethod(
+                                flow.Caller,
+                                declaredMethodsByBody);
+                        return declared == flow.Caller
+                            ? flow
+                            : flow with { Caller = declared };
+                    }));
+            }
             if (!r.Allocations.IsDefaultOrEmpty)
                 allocationOccurrences[r.Token] = r.Allocations;
             if (!r.Unsafety.IsDefaultOrEmpty)
@@ -211,6 +227,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 ResultSinks: resultSinks.ToImmutable(),
                 FieldStores: fieldStores.ToImmutable(),
                 FieldLoads: fieldLoads.ToImmutable(),
+                ReturnFlows: returnFlows.ToImmutable(),
                 BodySignals: bodySignals,
                 InAssemblyTypeIsException: _includeMethodEvidence
                     ? BuildInAssemblyExceptionMap()

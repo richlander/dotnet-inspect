@@ -194,6 +194,8 @@ the unpatched control still publishes.
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
 | `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
 | `FieldStoreFact`, `FieldLoadFact` | One `stsfld`/`stfld` or `ldsfld`/`ldfld` instruction | Which field the instruction touches, whether its receiver is an argument, whether the block is reachable, and (for stores) the resolved stored value | Whether some other body also writes the field, or aliased/indirect access |
+| `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef`; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
+| `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
 
 `ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
@@ -205,6 +207,40 @@ reads the other, so existing consumers keep their exact semantics.
 `MethodCallResolvedValueTests` is the gate for the union; the call-only
 completeness boundary keeps its own
 `MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate.
+
+`MethodReturnFlow` is a **whole-body** fact, not a per-sink one, and it is
+likewise separate from `MethodResultSink`, which keeps its historical call-only
+`IsComplete` meaning. A body that caches a value returns it from two paths that
+merge at a shared `ret`, where the evaluation-stack join collapses to
+`StackValue.NoProducer`: per-`ret` resolution cannot see either alternative, and
+no per-sink answer can say whether some *other* return path exists. The fact
+answers "which values can this body hand back, and is that the complete set?"
+Alternatives are recovered by walking block predecessors over the interpreter's
+recorded per-block exit stacks, and only while the merged slot is the one the
+predecessor was entered with, so a value that entered the stack for any other
+reason fails closed rather than being attributed to the wrong producer.
+Exception-handler entry stacks are injected independently and never inherit
+protected-block exits; a reachable `jmp` completion likewise makes the whole
+fact unresolved.
+`MethodCallResolvedValueTests.ResolvesReturnAlternativesAcrossControlFlowMerge`,
+`LeavesUnprovenReturnAlternativeUnresolved`,
+`LeavesExceptionHandlerEntryValueUnresolved`,
+`LeavesReachableJumpCompletionUnresolved`, and
+`CollectsReturnFlowWithoutResultSinkBuilder` gate these boundaries and the
+fact's independent wiring.
+
+`FieldIdentity` exists because a `MemberRef` alias and the `FieldDef` it names
+carry different metadata tokens for the same runtime field. A consumer asking
+"is this the only write to this field?" and linking by token would count one
+write where there are two, so field accesses are linked by identity instead.
+For a local parent, Analysis matches both name and field signature and
+canonicalizes a unique match to its reader-local `FieldDef` token; duplicate
+matches, a signature mismatch, or an unresolvable operand produce no identity.
+This also keeps an external same-simple-name assembly reference from standing in
+for a current-module field.
+`LibraryBodyIndexTests.FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature`,
+`MethodCallResolvedValueTests.FieldIdentity_DistinguishesDeclaringTypeOrigins`,
+and `LeavesUnresolvableFieldAccessesWithoutIdentity` gate it.
 
 #### `ILInspector.Decompiler`
 

@@ -140,6 +140,7 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<MethodResultSink> ResultSinks;
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
+    public ImmutableArray<MethodReturnFlow> ReturnFlows;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
@@ -213,6 +214,10 @@ internal sealed class LibraryMethodAnalysisRunner(
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads =
             includeJsonWireContractFlow
                 ? ImmutableArray.CreateBuilder<FieldLoadFact>()
+                : null;
+        ImmutableArray<MethodReturnFlow>.Builder? returnFlows =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<MethodReturnFlow>()
                 : null;
         MetadataReader reader = _infrastructure.Reader;
         LeakTriageFailureKind leakFailureKind =
@@ -509,7 +514,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         includeJsonWireContractFlow,
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
-                    fieldLoads: fieldLoads);
+                    fieldLoads: fieldLoads,
+                    returnFlows: returnFlows);
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -687,6 +693,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.ResultSinks = resultSinks?.ToImmutable() ?? [];
             result.FieldStores = fieldStores?.ToImmutable() ?? [];
             result.FieldLoads = fieldLoads?.ToImmutable() ?? [];
+            result.ReturnFlows = returnFlows?.ToImmutable() ?? [];
         }
         return result;
     }

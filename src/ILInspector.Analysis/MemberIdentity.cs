@@ -403,6 +403,19 @@ public sealed record DirectCall(
     public bool? IsReachable { get; init; }
 
     /// <summary>
+    /// Whether this reachable call's block dominates every reachable ordinary
+    /// <c>ret</c> and the body has no reachable <c>jmp</c> completion.
+    /// </summary>
+    /// <remarks>
+    /// False is the fail-closed answer when flow facts were not requested, the
+    /// graph is incomplete, there is no reachable return, or any normal
+    /// completion can bypass the call.
+    /// <c>MethodCallResolvedValueTests.DoesNotCreditCallThatCanBeSkippedByNormalReturn</c>
+    /// gates it.
+    /// </remarks>
+    public bool DominatesEveryNormalReturn { get; init; }
+
+    /// <summary>
     /// Resolved provenance for each declared argument, indexed by position.
     /// This is the newer union described on <see cref="ResolvedValueSet"/>; it
     /// coexists with <see cref="ArgumentSources"/> rather than reinterpreting
@@ -646,6 +659,147 @@ public sealed record MethodResultSink(
     /// <c>MethodCallResolvedValueTests.ResolvesResultSinkValues</c> gates it.
     /// </remarks>
     public ResolvedValueSet? ResolvedValue { get; init; }
+}
+
+/// <summary>
+/// The complete set of proven producers one non-void method body can return, merged across
+/// every reachable <c>ret</c>.
+/// </summary>
+/// <param name="Caller">
+/// Declared method attributed to the body, which can differ from
+/// <paramref name="EvidenceMethod"/> for a synthesized body.
+/// </param>
+/// <param name="EvidenceMethod">Physical method body containing the returns.</param>
+/// <param name="ReturnOffsets">
+/// Physical IL offsets of every reachable <c>ret</c> this fact covers, ascending.
+/// </param>
+/// <param name="Value">
+/// The union of proven producers across those returns. <see cref="ResolvedValueSet.IsResolved"/>
+/// is true only when every reachable return was attributed; a single unproven return, an
+/// incomplete block graph or evaluation stack, or a body with no reachable value return leaves
+/// it unresolved with no sources.
+/// </param>
+/// <remarks>
+/// <para>
+/// A method that caches a value returns it from two paths that merge at a shared <c>ret</c>,
+/// where the evaluation stack join collapses to <see cref="Instructions.StackValue.NoProducer"/>.
+/// Per-<c>ret</c> resolution therefore cannot see the alternatives at all, and a per-sink answer
+/// cannot say whether some *other* return path exists. This fact answers the whole-body question
+/// instead: "which values can this body hand back?" It is deliberately separate from
+/// <see cref="MethodResultSink"/>, whose <see cref="MethodResultSink.IsComplete"/> keeps its
+/// historical call-only meaning.
+/// </para>
+/// <para>
+/// Alternatives are recovered by walking block predecessors over the interpreter's recorded
+/// per-block exit stacks, and only while the merged slot was untouched by the predecessor, so a
+/// value that entered the stack for any other reason fails closed rather than being attributed to
+/// the wrong producer. Exception-handler entry stacks are injected independently and are never
+/// recovered from protected-block exits.
+/// <c>MethodCallResolvedValueTests.ResolvesReturnAlternativesAcrossControlFlowMerge</c>,
+/// <c>LeavesUnprovenReturnAlternativeUnresolved</c>, and
+/// <c>LeavesExceptionHandlerEntryValueUnresolved</c> gate it.
+/// </para>
+/// </remarks>
+public sealed record MethodReturnFlow(
+    MethodIdentity Caller,
+    MethodIdentity EvidenceMethod,
+    ImmutableArray<int> ReturnOffsets,
+    ResolvedValueSet Value);
+
+/// <summary>
+/// The semantic identity of a field an IL instruction touches.
+/// </summary>
+/// <remarks>
+/// Local field access sites canonicalize a <c>MemberRef</c> alias to the
+/// reader-local <c>FieldDef</c> token. This preserves exact field identity even
+/// when duplicate names or colliding external assembly spellings exist.
+/// Non-local fields retain declaring-type origin and name.
+/// Construction fails closed: an unresolvable declaring type or missing name produces no identity
+/// at all, and a consumer must reject rather than guess.
+/// <c>MethodCallResolvedValueTests.LinksAliasedFieldAccessesByIdentity</c>,
+/// <c>MethodCallResolvedValueTests.LeavesUnresolvableFieldAccessesWithoutIdentity</c>, and
+/// <c>JsExportSurfaceBuilderTests.Build_RejectsAliasedSecondWriteToGeneratedDefaultInstanceField</c>
+/// gate it.
+/// </remarks>
+public sealed class FieldIdentity : IEquatable<FieldIdentity>
+{
+    FieldIdentity(
+        TypeRef declaringType,
+        string name,
+        int localDefinitionToken)
+    {
+        DeclaringType = declaringType;
+        Name = name;
+        LocalDefinitionToken = localDefinitionToken;
+    }
+
+    public TypeRef DeclaringType { get; }
+    public string Name { get; }
+    public int LocalDefinitionToken { get; }
+
+    /// <summary>
+    /// The identity of a resolved field access, or null when the declaring type or name could
+    /// not be resolved.
+    /// </summary>
+    public static FieldIdentity? TryCreate(TypeRef? declaringType, string? name)
+        => declaringType is null
+            || declaringType.Kind == TypeRefKind.Unsupported
+            || string.IsNullOrEmpty(name)
+                ? null
+                : new FieldIdentity(
+                    declaringType,
+                    name,
+                    localDefinitionToken: 0);
+
+    internal static FieldIdentity CreateLocal(
+        TypeRef declaringType,
+        string name,
+        int localDefinitionToken)
+    {
+        if (localDefinitionToken == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(localDefinitionToken));
+        }
+        return new FieldIdentity(
+            declaringType,
+            name,
+            localDefinitionToken);
+    }
+
+    public bool Equals(FieldIdentity? other)
+    {
+        if (other is null || Name != other.Name)
+            return false;
+        if (LocalDefinitionToken != 0
+            || other.LocalDefinitionToken != 0)
+        {
+            return LocalDefinitionToken != 0
+                && LocalDefinitionToken
+                    == other.LocalDefinitionToken;
+        }
+
+        ResolvableTypeReference? left = DeclaringType.Resolution;
+        ResolvableTypeReference? right = other.DeclaringType.Resolution;
+        return left is not null || right is not null
+            ? left is not null && left.Equals(right)
+            : DeclaringType.Equals(other.DeclaringType);
+    }
+
+    public override bool Equals(object? obj)
+        => obj is FieldIdentity other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Name);
+        hash.Add(LocalDefinitionToken);
+        if (DeclaringType.Resolution is { } resolution)
+            hash.Add(resolution);
+        else
+            hash.Add(DeclaringType);
+        return hash.ToHashCode();
+    }
 }
 
 public sealed record CalledTypeSummary(
