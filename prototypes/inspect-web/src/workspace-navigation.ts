@@ -308,7 +308,7 @@ interface SharePacket {
   g?: GraphMemberShareTarget;
 }
 
-interface DecodedShareState {
+export interface DecodedShareState {
   tabs: WorkspaceTab[];
   active: number;
   view: string;
@@ -328,7 +328,8 @@ interface DecodedShareState {
   graphTarget: GraphMemberShareIdentity | null;
 }
 
-type ShareStateResult = DecodedShareState | { error: string } | null;
+export type ShareStateResult = DecodedShareState | { error: string } | null;
+export type WorkspaceShareDecoder = (value: string) => ShareStateResult;
 
 const invalidShareState =
   "The shared workspace state is invalid and was ignored.";
@@ -516,11 +517,20 @@ export interface WorkspaceLocationSnapshot {
   hash: string;
 }
 
-export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
+export interface WorkspaceLocationRoute {
+  location: WorkspaceLocationSnapshot;
+  encodedWorkspaceState: string | null;
+  hasWorkspaceState: boolean;
+  visible: ParsedWorkspaceLocation;
+}
+
+function resolveWorkspaceLocation(
+  location: WorkspaceLocationSnapshot,
+  share: ShareStateResult,
+) {
   const params = new URLSearchParams(location.search);
   const route = location.pathname.split("/").filter(Boolean);
   const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
-  const share = decodeWorkspaceShareState(params.get("w"));
 
   let pkg = packageAt >= 0
     ? decodeURIComponent(route[packageAt + 1] || "")
@@ -616,7 +626,37 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   };
 }
 
-export type ParsedWorkspaceLocation = ReturnType<typeof parseWorkspaceLocation>;
+export type ParsedWorkspaceLocation = ReturnType<typeof resolveWorkspaceLocation>;
+
+export function parseWorkspaceRoute(
+  location: WorkspaceLocationSnapshot,
+): WorkspaceLocationRoute {
+  const encodedWorkspaceState = new URLSearchParams(location.search).get("w");
+  return {
+    location,
+    encodedWorkspaceState,
+    hasWorkspaceState: Boolean(encodedWorkspaceState),
+    visible: resolveWorkspaceLocation(location, null),
+  };
+}
+
+export function resolveWorkspaceRoute(
+  route: WorkspaceLocationRoute,
+  decode: WorkspaceShareDecoder = decodeWorkspaceShareState,
+): ParsedWorkspaceLocation {
+  const encodedWorkspaceState = route.encodedWorkspaceState;
+  return resolveWorkspaceLocation(
+    route.location,
+    encodedWorkspaceState
+      ? decode(encodedWorkspaceState)
+      : null);
+}
+
+export function parseWorkspaceLocation(
+  location: WorkspaceLocationSnapshot,
+): ParsedWorkspaceLocation {
+  return resolveWorkspaceRoute(parseWorkspaceRoute(location));
+}
 
 export function buildWorkspaceStateUrl(
   base: string,
@@ -637,6 +677,11 @@ export function buildWorkspaceStateUrl(
 
 export interface WorkspaceLocationPersistence {
   parseCurrent(): ParsedWorkspaceLocation;
+  routeCurrent(): WorkspaceLocationRoute;
+  resolve(
+    route: WorkspaceLocationRoute,
+    decode?: WorkspaceShareDecoder,
+  ): ParsedWorkspaceLocation;
   build(state: WorkspaceUrlState, base?: string): URL;
   sync(state: WorkspaceUrlState): void;
   push(url: string): void;
@@ -659,6 +704,10 @@ export function createWorkspaceLocationPersistence(
     parseCurrent() {
       return parseWorkspaceLocation(dependencies.current());
     },
+    routeCurrent() {
+      return parseWorkspaceRoute(dependencies.current());
+    },
+    resolve,
     build,
     sync(state) {
       try {
@@ -675,4 +724,11 @@ export function createWorkspaceLocationPersistence(
       }
     },
   };
+
+  function resolve(
+    route: WorkspaceLocationRoute,
+    decode?: WorkspaceShareDecoder,
+  ) {
+    return resolveWorkspaceRoute(route, decode);
+  }
 }

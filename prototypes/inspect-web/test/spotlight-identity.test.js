@@ -2191,6 +2191,24 @@ test("shared member views retain scope and filter state", () => {
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
 });
 
+test("initial workspace packet resolution waits for the engine phase", () => {
+  assert.match(
+    appSource,
+    /const initialRoute = workspaceLocation\.routeCurrent\(\);\s*const initialLocation = initialRoute\.visible/);
+  assert.match(
+    appSource,
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialRoute\.hasWorkspaceState\)/);
+  const restore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /const loc = workspaceLocation\.resolve\(initialRoute\);[\s\S]*restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\)/);
+  assert.match(
+    appSource,
+    /await initializeEngine\(reportEngineStatus\);[\s\S]*await restoreInitialWorkspace\(\)/);
+});
+
 test("member entry controls move focus into the resulting member navigation", () => {
   const bindings =
     appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]

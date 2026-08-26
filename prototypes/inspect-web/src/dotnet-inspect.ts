@@ -1144,14 +1144,15 @@ function parseLocation() {
 
 type ParsedLocation = ParsedWorkspaceLocation;
 
-const initialLocation = parseLocation();
+const initialRoute = workspaceLocation.routeCurrent();
+const initialLocation = initialRoute.visible;
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
-state.queryNotice = initialLocation.workspaceNotice || "";
+  || (!initialLocation.package && !initialRoute.hasWorkspaceState);
+state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
   state.requestedVersion = initialLocation.version || "latest";
@@ -1163,21 +1164,21 @@ if (initialLocation.atPackageRoot) {
   state.packageLens = initialLocation.packageLens || "overview";
 }
 
-// Deep-link selection to restore once the first package model is available. Consumed
-// (and cleared) by the first loadPackage so later package switches start fresh.
-const initialDeepLink = {
-  type: initialLocation.type,
-  member: initialLocation.member,
-  overload: initialLocation.overload,
-  section: initialLocation.section,
-  bodyTarget: initialLocation.bodyTarget,
-  memberBrowse: initialLocation.memberBrowse,
-  memberTextFilter: initialLocation.memberTextFilter,
-  memberKindFilter: initialLocation.memberKindFilter,
-  memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
-  memberTraitFilter: initialLocation.memberTraitFilter,
-  graphTarget: initialLocation.graphTarget
-};
+function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
+  return {
+    type: loc.type,
+    member: loc.member,
+    overload: loc.overload,
+    section: loc.section,
+    bodyTarget: loc.bodyTarget,
+    memberBrowse: loc.memberBrowse,
+    memberTextFilter: loc.memberTextFilter,
+    memberKindFilter: loc.memberKindFilter,
+    memberAccessibilityFilter: loc.memberAccessibilityFilter,
+    memberTraitFilter: loc.memberTraitFilter,
+    graphTarget: loc.graphTarget
+  };
+}
 
 function requireElement(selector: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(selector);
@@ -8558,13 +8559,15 @@ function applyLocationView(loc: ParsedLocation) {
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
-  const loc = {
-    ...initialLocation,
-    package: state.requestedPackage,
-    version: state.requestedVersion,
-    framework: state.requestedFramework
-  };
-  await restoreWorkspaceFromLocation(loc, initialDeepLink);
+  const loc = workspaceLocation.resolve(initialRoute);
+  if (!loc.package) {
+    state.loading = false;
+    state.home = true;
+    state.queryNotice = loc.workspaceNotice || "";
+    render();
+    return;
+  }
+  await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
 }
 
 function isStyleTier(value: unknown): value is StyleTier {

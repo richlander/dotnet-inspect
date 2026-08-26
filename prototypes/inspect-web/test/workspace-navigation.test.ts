@@ -7,6 +7,8 @@ import {
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
+  parseWorkspaceRoute,
+  resolveWorkspaceRoute,
   shouldInterceptLinkClick,
   workspaceViewSignature,
   type LinkNavigationClick,
@@ -291,6 +293,48 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.equal(parsed.memberTraitFilter, "isStatic");
   assert.equal(parsed.workspaceNotice, "");
+});
+
+test("workspace route preflight defers packet decoding", () => {
+  const location = locationSnapshot(
+    "https://inspect.example/?package=Visible.Package&w=opaque#metadata");
+  const route = parseWorkspaceRoute(location);
+
+  assert.equal(route.encodedWorkspaceState, "opaque");
+  assert.equal(route.hasWorkspaceState, true);
+  assert.equal(route.visible.package, "Visible.Package");
+  assert.deepEqual(route.visible.tabs, []);
+  assert.equal(route.visible.workspaceNotice, "");
+
+  let decodeCalls = 0;
+  const resolved = resolveWorkspaceRoute(route, value => {
+    decodeCalls++;
+    assert.equal(value, "opaque");
+    return { error: "The product decoder rejected this packet." };
+  });
+
+  assert.equal(decodeCalls, 1);
+  assert.equal(resolved.package, "Visible.Package");
+  assert.deepEqual(resolved.tabs, []);
+  assert.equal(
+    resolved.workspaceNotice,
+    "The product decoder rejected this packet.");
+});
+
+test("workspace route resolution skips the decoder without packet state", () => {
+  const route = parseWorkspaceRoute(locationSnapshot(
+    "https://inspect.example/packages/Example.Package/1.0.0#source"));
+  let decodeCalls = 0;
+  const resolved = resolveWorkspaceRoute(route, () => {
+    decodeCalls++;
+    return { error: "unexpected" };
+  });
+
+  assert.equal(route.encodedWorkspaceState, null);
+  assert.equal(route.hasWorkspaceState, false);
+  assert.equal(decodeCalls, 0);
+  assert.equal(resolved.package, "Example.Package");
+  assert.equal(resolved.workspaceNotice, "");
 });
 
 test("graph member URLs retain exact identity instead of a lossy body target", () => {
