@@ -156,8 +156,10 @@ internal static class ApiBodyMemberCorrespondence
             if (cache.TryGetValue(reference, out string? identity))
                 return identity;
 
-            if (reference.Scope
-                is MetadataTypeReferenceScope.CurrentAssembly)
+            if (reference.Kind
+                    == MetadataNamedTypeReferenceKind.Definition
+                && reference.Scope
+                    is MetadataTypeReferenceScope.CurrentAssembly)
             {
                 identity = RootIdentity(reference.Type);
             }

@@ -458,6 +458,62 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void RegisteredDescriptorOpen_RejectsNilModuleMvid()
+    {
+        byte[] image = BuildSimpleAssembly(
+            "NilMvid",
+            "Value",
+            mvid: null);
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => AssemblyInspectionSession.Open(descriptor));
+
+        Assert.Contains("non-empty module MVID", exception.Message);
+        Assert.Null(descriptor.Registration.ContentModuleVersionId);
+    }
+
+    [Fact]
+    public void StreamFallbackFactory_BindsObservedModuleGeneration()
+    {
+        byte[] first = BuildSimpleAssembly(
+            "SameIdentity",
+            "First",
+            Guid.NewGuid());
+        byte[] second = BuildSimpleAssembly(
+            "SameIdentity",
+            "Second",
+            Guid.NewGuid());
+        int opens = 0;
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
+                () => new MemoryStream(
+                    Interlocked.Increment(ref opens) == 1
+                        ? first
+                        : second,
+                    writable: false),
+                ReadIdentity(first),
+                AssemblyResolutionProvenance.Local("test"),
+                out bool usedFallbackIdentity);
+
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => AssemblyInspectionSession.Open(descriptor));
+
+        Assert.False(usedFallbackIdentity);
+        Assert.Equal(2, opens);
+        Assert.Contains(
+            "acquisition registration MVID",
+            exception.Message);
+    }
+
+    [Fact]
     public void PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration()
     {
         byte[] first = BuildSimpleAssembly(
@@ -1775,7 +1831,7 @@ public class InspectionAcquisitionPlanTests
     static byte[] BuildSimpleAssembly(
         string assemblyName,
         string typeName,
-        Guid mvid)
+        Guid? mvid)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1783,7 +1839,9 @@ public class InspectionAcquisitionPlanTests
             moduleName:
                 metadata.GetOrAddString(
                     $"{assemblyName}.dll"),
-            mvid: metadata.GetOrAddGuid(mvid),
+            mvid: mvid is { } value
+                ? metadata.GetOrAddGuid(value)
+                : default,
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(

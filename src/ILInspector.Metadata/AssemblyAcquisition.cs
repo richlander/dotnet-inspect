@@ -194,6 +194,12 @@ public sealed class AssemblyAcquisitionRegistration
 
     internal void BindContentModuleVersionId(Guid moduleVersionId)
     {
+        if (moduleVersionId == Guid.Empty)
+        {
+            throw new BadImageFormatException(
+                "The opened image must declare a non-empty module MVID.");
+        }
+
         lock (_gate)
         {
             if (_contentModuleVersionId is null)
@@ -484,6 +490,7 @@ public sealed class ResolvedAssemblyReference
         }
 
         AssemblyReferenceIdentity? identity = null;
+        Guid? moduleVersionId = null;
         using (Stream stream = source)
         {
             try
@@ -498,8 +505,14 @@ public sealed class ResolvedAssemblyReference
                         AssemblyReferenceIdentity candidate =
                             AssemblyReferenceIdentity.FromAssemblyDefinition(
                                 metadata);
-                        if (!string.IsNullOrWhiteSpace(candidate.Name))
+                        Guid candidateModuleVersionId = metadata.GetGuid(
+                            metadata.GetModuleDefinition().Mvid);
+                        if (!string.IsNullOrWhiteSpace(candidate.Name)
+                            && candidateModuleVersionId != Guid.Empty)
+                        {
                             identity = candidate;
+                            moduleVersionId = candidateModuleVersionId;
+                        }
                     }
                 }
             }
@@ -510,12 +523,18 @@ public sealed class ResolvedAssemblyReference
         }
 
         usedFallbackIdentity = identity is null;
-        return Create(
+        ResolvedAssemblyReference descriptor = Create(
             identity ?? fallbackIdentity,
             path: null,
             openRead,
             provenance,
             lastWriteTimeUtc);
+        if (moduleVersionId is { } observedModuleVersionId)
+        {
+            descriptor.Registration.BindContentModuleVersionId(
+                observedModuleVersionId);
+        }
+        return descriptor;
     }
 
     public static bool TryCreateFromPath(

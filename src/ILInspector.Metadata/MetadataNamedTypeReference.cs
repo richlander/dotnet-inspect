@@ -40,22 +40,39 @@ public abstract record MetadataTypeReferenceScope
 }
 
 /// <summary>
+/// Identifies the metadata table that supplied a named signature type.
+/// </summary>
+public enum MetadataNamedTypeReferenceKind
+{
+    Reference,
+    Definition,
+}
+
+/// <summary>
 /// A reader-independent named type from one metadata signature.
 /// </summary>
 public sealed record MetadataNamedTypeReference
 {
     public MetadataNamedTypeReference(
         MetadataTypeReferenceScope scope,
-        MetadataTypeDefinitionName type)
+        MetadataTypeDefinitionName type,
+        MetadataNamedTypeReferenceKind kind =
+            MetadataNamedTypeReferenceKind.Reference)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(type);
         Scope = scope;
         Type = type;
+        Kind = kind;
     }
 
     public MetadataTypeReferenceScope Scope { get; }
     public MetadataTypeDefinitionName Type { get; }
+
+    /// <summary>
+    /// Identifies whether the name was decoded from a TypeRef or TypeDef.
+    /// </summary>
+    public MetadataNamedTypeReferenceKind Kind { get; }
 }
 
 internal static class MetadataNamedTypeSignatureDecoder
@@ -146,7 +163,8 @@ internal static class MetadataNamedTypeSignatureDecoder
                 is MetadataTypeDefinitionNameReadResult.Read read
                     ? new MetadataNamedTypeReference(
                         new MetadataTypeReferenceScope.CurrentAssembly(),
-                        read.Name)
+                        read.Name,
+                        MetadataNamedTypeReferenceKind.Definition)
                     : null;
 
         public MetadataNamedTypeReference? GetTypeFromReference(

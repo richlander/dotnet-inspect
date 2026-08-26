@@ -166,6 +166,8 @@ same MVID. Registration equality permits direct token reuse only after both
 descriptors have passed that validation. It does not permit a path replacement
 or same-identity content swap to reinterpret a token RID.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`,
+`StreamFallbackFactory_BindsObservedModuleGeneration`,
+`RegisteredDescriptorOpen_RejectsNilModuleMvid`,
 `SnapshotOpen_RejectsDifferentRegisteredModuleGeneration`, and
 `RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration`, and
 `PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration` gate
@@ -184,7 +186,9 @@ positions and constraints, function-pointer conventions, and custom modifiers.
 Nominal types in that identity require definition correspondence, not equal
 display names. A TypeDef in either selected source/runtime root is identified
 by the root pair plus its namespace and root-to-leaf metadata name. A TypeRef
-is resolved from its recorded current-assembly, assembly-reference,
+is distinguished from a TypeDef even when its resolution scope names the
+current module, then resolved from its recorded current-assembly,
+assembly-reference,
 intrinsic-core-library, or module-reference scope through the frozen type
 resolution catalog. A definition outside the selected roots is identified by
 its module MVID and TypeDef token. A TypeRef that resolves into either selected
@@ -200,7 +204,9 @@ gates the permitted TypeRef-to-selected-TypeDef normalization;
 `BodyCorrespondence_RejectsUnrelatedReferenceAndDefinitionTypes` and
 `BodyCorrespondence_RejectsSingletonDependencyOwnerSwap` gate the nominal-owner
 boundary; `BodyCorrespondence_AmbiguousMetadataNamesFailClosed` gates
-source-wide uniqueness for a singleton request; and
+source-wide uniqueness for a singleton request;
+`BodyCorrespondence_UnresolvedCurrentModuleTypeRefFailsClosed` gates the
+TypeRef-to-TypeDef distinction; and
 `PdbSourceToken_CorrespondsReorderedOverloads` gates exact runtime-token
 selection for PDB lookup.
 

@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Fixtures;
@@ -487,6 +491,67 @@ public class MethodBodyInspectionSessionTests
             Assert.NotEqual(
                 target.MetadataToken.Value,
                 correspondence[target.MetadataToken.Value]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BodyCorrespondence_UnresolvedCurrentModuleTypeRefFailsClosed()
+    {
+        byte[] referenceImage =
+            BuildCurrentModuleSignatureFixture(
+                "UnresolvedCurrentModuleReference",
+                defineSignatureType: false,
+                addLeadingMethod: false);
+        byte[] runtimeImage =
+            BuildCurrentModuleSignatureFixture(
+                "ResolvedCurrentModuleDefinition",
+                defineSignatureType: true,
+                addLeadingMethod: true);
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"current-module-typeref-correspondence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string referencePath = WriteFixture(
+                root,
+                "ref",
+                "UnresolvedCurrentModuleReference.dll",
+                referenceImage);
+            string runtimePath = WriteFixture(
+                root,
+                "runtime",
+                "ResolvedCurrentModuleDefinition.dll",
+                runtimeImage);
+            ResolvedAssemblyReference tokenOrigin =
+                TestAssemblyReferences.Designated(referencePath);
+            ResolvedAssemblyReference bodyAssembly =
+                TestAssemblyReferences.Designated(runtimePath);
+            ApiMember target = Assert.Single(
+                Assert.Single(
+                    Assert.IsType<ApiSurface>(
+                        AssemblyReader.ExtractApiSurface(tokenOrigin))
+                        .Types,
+                    type => type.FullName == "Sample.Widget")
+                    .Members);
+
+            InvalidOperationException exception =
+                Assert.ThrowsAny<InvalidOperationException>(
+                    () => ApiBodyMemberCorrespondence.Resolve(
+                        [target.MetadataToken!.Value],
+                        tokenOrigin,
+                        bodyAssembly,
+                        projectAssetsPath: null,
+                        targetFramework: null,
+                        platformFramework: null));
+
+            Assert.Contains(
+                "Cannot resolve signature type 'Shared.Value'",
+                exception.InnerException?.Message);
         }
         finally
         {
@@ -1427,6 +1492,108 @@ public class MethodBodyInspectionSessionTests
             result.Success,
             string.Join(Environment.NewLine, result.Diagnostics));
         return output.ToArray();
+    }
+
+    static byte[] BuildCurrentModuleSignatureFixture(
+        string assemblyName,
+        bool defineSignatureType,
+        bool addLeadingMethod)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.Sha256);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        EntityHandle signatureType;
+        if (defineSignatureType)
+        {
+            signatureType = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Shared"),
+                metadata.GetOrAddString("Value"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+        else
+        {
+            signatureType = metadata.AddTypeReference(
+                EntityHandle.ModuleDefinition,
+                metadata.GetOrAddString("Shared"),
+                metadata.GetOrAddString("Value"));
+        }
+
+        if (addLeadingMethod)
+            AddAbstractMethod(metadata, "Before", parameterType: null);
+        MethodDefinitionHandle target =
+            AddAbstractMethod(metadata, "Target", signatureType);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Widget"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: addLeadingMethod
+                ? MetadataTokens.MethodDefinitionHandle(1)
+                : target);
+
+        var peBuilder = new ManagedPEBuilder(
+            new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder());
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
+
+        static MethodDefinitionHandle AddAbstractMethod(
+            MetadataBuilder metadata,
+            string name,
+            EntityHandle? parameterType)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    parameterType is null ? 0 : 1,
+                    returnType => returnType.Void(),
+                    parameters =>
+                    {
+                        if (parameterType is { } type)
+                        {
+                            parameters.AddParameter()
+                                .Type()
+                                .Type(type, isValueType: false);
+                        }
+                    });
+            return metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        }
     }
 
     static string WriteFixture(
