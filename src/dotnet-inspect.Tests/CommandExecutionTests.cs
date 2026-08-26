@@ -13647,6 +13647,44 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_ExpandedCallersDocumentJsonPreservesTypeDocument()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            IncludeSections =
+            [
+                SectionNames.Callers,
+                SectionNames.Signature,
+            ],
+            ExactIncludeSectionsOverride = [],
+            MemberSectionsPreResolved = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal("C", document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task Member_TypeScopeCallGraphRemainsUnselectable()
     {
         string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;

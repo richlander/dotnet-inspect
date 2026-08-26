@@ -2534,7 +2534,9 @@ public class ApiCommand
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             var requestedMemberSections = GetRequestedMemberSections(type, options);
-            if (requestedMemberSections.Contains(SectionNames.Callers))
+            if (requestedMemberSections.Contains(SectionNames.Callers)
+                && options.ExactIncludeSections?.Contains(
+                    SectionNames.Callers) == true)
             {
                 CommandError.Write(
                     "Document --json cannot represent Callers analysis. "
