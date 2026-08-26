@@ -1682,7 +1682,6 @@ public static class ApiMemberIdentity
                             ? 0
                             : reader.GetBlobReader(
                                 reference.PublicKeyOrToken).Length;
-                    length = CheckedNameLength(length, keyLength);
                     length = AddEncodedComponentEstimate(
                         length,
                         keyLength == 0 ? 0 : 16);

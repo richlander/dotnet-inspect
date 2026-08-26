@@ -846,6 +846,27 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget()
+    {
+        byte[] source =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 2,
+                publicKeyBytes: 512 * 1024,
+                typeNameLength: 4);
+        byte[] target =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 2,
+                publicKeyBytes: 512 * 1024,
+                typeNameLength: 4);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
     public void ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure()
     {
         byte[] source =

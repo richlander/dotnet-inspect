@@ -87,7 +87,8 @@ reader core-library entitlement. Every distinct target method name and
 target type-name comparison, extension classification, forwarder projection,
 and identity materialization draws from one operation-wide work budget;
 repeated target-name and assembly-reference projections reuse their charged
-result.
+result. Raw assembly public-key material is charged once per reader; repeated
+signature occurrences account only for the normalized token they retain.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

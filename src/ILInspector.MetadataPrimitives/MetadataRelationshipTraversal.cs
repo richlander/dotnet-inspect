@@ -74,6 +74,7 @@ public static class MetadataSafetyPolicy
     /// <c>ResolveApiMember_NestedFunctionPointerCorrespondenceRespectsAnchorLimit</c>,
     /// <c>ResolveApiMember_DistinctNonmatchingNamesFailWithinOperationBudget</c>,
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>,
+    /// <c>ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget</c>,
     /// and
     /// <c>ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure</c>.
     /// </summary>

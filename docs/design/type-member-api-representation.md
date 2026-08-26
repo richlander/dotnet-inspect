@@ -108,7 +108,9 @@ names, and public-key material draw from the operation budget; budget exhaustion
 fails the operation. One assembly reference is charged and projected at most
 once per reader across signature and forwarder projection, each target method
 name is compared at most once, and each target type name is compared at most
-once per expected source segment.
+once per expected source segment. Raw public-key material contributes only to
+that one-time operation charge; each signature occurrence accounts for the
+normalized token that correspondence actually retains.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -128,6 +130,7 @@ identity.
 `ResolveApiMember_UnrelatedMalformedForwarderDoesNotAuthorizeOrFail`,
 `ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains`,
 `ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence`,
+`ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,
