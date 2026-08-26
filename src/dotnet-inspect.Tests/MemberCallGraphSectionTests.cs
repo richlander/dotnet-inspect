@@ -215,7 +215,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+        Assert.Contains(CountOutput.SectionRequiredMessage, result.Error);
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+        Assert.Contains(CountOutput.SectionRequiredMessage, result.Error);
         Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -453,6 +453,75 @@ public class MemberCallGraphSectionTests
         Assert.Equal(
             edgeRows,
             int.Parse(markdown.Output.Trim(), System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task CallGraphSection_MultiSectionCountMapKeepsEdgeCardinality()
+    {
+        var baseOptions = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        };
+
+        var scalar = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var map = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with
+            {
+                IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+                JsonOutput = true,
+                Format = OutputFormat.Json,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, scalar.ExitCode);
+        Assert.Equal(0, map.ExitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(map.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(
+            int.Parse(scalar.Output.Trim(), System.Globalization.CultureInfo.InvariantCulture),
+            counts[SectionNames.CallGraph]);
+        Assert.Contains(SectionNames.Calls, counts.Keys);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_CountMapHonorsExcludingColumnProjection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+                Columns = ["Callee"],
+                Count = true,
+                JsonOutput = true,
+                Format = OutputFormat.Json,
+                FormatExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Normal,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = System.Text.Json.JsonDocument.Parse(result.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(0, counts[SectionNames.CallGraph]);
+        Assert.True(counts[SectionNames.Calls] > 0);
     }
 
     [Fact]
@@ -784,6 +853,29 @@ public class MemberCallGraphSectionTests
         Assert.Contains("il IL_", result.Output);
         // Unrequested cost cues stay hidden.
         Assert.DoesNotContain("copy", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_EvidenceILRetainsAllocationOffsetsWithoutAllocField()
+    {
+        var result = await ConsoleCapture.RunAsync(() =>
+            MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath =
+                    typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter =
+                    [nameof(MemberCallGraphFixture.AllocCall)],
+                IncludeSections = [SectionNames.CallGraph],
+                Fields = ["EvidenceIL"],
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Normal,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("il IL_0001,IL_000C", result.Output);
+        Assert.DoesNotContain("alloc ", result.Output);
     }
 
     [Fact]

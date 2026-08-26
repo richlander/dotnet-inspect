@@ -179,6 +179,25 @@ flag — decide between eager and lazy acquisition.
 L1 takes **content**, not filesystem paths. A consumer without a filesystem must
 be able to call it. See [Seam rules](#seam-rules).
 
+Package-manifest facts return `PackageManifestFailure`, not parser or validation
+exceptions. Its stable reason distinguishes malformed XML, unsupported document
+shape or namespace, identity mismatch, invalid dependency declarations, and
+query-owned configured limits. The message is derived only from that reason and
+optional numeric XML location; package-authored text never becomes diagnostic
+text. Package profiles retain the reason on their failure event, and L2 projects
+it into the row status while keeping the safe message visible. Dependency-group
+selection retains the same manifest failure alongside its legacy
+exception-shaped package-content failure. These contracts are gated by
+`PackageManifestFactsQueryTests.FailureMessage_IsStableForEveryReason`,
+`PackageManifestFactsQueryTests.FailureMessage_IsSafeForUnknownFutureReason`,
+`PackageProfileQueryTests.ExecuteAsync_ReportsInvalidManifestAndContinues`, and
+`FindCommandTests.PackageProfileSection_KeepsFailuresAndTruncationVisible`.
+
+The Services parser currently reports decoded-character exhaustion through its
+malformed-XML outcome. L1 preserves that classification rather than inferring a
+resource-limit reason from exception text; distinguishing it requires an
+explicit parser-owned contract.
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
