@@ -43,9 +43,36 @@ Library uses `@Library` and `@Surface` as its base categories. Package uses
 `@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
-no category and is selected by exact name (or an explicit matching wildcard).
-The explicit-only `Body Shapes` section is likewise uncategorized; its required
+no category and is selected for rendering by exact name (or an explicit
+matching wildcard). Target-aware bare discovery lists it when a bounded,
+early-exit presence probe finds evidence or the metadata scan produces a
+renderable incomplete-decode diagnostic. The probe caches no-copy signature
+marker scans by blob and streams IL without copying or materializing decoded
+instruction arrays. It borrows the command-owned, non-prefetched PE reader and
+walks methods sequentially in metadata order, so an early finding does not
+materialize the complete image and concurrent suffix work cannot consume its
+budget first. It charges signature and visited-IL bytes to separate 4 MiB
+assembly-wide budgets and fails visibly when either budget is exhausted or a
+candidate declaration, local, or call signature cannot be decoded safely. A
+namespace and type-name match for `System.Runtime.CompilerServices.Unsafe` is
+only a candidate; terminal evidence requires the same trusted framework
+identity as the full census. The reader is supplied through a synchronous
+capability callback whose contract forbids retention or disposal; it does not
+materialize that census. The
+explicit-only `Body Shapes` section is likewise uncategorized; its required
 `Kind=...` predicate supplies its scope.
+
+`UnsafeEvidencePresenceTests.UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence`,
+`UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`,
+`UnsafeEvidencePresence_StopsBeforeCopyingOrMaterializingLargeSuffix`,
+`UnsafeEvidencePresence_EarlierEvidenceIsNotScheduleDependent`,
+`UnsafeEvidencePresence_EarlierIncompleteResultOverridesLaterEvidence`,
+`UnsafeEvidencePresence_CustomModifiedPointerLocalCountsAsEvidence`,
+`UnsafeEvidencePresence_GuardRejectedPointerMethodDefDeclarationFailsVisibly`,
+`UnsafeEvidencePresence_GuardRejectedPointerMethodDefCallFailsVisibly`, and
+`IndexBuildInvariantTests.UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext`
+gate the trusted-identity, bounded-streaming, deterministic-order,
+failure-visibility, and non-prefetch properties.
 
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.
@@ -97,7 +124,7 @@ The library command is the reference discovery model:
 
 | Gesture | Meaning |
 | --- | --- |
-| `-D` | Cheap, target-aware base catalog and applicable category doors |
+| `-D` | Cheap, target-aware base catalog, applicable category doors, and effective standalone sections |
 | `-D --effective` | Full effective base catalog |
 | `-D @Category` | Structural category membership |
 | `-D @Category --effective` | Effective category membership |
@@ -111,7 +138,9 @@ can exceed that budget.
 
 `-D --effective` spends the larger producer budget. Without an explicit
 category, it remains scoped to base categories so it cannot implicitly run
-performance, metadata, SourceLink, and other domains together.
+performance, metadata, SourceLink, and other domains together. A standalone
+section may define its own bounded presence probe for the bare catalog without
+joining the base scope; `Unsafe Members` is the current library example.
 
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
