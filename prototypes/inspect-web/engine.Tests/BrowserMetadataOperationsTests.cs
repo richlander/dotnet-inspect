@@ -85,8 +85,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataProjection_KeepsParticipantFailureVisible()
+    public void MetadataProjection_KeepsParticipantFailureVisibleWithoutArtifactText()
     {
+        const char bidi = '\u202E';
         string path = typeof(BrowserMetadataOperationsTests).Assembly.Location;
         byte[] bytes = File.ReadAllBytes(path);
         ResolvedAssemblyReference actual =
@@ -94,7 +95,7 @@ public sealed class BrowserMetadataOperationsTests
                 path,
                 AssemblyResolutionProvenance.Local("metadata adapter tests"));
         ResolvedAssemblyReference rejected = ResolvedAssemblyReference.Create(
-            actual.Identity with { Name = "WrongIdentity" },
+            actual.Identity with { Name = $"Wrong{bidi}Identity" },
             path: null,
             () => new MemoryStream(bytes, writable: false),
             AssemblyResolutionProvenance.Local("rejected"));
@@ -114,14 +115,41 @@ public sealed class BrowserMetadataOperationsTests
 
         BrowserMetadataWindow result =
             InspectionEngine.ProjectMetadataWindow(
-                "WrongIdentity.dll",
+                "Requested.dll",
                 (int)TableIndex.TypeDef,
                 query);
+        AssemblyContextEntry<MetadataHeapEntrySet> heapQuery =
+            AssemblyContextMetadataHeapQuery.ExecuteParticipant(
+                group,
+                group.Participants[0],
+                HeapKind.String);
+        BrowserHeapListing heapResult =
+            InspectionEngine.ProjectHeapListing(
+                "Requested.dll",
+                HeapKind.String,
+                heapQuery);
+        var failed = new AssemblyContextEntry<MetadataTableWindow>.Failed(
+            query.Subject,
+            new InvalidDataException($"failure {bidi} detail"));
+        BrowserMetadataWindow failedResult =
+            InspectionEngine.ProjectMetadataWindow(
+                "Requested.dll",
+                (int)TableIndex.TypeDef,
+                failed);
+        string tableError = Assert.IsType<string>(result.Error);
+        string heapError = Assert.IsType<string>(heapResult.Error);
+        string failedError = Assert.IsType<string>(failedResult.Error);
 
-        Assert.Contains(
-            nameof(CandidateOpenFailureKind.InvalidImage),
-            result.Error);
+        Assert.Equal("Assembly unavailable: InvalidImage.", tableError);
+        Assert.Equal("Assembly unavailable: InvalidImage.", heapError);
+        Assert.Equal(
+            "Assembly inspection failed (InvalidDataException).",
+            failedError);
+        Assert.DoesNotContain(bidi, tableError);
+        Assert.DoesNotContain(bidi, heapError);
+        Assert.DoesNotContain(bidi, failedError);
         Assert.Empty(result.Rows);
+        Assert.Empty(heapResult.Entries);
     }
 
     static AssemblyContextGroup Group(InspectionWorkspace workspace) =>

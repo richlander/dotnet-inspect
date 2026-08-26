@@ -44,9 +44,7 @@ public static partial class InspectionEngine
             }
             else
             {
-                failures.Add(
-                    $"{participant.Asset.AssemblyName}: "
-                    + EntryFailure(result));
+                failures.Add(MetadataFailure(result));
             }
         }
 
@@ -149,7 +147,7 @@ public static partial class InspectionEngine
                     null),
             _ => new BrowserPackageMetadata(
                 [],
-                $"{assembly}: {EntryFailure(result)}"),
+                MetadataFailure(result)),
         };
         return JsonSerializer.Serialize(
             metadata,
@@ -272,7 +270,7 @@ public static partial class InspectionEngine
             return EmptyMetadataWindow(
                 assembly,
                 requestedTableIndex,
-                EntryFailure(result));
+                MetadataFailure(result));
         }
 
         MetadataTableWindow window = available.Value;
@@ -315,7 +313,7 @@ public static partial class InspectionEngine
             return EmptyHeapListing(
                 assembly,
                 heap,
-                EntryFailure(result));
+                MetadataFailure(result));
         }
 
         MetadataHeapEntrySet set = available.Value;
@@ -415,21 +413,12 @@ public static partial class InspectionEngine
             false,
             error);
 
-    static string EntryFailure<TValue>(
+    static string MetadataFailure<TValue>(
         AssemblyContextEntry<TValue> entry) =>
-        entry switch
-        {
-            AssemblyContextEntry<TValue>.Rejected rejected =>
-                $"{rejected.Failure.Kind}: {rejected.Failure.Detail}",
-            AssemblyContextEntry<TValue>.Failed failed =>
-                failed.Error.Message,
-            AssemblyContextEntry<TValue>.Available =>
-                throw new ArgumentException(
-                    "An available assembly-context entry has no failure.",
-                    nameof(entry)),
-            _ => throw new InvalidOperationException(
-                "Unknown assembly-context entry."),
-        };
+        BrowserSurfaceProjection.Failure(entry)
+        ?? throw new ArgumentException(
+            "An available assembly-context entry has no failure.",
+            nameof(entry));
 
     static BrowserWorkspaceParticipant[] MetadataParticipants(
         BrowserInspectionScope scope,
