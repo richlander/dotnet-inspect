@@ -278,7 +278,7 @@ public static class ArgumentPreprocessor
     };
     private static readonly HashSet<string> RequiredValueOptions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "--package", "--assembly", "--project", "--bin", "--directory",
+        "--package", "--library", "--assembly", "--project", "--bin", "--directory",
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
