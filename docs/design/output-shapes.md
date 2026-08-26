@@ -239,9 +239,12 @@ print a row-number column, so N is the number the reader arrives at by counting
 the unwindowed ordered rows top to bottom. Later windows and printability do not
 renumber anything. A row that declares no payload still occupies its number,
 and selecting it reports that it has no document rather than silently sliding
-to a neighbour. `first` and `last` are the endpoints of that addressable
-sequence. Structured output makes the number explicit — `--jsonl` and `--json`
-emit it as `row` — and error messages name the addressable numbers, so a
+to a neighbour. For projections that omit inapplicable rows, such as `--value`,
+`--urls`, and `--paths`, `first` and `last` remain the endpoints actually
+emitted by that projection, retaining their original numeric addresses.
+`--print` has no such gaps because every selected row emits a success or
+failure. Structured output makes the number explicit — `--jsonl` and `--json`
+emit it as `row` — and error messages name the available addresses, so a
 projection with gaps stays navigable.
 
 This is the one rule that makes the ordinal trustworthy. Renumbering after a

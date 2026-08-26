@@ -340,13 +340,15 @@ but must not execute with its old meaning.
 
 ## Required gates
 
-The implementation must add named Release gates for these target properties:
+The implementation must provide named Release gates for these target properties:
 
 | Gate | Contract |
 | --- | --- |
 | `ItemLimitsUseDeclaredRowsAcrossFormats` | After filtering and effective ordering, every renderer selects the same first/last logical rows per declared row set and preserves non-row sections, including fixtures where limiting the unfiltered or naturally ordered prefix would select different rows. |
 | `AbsoluteRangesIntersectWithoutRenumbering` | `--rows` range intersections retain stable row addresses across item limits and rankings. |
 | `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
+| `First_And_Last_ResolveToDisplayedEndpoints` | Gap-producing `--value`, `--urls`, and `--paths` projections resolve `first` and `last` to the first and last projected rows without renumbering their stable addresses; `--print` retains every selected row as a success or failure. |
+| `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality after filters and before ordering or windows, including zero matches and every declared row set or inspection contributing to an aggregate count. |
 | `CountRejectsItemAndLineWindows` | `--count` never silently ignores or applies a result/line window. |
 | `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects item-mode `-n`/`--tail`. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
@@ -356,6 +358,7 @@ The implementation must add named Release gates for these target properties:
 | `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
 | `MultiPrintPayloadCannotForgeFrames` | Payload lines matching the frame grammar, mixed line terminators, empty lines, and missing final newlines remain guttered payload and cannot create a sibling frame. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
+| `MultiPrintLineMetadataIsExact` | Full, head, and tail projections report the exact selected range, total line count, and truncation state in framed text, JSONL, and JSON-array output. |
 | `OrdinaryLineWindowsApplyAfterRendering` | Ordinary head/tail line windows and `--top` plus line-mode `-n` preserve the selected item set and clip the final text only. |
 | `NonPrintJsonRejectsLineWindows` | Typed and lowered document JSON reject `--lines` with empty stdout; printable JSON clips content before complete-value encoding. |
 | `MarkdownScopeRejectsMixedSelectionAtomically` | `--frontmatter` and `--body` inspect only selected rows, but one selected non-Markdown document rejects the whole `--print` or `--content` request before acquisition, per-row output, stdout, or destination mutation. |
@@ -366,5 +369,6 @@ The implementation must add named Release gates for these target properties:
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
 | `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
+| `VersionTailExhaustsMetadata` | An instrumented lazy version source proves last-N exhausts the applicable metadata input before selection and that version-report line windows do not shorten metadata enumeration. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including value-bearing `--versions`/`--versions-with-feed` and count-form `--rows`, while affected replacement routes execute successfully. |
 | `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter. |

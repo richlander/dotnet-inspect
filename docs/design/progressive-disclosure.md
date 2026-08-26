@@ -192,6 +192,11 @@ than add one flag per column. See
 
 ## Counts and limits
 
+The examples and semantics in this section describe the approved
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
+released behavior. [Item and line limits](item-and-line-limits.md) records the
+current implementation status and required gates.
+
 Use built-in limiters instead of shell pipes:
 
 ```bash
@@ -211,9 +216,6 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   `11..`; it carries no count-only form.
 - `-n N --lines` explicitly limits rendered lines. For multi-item `--print`,
   the line window applies to each selected payload.
-
-The approved target and current implementation status are in
-[Item and line limits](item-and-line-limits.md).
 
 ## Explicit-only execution
 
