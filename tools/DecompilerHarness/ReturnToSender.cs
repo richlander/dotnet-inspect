@@ -2122,22 +2122,41 @@ static class ReturnToSender
         int overload,
         string? canonicalSignature = null,
         ApiExplicitInterfaceProvenance? explicitInterfaceProvenance = null)
-        => (FindMethodDefinition(
+        => FindRecompiledMethodDefinition(
                 pe,
                 fullType,
                 methodName,
-                overload)
-            ?? (canonicalSignature is not null
-                ? FidelityCheck.FindMethodDefinition(
-                    pe,
-                    fullType,
-                    methodName,
-                    overload,
-                    canonicalSignature,
-                    explicitInterfaceProvenance)
-                : null)) is { } found
+                overload,
+                canonicalSignature,
+                explicitInterfaceProvenance) is { } found
             ? MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method)
             : null;
+
+    internal static (
+        MetadataReader Reader,
+        MethodDefinitionHandle Handle,
+        MethodDefinition Method)?
+        FindRecompiledMethodDefinition(
+            PEReader pe,
+            string fullType,
+            string methodName,
+            int overload,
+            string? canonicalSignature,
+            ApiExplicitInterfaceProvenance?
+                explicitInterfaceProvenance)
+        => canonicalSignature is not null
+            ? FidelityCheck.FindMethodDefinition(
+                pe,
+                fullType,
+                methodName,
+                overload,
+                canonicalSignature,
+                explicitInterfaceProvenance)
+            : FindMethodDefinition(
+                pe,
+                fullType,
+                methodName,
+                overload);
 
     static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
         PEReader pe,
@@ -2203,20 +2222,14 @@ static class ReturnToSender
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
-        var recompiled = FindMethodDefinition(
-                recompiledPe,
-                fullType,
-                methodName,
-                overload)
-            ?? (canonicalSignature is not null
-                ? FidelityCheck.FindMethodDefinition(
+        var recompiled =
+            FindRecompiledMethodDefinition(
                 recompiledPe,
                 fullType,
                 methodName,
                 overload,
                 canonicalSignature,
-                explicitInterfaceProvenance)
-                : null);
+                explicitInterfaceProvenance);
         if (recompiled is not { } found)
             return null;
         if (found.Method.RelativeVirtualAddress == 0)
@@ -2262,20 +2275,14 @@ static class ReturnToSender
         var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
         using var originalSource = MetadataSource.OpenWithoutSymbols(assemblyPath);
         using var recompiledSource = MetadataSource.OpenWithoutSymbols(recompiledReference, resolver);
-        var recompiled = FindMethodDefinition(
-                recompiledSource.Reader,
-                fullType,
-                methodName,
-                overload)
-            ?? (canonicalSignature is not null
-                ? FidelityCheck.FindMethodDefinition(
+        var recompiled =
+            FindRecompiledMethodDefinition(
                 recompiledIdentityReader,
                 fullType,
                 methodName,
                 overload,
                 canonicalSignature,
-                explicitInterfaceProvenance)
-                : null);
+                explicitInterfaceProvenance);
         if (recompiled is not { } found)
             return null;
         if (found.Method.RelativeVirtualAddress == 0)

@@ -473,6 +473,71 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 == "authenticate MethodImpl target");
     }
 
+    [Fact]
+    public void PlatformSignatureScope_CachesSharedAssemblyReferenceProjection()
+    {
+        const int PublicKeyLength = 1024 * 1024;
+        var (image, typeReferences) =
+            BuildPlatformSignatureScopeImage(
+                typeReferenceCount: 64,
+                publicKeyLength: PublicKeyLength);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int chargeCount = 0;
+        int charged = 0;
+        var scope = new PlatformStructuralSignatureScope(
+            reader,
+            beforeDecodeWork: amount =>
+            {
+                chargeCount++;
+                charged = checked(charged + amount);
+            });
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        foreach (TypeReferenceHandle handle in typeReferences)
+            Assert.False(scope.IsTrustedPlatformType(handle));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(1, chargeCount);
+        Assert.True(charged >= PublicKeyLength);
+        Assert.True(
+            allocated < 8L * 1024 * 1024,
+            $"platform scope allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void PlatformSignatureScope_ChargesPublicKeyBeforeMaterializingIt()
+    {
+        const int PublicKeyLength = 4 * 1024 * 1024;
+        var (image, typeReferences) =
+            BuildPlatformSignatureScopeImage(
+                typeReferenceCount: 1,
+                publicKeyLength: PublicKeyLength);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var scope = new PlatformStructuralSignatureScope(
+            reader,
+            beforeDecodeWork: amount =>
+            {
+                Assert.True(amount >= PublicKeyLength);
+                throw new InvalidOperationException("work limit");
+            });
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => scope.IsTrustedPlatformType(typeReferences[0]));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal("work limit", exception.Message);
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"rejected platform scope allocated {allocated:N0} bytes");
+    }
+
     /// <summary>
     /// A MethodImpl declaration parent authenticates against an InterfaceImpl row
     /// only when both carry a readable structured definition name. Two different
@@ -537,6 +602,45 @@ public sealed class ApiSurfaceExtractorBoundsTests
             surface.InspectionFailures,
             failure => failure.Operation
                 == "authenticate MethodImpl target");
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void ModuleReferenceMethodImplDeclarationsFailClosed(
+        bool useModuleReferences,
+        bool authenticates)
+    {
+        byte[] image =
+            BuildModuleScopedInterfaceImage(
+                useModuleReferences);
+        using var stream =
+            new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        var provenance =
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance);
+        Assert.Equal(
+            authenticates
+                ? "explicit-interface-implementation"
+                : "method",
+            member.Kind);
+        Assert.Equal(
+            authenticates
+                ? ApiExplicitInterfaceProvenanceKind.SameImage
+                : ApiExplicitInterfaceProvenanceKind.Unavailable,
+            provenance.Kind);
+        Assert.Equal(
+            !authenticates,
+            surface.InspectionFailures.Any(
+                failure => failure.Operation
+                    == "authenticate MethodImpl target"));
     }
 
     [Theory]
@@ -2037,6 +2141,40 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static (byte[] Image, TypeReferenceHandle[] TypeReferences)
+        BuildPlatformSignatureScopeImage(
+            int typeReferenceCount,
+            int publicKeyLength)
+    {
+        var metadata = Metadata("PlatformSignatureScope");
+        AssemblyReferenceHandle reference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Untrusted"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[publicKeyLength]),
+                AssemblyFlags.PublicKey,
+                default);
+        var typeReferences =
+            new TypeReferenceHandle[typeReferenceCount];
+        for (int index = 0;
+            index < typeReferences.Length;
+            index++)
+        {
+            typeReferences[index] =
+                metadata.AddTypeReference(
+                    reference,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString(
+                        $"Type{index}"));
+        }
+        AddModuleAndPublicType(
+            metadata,
+            "PlatformSignatureScope");
+        return (Serialize(metadata), typeReferences);
+    }
+
     /// <summary>
     /// An explicit-interface method whose InterfaceImpl row and whose MethodImpl
     /// declaration parent are two separate TypeRef rows in the same external
@@ -2093,6 +2231,77 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddString("Run"),
             signature);
         metadata.AddMethodImplementation(type, body, declaration);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModuleScopedInterfaceImage(
+        bool useModuleReferences)
+    {
+        var metadata = Metadata("ModuleScopedInterface");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ModuleScopedInterface");
+        EntityHandle implementedScope;
+        EntityHandle declaredScope;
+        if (useModuleReferences)
+        {
+            implementedScope = metadata.AddModuleReference(
+                metadata.GetOrAddString("Implemented.netmodule"));
+            declaredScope = metadata.AddModuleReference(
+                metadata.GetOrAddString("Declared.netmodule"));
+        }
+        else
+        {
+            implementedScope =
+                MetadataTokens.EntityHandle(
+                    TableIndex.Module,
+                    rowNumber: 1);
+            declaredScope = implementedScope;
+        }
+
+        TypeReferenceHandle implemented =
+            metadata.AddTypeReference(
+                implementedScope,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue"));
+        TypeReferenceHandle declared =
+            metadata.AddTypeReference(
+                declaredScope,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue"));
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signature =
+            metadata.GetOrAddBlob(methodSignature);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration =
+            metadata.AddMemberReference(
+                declared,
+                metadata.GetOrAddString("Run"),
+                signature);
+        metadata.AddInterfaceImplementation(
+            type,
+            implemented);
+        metadata.AddMethodImplementation(
+            type,
+            body,
+            declaration);
         return Serialize(metadata);
     }
 

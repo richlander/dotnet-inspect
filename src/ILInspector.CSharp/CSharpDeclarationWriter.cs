@@ -1985,6 +1985,13 @@ internal static class CSharpDeclarationWriter
     {
         if (member.ExplicitInterfaceProvenance is { } provenance)
         {
+            if (provenance.Kind
+                is ApiExplicitInterfaceProvenanceKind.Unavailable
+                    or ApiExplicitInterfaceProvenanceKind.Ambiguous)
+            {
+                return null;
+            }
+
             MetadataTypeDefinitionName? definitionName = null;
             string? interfaceTypeName = null;
             bool hasDeclaration = false;
@@ -2053,6 +2060,13 @@ internal static class CSharpDeclarationWriter
     {
         if (member.ExplicitInterfaceProvenance is { } provenance)
         {
+            if (provenance.Kind
+                is ApiExplicitInterfaceProvenanceKind.Unavailable
+                    or ApiExplicitInterfaceProvenanceKind.Ambiguous)
+            {
+                return null;
+            }
+
             string? declarationLeaf = null;
             bool hasDeclaration = false;
             foreach (ApiExplicitInterfaceDeclarationContext declaration

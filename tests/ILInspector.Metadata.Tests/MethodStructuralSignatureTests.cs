@@ -202,16 +202,20 @@ public sealed class MethodStructuralSignatureTests
             new StructuralSignatureBuilder(
                 platformImage.Reader)
             .BuildSignature(platformDeclaration);
+        var localPlatformScope =
+            new PlatformStructuralSignatureScope(
+                localImage.Reader);
+        var platformScope =
+            new PlatformStructuralSignatureScope(
+                platformImage.Reader);
         MethodSignatureIdentity localNormalized =
             new StructuralSignatureBuilder(
                 localImage.Reader,
                 beforeEncodedWork: null,
                 normalizeNamedTypeScope:
-                    (reader, handle) =>
-                        PlatformStructuralSignatureScope
-                            .IsTrustedPlatformType(
-                                reader,
-                                handle))
+                    (_, handle) =>
+                        localPlatformScope
+                            .IsTrustedPlatformType(handle))
             .BuildSignature(localDeclaration);
         MethodSignatureIdentity
             untrustedPlatformDefinitionNormalized =
@@ -219,11 +223,9 @@ public sealed class MethodStructuralSignatureTests
                     platformImage.Reader,
                     beforeEncodedWork: null,
                     normalizeNamedTypeScope:
-                        (reader, handle) =>
-                            PlatformStructuralSignatureScope
-                                .IsTrustedPlatformType(
-                                    reader,
-                                    handle))
+                        (_, handle) =>
+                            platformScope
+                                .IsTrustedPlatformType(handle))
                 .BuildSignature(
                     platformDeclaration);
         MethodSignatureIdentity platformNormalized =
@@ -231,10 +233,9 @@ public sealed class MethodStructuralSignatureTests
                 platformImage.Reader,
                 beforeEncodedWork: null,
                 normalizeNamedTypeScope:
-                    (reader, handle) =>
-                        PlatformStructuralSignatureScope
+                    (_, handle) =>
+                        platformScope
                             .IsTrustedPlatformType(
-                                reader,
                                 handle,
                                 currentAssemblyHasPlatformIdentityTrust:
                                     true))
@@ -265,11 +266,9 @@ public sealed class MethodStructuralSignatureTests
                 localImage.Reader,
                 beforeEncodedWork: null,
                 normalizeNamedTypeScope:
-                    (reader, handle) =>
-                        PlatformStructuralSignatureScope
-                            .IsTrustedPlatformType(
-                                reader,
-                                handle))
+                    (_, handle) =>
+                        localPlatformScope
+                            .IsTrustedPlatformType(handle))
             .BuildSignature(nonPlatformMethod));
     }
 

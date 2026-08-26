@@ -1309,6 +1309,74 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceProperty_AmbiguousTypedProvenanceDeclines()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Counter",
+            Kind = "class"
+        };
+        var definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["ICounter"]))
+            .Name;
+        var member = new ApiMember
+        {
+            Name = "Contracts.ICounter.Count",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Left",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                            "Contracts.ICounter",
+                            "get_Count"),
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Right",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                            "Contracts.ICounter",
+                            "get_Count")
+                    ]),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Contracts.ICounter.Count",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Ambiguous,
+            member.ExplicitInterfaceProvenance.Kind);
+        Assert.DoesNotContain(
+            "Contracts.ICounter",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExplicitInterfaceProperty_PreservesExternalAliasAndConstructedType()
     {
         var type = new ApiType

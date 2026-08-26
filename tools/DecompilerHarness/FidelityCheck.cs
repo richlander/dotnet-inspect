@@ -109,16 +109,15 @@ static class FidelityCheck
 
     const int MaxTransientEmptyEmitAttempts = 3;
 
-    // The render path for one source: the lowered view, or the shipped raised
-    // view with the cross-method import seam bound (so lambda raising can reach
-    // a synthesized body in the same module). The lowered view carries no seam
-    // yet, so a lambda there stays a delegate creation.
+    // The render path for one source, with the cross-method import seam bound
+    // so lambda and local-function raising can reach synthesized bodies in the
+    // same module at either altitude.
     // The default (byte-faithful) renderer threads no PrinterOptions, so every
     // corpus/gate path renders the shipped output. The optional options overload
     // is the opt-in-knob seam the byte-neutrality gate uses to render the raised
     // view with a single knob on and prove it recompiles to the same IL. Options
-    // apply to the raised view (the view every opt-in knob targets); the lowered
-    // view has no opt-in knobs, so it keeps the shipped renderer.
+    // apply at either altitude; byte-divergent raised-view lenses remain
+    // excluded by PrintLowered itself.
     static BodyRender Renderer(MetadataSource source, bool lowered)
         => Renderer(source, lowered, options: null);
 
@@ -127,7 +126,14 @@ static class FidelityCheck
             lowered,
             options,
             lowered
-                ? CSharpPrinter.PrintLowered
+                ? function => CSharpPrinter.PrintLowered(
+                    function,
+                    out _,
+                    importMethodBody:
+                        method => IrImporter.Import(
+                            source,
+                            method),
+                    options)
                 : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method), options));
 
     /// <summary>

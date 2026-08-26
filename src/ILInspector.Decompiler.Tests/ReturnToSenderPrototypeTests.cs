@@ -6120,6 +6120,68 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void RecompiledLookup_UsesCanonicalSignatureBeforeOrdinal()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+
+                public int Pick(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinitionHandle typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name)
+                    == "Class1");
+            TypeDefinition type =
+                reader.GetTypeDefinition(typeHandle);
+            MethodDefinitionHandle[] overloads =
+                type.GetMethods()
+                    .Where(handle =>
+                        reader.GetString(
+                            reader.GetMethodDefinition(handle)
+                                .Name) == "Pick")
+                    .ToArray();
+            Assert.Equal(2, overloads.Length);
+            MethodDefinitionHandle stringOverload =
+                overloads[1];
+            string canonicalSignature =
+                ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetMethodDefinition(
+                        stringOverload))
+                .CanonicalSignature;
+
+            var found =
+                ReturnToSender
+                    .FindRecompiledMethodDefinition(
+                        pe,
+                        "Class1",
+                        "Pick",
+                        overload: 0,
+                        canonicalSignature,
+                        explicitInterfaceProvenance: null);
+
+            Assert.NotNull(found);
+            Assert.Equal(
+                stringOverload,
+                found.Value.Handle);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_LegacySignatureCannotOverrideOrdinal()
     {
         var assemblyPath = CompileFixture("""

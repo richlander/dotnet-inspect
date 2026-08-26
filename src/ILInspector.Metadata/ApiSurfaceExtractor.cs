@@ -2090,6 +2090,11 @@ public static class ApiSurfaceExtractor
 
         var referenceProjection =
             new AssemblyReferenceProjectionCache(reader);
+        var platformSignatureScope =
+            new PlatformStructuralSignatureScope(
+                reader,
+                referenceProjection,
+                beforeDecodeWork);
         var signatureBuilder =
             new StructuralSignatureBuilder(
                 reader,
@@ -2255,11 +2260,9 @@ public static class ApiSurfaceExtractor
             }
 
             normalize =
-                PlatformStructuralSignatureScope
-                    .IsTrustedPlatformType(
-                        scopeReader,
-                        type,
-                        currentAssemblyHasPlatformIdentityTrust);
+                platformSignatureScope.IsTrustedPlatformType(
+                    type,
+                    currentAssemblyHasPlatformIdentityTrust);
             platformSignatureScopes.Add(type, normalize);
             return normalize;
         }
@@ -2627,9 +2630,13 @@ public static class ApiSurfaceExtractor
                         (AssemblyReferenceHandle)terminal,
                         referenceProjection,
                         beforeDecodeWork)),
-            HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
+            HandleKind.ModuleDefinition =>
                 IdentifiedTypeContext(
                     ApiExplicitInterfaceDeclarationKind.SameImage,
+                    definitionName),
+            HandleKind.ModuleReference =>
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.Unavailable,
                     definitionName),
             _ => new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.Unavailable,

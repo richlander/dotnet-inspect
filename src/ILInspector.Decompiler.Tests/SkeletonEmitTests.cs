@@ -384,6 +384,40 @@ public class SkeletonEmitTests
         Assert.NotEqual(raised.Value.Text, qualified.Value.Text);
         Assert.Contains("this._total", qualified.Value.Text, StringComparison.Ordinal);
 
+        var loweredQualifiedRender =
+            FidelityCheck.BodyRender.For(
+                source,
+                lowered: true,
+                new PrinterOptions
+                {
+                    QualifyFieldAccess = true
+                });
+        var loweredFunction =
+            IrImporter.Import(source, target);
+        Assert.NotNull(loweredFunction);
+        string loweredBody =
+            Assert.IsType<string>(
+                loweredQualifiedRender
+                    .Invoke(loweredFunction)
+                    .Output);
+        Assert.Contains(
+            "this._total",
+            loweredBody,
+            StringComparison.Ordinal);
+        var loweredQualified =
+            FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                target,
+                targeted: true,
+                isPrimaryConstructor: false,
+                render: loweredQualifiedRender);
+        Assert.NotNull(loweredQualified);
+        Assert.Contains(
+            "this._total",
+            loweredQualified.Value.Text,
+            StringComparison.Ordinal);
+
         // The whole-member text really is what the fidelity path splices in.
         var result = Assert.Single(FidelityCheck.Evaluate(
             assemblyPath,
@@ -393,6 +427,33 @@ public class SkeletonEmitTests
             method => method.Method == methodName));
         Assert.True(result.UsedProductWholeMember);
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    [Fact]
+    public void LoweredBodyRender_BindsCrossMethodImportSeam()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NonCapturingLambda));
+        Assert.NotNull(function);
+
+        string output = Assert.IsType<string>(
+            FidelityCheck.BodyRender
+                .For(source, lowered: true)
+                .Invoke(function)
+                .Output);
+
+        Assert.Contains(
+            "x => x + 1",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "new Func<int, int>",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]

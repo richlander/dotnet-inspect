@@ -521,6 +521,9 @@ public class FidelityGateTests
         // post-switch tail moves into default and the other sections end in break.
         "SwitchCaseContinueInLoop",
         "TwoLocalFunctionQuadrants",
+        // #3924 corrected the lowered whole-member measurement; this row is
+        // an honest lowered OpcodeDiff but remains exact in the shipped view.
+        "WhileNestedContinueKeepsArmExclusive",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
