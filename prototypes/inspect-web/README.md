@@ -537,6 +537,10 @@ lists them.
 `src/annotated-source-view.ts` and its tests are the browser half of the [#3964]
 portable `AnnotatedSourceDocument` contract, and `QueryMemberAnnotatedSource` now
 feeds it a real document.
+The proposed
+[Annotated Source interaction model](../../docs/design/annotated-source-interaction-model.md)
+defines the target browser behavior; this section records the current
+implementation while its merge-blocking gaps are reconciled.
 
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
