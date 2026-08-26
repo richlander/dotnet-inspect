@@ -494,6 +494,37 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_CountMapHonorsExcludingColumnProjection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+                Columns = ["Callee"],
+                Count = true,
+                JsonOutput = true,
+                Format = OutputFormat.Json,
+                FormatExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Normal,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = System.Text.Json.JsonDocument.Parse(result.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(0, counts[SectionNames.CallGraph]);
+        Assert.True(counts[SectionNames.Calls] > 0);
+    }
+
+    [Fact]
     public async Task CallGraphSection_AbsoluteWindowSelectsTheSameEdgeAcrossLowerings()
     {
         var baseOptions = new MemberOptions

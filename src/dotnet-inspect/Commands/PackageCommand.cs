@@ -987,6 +987,9 @@ public class PackageCommand
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+            var diagnosticCandidates = hasProjection
+                ? GetPackageProjectionNames(options)
+                : null;
             if (options.Tabular)
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
@@ -1016,7 +1019,10 @@ public class PackageCommand
                             OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                             MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
                         });
-                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+                    ProjectionDiagnostics.DiagnoseRendered(
+                        options.Fields ?? options.Columns,
+                        rendered,
+                        diagnosticCandidates!);
                     Console.Out.Write(rendered);
                 }
                 else
@@ -1028,7 +1034,10 @@ public class PackageCommand
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
-                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
+                    ProjectionDiagnostics.DiagnoseRendered(
+                        options.Fields ?? options.Columns,
+                        output,
+                        diagnosticCandidates!);
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
                     File.WriteAllText(options.OutputPath, output);
@@ -2672,12 +2681,8 @@ public class PackageCommand
         SectionPipeline<InspectionResult> pipeline)
         => options.Verbosity >= Verbosity.Normal
             || wantsSignals
-            || options.Fields?.Contains(
-                "Signed",
-                StringComparer.OrdinalIgnoreCase) == true
-            || options.Columns?.Contains(
-                "Signed",
-                StringComparer.OrdinalIgnoreCase) == true
+            || ProjectionRequestsSigned(options.Fields)
+            || ProjectionRequestsSigned(options.Columns)
             || options.IncludeSections?.Contains(
                 PackageSections.PackageInfo) == true
             || options.IncludeSections?.Contains(
@@ -2686,6 +2691,28 @@ public class PackageCommand
                 && pipeline.FixedOverviewSectionNames.Contains(
                     PackageSections.PackageInfo,
                     StringComparer.OrdinalIgnoreCase));
+
+    private static bool ProjectionRequestsSigned(string[]? selectors)
+        => selectors is { Length: > 0 }
+            && new DocumentSchema()
+                .Add(PackageSections.PackageInfo, "field", "Signed")
+                .ValidateProjection(PackageSections.PackageInfo, selectors)
+                .Resolved.Length > 0;
+
+    private static string[] GetPackageProjectionNames(
+        InspectionOptions options)
+    {
+        string itemKind =
+            options.Fields is { Length: > 0 } ? "field" : "column";
+        var schema = PackageDiscoverySchema();
+        return schema.SectionNames
+            .Select(schema.GetSection)
+            .Where(section => section?.ItemKind.Equals(
+                itemKind, StringComparison.OrdinalIgnoreCase) == true)
+            .SelectMany(section => section!.Items.Select(item => item.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
 
     private static string[] VersionListingColumns(InspectionOptions options)
         => options.IncludeUnlisted
@@ -3964,6 +3991,14 @@ public class PackageCommand
                 IncludeSections = selectResult.Sections,
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
+        }
+
+        if (!LibraryCommand.ValidateReferenceTreeCount(
+                libraryOptions.Tree,
+                libraryOptions.Count,
+                libraryOptions.IncludeSections))
+        {
+            return 1;
         }
 
         if (libraryOptions.Count)

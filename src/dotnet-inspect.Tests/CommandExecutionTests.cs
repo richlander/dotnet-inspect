@@ -22106,6 +22106,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_AllLibraries_ReferenceTreeRejectsCount()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries",
+                "-S", "References", "--count", "--tree", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "reference tree does not declare countable row semantics",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_TreeRequiresDependenciesSelection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -27256,8 +27278,11 @@ public partial class CommandExecutionTests
         Assert.Equal("Verified", output.Trim());
     }
 
-    [Fact]
-    public async Task Package_QuietSignedFieldPerformsExplicitVerification()
+    [Theory]
+    [InlineData("Signed")]
+    [InlineData("Sign*")]
+    public async Task Package_QuietSignedFieldPerformsExplicitVerification(
+        string field)
     {
         var (packagePath, tempDir) =
             CreateLocalPackageWithoutReadme("Test.Quiet.Signed.Field");
@@ -27267,7 +27292,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--fields",
-                "Signed",
+                field,
                 "--tips",
                 "q");
 

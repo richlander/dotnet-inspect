@@ -309,16 +309,9 @@ public class LibraryCommand
         if (!ValidateMultiTfmOutput(options))
             return 1;
 
-        if (options.Tree
-            && options.Count
-            && options.IncludeSections is { Count: 1 } countSections
-            && countSections.Contains(SectionNames.References))
-        {
-            CommandError.Write(
-                "--count is not available with -S References --tree because "
-                + "the reference tree does not declare countable row semantics.");
+        if (!ValidateReferenceTreeCount(
+                options.Tree, options.Count, options.IncludeSections))
             return 1;
-        }
 
         if (options.Tree && options.Discover == null && !options.Count)
         {
@@ -1688,6 +1681,27 @@ public class LibraryCommand
             return true;
 
         CommandError.Write("--print requires -S/--select to match exactly one printable section.");
+        return false;
+    }
+
+    internal static bool ValidateReferenceTreeCount(
+        bool tree,
+        bool count,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (!tree
+            || !count
+            || sections is not { Count: 1 }
+            || !sections.Contains(
+                SectionNames.References,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        CommandError.Write(
+            "--count is not available with -S References --tree because "
+            + "the reference tree does not declare countable row semantics.");
         return false;
     }
 

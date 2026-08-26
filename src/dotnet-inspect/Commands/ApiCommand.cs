@@ -1769,6 +1769,29 @@ public class ApiCommand
         DocumentSchema? schema = null)
         => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options, schema);
 
+    private static bool ProjectionIncludesSection(
+        DocumentSchema schema,
+        string section,
+        ApiOptions options)
+    {
+        if (options.Fields is not { Length: > 0 }
+            && options.Columns is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        var sectionSchema = schema.GetSection(section);
+        return sectionSchema is not null
+            && ((options.Fields is { Length: > 0 } fields
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, fields).Resolved.Length > 0)
+                || (options.Columns is { Length: > 0 } columns
+                    && sectionSchema.ItemKind.Equals(
+                        "column", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, columns).Resolved.Length > 0));
+    }
+
     private static bool TryReportEmptyProjection(
         bool wroteAnyContent,
         ApiOptions options,
@@ -2486,6 +2509,7 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+            var schema = GetTypeDocumentSchema(options);
             var projection = CountProjectionFormatter.Capture(
                 writer => ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -2496,6 +2520,8 @@ public class ApiCommand
             // so add the product-owned, already-windowed edge cardinality to the same projection
             // used by scalar and multi-section reductions.
             if (options.IncludeSections?.Contains(SectionNames.CallGraph) == true
+                && ProjectionIncludesSection(
+                    schema, SectionNames.CallGraph, options)
                 && view.MemberCode?.CallGraphRowCount is { } graphRows)
             {
                 projection.RecordRows(SectionNames.CallGraph, graphRows);
@@ -2503,7 +2529,7 @@ public class ApiCommand
             if (!TryReportEmptyProjection(
                     projection.WroteAnyContent,
                     options,
-                    GetTypeDocumentSchema(options)))
+                    schema))
                 return 1;
             var ordered = OutputFormatter.ResolveCountMapSections(
                 ApiMemberSectionPipelines.Create(options),
