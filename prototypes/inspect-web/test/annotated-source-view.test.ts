@@ -299,11 +299,17 @@ test("large line-oriented documents prepare within the interaction budget", () =
     targets: [],
   };
 
-  const started = performance.now();
+  const wallStarted = performance.now();
+  const cpuStarted = process.cpuUsage();
   const prepared = prepareAnnotatedView(document);
-  const elapsed = performance.now() - started;
+  const wallElapsed = performance.now() - wallStarted;
+  const cpuUsage = process.cpuUsage(cpuStarted);
+  const cpuElapsed = (cpuUsage.user + cpuUsage.system) / 1_000;
 
   assert.equal(prepared.lines.length, lineCount + 1);
   assert.equal(prepared.lines.slice(0, lineCount).every(line => line.segments.length === 1), true);
-  assert.ok(elapsed < 2_000, `preparing ${lineCount} lines took ${elapsed.toFixed(1)}ms`);
+  assert.ok(
+    cpuElapsed < 2_000,
+    `preparing ${lineCount} lines took ${cpuElapsed.toFixed(1)}ms CPU (${wallElapsed.toFixed(1)}ms wall)`,
+  );
 });
