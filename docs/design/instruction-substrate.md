@@ -295,6 +295,29 @@ closed on numbers. Its credible future home is **memory-safety lifetime**
 territory), to be measured the same way. Until then the typed stack stays a
 minimal, opt-in Layer-1 model with its own fidelity gate, not a product dependency.
 
+## Block reachability rides the existing dataflow kernel
+
+"Is this call reachable from the body entry?" is a question the JSExport
+authentication gates need — an unreachable `call` to a trusted method is not
+evidence that the call happens. It is answered by the **existing** Layer-1
+pieces, not by a new traversal and not by the gated typed stack: `BlockGraph`
+already models EH-aware edges, and `ForwardDataflow.Solve` already computes the
+`DataflowBlockState.Reachable` fixed point over them. `MethodCallAnalysis` runs
+that solve with empty transfer sets and reads reachability off the block states.
+
+Two properties follow from reusing the kernel rather than walking the
+interpreter's own path:
+
+- A call the evaluation-stack interpreter happens not to visit is still
+  classified, because reachability comes from the CFG rather than from
+  successful stack simulation.
+- The answer is tri-state. `DirectCall.IsReachable` is `bool?`, and it is null
+  when the block graph is not `IsComplete` or the feature was not requested, so
+  "unknown" can never read as "reachable". Publication requires `true`.
+
+`MethodCallResolvedValueTests.MarksCallsAfterUnconditionalBranchUnreachable` is
+the gate.
+
 ## The Metadata cutover (done)
 
 `ILInspector.Metadata`'s `ILDisassembler`/`ILInstruction` were a second,

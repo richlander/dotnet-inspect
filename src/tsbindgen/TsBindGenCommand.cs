@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Reflection.PortableExecutable;
 using ILInspector.Analysis;
@@ -58,11 +59,30 @@ public static class TsBindGenCommand
                 return 1;
             }
 
+            // One read, one image. The metadata surface and the IL body index
+            // must describe the same bytes: reading the file twice lets two
+            // different images share an MVID and token layout, so evidence
+            // gathered from one can authenticate a member that only exists in
+            // the other.
+            ImmutableArray<byte> image;
+            try
+            {
+                image = ImmutableArray.CreateRange(
+                    File.ReadAllBytes(assemblyPath));
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException
+                    or ArgumentException or NotSupportedException)
+            {
+                stderr.WriteLine(
+                    $"tsbindgen: could not read '{assemblyPath}': {ex.Message}");
+                return 1;
+            }
+
             ApiSurface apiSurface;
             try
             {
-                using FileStream stream = File.OpenRead(assemblyPath);
-                using var peReader = new PEReader(stream);
+                using var peReader = new PEReader(image);
 
                 // includeAll: true, not false. The [JSExport] wire boundary is not "public API" in
                 // the documentation sense: a consuming assembly commonly keeps its
@@ -112,10 +132,12 @@ public static class TsBindGenCommand
                 // provenance that authenticates generated JsonTypeInfo<T>
                 // registrations. Allocation and opportunity analysis remain
                 // unrelated work this command does not request.
-                LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
-                    assemblyPath,
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                        | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+                LibraryBodyIndex bodyIndex =
+                    LibraryBodyIndex.OpenFromPrefetchedImage(
+                        assemblyPath,
+                        image,
+                        LibraryBodyAnalysisFeatures.MethodEvidence
+                            | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
                 jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
             }
             catch (UnsupportedJsExportSurfaceException ex)

@@ -845,6 +845,18 @@ public static class JsExportSurfaceBuilder
                 ?? signature.ParameterCount)
             == 0;
 
+    /// <summary>
+    /// Authenticates the generated wrapper chain for one export: a registration
+    /// whose name and signature hash are exact, a reachable
+    /// wrapper-&gt;stub-&gt;export call path, and a descriptor whose elements are
+    /// linked to that registration's span argument.
+    /// </summary>
+    /// <remarks>
+    /// Reachability is required at every hop because a body can retain the
+    /// expected calls behind a <c>ret</c> that makes none of them run.
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsUnreachableGeneratedWrapperEntry</c>
+    /// gates that.
+    /// </remarks>
     static bool HasAuthenticatedRuntimeJsExportWrapper(
         LibraryBodyIndex bodyIndex,
         ApiAssemblyIdentity? assemblyIdentity,
@@ -879,12 +891,15 @@ public static class JsExportSurfaceBuilder
                     { } moduleVersionId
                 || moduleVersionId == Guid.Empty
                 || moduleVersionId != wrapper.ModuleVersionId
+                || !IsGeneratedRuntimeWrapper(wrapper, export.Name)
                 || !IsAuthenticatedRuntimeRegistration(
                     callsByEvidenceMethod,
                     candidate,
                     runtimeBindingName,
-                    incompleteBodyTokens)
-                || !IsGeneratedRuntimeWrapper(wrapper, export.Name))
+                    wrapper,
+                    export.Name,
+                    incompleteBodyTokens,
+                    out DirectCall? registration))
                 continue;
             if (incompleteBodyTokens.Contains(wrapper.MetadataToken))
                 continue;
@@ -892,6 +907,7 @@ public static class JsExportSurfaceBuilder
             foreach (DirectCall wrapperCall in wrapperCalls)
             {
                 if (wrapperCall.Kind != CallKind.Call
+                    || wrapperCall.IsReachable != true
                     || !callsByEvidenceMethod.TryGetValue(
                         wrapperCall.CalleeDefinitionToken,
                         out ImmutableArray<DirectCall>
@@ -910,14 +926,27 @@ public static class JsExportSurfaceBuilder
                     continue;
                 }
 
-                if (stubCalls.Any(call =>
-                        call.Kind == CallKind.Call
-                        && call.CalleeDefinitionToken == exportToken
-                        && call.Callee.DeclaringType.Equals(
-                            wrapper.DeclaringType)))
+                DirectCall? exportCall = stubCalls.FirstOrDefault(call =>
+                    call.Kind == CallKind.Call
+                    && call.IsReachable == true
+                    && call.CalleeDefinitionToken == exportToken
+                    && call.Callee.DeclaringType.Equals(
+                        wrapper.DeclaringType));
+                if (exportCall is null)
+                    continue;
+
+                if (!IsAuthenticatedRegistrationDescriptor(
+                        callsByEvidenceMethod,
+                        candidate,
+                        registration!,
+                        exportCall.Callee,
+                        declaringType,
+                        export))
                 {
-                    return true;
+                    continue;
                 }
+
+                return true;
             }
         }
 
@@ -929,8 +958,12 @@ public static class JsExportSurfaceBuilder
             callsByEvidenceMethod,
         RuntimeJsExportWrapperCandidate candidate,
         string runtimeBindingName,
-        IReadOnlySet<int> incompleteBodyTokens)
+        MethodIdentity wrapper,
+        string exportName,
+        IReadOnlySet<int> incompleteBodyTokens,
+        out DirectCall? registration)
     {
+        registration = null;
         if (candidate.RegistrationCount <= 0
             || candidate.ModuleVersionId is not { } moduleVersionId
             || incompleteBodyTokens.Contains(
@@ -942,22 +975,305 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        return registrationCalls.All(call =>
-                call.EvidenceMethod.ModuleVersionId
-                    == moduleVersionId)
-            && registrationCalls.Count(call =>
+        if (!registrationCalls.All(call =>
+                call.EvidenceMethod.ModuleVersionId == moduleVersionId))
+        {
+            return false;
+        }
+
+        DirectCall[] bindings =
+        [
+            .. registrationCalls.Where(call =>
                 call.Kind == CallKind.Call
-                && IsRuntimeBindManagedFunction(call.Callee))
-                == candidate.RegistrationCount
-            && registrationCalls.Count(call =>
-                call.Kind == CallKind.Call
-                && IsRuntimeBindManagedFunction(call.Callee)
-                && string.Equals(
-                    call.FirstArgumentStringLiteral,
-                    runtimeBindingName,
-                    StringComparison.Ordinal))
-                == 1;
+                && IsRuntimeBindManagedFunction(call.Callee)),
+        ];
+        if (bindings.Length != candidate.RegistrationCount)
+            return false;
+
+        DirectCall[] named =
+        [
+            .. bindings.Where(call => string.Equals(
+                call.FirstArgumentStringLiteral,
+                runtimeBindingName,
+                StringComparison.Ordinal)),
+        ];
+        if (named is not [var match]
+            || match.IsReachable != true
+            || match.ResolvedArgumentValues.Count != 3
+            || !RuntimeJsExportWrapperName.TryGetSignatureHash(
+                wrapper.Name,
+                exportName,
+                out uint expectedSignatureHash)
+            || match.ResolvedArgumentValues[1].Single is not
+                {
+                    Kind: ResolvedValueSourceKind.Int32Literal,
+                    Int32Value: { } signatureHash,
+                }
+            || unchecked((uint)signatureHash) != expectedSignatureHash)
+        {
+            return false;
+        }
+
+        registration = match;
+        return true;
     }
+
+    /// <summary>
+    /// Requires the registration's marshaler descriptor to be the span Analysis
+    /// linked to this <c>BindManagedFunction</c> call, one element per marshaled
+    /// position, and each element's factory to be compatible with the export's
+    /// own managed signature.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not a reimplementation of the runtime generator's marshaling
+    /// policy. It recognizes the descriptor graph the compiler actually emitted
+    /// and rejects a factory outside the compatible set for that managed type,
+    /// which is what closes a swapped element such as <c>Task()</c> becoming
+    /// <c>get_String</c>. A managed type outside the recognized marshaling set
+    /// fails visibly rather than being waved through.
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsRegistrationWithSwappedDescriptorElement</c>
+    /// gates the swap.
+    /// </remarks>
+    static bool IsAuthenticatedRegistrationDescriptor(
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+            callsByEvidenceMethod,
+        RuntimeJsExportWrapperCandidate candidate,
+        DirectCall registration,
+        MemberRef exportSignature,
+        ApiType declaringType,
+        ApiMember export)
+    {
+        if (!callsByEvidenceMethod.TryGetValue(
+                candidate.RegistrationMethodToken,
+                out ImmutableArray<DirectCall> registrationCalls))
+        {
+            return false;
+        }
+
+        var callsByOffset = new Dictionary<int, DirectCall>();
+        foreach (DirectCall call in registrationCalls)
+            callsByOffset[call.ILOffset] = call;
+
+        SpanArgumentElements? descriptor =
+            registration.SpanArgumentSources.ForArgument(2);
+        if (descriptor is not { IsResolved: true }
+            || descriptor.Elements.Count
+                != exportSignature.ParameterTypes.Length + 1)
+        {
+            return false;
+        }
+
+        string location = FormatMemberLocation(declaringType, export);
+        if (!DescribesManagedType(
+                descriptor.Elements[0],
+                exportSignature.ReturnType,
+                isReturn: true,
+                callsByOffset,
+                location))
+        {
+            return false;
+        }
+
+        for (int index = 0;
+            index < exportSignature.ParameterTypes.Length;
+            index++)
+        {
+            if (!DescribesManagedType(
+                    descriptor.Elements[index + 1],
+                    exportSignature.ParameterTypes[index],
+                    isReturn: false,
+                    callsByOffset,
+                    location))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool DescribesManagedType(
+        ResolvedValueSet element,
+        TypeRef managed,
+        bool isReturn,
+        IReadOnlyDictionary<int, DirectCall> callsByOffset,
+        string location)
+    {
+        if (!TryGetMarshalerRule(
+                managed,
+                isReturn,
+                out string[] factoryNames,
+                out TypeRef? elementType))
+        {
+            throw new UnsupportedJsExportSurfaceException(
+                location,
+                $"JS export marshaling of '{managed.ToDisplayString()}' is not recognized");
+        }
+
+        if (element.Single is not
+                {
+                    Kind: ResolvedValueSourceKind.CallResult,
+                    ILOffset: var factoryOffset,
+                }
+            || !callsByOffset.TryGetValue(
+                factoryOffset,
+                out DirectCall? factory)
+            || factory.IsReachable != true
+            || !IsJsMarshalerTypeFactory(factory.Callee)
+            || !factoryNames.Contains(factory.Callee.Name, StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        int expectedArguments = elementType is null ? 0 : 1;
+        if (factory.Callee.ParameterTypes.Length != expectedArguments)
+            return false;
+        if (elementType is null)
+            return true;
+
+        return factory.ResolvedArgumentValues.Count == 1
+            && DescribesManagedType(
+                factory.ResolvedArgumentValues[0],
+                elementType,
+                isReturn: false,
+                callsByOffset,
+                location);
+    }
+
+    /// <summary>
+    /// The <c>JSMarshalerType</c> factories compatible with one managed type,
+    /// and the element type whose own descriptor a composite factory must carry.
+    /// </summary>
+    /// <remarks>
+    /// A managed type maps to a small set rather than to one name because
+    /// <c>[JSMarshalAs]</c> legitimately selects among the alternatives for the
+    /// same declared type. Returning false means "not recognized", which the
+    /// caller reports rather than silently accepting.
+    /// </remarks>
+    static bool TryGetMarshalerRule(
+        TypeRef managed,
+        bool isReturn,
+        out string[] factoryNames,
+        out TypeRef? elementType)
+    {
+        factoryNames = [];
+        elementType = null;
+        switch (managed.Kind)
+        {
+            case TypeRefKind.SzArray when managed.ElementType is { } array:
+                factoryNames = ["Array"];
+                elementType = array;
+                return true;
+            case TypeRefKind.GenericInstance
+                when managed is
+                {
+                    ElementType: { } definition,
+                    TypeArguments: [var argument],
+                }:
+            {
+                if (IsCoreLibType(
+                    definition,
+                    "System.Threading.Tasks",
+                    "Task`1"))
+                {
+                    factoryNames = ["Task"];
+                    elementType = argument;
+                    return true;
+                }
+                if (IsCoreLibType(definition, "System", "Nullable`1"))
+                {
+                    factoryNames = ["Nullable"];
+                    elementType = argument;
+                    return true;
+                }
+                if (IsCoreLibType(definition, "System", "Span`1"))
+                {
+                    factoryNames = ["Span"];
+                    elementType = argument;
+                    return true;
+                }
+                if (IsCoreLibType(definition, "System", "ArraySegment`1"))
+                {
+                    factoryNames = ["ArraySegment"];
+                    elementType = argument;
+                    return true;
+                }
+                return false;
+            }
+            case TypeRefKind.Definition:
+                break;
+            default:
+                return false;
+        }
+
+        if (IsTrustedRuntimeJavaScriptType(managed, "JSObject"))
+        {
+            factoryNames = ["get_JSObject"];
+            return true;
+        }
+        if (IsCoreLibType(managed, "System.Threading.Tasks", "Task"))
+        {
+            factoryNames = ["Task"];
+            return true;
+        }
+        if (managed.Assembly != TypeRef.CoreLibrary
+            || !managed.TrustedFrameworkAssembly)
+        {
+            return false;
+        }
+
+        factoryNames = (managed.Namespace, managed.Name) switch
+        {
+            ("System", "Void") when isReturn => ["get_Void", "get_Discard"],
+            ("System", "String") => ["get_String"],
+            ("System", "Boolean") => ["get_Boolean"],
+            ("System", "Char") => ["get_Char"],
+            ("System", "Byte") => ["get_Byte"],
+            ("System", "Int16") => ["get_Int16"],
+            ("System", "Int32") => ["get_Int32"],
+            ("System", "Int64") => ["get_BigInt64", "get_Int52"],
+            ("System", "Single") => ["get_Single"],
+            ("System", "Double") => ["get_Double"],
+            ("System", "IntPtr") => ["get_IntPtr"],
+            ("System", "DateTime") => ["get_DateTime"],
+            ("System", "DateTimeOffset") => ["get_DateTimeOffset"],
+            ("System", "Exception") => ["get_Exception"],
+            ("System", "Object") => ["get_Object"],
+            _ => [],
+        };
+        return factoryNames.Length != 0
+            && HasExactDefinitionName(
+                managed,
+                managed.Namespace,
+                managed.Name);
+    }
+
+    static bool IsJsMarshalerTypeFactory(MemberRef method) =>
+        method.Kind == MemberKind.Method
+        && !method.HasThis
+        && method.GenericArity == 0
+        && IsTrustedRuntimeJavaScriptType(
+            method.DeclaringType,
+            "JSMarshalerType")
+        && IsTrustedRuntimeJavaScriptType(
+            method.ReturnType,
+            "JSMarshalerType")
+        && method.ParameterTypes.All(parameter =>
+            IsTrustedRuntimeJavaScriptType(parameter, "JSMarshalerType"));
+
+    static bool IsCoreLibType(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName) =>
+        type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            TrustedFrameworkAssembly: true,
+        }
+        && type.Namespace == expectedNamespace
+        && type.Name == expectedName
+        && HasExactDefinitionName(type, expectedNamespace, expectedName);
 
     static string? RuntimeBindingName(
         ApiAssemblyIdentity? assemblyIdentity,
@@ -1032,15 +1348,7 @@ public static class JsExportSurfaceBuilder
         && type.Name == name;
 
     static bool IsCoreType(TypeRef type, string name) =>
-        type is
-        {
-            Kind: TypeRefKind.Definition,
-            Assembly: TypeRef.CoreLibrary,
-            Namespace: "System",
-            TrustedFrameworkAssembly: true,
-        }
-        && type.Name == name
-        && HasExactDefinitionName(type, "System", name);
+        IsCoreLibType(type, "System", name);
 
     static bool IsGeneratedRuntimeWrapper(
         MethodIdentity method,
@@ -1150,6 +1458,9 @@ public static class JsExportSurfaceBuilder
         if (optionsGetters is not [var optionsGetter]
             || runtimeTypes is not [var runtimeType]
             || getTypeInfos is not [var getTypeInfo]
+            || optionsGetter.IsReachable != true
+            || runtimeType.IsReachable != true
+            || getTypeInfo.IsReachable != true
             || getTypeInfo.ReceiverSource is not
                 {
                     IsComplete: true,
@@ -1170,37 +1481,255 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        if (!callsByMethod.TryGetValue(
+        // The options the generated getter reads belong to this context
+        // instance, and the runtime type handle names the very root this
+        // property is registered for.
+        if (optionsGetter.ResolvedReceiverValue?.Single is not
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: 0,
+                }
+            || rootGetter.ReturnType is not
+                {
+                    Kind: TypeRefKind.GenericInstance,
+                    ElementType: { } jsonTypeInfoDefinition,
+                    TypeArguments: [var registeredRoot],
+                }
+            || !IsTrustedSystemTextJsonType(
+                jsonTypeInfoDefinition,
+                "System.Text.Json.Serialization.Metadata",
+                "JsonTypeInfo`1")
+            || runtimeType.ResolvedArgumentValues.Count != 1
+            || runtimeType.ResolvedArgumentValues[0].Single is not
+                {
+                    Kind: ResolvedValueSourceKind.TypeHandle,
+                    Type: { } handleType,
+                }
+            || !handleType.Equals(registeredRoot))
+        {
+            return false;
+        }
+
+        if (!HasAuthenticatedRootCacheFlow(
+                bodyIndex,
+                context,
+                rootGetterToken,
+                getTypeInfo.ILOffset))
+        {
+            return false;
+        }
+
+        return HasAuthenticatedDefaultInstanceChain(
+            bodyIndex,
+            context,
+            defaultGetterToken,
+            staticConstructor,
+            callsByMethod);
+    }
+
+    /// <summary>
+    /// Requires the <c>GetTypeInfo</c> result to reach the generated cache
+    /// field on this instance, and the getter's cached read to come from that
+    /// same field.
+    /// </summary>
+    /// <remarks>
+    /// The generated getter returns a value merged from the cached-read path and
+    /// the freshly-created path, so call-only result-sink completeness cannot
+    /// prove it. Linking the store and the load instead is what rejects a body
+    /// that keeps every trusted call but drops the result on the floor.
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo</c>
+    /// gates it.
+    /// </remarks>
+    static bool HasAuthenticatedRootCacheFlow(
+        LibraryBodyIndex bodyIndex,
+        ApiType context,
+        int rootGetterToken,
+        int typeInfoCallOffset)
+    {
+        FieldStoreFact[] stores =
+        [
+            .. bodyIndex.FieldStores.Where(store =>
+                store.EvidenceMethod.MetadataToken == rootGetterToken),
+        ];
+        if (stores is not [var cacheStore]
+            || cacheStore.IsStatic
+            || cacheStore.IsReachable != true
+            || cacheStore.ReceiverArgumentIndex != 0
+            || cacheStore.DeclaringType is not { } cacheOwner
+            || !IsContextType(cacheOwner, context)
+            || cacheStore.Value.Single is not
+                {
+                    Kind: ResolvedValueSourceKind.CallResult,
+                    ILOffset: var storedOffset,
+                }
+            || storedOffset != typeInfoCallOffset)
+        {
+            return false;
+        }
+
+        FieldLoadFact[] loads =
+        [
+            .. bodyIndex.FieldLoads.Where(load =>
+                load.EvidenceMethod.MetadataToken == rootGetterToken),
+        ];
+        return loads is [var cacheLoad]
+            && !cacheLoad.IsStatic
+            && cacheLoad.IsReachable == true
+            && cacheLoad.FieldToken == cacheStore.FieldToken
+            && cacheLoad.ReceiverArgumentIndex == 0;
+    }
+
+    /// <summary>
+    /// Requires the linked default-instance chain the source generator emits:
+    /// a default <c>JsonSerializerOptions</c> stored in a static field, a copy
+    /// constructed from that field, the context constructed from that copy, the
+    /// context stored in a static field, and <c>get_Default</c> returning that
+    /// field.
+    /// </summary>
+    /// <remarks>
+    /// Every link is followed by value provenance rather than counted, so a real
+    /// generated context that also initializes unrelated user statics still
+    /// authenticates, while a second write to either linked field fails closed.
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedContextWithUnlinkedDefaultInstance</c>
+    /// and
+    /// <c>GeneratedJsExportAuthenticationTests.Build_AcceptsGeneratedContextWithUnrelatedStaticOptions</c>
+    /// gate the pair.
+    /// </remarks>
+    static bool HasAuthenticatedDefaultInstanceChain(
+        LibraryBodyIndex bodyIndex,
+        ApiType context,
+        int defaultGetterToken,
+        MethodIdentity staticConstructor,
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> callsByMethod)
+    {
+        MethodResultSink[] returns =
+        [
+            .. bodyIndex.ResultSinks.Where(sink =>
+                sink.EvidenceMethod.MetadataToken == defaultGetterToken
+                && sink.Kind == MethodResultSinkKind.MethodReturn),
+        ];
+        if (returns is not [var defaultReturn]
+            || defaultReturn.ResolvedValue?.Single is not
+                {
+                    Kind: ResolvedValueSourceKind.StaticFieldLoad,
+                    Token: var instanceFieldToken,
+                    Type: { } instanceFieldOwner,
+                }
+            || !IsContextType(instanceFieldOwner, context)
+            || !callsByMethod.TryGetValue(
                 staticConstructor.MetadataToken,
                 out ImmutableArray<DirectCall> initializerCalls))
         {
             return false;
         }
 
-        return initializerCalls.Count(call =>
-                call.Kind == CallKind.NewObject
-                && IsJsonSerializerOptionsConstructor(
-                    call.Callee,
-                    copy: false))
-                == 1
-            && initializerCalls.Count(call =>
-                call.Kind == CallKind.NewObject
-                && IsJsonSerializerOptionsConstructor(
-                    call.Callee,
-                    copy: true))
-                == 1
-            && initializerCalls.Count(call =>
-                call.Kind == CallKind.NewObject
-                && call.Callee.Name == ".ctor"
-                && IsContextType(
-                    call.Callee.DeclaringType,
-                    context)
-                && call.Callee.ParameterTypes is [var options]
-                && IsTrustedSystemTextJsonType(
-                    options,
-                    "System.Text.Json",
-                    "JsonSerializerOptions"))
-                == 1;
+        if (!TryGetSingleStaticInitialization(
+                bodyIndex,
+                staticConstructor,
+                instanceFieldToken,
+                out ResolvedValueSource? instanceValue)
+            || instanceValue is not
+                {
+                    Kind: ResolvedValueSourceKind.NewObjectResult,
+                    ILOffset: var contextOffset,
+                })
+        {
+            return false;
+        }
+
+        DirectCall? contextConstruction = initializerCalls.FirstOrDefault(
+            call => call.ILOffset == contextOffset);
+        if (contextConstruction is not
+                { Kind: CallKind.NewObject, IsReachable: true }
+            || contextConstruction.Callee.Name != ".ctor"
+            || !IsContextType(
+                contextConstruction.Callee.DeclaringType,
+                context)
+            || contextConstruction.Callee.ParameterTypes is not [var options]
+            || !IsTrustedSystemTextJsonType(
+                options,
+                "System.Text.Json",
+                "JsonSerializerOptions")
+            || contextConstruction.ResolvedArgumentValues.Count != 1
+            || contextConstruction.ResolvedArgumentValues[0].Single is not
+                {
+                    Kind: ResolvedValueSourceKind.NewObjectResult,
+                    ILOffset: var copyOffset,
+                })
+        {
+            return false;
+        }
+
+        DirectCall? copyConstruction = initializerCalls.FirstOrDefault(
+            call => call.ILOffset == copyOffset);
+        if (copyConstruction is not
+                { Kind: CallKind.NewObject, IsReachable: true }
+            || !IsJsonSerializerOptionsConstructor(
+                copyConstruction.Callee,
+                copy: true)
+            || copyConstruction.ResolvedArgumentValues.Count != 1
+            || copyConstruction.ResolvedArgumentValues[0].Single is not
+                {
+                    Kind: ResolvedValueSourceKind.StaticFieldLoad,
+                    Token: var optionsFieldToken,
+                    Type: { } optionsFieldOwner,
+                }
+            || !IsContextType(optionsFieldOwner, context))
+        {
+            return false;
+        }
+
+        if (!TryGetSingleStaticInitialization(
+                bodyIndex,
+                staticConstructor,
+                optionsFieldToken,
+                out ResolvedValueSource? optionsValue)
+            || optionsValue is not
+                {
+                    Kind: ResolvedValueSourceKind.NewObjectResult,
+                    ILOffset: var optionsOffset,
+                })
+        {
+            return false;
+        }
+
+        DirectCall? optionsConstruction = initializerCalls.FirstOrDefault(
+            call => call.ILOffset == optionsOffset);
+        return optionsConstruction is
+                { Kind: CallKind.NewObject, IsReachable: true }
+            && IsJsonSerializerOptionsConstructor(
+                optionsConstruction.Callee,
+                copy: false);
+    }
+
+    /// <summary>
+    /// The provenance of the one reachable static write to
+    /// <paramref name="fieldToken"/> anywhere in the assembly, which must live in
+    /// the context's static constructor. A second write — proven or not — fails
+    /// closed; writes to unrelated fields are ignored.
+    /// </summary>
+    static bool TryGetSingleStaticInitialization(
+        LibraryBodyIndex bodyIndex,
+        MethodIdentity staticConstructor,
+        int fieldToken,
+        out ResolvedValueSource? value)
+    {
+        value = null;
+        FieldStoreFact[] stores =
+        [
+            .. bodyIndex.FieldStores.Where(store =>
+                store.IsStatic && store.FieldToken == fieldToken),
+        ];
+        if (stores is not [var store]
+            || store.EvidenceMethod.MetadataToken
+                != staticConstructor.MetadataToken
+            || store.IsReachable != true)
+        {
+            return false;
+        }
+
+        value = store.Value.Single;
+        return value is not null;
     }
 
     static bool IsJsonSerializerContextOptionsGetter(

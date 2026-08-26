@@ -24,7 +24,12 @@
   string-literal argument equals the export's structured runtime binding name,
   non-empty equal metadata/body module MVIDs, an exact
   `System.Runtime.InteropServices.JavaScript` `JSMarshalerArgument`, plus a
-  complete wrapper-to-stub-to-export MethodDef call chain. A diagnosed
+  **reachable** wrapper-to-stub-to-export MethodDef call chain. The
+  registration's second argument must be an `int32` literal equal to the
+  decimal suffix of the wrapper's own `__Wrapper_<Name>_<digits>` name, and its
+  `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
+  element per export return and parameter, each built by a
+  `JSMarshalerType` factory compatible with that managed type. A diagnosed
   registration, wrapper, or stub body, prefix sibling, or handwritten candidate
   cannot publish another export.
   An attributed body in a non-partial type is rejected because it has no
@@ -52,10 +57,19 @@ Serializer-context getters authenticate registered roots only when their
 context carries the
 `[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
 the System.Text.Json source generator and Analysis confirms the known generated
-implementation. The root getter must pass its context `Options` and exact
-`typeof(T)` result to trusted `JsonSerializerOptions.GetTypeInfo`; the context
-initializer must create the default options, copy them, and construct the
-context. The publicly constructible marker is classification evidence, not
+implementation. The root getter must pass its own `this` receiver to the
+context's `Options` getter and an exact `ldtoken` of the registered root type
+to trusted `JsonSerializerOptions.GetTypeInfo`, and the `GetTypeInfo` result
+must be the value stored into the instance cache field that the getter's entry
+reload reads back. The context initializer must construct the default options
+into a static field, load that field into the `JsonSerializerOptions` copy
+constructor, pass the copy to the context constructor, and store the constructed
+context into the exact field `Default` returns. Every one of those calls and
+field accesses must be reachable from its body entry. Unrelated static
+initialization in the same generated `.cctor` — for example a user-written
+partial's own `public static readonly JsonSerializerOptions` — is allowed,
+because the chain is followed link by link rather than counted; ambiguity fails
+closed. The publicly constructible marker is classification evidence, not
 publication authority. A handwritten context with matching
 `[JsonSerializable]`, marker, property name, and `JsonTypeInfo<T>` signature
 remains unsupported when reached. A matching property must be an instance,
@@ -100,6 +114,50 @@ calls the other.
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.
+
+## Linked evidence, not adjacent evidence
+
+Every fact above has to be *connected* to the next one. A trusted call present
+in a body, a constructor counted in a `.cctor`, or a `JSMarshalerType` factory
+sitting near a registration is not evidence by itself, because generated IL can
+be edited to keep all of those while breaking what they produce. Authentication
+therefore rests on Analysis's resolved-value union, field store/load facts, and
+block reachability rather than on presence or proximity.
+
+`GeneratedJsExportAuthenticationTests` gates that distinction by patching the
+IL bytes of the real compiled fixtures and asserting the unpatched control still
+publishes:
+
+- `Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo` — trusted `Options`,
+  `GetTypeFromHandle`, and `GetTypeInfo` calls all remain; only the `castclass`
+  that carries the result into the cache field is replaced.
+- `Build_RejectsGeneratedContextWithUnlinkedDefaultInstance` — all three
+  expected constructors still run; only the store that links the constructed
+  context to the field `Default` returns is removed.
+- `Build_RejectsUnreachableGeneratedWrapperEntry` — the wrapper still contains
+  its call to the generated stub, but returns before reaching it.
+- `Build_RejectsRegistrationWithMismatchedSignatureHash` — the registration
+  keeps its exact binding name; only the `int32` hash changes.
+- `Build_RejectsRegistrationWithSwappedDescriptorElement` — the registration
+  keeps its name, hash, and element count; only the marshaler the element holds
+  stops matching the export's own return type.
+- `Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` — the positive
+  control, a real source-generated context whose user partial adds an unrelated
+  static `JsonSerializerOptions`.
+- `TsBindGen_ReadsOneImageForMetadataAndBodyEvidence` — `tsbindgen` reads the
+  assembly once and shares one immutable image, so a metadata surface cannot be
+  composed with bodies read separately from different content.
+
+Two boundaries are deliberately *not* claimed. The wrapper's pointer and byref
+argument marshaling is out of scope: publication proves the chain is reachable
+and correctly named, shaped, and described, not that each `JSMarshalerArgument`
+slot is threaded correctly inside the generated stub. And the descriptor check
+compares the generated descriptor graph against the export's managed signature
+through a compatibility table; it is not a reimplementation of the runtime's
+`JSExportGenerator`. An export whose managed type that table does not recognize
+— a delegate parameter, or a `[JSMarshalAs]` override that redirects marshaling
+— fails visibly with an unsupported-surface message rather than being published
+on weaker evidence.
 
 Generated serializer-root properties use System.Text.Json's default name
 grammar: a vector appends `Array`, while a rank-*N* multidimensional array

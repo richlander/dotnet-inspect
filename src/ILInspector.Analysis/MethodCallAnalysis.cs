@@ -18,6 +18,20 @@ internal interface IMethodCallResolver
     int DefinitionToken(int operandToken);
 
     string? ResolveUserString(int token);
+
+    /// <summary>
+    /// The type behind a <c>ldtoken</c>/<c>initobj</c> type operand. Defaults to
+    /// an unsupported answer so a resolver that does not carry metadata leaves
+    /// the value unresolved rather than guessing.
+    /// </summary>
+    TypeRef ResolveType(int token) => TypeRef.Unsupported("type token");
+
+    /// <summary>
+    /// The declaring type and name behind a field operand, or <c>(null, null)</c>
+    /// when the operand is not a resolvable field.
+    /// </summary>
+    (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
+        => (null, null);
 }
 
 /// <summary>
@@ -25,7 +39,7 @@ internal interface IMethodCallResolver
 /// Safety policy remains owned by <see cref="MethodSafetyAnalysis"/> and is
 /// delegated within the same instruction traversal.
 /// </summary>
-internal static class MethodCallAnalysis
+internal static partial class MethodCallAnalysis
 {
     /// <summary>
     /// Appends results incrementally so calls and safety evidence emitted before
@@ -40,10 +54,15 @@ internal static class MethodCallAnalysis
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
         bool includeIndirectOpcodes,
         bool includeCallValueFlow = true,
-        ImmutableArray<MethodResultSink>.Builder? resultSinks = null)
+        ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
+        ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
+        ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null)
     {
         var caller = context.Method;
         ReachingDefinitionsResult? reaching = null;
+        ImmutableArray<bool> reachability = includeCallValueFlow
+            ? ComputeBlockReachability(context)
+            : default;
         foreach (var instruction in context.Instructions.Instructions)
         {
             int offset = instruction.Offset;
@@ -84,6 +103,8 @@ internal static class MethodCallAnalysis
                         Multiplicity = multiplicityAt(offset),
                         ResultUse = resultUse.Use,
                         ResultConsumerOffset = resultUse.ConsumerOffset,
+                        IsReachable =
+                            IsReachableAt(context, reachability, offset),
                     });
                     if (MethodSafetyAnalysis.InspectCall(
                             caller,
@@ -113,6 +134,8 @@ internal static class MethodCallAnalysis
                         Opcode = FormatCallOpcode(opcode),
                         ReturnAddress = instruction.NextOffset,
                         Multiplicity = multiplicityAt(offset),
+                        IsReachable =
+                            IsReachableAt(context, reachability, offset),
                     });
                     unsafeEvidence.Add(
                         MethodSafetyAnalysis.CallIndirect(
@@ -144,11 +167,22 @@ internal static class MethodCallAnalysis
                 reaching,
                 resolver);
             CollectArgumentSources(calls, sources);
+            CollectResolvedValues(calls, sources);
             CollectResultSinks(
                 context,
                 callsByOffset,
                 resultSinks,
                 sources);
+            if (fieldStores is not null && fieldLoads is not null)
+            {
+                CollectFieldAccesses(
+                    context,
+                    resolver,
+                    sources,
+                    reachability,
+                    fieldStores,
+                    fieldLoads);
+            }
             reaching = sources.ReachingDefinitions;
         }
     }
@@ -286,7 +320,12 @@ internal static class MethodCallAnalysis
                 instruction.Offset,
                 kind,
                 sinkSources.CallOffsets,
-                sinkSources.IsComplete));
+                sinkSources.IsComplete)
+            {
+                ResolvedValue = sources.ResolveStackSlot(
+                    instruction.Offset,
+                    depthFromTop: 0),
+            });
         }
     }
 
@@ -308,8 +347,12 @@ internal static class MethodCallAnalysis
         for (int index = 0; index < calls.Count; index++)
         {
             DirectCall call = calls[index];
-            if (call.Kind is not (CallKind.Call or CallKind.CallVirtual))
+            if (call.Kind is not (CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject))
+            {
                 continue;
+            }
 
             var arguments =
                 ImmutableArray.CreateBuilder<CallArgumentSource>(
@@ -329,7 +372,7 @@ internal static class MethodCallAnalysis
             }
 
             CallReceiverSource? receiver = null;
-            if (call.Callee.HasThis)
+            if (call.Kind is not CallKind.NewObject && call.Callee.HasThis)
             {
                 SourceSet source = sources.CallReceiverSource(
                     call.ILOffset,
@@ -359,7 +402,7 @@ internal static class MethodCallAnalysis
         => call.Kind is CallKind.Call or CallKind.CallVirtual
             && IsNonVoid(call);
 
-    sealed class StackValueSourceResolver
+    sealed partial class StackValueSourceResolver
     {
         readonly MethodBodyAnalysisContext _context;
         readonly IReadOnlyDictionary<int, DirectCall> _callsByOffset;

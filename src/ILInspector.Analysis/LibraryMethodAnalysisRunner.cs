@@ -138,6 +138,8 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
     public ImmutableArray<DirectCall> Calls;
     public ImmutableArray<MethodResultSink> ResultSinks;
+    public ImmutableArray<FieldStoreFact> FieldStores;
+    public ImmutableArray<FieldLoadFact> FieldLoads;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
@@ -203,6 +205,14 @@ internal sealed class LibraryMethodAnalysisRunner(
         ImmutableArray<MethodResultSink>.Builder? resultSinks =
             includeJsonWireContractFlow
                 ? ImmutableArray.CreateBuilder<MethodResultSink>()
+                : null;
+        ImmutableArray<FieldStoreFact>.Builder? fieldStores =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<FieldStoreFact>()
+                : null;
+        ImmutableArray<FieldLoadFact>.Builder? fieldLoads =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<FieldLoadFact>()
                 : null;
         MetadataReader reader = _infrastructure.Reader;
         LeakTriageFailureKind leakFailureKind =
@@ -497,7 +507,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         || hasUnsafeLocals,
                     includeCallValueFlow:
                         includeJsonWireContractFlow,
-                    resultSinks: resultSinks);
+                    resultSinks: resultSinks,
+                    fieldStores: fieldStores,
+                    fieldLoads: fieldLoads);
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -673,6 +685,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.UnsafeEvidence = evidence.ToImmutable();
             result.Calls = calls.ToImmutable();
             result.ResultSinks = resultSinks?.ToImmutable() ?? [];
+            result.FieldStores = fieldStores?.ToImmutable() ?? [];
+            result.FieldLoads = fieldLoads?.ToImmutable() ?? [];
         }
         return result;
     }

@@ -69,6 +69,8 @@ public sealed class LibraryBodyIndex
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
         ResultSinks = analysis.Methods.ResultSinks;
+        FieldStores = analysis.Methods.FieldStores;
+        FieldLoads = analysis.Methods.FieldLoads;
         _physicalDirectCalls =
         [
             .. DirectCalls.Select(static call =>
@@ -133,6 +135,24 @@ public sealed class LibraryBodyIndex
     /// requested.
     /// </summary>
     public ImmutableArray<MethodResultSink> ResultSinks { get; }
+
+    /// <summary>
+    /// Every physical <c>stsfld</c>/<c>stfld</c> site with the resolved
+    /// provenance of the value it stores, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. Unproven stores are present with an unresolved value so a
+    /// consumer asking "is this the only write to this field?" fails closed.
+    /// </summary>
+    public ImmutableArray<FieldStoreFact> FieldStores { get; }
+
+    /// <summary>
+    /// Every physical <c>ldsfld</c>/<c>ldfld</c> site, with the receiver
+    /// argument Analysis proved for an instance load, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. The load counterpart of <see cref="FieldStores"/>, needed
+    /// where a cached read never reaches a resolvable stack slot.
+    /// </summary>
+    public ImmutableArray<FieldLoadFact> FieldLoads { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
@@ -993,7 +1013,9 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null,
         ImmutableArray<AnalysisDiagnostic> diagnostics = default,
         ImmutableArray<DirectCall> directCalls = default,
-        ImmutableArray<MethodResultSink> resultSinks = default)
+        ImmutableArray<MethodResultSink> resultSinks = default,
+        ImmutableArray<FieldStoreFact> fieldStores = default,
+        ImmutableArray<FieldLoadFact> fieldLoads = default)
         => new(
             path: "",
             analysis: new(
@@ -1002,6 +1024,8 @@ public sealed class LibraryBodyIndex
                     Methods: methods,
                     DirectCalls: directCalls.IsDefault ? [] : directCalls,
                     ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
+                    FieldStores: fieldStores.IsDefault ? [] : fieldStores,
+                    FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),

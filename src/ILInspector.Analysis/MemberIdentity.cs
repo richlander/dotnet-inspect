@@ -386,6 +386,45 @@ public sealed record DirectCall(
     /// gates direct-call and unresolved-raw receiver evidence.
     /// </remarks>
     public CallReceiverSource? ReceiverSource { get; init; }
+
+    /// <summary>
+    /// Whether the block containing this call is reachable from the body entry.
+    /// Null when the EH-aware block graph is incomplete or
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> was not
+    /// requested, so an unknown answer never reads as "reachable".
+    /// </summary>
+    /// <remarks>
+    /// Computed from the shared EH-aware block graph through the
+    /// <c>ForwardDataflow</c> kernel, not from evaluation-stack visitation, so a
+    /// call the interpreter happens not to walk is still classified.
+    /// <c>MethodCallResolvedValueTests.MarksCallsAfterUnconditionalBranchUnreachable</c>
+    /// gates it.
+    /// </remarks>
+    public bool? IsReachable { get; init; }
+
+    /// <summary>
+    /// Resolved provenance for each declared argument, indexed by position.
+    /// This is the newer union described on <see cref="ResolvedValueSet"/>; it
+    /// coexists with <see cref="ArgumentSources"/> rather than reinterpreting
+    /// it. Materialized for <c>call</c>, <c>callvirt</c>, and <c>newobj</c> by
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/>.
+    /// </summary>
+    public ResolvedValueSets ResolvedArgumentValues { get; init; } =
+        ResolvedValueSets.Empty;
+
+    /// <summary>
+    /// Resolved provenance for an instance call's receiver. Null for static
+    /// calls, <c>newobj</c>, and when the feature is not requested.
+    /// </summary>
+    public ResolvedValueSet? ResolvedReceiverValue { get; init; }
+
+    /// <summary>
+    /// Ordered element provenance for span-shaped arguments the C# compiler
+    /// built from a recognized inline-array or single-element
+    /// <c>ReadOnlySpan&lt;T&gt;</c> lowering.
+    /// </summary>
+    public SpanArgumentSources SpanArgumentSources { get; init; } =
+        SpanArgumentSources.Empty;
 }
 
 /// <summary>Conservative disposition of a direct call's produced value.</summary>
@@ -593,6 +632,20 @@ public sealed record MethodResultSink(
     /// gates the consumer boundary.
     /// </summary>
     public MethodIdentity? AsyncStateMachineSource { get; init; }
+
+    /// <summary>
+    /// The resolved provenance union for the sink value, independent of the
+    /// call-only <see cref="SourceCallOffsets"/>/<see cref="IsComplete"/> pair.
+    /// Null when the body was analyzed without call value flow.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a separate fact: <see cref="IsComplete"/> keeps its existing
+    /// "every source is a direct non-void call result" meaning for current
+    /// consumers, while this union also proves literals, field loads, arguments,
+    /// and <c>newobj</c> results.
+    /// <c>MethodCallResolvedValueTests.ResolvesResultSinkValues</c> gates it.
+    /// </remarks>
+    public ResolvedValueSet? ResolvedValue { get; init; }
 }
 
 public sealed record CalledTypeSummary(

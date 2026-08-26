@@ -37,6 +37,12 @@ public static partial class ScalarContextOptionsFixtureExports
             42,
             context.Int32);
     }
+
+    [JSExport]
+    public static string SerializeExtraStaticsInt() =>
+        JsonSerializer.Serialize(
+            42,
+            ExtraStaticsScalarContext.Default.Int32);
 }
 
 [JsonSerializable(typeof(int))]
@@ -64,3 +70,16 @@ public sealed partial class SupportedScalarContextOptions
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 public sealed partial class UnsupportedWebDefaultsContext
     : JsonSerializerContext;
+
+/// <summary>
+/// A source-generated context whose user-written partial adds an unrelated
+/// static <see cref="JsonSerializerOptions"/>. The compiler merges that
+/// initializer into the same generated <c>.cctor</c>, so the default-instance
+/// chain has to be authenticated by following its links rather than by counting
+/// constructors in the body.
+/// </summary>
+[JsonSerializable(typeof(int))]
+public sealed partial class ExtraStaticsScalarContext : JsonSerializerContext
+{
+    public static readonly JsonSerializerOptions Extra = new();
+}

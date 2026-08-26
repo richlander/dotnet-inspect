@@ -36,6 +36,18 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 TypeScript would add its own "personality" layer here without needing to touch
 the OM.
 
+The inspected assembly is read exactly once, into one immutable image that is
+handed to both `ApiSurfaceExtractor` and
+`LibraryBodyIndex.OpenFromPrefetchedImage`. Reading it twice would let a
+metadata surface be paired with method bodies from different file content that
+happens to share the same MVID and token layout, and every downstream
+authentication gate would then be checking one image's declarations against
+another image's IL. A read failure is contained as an ordinary diagnostic
+rather than escaping as an unhandled exception.
+`GeneratedJsExportAuthenticationTests.TsBindGen_ReadsOneImageForMetadataAndBodyEvidence`
+gates the single read by dogfooding `LibraryBodyIndex` over `tsbindgen`'s own
+assembly.
+
 JavaScript wrapper bindings use the namespace- and nesting-qualified declaring
 type path returned by `getAssemblyExports`, for example
 `exports.Acme.Widgets.Api.WidgetExports.GetWidget`. Global-namespace and nested

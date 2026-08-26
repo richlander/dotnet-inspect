@@ -34,4 +34,33 @@ public static class RuntimeJsExportWrapperName
 
         return true;
     }
+
+    /// <summary>
+    /// The unsigned decimal suffix the SDK generator appends to a wrapper name.
+    /// The generator derives it from the export's marshaled signature and passes
+    /// the same value as <c>BindManagedFunction</c>'s signature hash, so an
+    /// exact match ties the registration to this wrapper rather than to a
+    /// neighbouring one.
+    /// </summary>
+    /// <remarks>
+    /// Parsed as <see cref="uint"/> because the generator formats the hash
+    /// unsigned while the IL literal is a signed <c>int32</c>.
+    /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsRegistrationWithMismatchedSignatureHash</c>
+    /// gates the comparison.
+    /// </remarks>
+    public static bool TryGetSignatureHash(
+        string wrapperName,
+        string exportName,
+        out uint signatureHash)
+    {
+        signatureHash = 0;
+        if (!IsCandidateFor(wrapperName, exportName))
+            return false;
+
+        return uint.TryParse(
+            wrapperName.AsSpan($"__Wrapper_{exportName}_".Length),
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out signatureHash);
+    }
 }

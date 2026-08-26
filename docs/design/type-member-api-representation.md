@@ -162,6 +162,28 @@ and
 `JsExportSurfaceBuilderTests.Build_RejectsReachedHandwrittenSerializerContextImplementation`
 are the gates.
 
+Evidence for generated JSExport and serializer-context bodies is **linked, not
+adjacent**. A call present in a body, a constructor counted in a `.cctor`, or a
+descriptor element sitting near a registration proves nothing on its own: each
+has to be reachable from the body entry and connected to the next fact by a
+resolved value. The root getter's `GetTypeInfo` result must be the value stored
+into the cache field the entry reload reads; the default-instance chain must run
+default-options `newobj` to its static field, that field's load into the
+copy constructor, that copy into the context constructor, and that context into
+the field `get_Default` returns; and the registration's signature hash and
+`JSMarshalerType` descriptor elements must equal the wrapper name's own decimal
+suffix and the export's managed signature. Unrelated static initialization in
+the same `.cctor` — a user partial's own `static readonly JsonSerializerOptions`
+— is allowed precisely because the chain is followed rather than counted.
+`GeneratedJsExportAuthenticationTests.Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo`,
+`Build_RejectsGeneratedContextWithUnlinkedDefaultInstance`,
+`Build_RejectsUnreachableGeneratedWrapperEntry`,
+`Build_RejectsRegistrationWithMismatchedSignatureHash`,
+`Build_RejectsRegistrationWithSwappedDescriptorElement`, and
+`Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` are the gates; each
+negative patches the IL bytes of a real compiler-generated fixture and asserts
+the unpatched control still publishes.
+
 #### `ILInspector.Analysis`
 
 | Currency | Scope | Answers | Does not answer |
@@ -170,6 +192,19 @@ are the gates.
 | `TypeReferenceOrigin`, `ResolvableTypeReference` | One decoded named type | Exact metadata lookup name and the assembly/current-assembly/core-library/module origin that supplied it | Resolution without the source candidate or structural `TypeRef` equality |
 | `CallerScopeReachabilityPlan`, `CallerResolutionPlan` | One direct-caller query | Which scope candidates can reach the target and how decoded call-site types correspond to its definition | Transitive graph identity or cross-query persistence |
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
+| `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
+| `FieldStoreFact`, `FieldLoadFact` | One `stsfld`/`stfld` or `ldsfld`/`ldfld` instruction | Which field the instruction touches, whether its receiver is an argument, whether the block is reachable, and (for stores) the resolved stored value | Whether some other body also writes the field, or aliased/indirect access |
+| `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
+
+`ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
+and `MethodResultSink.SourceCallOffsets`, not a reinterpretation of them. The
+older currencies answer "was every reaching producer a direct call?", which is
+call-only by construction; the union answers "which producers reach this value?"
+across the wider set of kinds above. Both are populated together and neither
+reads the other, so existing consumers keep their exact semantics.
+`MethodCallResolvedValueTests` is the gate for the union; the call-only
+completeness boundary keeps its own
+`MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate.
 
 #### `ILInspector.Decompiler`
 

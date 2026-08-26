@@ -396,6 +396,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         public int DefinitionToken(int operandToken)
             => owner.PeelToDefinitionToken(operandToken);
 
+        public TypeRef ResolveType(int token)
+            => owner.ResolveTypeToken(token, scope);
+
+        public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(
+            int fieldToken)
+            => owner.ResolveFieldOwner(fieldToken, scope);
+
         public string? ResolveUserString(int token)
         {
             if ((token & unchecked((int)0xFF000000))
