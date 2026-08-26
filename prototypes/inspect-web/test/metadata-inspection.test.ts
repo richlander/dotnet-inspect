@@ -465,3 +465,29 @@ test("explorer heap failures remain visible for the current explorer", async () 
   assert.equal(renders, 2);
   assert.equal(scrolls, 1);
 });
+
+test("explorer typed heap failures remain visible and can retry", async () => {
+  const explorer = explorerState({ focusHeap: "String" });
+  const state = inspectionState({ explorer });
+  let queries = 0;
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageHeap: async () => {
+        queries++;
+        return {
+          ...heapResult(),
+          coverage: "NotEnumerable",
+          error: "InvalidImage: identity mismatch",
+        };
+      },
+    }));
+
+  await coordinator.loadExplorerHeap("String");
+  await coordinator.loadExplorerHeap("String");
+
+  assert.equal(queries, 2);
+  assert.equal(
+    explorer.heapWindows.String?.error,
+    "InvalidImage: identity mismatch");
+  assert.equal(explorer.heapWindows.String?.data, null);
+});

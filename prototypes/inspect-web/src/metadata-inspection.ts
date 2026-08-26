@@ -192,10 +192,11 @@ export function createMetadataInspectionCoordinator(
           ? await dependencies.queryPlatformHeap(explorer, heapName)
           : await dependencies.queryPackageHeap(explorer, heapName);
         if (state.explorer !== explorer) return;
+        const error = result.error || "";
         explorer.heapWindows[heapName] = {
           loading: false,
-          error: "",
-          data: result,
+          error,
+          data: error ? null : result,
         };
       } catch (error) {
         if (state.explorer !== explorer) return;

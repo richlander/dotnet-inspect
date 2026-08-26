@@ -153,6 +153,7 @@ export interface HeapListingData {
   entries?: readonly HeapListingEntry[];
   rowsTruncated?: boolean;
   entriesTruncated?: boolean;
+  error?: string | null;
 }
 
 export interface HeapWindow {
