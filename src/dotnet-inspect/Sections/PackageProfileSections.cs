@@ -292,8 +292,13 @@ public static class PackageProfileSections
             EmptyCell,
             EmptyCell,
             Cell(failure.Producer.Value),
-            Cell(failure.Kind.ToString()),
+            Cell(FailureStatus(failure)),
             Cell(failure.Message));
+
+    private static string FailureStatus(PackageProfileFailure failure) =>
+        failure.ManifestFailureReason is { } manifestReason
+            ? $"{failure.Kind}:{manifestReason}"
+            : failure.Kind.ToString();
 
     private static int MatchRowCount(PackageProfileMatch match)
     {

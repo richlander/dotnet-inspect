@@ -14,6 +14,8 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
+using InertText;
+using Markout;
 using Xunit;
 
 namespace DotnetInspector.Tests;
@@ -2443,6 +2445,15 @@ public class ApiOutputFormatterTests
         HostileOutputAssert.NoRenderingHazard(
             row.DependencyAssembly!,
             "inspection failure dependency assembly");
+        Assert.Equal(
+            TextConcern.Control,
+            row.OperationText.Concerns);
+        Assert.Equal(
+            TextConcern.Control | TextConcern.Format,
+            row.DetailText.Concerns);
+        Assert.Equal(
+            TextConcern.Control | TextConcern.Format,
+            row.DependencyAssemblyText!.Value.Concerns);
     }
 
     [Fact]
@@ -2486,6 +2497,373 @@ public class ApiOutputFormatterTests
                         version,
                         null,
                         null));
+    }
+
+    [Fact]
+    public void ApiPresentationRows_CarryConcernProvenance()
+    {
+        const string Hostile = "value\u202E\nINJECTED";
+        const TextConcern Concerns =
+            TextConcern.Control | TextConcern.Format;
+
+        InertString Text() => new(TextPolicy.Field, Hostile);
+
+        var surface = new CliApiSurface(
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text());
+        var info = new ApiInfoSection(
+            Text(),
+            types: 1,
+            methods: 2,
+            properties: 3,
+            Text(),
+            Text(),
+            Text());
+        var failure = new ApiInspectionFailureRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+        var summary = new TypeSummaryRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+        var member = new ApiTableRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+        var type = new ApiSurfaceTableRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+
+        InertString[] texts =
+        [
+            surface.NameText!.Value,
+            surface.DescriptionText!.Value,
+            surface.LibraryText!.Value,
+            surface.SourceText!.Value,
+            surface.VersionText!.Value,
+            surface.TfmText!.Value,
+            info.AssemblyText!.Value,
+            info.VersionText!.Value,
+            info.TfmText!.Value,
+            info.SourceText!.Value,
+            failure.OperationText,
+            failure.SubjectText,
+            failure.MechanismText,
+            failure.KindText,
+            failure.DetailText,
+            failure.AssemblyText!.Value,
+            failure.DependencyAssemblyText!.Value,
+            summary.KindText,
+            summary.TypeText,
+            summary.MembersText,
+            member.KindText,
+            member.NameText,
+            member.ReturnTypeText,
+            member.DetailText,
+            type.KindText,
+            type.TypeText,
+            type.MembersText,
+        ];
+
+        Assert.Equal(27, texts.Length);
+        Assert.All(
+            texts,
+            text => Assert.Equal(Concerns, text.Concerns));
+    }
+
+    [Fact]
+    public void ApiPresentationBuilders_PreserveConcernProvenance()
+    {
+        const string Hostile = "value\u202E\nINJECTED";
+        const TextConcern Concerns =
+            TextConcern.Control | TextConcern.Format;
+
+        var api = new ApiSurface
+        {
+            Name = Hostile,
+            Library = Hostile,
+            Source = Hostile,
+            Version = Hostile,
+            Tfm = Hostile,
+            Types =
+            [
+                new ApiType
+                {
+                    Name = Hostile,
+                    Kind = "class",
+                    Documentation = new DocComment
+                    {
+                        Summary = Hostile,
+                    },
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Accessibility = Hostile,
+                            Kind = "method",
+                            Name = Hostile,
+                            ReturnType = Hostile,
+                            Signature = $"void M({Hostile})",
+                        },
+                    ],
+                },
+                new ApiType
+                {
+                    Name = Hostile,
+                    Kind = Hostile,
+                    Documentation = new DocComment
+                    {
+                        Summary = Hostile,
+                    },
+                },
+            ],
+        };
+
+        var (compact, _) = ApiOutputFormatter.BuildFullApiView(
+            api,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Quiet,
+            });
+        Assert.Equal(Concerns, compact.NameText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.LibraryText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.SourceText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.VersionText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.TfmText!.Value.Concerns);
+
+        var (document, _) = ApiOutputFormatter.BuildFullApiView(
+            api,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Normal,
+                ShowDocs = true,
+            });
+        Assert.Equal(Concerns, document.NameText!.Value.Concerns);
+        Assert.Equal(
+            Concerns,
+            document.ApiInfo!.AssemblyText!.Value.Concerns);
+        TypeSummaryRow summary = Assert.Single(
+            document.ClassesWithDocs!);
+        Assert.Equal(Concerns, summary.TypeText.Concerns);
+        Assert.Equal(
+            api.Types[0].Documentation.Summary,
+            summary.Description);
+
+        var (memberTable, _) = ApiOutputFormatter.BuildTypeTableView(
+            api.Types[0],
+            new ApiOptions());
+        ApiTableRow member = Assert.Single(memberTable.Rows!);
+        Assert.Equal(Concerns, member.KindText.Concerns);
+        Assert.Equal(Concerns, member.NameText.Concerns);
+        Assert.Equal(Concerns, member.ReturnTypeText.Concerns);
+        Assert.Equal(Concerns, member.DetailText.Concerns);
+
+        var (surfaceTable, _) =
+            ApiOutputFormatter.BuildSurfaceTableView(
+                api,
+                new ApiOptions
+                {
+                    ShowDocs = true,
+                });
+        ApiSurfaceTableRow type = Assert.Single(
+            surfaceTable.RowsWithDescription!,
+            row => row.Kind.Contains("INJECTED", StringComparison.Ordinal));
+        Assert.Equal(Concerns, type.KindText.Concerns);
+        Assert.Equal(Concerns, type.TypeText.Concerns);
+        Assert.Equal(
+            api.Types[1].Documentation.Summary,
+            type.Description);
+    }
+
+    [Fact]
+    public void ApiPresentationTypedText_RendersAcrossMarkdownTsvAndJsonl()
+    {
+        const string Hostile = "value\u200D\uFEFF\t\u202E\nINJECTED";
+
+        InertString Text() => new(TextPolicy.Field, Hostile);
+
+        var document = new CliApiSurface(
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text())
+        {
+            Types = 1,
+            Methods = 2,
+            Properties = 3,
+            ApiInfo = new ApiInfoSection(
+                Text(),
+                types: 1,
+                methods: 2,
+                properties: 3,
+                Text(),
+                Text(),
+                Text()),
+            InspectionFailures =
+            [
+                new ApiInspectionFailureRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile),
+            ],
+            ClassesWithDocs =
+            [
+                new TypeSummaryRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    "description"),
+            ],
+        };
+        var memberTable = new ApiTypeTableView
+        {
+            Rows =
+            [
+                new ApiTableRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile),
+            ],
+        };
+        var surfaceTable = new ApiSurfaceTableView
+        {
+            RowsWithDescription =
+            [
+                new ApiSurfaceTableRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    "description"),
+            ],
+        };
+
+        string markdown = MarkoutSerializer.Serialize(
+            document,
+            ApiViewContext.Default);
+        string memberTsv = RenderApiTable(
+            memberTable,
+            tsv: true,
+            jsonl: false);
+        string memberJsonl = RenderApiTable(
+            memberTable,
+            tsv: false,
+            jsonl: true);
+        string summaryJsonl = RenderApiTable(
+            document,
+            tsv: false,
+            jsonl: true,
+            includeSections: ["Classes"]);
+        string surfaceTsv = RenderApiTable(
+            surfaceTable,
+            tsv: true,
+            jsonl: false);
+        string surfaceJsonl = RenderApiTable(
+            surfaceTable,
+            tsv: false,
+            jsonl: true);
+
+        foreach (string output in new[]
+        {
+            markdown,
+            memberTsv,
+            memberJsonl,
+            summaryJsonl,
+            surfaceTsv,
+            surfaceJsonl,
+        })
+        {
+            HostileOutputAssert.MarkersRendered(
+                output,
+                "API presentation",
+                "INJECTED");
+            HostileOutputAssert.NoRenderingHazard(
+                output,
+                "API presentation");
+            HostileOutputAssert.NoLineSplit(
+                output,
+                ["INJECTED"]);
+            Assert.Contains(@"\u200D", output, StringComparison.Ordinal);
+            Assert.Contains(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^I", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+
+        AssertJsonlSchema(
+            memberJsonl,
+            ["kind", "name", "return_type", "detail"]);
+        string summaryJsonlRecord = Assert.Single(
+            summaryJsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line => line.StartsWith('{'));
+        AssertJsonlSchema(
+            summaryJsonlRecord,
+            ["kind", "type", "members", "description"]);
+        AssertJsonlSchema(
+            surfaceJsonl,
+            ["kind", "type", "members", "description"]);
+    }
+
+    private static string RenderApiTable<T>(
+        T view,
+        bool tsv,
+        bool jsonl,
+        HashSet<string>? includeSections = null)
+        where T : class =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                ApiViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions
+                    {
+                        IncludeSections = includeSections,
+                    },
+                    tsv,
+                    jsonl)));
+
+    private static void AssertJsonlSchema(
+        string jsonl,
+        string[] expectedProperties)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            Assert.Single(
+                jsonl.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)));
+        Assert.Equal(
+            expectedProperties,
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+        Assert.DoesNotContain(
+            document.RootElement.EnumerateObject(),
+            property => property.Name.EndsWith(
+                "_text",
+                StringComparison.Ordinal));
     }
 
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---

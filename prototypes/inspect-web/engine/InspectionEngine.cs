@@ -675,6 +675,188 @@ public static partial class InspectionEngine
     }
 
     /// <summary>
+    /// Product-ranked optimization-opportunity members for one package workspace. Analysis owns
+    /// opportunity and member order; the query owns index lifetime and public-API attribution;
+    /// this host only maps the typed rows to the existing browser wire contract.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackagePerformance(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        ImmutableArray<BrowserWorkspaceParticipant> participants =
+            scope.ImplementationParticipants.Length > 0
+                ? scope.ImplementationParticipants
+                : scope.SurfaceParticipants;
+
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextOptimizationOpportunitiesQuery.Definition,
+                    AssemblyContextOptimizationOpportunitiesQuery.Execute);
+        AssemblyContextOptimizationOpportunitiesResult result =
+            scope.UseImplementationOrSurface(
+                group =>
+                    registry.Run(
+                            [
+                                AssemblyContextOptimizationOpportunitiesQuery
+                                    .Definition,
+                            ],
+                            group)
+                        .Get(
+                            AssemblyContextOptimizationOpportunitiesQuery
+                                .Definition));
+        BrowserPackageSurface surface =
+            ProjectPackageSurface(scope, scope.Coordinates[0]);
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers =
+        [
+            .. surface.Types.SelectMany(type =>
+                type.Api.Select(member => (
+                    type.Assembly,
+                    type.DefinitionId,
+                    member.StableSelector))),
+        ];
+
+        var failures = new List<string>();
+        if (!string.IsNullOrWhiteSpace(surface.InspectionError))
+            failures.Add($"API surface: {surface.InspectionError}");
+        foreach (AssemblyContextEntry<
+            AssemblyOptimizationOpportunityRanking> entry
+            in result.Assemblies.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Rejected
+                    rejected:
+                    failures.Add(
+                        $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})");
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Failed failed:
+                    failures.Add(
+                        $"{failed.Subject.Identity.Name}: "
+                        + failed.Error.Message);
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Available
+                    available:
+                    failures.AddRange(
+                        available.Value.Diagnostics.Select(
+                            diagnostic =>
+                                $"{available.Subject.Identity.Name}: "
+                                + $"performance analysis incomplete for "
+                                + $"{diagnostic.Method}: "
+                                + diagnostic.Message));
+                    failures.AddRange(
+                        available.Value.ApiSurfaceInspectionFailures
+                            .Select(
+                                failure =>
+                                    $"{available.Subject.Identity.Name}: "
+                                    + $"{failure.Operation}: "
+                                    + failure.Detail));
+                    break;
+            }
+        }
+
+        BrowserPerformanceMember[] members =
+            ApplyPerformanceMemberLimit(
+                PerformanceMembers(
+                    result,
+                    participants,
+                    scope,
+                    navigableMembers),
+                failures);
+
+        return JsonSerializer.Serialize(
+            new BrowserPackagePerformance(
+                members,
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures),
+                result.NonPublicOpportunities,
+                result.TotalOpportunities),
+            BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
+        AssemblyContextOptimizationOpportunitiesResult result,
+        ImmutableArray<BrowserWorkspaceParticipant> participants,
+        BrowserInspectionScope scope,
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers)
+    {
+        foreach (AssemblyContextOptimizationOpportunityMember member
+            in result.RankedMembers)
+        {
+            if (member.Member.PublicMember is not { } publicMember)
+                continue;
+
+            BrowserWorkspaceParticipant analysisParticipant =
+                participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        member.Subject.Registration));
+            BrowserWorkspaceParticipant? surfaceParticipant =
+                scope.TryGetSurfaceParticipant(analysisParticipant);
+            if (surfaceParticipant is null
+                || !navigableMembers.Contains((
+                    surfaceParticipant.Asset.AssemblyName,
+                    publicMember.Type,
+                    publicMember.StableSelector)))
+            {
+                continue;
+            }
+
+            yield return new BrowserPerformanceMember(
+                surfaceParticipant.Asset.AssemblyName,
+                publicMember.Type,
+                publicMember.Member,
+                publicMember.StableSelector,
+                [.. publicMember.BodyTokens],
+                member.Member.Ranking.Opportunities.Length,
+                member.Member.Ranking.InLoopCount,
+                [.. member.Member.Ranking.Shapes],
+                member.Member.Ranking.Confidence);
+        }
+    }
+
+    internal static BrowserPerformanceMember[] ApplyPerformanceMemberLimit(
+        IEnumerable<BrowserPerformanceMember> candidates,
+        ICollection<string> failures)
+    {
+        const int MemberLimit = 200;
+        var members = new List<BrowserPerformanceMember>(MemberLimit);
+        foreach (BrowserPerformanceMember candidate in candidates)
+        {
+            if (members.Count == MemberLimit)
+            {
+                failures.Add(
+                    $"Performance ranking truncated after the top "
+                    + $"{MemberLimit} navigable public members.");
+                break;
+            }
+
+            members.Add(candidate);
+        }
+
+        return [.. members];
+    }
+
+    /// <summary>
     /// A progressively acquired member call graph, produced by <see cref="MemberCallGraphSession"/>
     /// over one workspace spanning every package the site currently has open. Callers in a sibling
     /// package are only visible when that package is a participant of the same binding-consistent
@@ -1048,10 +1230,10 @@ public static partial class InspectionEngine
     }
 
     /// <summary>
-    /// Runs one member-bound Call Graph home demo from its product definition.
+    /// Runs one supported home demo from its product definition.
     /// The browser supplies only the scenario id: workspace coordinates,
-    /// navigation focus, member-anchor selection, and query execution remain
-    /// on the engine side.
+    /// navigation focus, section selection, optional member selection, and
+    /// query execution remain on the engine side.
     /// </summary>
     [JSExport]
     public static async Task<string> RunHomeDemo(string scenarioId)
@@ -1064,7 +1246,7 @@ public static partial class InspectionEngine
         }
 
         BrowserHomeDemoRunPlan plan =
-            BrowserProductHomeDemos.ToCallGraphRunPlan(resolved);
+            BrowserProductHomeDemos.ToRunPlan(resolved);
         BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 deadline => BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
@@ -1096,6 +1278,11 @@ public static partial class InspectionEngine
             throw new InvalidOperationException(
                 "The product home demo workspace did not preserve its distinct request ordering.");
         }
+        if ((uint)plan.FocusRequestIndex >= (uint)resolution.RequestedCoordinates.Length)
+        {
+            throw new InvalidOperationException(
+                "The product home demo focus is outside its resolved browser workspace.");
+        }
 
         BrowserPackageCoordinate focusCoordinate =
             scope.Coordinate(
@@ -1119,6 +1306,25 @@ public static partial class InspectionEngine
         }
 
         BrowserTypeSurface type = types[0];
+        BrowserHomeDemoRunMember? memberPlan = plan.Member;
+        if (memberPlan is null)
+        {
+            return new BrowserHomeDemoRunResult(
+                true,
+                [.. projections.Select(projection => projection.Surface)],
+                new BrowserHomeDemoRunActivation(
+                    focusCoordinate.PackageId,
+                    focusCoordinate.Version,
+                    focusCoordinate.Framework,
+                    type.Id,
+                    plan.Section,
+                    MemberName: null,
+                    MemberKind: null,
+                    MemberAnchorDigest: null,
+                    MemberSection: null),
+                null);
+        }
+
         (ApiType Type, AssemblyContextSubject Subject)[] apiTypes =
         [
             .. focusProjection.ApiSurfaces.Assemblies.Assemblies
@@ -1140,10 +1346,10 @@ public static partial class InspectionEngine
 
         (ApiType apiType, AssemblyContextSubject subject) = apiTypes[0];
         var selector = new MemberTargetSelector(
-            $"{plan.MemberName}~{plan.MemberAnchorDigest}",
-            plan.MemberName,
-            DigestPrefix: plan.MemberAnchorDigest,
-            Kind: plan.MemberKind);
+            $"{memberPlan.Name}~{memberPlan.AnchorDigest}",
+            memberPlan.Name,
+            DigestPrefix: memberPlan.AnchorDigest,
+            Kind: memberPlan.MemberKind);
         MemberTargetResolution target =
             MemberTargetResolver.Resolve(apiType, selector);
         if (target.Diagnostic is { } diagnostic)
@@ -1210,10 +1416,11 @@ public static partial class InspectionEngine
                 focusCoordinate.Version,
                 focusCoordinate.Framework,
                 type.Id,
+                plan.Section,
                 member.Name,
                 member.Kind,
                 member.AnchorDigest,
-                plan.MemberSection),
+                memberPlan.MemberSection),
             ProjectCallGraph(scope, view));
     }
 

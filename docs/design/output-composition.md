@@ -65,10 +65,12 @@ sections:
 | --- | --- | --- |
 | `--columns` | Column projection | All writers (table, TSV, markdown, JSON) |
 | `-k` / `--kind` | Row filter by member kind | Table sections |
-| `-m` / `--member` | Row filter by member name | Table sections |
-| `-t` / `--type` | Row filter by type name | Type listing sections |
+| `--member` | Row filter by member name | Table sections |
+| `--type` | Row filter by type name | Type listing sections |
 
 These filters work uniformly across all renderers, including JSON.
+The short `-m`/`-t` aliases retire with the universal item-limit design; see
+[Item and line limits](item-and-line-limits.md).
 
 ## 4. Writer Selection
 
