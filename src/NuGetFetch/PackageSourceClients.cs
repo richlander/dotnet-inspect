@@ -41,6 +41,9 @@ public enum PackageSourceCapabilities
 
     /// <summary>Exact symbol-package payload acquisition.</summary>
     SymbolPayload = 1 << 3,
+
+    /// <summary>Exact bounded package-manifest acquisition.</summary>
+    Manifest = 1 << 4,
 }
 
 /// <summary>
@@ -279,9 +282,22 @@ public interface IPackageSourceClient : IDisposable
         bool prerelease = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Searches for packages whose IDs start with a prefix.</summary>
+    Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Gets the versions reported for a package ID.</summary>
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Gets an exact bounded package manifest without acquiring the package archive.</summary>
+    Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
+        string packageId,
+        string version,
         CancellationToken cancellationToken = default);
 
     /// <summary>Gets an exact package payload owned by the returned stream.</summary>
@@ -420,14 +436,18 @@ public static class PackageSourceClientFactory
             CreateGalleryTransport(),
             options ?? new NuGetFetchOptions());
 
-    internal static IPackageSourceClient CreateGallery(
-        HttpMessageHandler transport,
+    /// <summary>
+    /// Creates the built-in Gallery client over a caller-created,
+    /// credential-free transport owned by the returned client.
+    /// </summary>
+    public static IPackageSourceClient CreateGallery(
+        HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(transport);
+        ArgumentNullException.ThrowIfNull(ownedCredentialFreeTransport);
         return new NuGetGalleryPackageSourceClient(
             CreateGalleryTransport(
-                transport,
+                ownedCredentialFreeTransport,
                 OperatingSystem.IsBrowser()),
             options ?? new NuGetFetchOptions());
     }
@@ -608,6 +628,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.Search
         | PackageSourceCapabilities.VersionEnumeration
+        | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload;
 
     public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
@@ -695,6 +716,17 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             },
             cancellationToken).ConfigureAwait(false);
 
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(
+            PackageSourceOperation.Unsupported<PackageSearchResult>(
+                Identity,
+                Kind,
+                PackageSourceCapabilities.Search));
+
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default)
@@ -773,6 +805,40 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                     operation.Dispose();
                     throw;
                 }
+            },
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Manifest,
+            async () =>
+            {
+                using var operation = new NuGetOperationDeadline(
+                    _options,
+                    _clientTimeout,
+                    cancellationToken);
+                return new PackageSourceManifest(
+                    coordinate,
+                    Identity,
+                    Kind,
+                    await _packageResources.GetManifestAsync(
+                        coordinate.PackageId,
+                        coordinate.Version,
+                        NuGetSourceRequest.EndpointUrl(_endpoint),
+                        _credential,
+                        _options,
+                        operation,
+                        useNuGetOrgShortcut: false).ConfigureAwait(false));
             },
             cancellationToken,
             coordinate).ConfigureAwait(false);

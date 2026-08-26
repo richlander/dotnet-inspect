@@ -433,7 +433,7 @@ public sealed class PackageDependencyGroupsQueryTests
     {
         string manifest = PadToCharacterCount(
             Manifest(""),
-            PackageDependencyGroupsQuery.MaxManifestCharacters + 1);
+            PackageManifestFactsQuery.MaxManifestCharacters + 1);
 
         Exception error = Failed(
             await ExecuteAsync(
@@ -480,7 +480,7 @@ public sealed class PackageDependencyGroupsQueryTests
     static string PadToManifestByteLimit(string manifest)
     {
         int bytes = Encoding.UTF8.GetByteCount(manifest);
-        int remaining = PackageDependencyGroupsQuery.MaxManifestBytes - bytes;
+        int remaining = PackageManifestFactsQuery.MaxManifestBytes - bytes;
         Assert.True(remaining >= 7);
         int multibyteCharacters = (remaining - 7) / 3;
         int singleBytePadding = remaining - 7 - (multibyteCharacters * 3);
@@ -490,7 +490,7 @@ public sealed class PackageDependencyGroupsQueryTests
             + new string(' ', singleBytePadding)
             + "-->";
         Assert.Equal(
-            PackageDependencyGroupsQuery.MaxManifestBytes,
+            PackageManifestFactsQuery.MaxManifestBytes,
             Encoding.UTF8.GetByteCount(padded));
         return padded;
     }
