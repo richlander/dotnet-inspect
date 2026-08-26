@@ -2145,6 +2145,15 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void BuildIdentity_ReadsHostAssemblyAttributes()
+    {
+        BrowserBuildIdentity identity =
+            BrowserBuildIdentityReader.Read(typeof(InspectionEngine).Assembly);
+
+        Assert.NotEmpty(identity.Version);
+    }
+
+    [Fact]
     public void BuildIdentity_UsesVersionedRepositoryProvenance()
     {
         const string commit = "0123456789abcdef0123456789abcdef01234567";

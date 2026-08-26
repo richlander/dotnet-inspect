@@ -199,30 +199,121 @@ public sealed class BrowserEngineLayeringTests
     public void RuntimeLoadingInspectedAssembliesIsCompilerBanned()
     {
         IReadOnlyList<string> banned = BannedSymbols();
-        string[] runtimeLoaders =
+        INamedTypeSymbol[] capabilityOwners =
         [
-            .. RequiredType("System.Reflection.Assembly")
+            RequiredType("System.Reflection.Assembly"),
+            RequiredType("System.Reflection.AssemblyName"),
+            RequiredType("System.AppDomain"),
+            RequiredType("System.Activator"),
+            RequiredType("System.Runtime.Loader.AssemblyLoadContext"),
+        ];
+        IMethodSymbol[] publicEntryPoints =
+        [
+            .. capabilityOwners
+                .SelectMany(owner => owner.GetMembers())
+                .OfType<IMethodSymbol>()
+                .Where(method =>
+                    method.DeclaredAccessibility == Accessibility.Public),
+        ];
+
+        Assert.NotEmpty(publicEntryPoints);
+        Assert.All(
+            capabilityOwners,
+            owner => Assert.Contains(owner.GetDocumentationCommentId()!, banned));
+        Assert.All(
+            publicEntryPoints,
+            entryPoint => Assert.True(
+                IsBanned(entryPoint, banned),
+                $"Runtime capability '{entryPoint.GetDocumentationCommentId()}' is unguarded."));
+    }
+
+    [Fact]
+    public void EveryFrameworkRawDecoderProducerIsCompilerBanned()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        string[] expected =
+        [
+            "T:System.Reflection.Metadata.MetadataReader",
+            "T:System.Reflection.Metadata.MetadataReaderProvider",
+            "T:System.Reflection.Metadata.PEReaderExtensions",
+            "T:System.Reflection.PortableExecutable.PEHeaders",
+            "T:System.Reflection.PortableExecutable.PEReader",
+        ];
+        INamedTypeSymbol metadataReader =
+            RequiredType("System.Reflection.Metadata.MetadataReader");
+        var decoderIds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            metadataReader.GetDocumentationCommentId()!,
+            RequiredType("System.Reflection.PortableExecutable.PEHeaders")
+                .GetDocumentationCommentId()!,
+        };
+        INamedTypeSymbol[] frameworkTypes =
+        [
+            .. DescendantTypes(metadataReader.ContainingAssembly.GlobalNamespace)
+                .Where(type =>
+                    type.DeclaredAccessibility == Accessibility.Public),
+        ];
+
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (INamedTypeSymbol type in frameworkTypes)
+            {
+                string typeId = type.GetDocumentationCommentId()!;
+                if (decoderIds.Contains(typeId)
+                    || !type.GetMembers().Any(member =>
+                        member.DeclaredAccessibility == Accessibility.Public
+                        && ResultTypeId(member) is { } resultId
+                        && decoderIds.Contains(resultId)))
+                {
+                    continue;
+                }
+
+                changed |= decoderIds.Add(typeId);
+            }
+        }
+        while (changed);
+
+        Assert.Equal(expected, decoderIds.Order(StringComparer.Ordinal));
+        Assert.All(decoderIds, decoder => Assert.Contains(decoder, banned));
+    }
+
+    [Fact]
+    public void EveryProductMetadataIdentityDecoderIsCompilerBanned()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        string metadataReaderId =
+            RequiredType("System.Reflection.Metadata.MetadataReader")
+                .GetDocumentationCommentId()!;
+        IMethodSymbol[] decoders =
+        [
+            .. RequiredType("ILInspector.Metadata.AssemblyReferenceIdentity")
                 .GetMembers()
                 .OfType<IMethodSymbol>()
                 .Where(method =>
-                    method.MethodKind == MethodKind.Ordinary
-                    && (method.Name.StartsWith("Load", StringComparison.Ordinal)
-                        || method.Name.StartsWith(
-                            "ReflectionOnlyLoad",
-                            StringComparison.Ordinal)
-                        || method.Name.Equals(
-                            "UnsafeLoadFrom",
-                            StringComparison.Ordinal)))
-                .Select(method => method.GetDocumentationCommentId()!),
-            .. RequiredType("System.AppDomain")
-                .GetMembers("Load")
-                .OfType<IMethodSymbol>()
-                .Select(method => method.GetDocumentationCommentId()!),
+                    method.DeclaredAccessibility == Accessibility.Public
+                    && method.Parameters.Any(parameter =>
+                        ResultTypeId(parameter) == metadataReaderId)),
         ];
 
-        Assert.NotEmpty(runtimeLoaders);
-        Assert.Contains("T:System.Runtime.Loader.AssemblyLoadContext", banned);
-        Assert.All(runtimeLoaders, loader => Assert.Contains(loader, banned));
+        Assert.NotEmpty(decoders);
+        Assert.All(
+            decoders,
+            decoder => Assert.Contains(
+                decoder.GetDocumentationCommentId()!,
+                banned));
+    }
+
+    [Fact]
+    public void ReflectionOnlyAssemblyLoadingIsUnavailableToBrowser()
+    {
+        Assert.Null(
+            ProductCompilation.GetTypeByMetadataName(
+                "System.Reflection.MetadataLoadContext"));
+        Assert.Null(
+            ProductCompilation.GetTypeByMetadataName(
+                "System.Reflection.PathAssemblyResolver"));
     }
 
     [Fact]
@@ -480,6 +571,42 @@ public sealed class BrowserEngineLayeringTests
         ProductCompilation.GetTypeByMetadataName(fullName)
         ?? throw new InvalidOperationException(
             $"Required framework type '{fullName}' is unavailable.");
+
+    static IEnumerable<INamedTypeSymbol> DescendantTypes(
+        INamespaceOrTypeSymbol container)
+    {
+        foreach (ISymbol member in container.GetMembers())
+        {
+            if (member is INamedTypeSymbol type)
+                yield return type;
+            if (member is INamespaceOrTypeSymbol child)
+            {
+                foreach (INamedTypeSymbol descendant in DescendantTypes(child))
+                    yield return descendant;
+            }
+        }
+    }
+
+    static string? ResultTypeId(ISymbol symbol)
+    {
+        ITypeSymbol? type = symbol switch
+        {
+            IMethodSymbol method when !method.ReturnsVoid => method.ReturnType,
+            IPropertySymbol property => property.Type,
+            IFieldSymbol field => field.Type,
+            IParameterSymbol parameter => parameter.Type,
+            _ => null,
+        };
+        return type is INamedTypeSymbol named
+            ? named.OriginalDefinition.GetDocumentationCommentId()
+            : null;
+    }
+
+    static bool IsBanned(ISymbol symbol, IReadOnlyList<string> banned) =>
+        symbol.GetDocumentationCommentId() is { } symbolId
+            && banned.Contains(symbolId)
+        || symbol.ContainingType?.GetDocumentationCommentId() is { } typeId
+            && banned.Contains(typeId);
 
     static IReadOnlyList<Assembly> ProductAssemblies { get; } =
         ProductReferenceClosure();

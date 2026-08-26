@@ -60,26 +60,15 @@ P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead;A descriptor may carry
 T:ILInspector.Metadata.IAssemblyReferenceResolver;Assembly-role binding belongs to product workspace composition, never to the browser host.
 T:ILInspector.Metadata.AssemblyReferenceBindingPolicy;Assembly-role binding belongs to product workspace composition, never to the browser host.
 T:System.Reflection.PortableExecutable.PEReader;Raw image decoding belongs to product package realization; the browser host uses product queries.
+T:System.Reflection.PortableExecutable.PEHeaders;Raw PE header decoding belongs to product package realization; the browser host uses product queries.
 T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding belongs to product package realization; the browser host uses product queries.
+T:System.Reflection.Metadata.MetadataReaderProvider;Raw metadata decoding belongs to product package realization; the browser host uses product queries.
+T:System.Reflection.Metadata.PEReaderExtensions;Bridging raw PE content to metadata belongs to product package realization; the browser host uses product queries.
+T:System.Reflection.Assembly;Inspected assemblies are parsed by product queries, never loaded into or reflected over in the runtime.
+T:System.Reflection.AssemblyName;Assembly identity decoding belongs to product realization, never path-based runtime reflection in the browser host.
+T:System.AppDomain;Inspected assemblies are never loaded, activated, or executed in a runtime application domain.
+T:System.Activator;Inspected assemblies are never activated through runtime reflection.
 T:System.Runtime.Loader.AssemblyLoadContext;Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.Load(System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.Load(System.Byte[],System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.Load(System.Reflection.AssemblyName);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.Load(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.LoadFile(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.LoadFrom(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.LoadFrom(System.String,System.Byte[],System.Configuration.Assemblies.AssemblyHashAlgorithm);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.LoadModule(System.String,System.Byte[]);Inspected modules are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.LoadModule(System.String,System.Byte[],System.Byte[]);Inspected modules are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.LoadWithPartialName(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.ReflectionOnlyLoad(System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.ReflectionOnlyLoad(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.ReflectionOnlyLoadFrom(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.Reflection.Assembly.UnsafeLoadFrom(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.AppDomain.Load(System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.AppDomain.Load(System.Byte[],System.Byte[]);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.AppDomain.Load(System.Reflection.AssemblyName);Inspected assemblies are parsed by product queries, never loaded into the runtime.
-M:System.AppDomain.Load(System.String);Inspected assemblies are parsed by product queries, never loaded into the runtime.
 
 M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup(System.Collections.Generic.IEnumerable{DotnetInspector.Queries.AssemblyContextParticipant},DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns binding-consistent group composition.
 M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles(System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{DotnetInspector.Queries.PackageAssemblyRoleCorrespondence},System.Boolean,DotnetInspector.Queries.AssemblyContextGroupOptions,DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns package role construction and correspondence.
@@ -92,6 +81,8 @@ M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamIfManaged(Syste
 M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(System.Func{System.IO.Stream},ILInspector.Metadata.AssemblyReferenceIdentity,ILInspector.Metadata.AssemblyResolutionProvenance,System.Boolean@,System.Nullable{System.DateTime});Package descriptor minting belongs to product-owned package realization.
 M:ILInspector.Metadata.ResolvedAssemblyReference.TryCreateFromPath(System.String,ILInspector.Metadata.AssemblyResolutionProvenance,ILInspector.Metadata.ResolvedAssemblyReference@);Package descriptor minting belongs to product-owned package realization.
 M:ILInspector.Metadata.ResolvedAssemblyReference.TryCreateFromPath(System.String,ILInspector.Metadata.AssemblyResolutionProvenance,ILInspector.Metadata.ResolvedAssemblyReference@,System.Exception@);Package descriptor minting belongs to product-owned package realization.
+M:ILInspector.Metadata.AssemblyReferenceIdentity.From(System.Reflection.Metadata.MetadataReader,System.Reflection.Metadata.AssemblyReferenceHandle);Package identity decoding belongs to product-owned realization, not an implicitly typed raw reader in the browser host.
+M:ILInspector.Metadata.AssemblyReferenceIdentity.FromAssemblyDefinition(System.Reflection.Metadata.MetadataReader);Package identity decoding belongs to product-owned realization, not an implicitly typed raw reader in the browser host.
 M:DotnetInspector.Queries.AssemblyContextGroup.UseAssemblyImage``1(ILInspector.Metadata.ResolvedAssemblyReference,DotnetInspector.Queries.AssemblyImageCallback{``0});Inspecting an image span in the host is the thing the workspace rule exists to prevent.
 M:DotnetInspector.Queries.AssemblyContextGroup.GetAssemblyImageSpan(ILInspector.Metadata.ResolvedAssemblyReference);Inspecting an image span in the host is the thing the workspace rule exists to prevent.
 M:DotnetInspector.Queries.AssemblyContextGroup.RetainAssemblyReference(ILInspector.Metadata.ResolvedAssemblyReference);A retained descriptor is content the query layer owns; ask a query for the projection instead.
