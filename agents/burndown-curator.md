@@ -53,7 +53,9 @@ issue.
 Runners must post an explicit `Ready to merge` PR comment after all
 merge-blocking validation, CI, and required review are complete. If an agent keeps
 running extra tests or review after that point, the PR comment or follow-up
-status must label that work as non-blocking.
+status must label that work as non-blocking. Keep the `ready-to-merge` and
+`carry-forward` PR labels synchronized with
+[repository guidance](../AGENTS.md#keep-pr-readiness-labels-current).
 
 For every open PR mentioned in a report, state either:
 
