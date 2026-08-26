@@ -248,6 +248,25 @@ reviewer suggestion is not approval. Before requesting approval, present the
 component map, explain why focused designs cannot close independently, and name
 the intended claims and non-claims.
 
+### Recovering from an over-broad design
+
+If you discover that current work violates this guidance, stop broadening,
+repairing, or reviewing the design in place. The first step is to discuss the
+violation with the user before changing the design further. Name the components
+whose ownership has been combined, explain the closure or review evidence that
+exposed the problem, and propose a focused replacement: component-sized efforts
+in priority order, their immediate boundaries, dependencies and parallel work,
+and the claims and non-claims of each.
+
+Recommend whether to split or abandon the current design and how to preserve its
+useful analysis as non-normative source material. Then ask the user to choose
+the direction; do not silently narrow the work or infer approval to continue
+broadly. Until that decision, do not dispatch another review round or describe
+the design as ready. If the user chooses the focused path, move each normative
+contract to its owning document and proceed through independently reviewable
+efforts. If the user explicitly approves a broad exception instead, record the
+approved scope and preserve every other requirement in this section.
+
 Review focused designs against the component architecture and its boundaries.
 If repeated review keeps discovering new component-internal contracts or
 manually synchronized cross-component inventories, stop and recommend splitting
