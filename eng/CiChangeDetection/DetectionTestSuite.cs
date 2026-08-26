@@ -760,6 +760,34 @@ internal static class DetectionTestSuite
                 $"{FormatValues(pushedSource)}");
         }
 
+        Dictionary<string, string> pushedWebDependency = RunDetection(
+            repository,
+            body,
+            "push",
+            "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+            outputs);
+        if (pushedWebDependency["code"] != "true" ||
+            pushedWebDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Pushed web dependency did not select code and web: " +
+                FormatValues(pushedWebDependency));
+        }
+
+        Dictionary<string, string> mergeGroupWebDependency = RunDetection(
+            repository,
+            body,
+            "merge_group",
+            "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+            outputs);
+        if (mergeGroupWebDependency["code"] != "true" ||
+            mergeGroupWebDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Merge-group web dependency did not select code and web: " +
+                FormatValues(mergeGroupWebDependency));
+        }
+
         Dictionary<string, string> unicodeSource = RunDetection(
             repository,
             body,
