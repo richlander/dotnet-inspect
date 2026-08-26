@@ -274,6 +274,9 @@ public class MethodBodyInspectionSessionTests
                 }
             }
             """);
+        signatureTypes = WithModuleVersionId(
+            signatureTypes,
+            ReadModuleVersionId(runtimeImage));
         string root = Path.Combine(
             Path.GetTempPath(),
             $"nominal-type-correspondence-{Guid.NewGuid():N}");
@@ -337,6 +340,9 @@ public class MethodBodyInspectionSessionTests
         byte[] secondType = CompileFixture(
             "SecondSignatureTypes",
             "namespace Shared; public sealed class Value { }");
+        secondType = WithModuleVersionId(
+            secondType,
+            ReadModuleVersionId(firstType));
         byte[] referenceImage = CompileFixture(
             "DependencyOwnerCorrespondence",
             """
@@ -1494,6 +1500,32 @@ public class MethodBodyInspectionSessionTests
         return output.ToArray();
     }
 
+    static Guid ReadModuleVersionId(byte[] image)
+    {
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        return reader.GetGuid(reader.GetModuleDefinition().Mvid);
+    }
+
+    static byte[] WithModuleVersionId(byte[] image, Guid moduleVersionId)
+    {
+        Guid original = ReadModuleVersionId(image);
+        byte[] originalBytes = original.ToByteArray();
+        int offset = image.AsSpan().IndexOf(originalBytes);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            image.AsSpan(offset + originalBytes.Length)
+                .IndexOf(originalBytes));
+
+        byte[] updated = [.. image];
+        Assert.True(
+            moduleVersionId.TryWriteBytes(
+                updated.AsSpan(offset, originalBytes.Length)));
+        Assert.Equal(moduleVersionId, ReadModuleVersionId(updated));
+        return updated;
+    }
+
     static byte[] BuildCurrentModuleSignatureFixture(
         string assemblyName,
         bool defineSignatureType,
@@ -1532,6 +1564,7 @@ public class MethodBodyInspectionSessionTests
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
         }
+
         else
         {
             signatureType = metadata.AddTypeReference(

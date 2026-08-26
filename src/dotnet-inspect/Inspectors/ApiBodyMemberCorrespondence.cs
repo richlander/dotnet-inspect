@@ -113,6 +113,9 @@ internal static class ApiBodyMemberCorrespondence
             _sourceIdentities = [];
         readonly Dictionary<MetadataNamedTypeReference, string>
             _targetIdentities = [];
+        readonly Dictionary<AssemblyReferenceIdentity, string>
+            _definitionOwners = new(
+                AssemblyReferenceIdentity.EquivalentComparer);
         TypeDefinitionResolutionSession? _sourceResolution;
         TypeDefinitionResolutionSession? _targetResolution;
 
@@ -179,17 +182,44 @@ internal static class ApiBodyMemberCorrespondence
                 MetadataTypeDefinitionAddress address =
                     resolved.Definition.Address;
                 identity =
-                    address.ModuleVersionId
-                        == _sourceRootModuleVersionId
-                    || address.ModuleVersionId
-                        == _targetRootModuleVersionId
+                    IsSelectedRoot(resolved.Definition)
                         ? RootIdentity(resolved.Definition.Type)
-                        : $"definition:{address.ModuleVersionId:N}:"
+                        : $"definition:{DefinitionOwner(resolved.Definition)}:"
+                            + $"{address.ModuleVersionId:N}:"
                             + $"{address.Definition.Value:X8}";
             }
 
             cache.Add(reference, identity);
             return identity;
+        }
+
+        bool IsSelectedRoot(ResolvedTypeDefinition definition)
+        {
+            AssemblyReferenceIdentity identity =
+                definition.Assembly.Assembly.Identity;
+            return (definition.Address.ModuleVersionId
+                        == _sourceRootModuleVersionId
+                    && identity.IsEquivalentTo(_sourceRoot.Identity))
+                || (definition.Address.ModuleVersionId
+                        == _targetRootModuleVersionId
+                    && identity.IsEquivalentTo(_targetRoot.Identity));
+        }
+
+        string DefinitionOwner(ResolvedTypeDefinition definition)
+        {
+            AssemblyReferenceIdentity identity =
+                definition.Assembly.Assembly.Identity;
+            if (_definitionOwners.TryGetValue(
+                    identity,
+                    out string? owner))
+            {
+                return owner;
+            }
+
+            owner = _definitionOwners.Count.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+            _definitionOwners.Add(identity, owner);
+            return owner;
         }
 
         TypeResolutionOutcome Resolve(

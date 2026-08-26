@@ -514,6 +514,57 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void StreamFallbackFactory_FallbackRejectionIsSticky()
+    {
+        byte[] rejected = BuildSimpleAssembly(
+            "Fallback",
+            "Rejected",
+            mvid: null);
+        byte[] replacement = BuildSimpleAssembly(
+            "Fallback",
+            "Replacement",
+            Guid.NewGuid());
+        int opens = 0;
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
+                () => new MemoryStream(
+                    Interlocked.Increment(ref opens) == 1
+                        ? rejected
+                        : replacement,
+                    writable: false),
+                ReadIdentity(rejected),
+                AssemblyResolutionProvenance.Local("test"),
+                out bool usedFallbackIdentity);
+        int replacementOpens = 0;
+        descriptor = descriptor.WithOpenRead(
+            () =>
+            {
+                Interlocked.Increment(ref replacementOpens);
+                return new MemoryStream(replacement, writable: false);
+            },
+            lastWriteTimeUtc: null);
+
+        BadImageFormatException snapshotException =
+            Assert.Throws<BadImageFormatException>(
+                () => descriptor.WithContentSnapshot(
+                    ImmutableArray.Create(replacement)));
+        BadImageFormatException openException =
+            Assert.Throws<BadImageFormatException>(
+                () => AssemblyInspectionSession.Open(descriptor));
+
+        Assert.True(usedFallbackIdentity);
+        Assert.Equal(1, opens);
+        Assert.Equal(0, replacementOpens);
+        Assert.Contains(
+            "initially selected image",
+            snapshotException.Message);
+        Assert.Contains(
+            "initially selected image",
+            openException.Message);
+        Assert.Null(descriptor.Registration.ContentModuleVersionId);
+    }
+
+    [Fact]
     public void PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration()
     {
         byte[] first = BuildSimpleAssembly(

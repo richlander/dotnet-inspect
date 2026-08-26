@@ -223,6 +223,8 @@ public sealed class AssemblyAcquisitionRegistration
 /// </summary>
 public sealed class ResolvedAssemblyReference
 {
+    readonly string? _acquisitionFailureDetail;
+
     ResolvedAssemblyReference(
         AssemblyAcquisitionRegistration registration,
         AssemblyReferenceIdentity identity,
@@ -230,13 +232,18 @@ public sealed class ResolvedAssemblyReference
         string? path,
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
-        DateTime? lastWriteTimeUtc)
+        DateTime? lastWriteTimeUtc,
+        string? acquisitionFailureDetail = null)
     {
         Registration = registration;
         Identity = identity;
         ModuleVersionId = moduleVersionId;
         Path = path;
-        OpenRead = openRead;
+        _acquisitionFailureDetail = acquisitionFailureDetail;
+        OpenRead = acquisitionFailureDetail is null
+            ? openRead
+            : () => throw new BadImageFormatException(
+                acquisitionFailureDetail);
         Provenance = provenance;
         LastWriteTimeUtc = lastWriteTimeUtc;
         if (moduleVersionId is { } selectedModuleVersionId)
@@ -479,6 +486,7 @@ public sealed class ResolvedAssemblyReference
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(fallbackIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fallbackIdentity.Name);
         ArgumentNullException.ThrowIfNull(provenance);
 
         Stream? source = openRead();
@@ -491,24 +499,47 @@ public sealed class ResolvedAssemblyReference
 
         AssemblyReferenceIdentity? identity = null;
         Guid? moduleVersionId = null;
+        string? acquisitionFailureDetail = null;
         using (Stream stream = source)
         {
             try
             {
                 using var peReader =
                     new System.Reflection.PortableExecutable.PEReader(stream);
-                if (peReader.HasMetadata)
+                if (!peReader.HasMetadata)
+                {
+                    acquisitionFailureDetail =
+                        "The initially selected image has no managed metadata.";
+                }
+                else
                 {
                     MetadataReader metadata = peReader.GetMetadataReader();
-                    if (metadata.IsAssembly)
+                    if (!metadata.IsAssembly)
+                    {
+                        acquisitionFailureDetail =
+                            "The initially selected image is a netmodule, not "
+                            + "an assembly.";
+                    }
+                    else
                     {
                         AssemblyReferenceIdentity candidate =
                             AssemblyReferenceIdentity.FromAssemblyDefinition(
                                 metadata);
                         Guid candidateModuleVersionId = metadata.GetGuid(
                             metadata.GetModuleDefinition().Mvid);
-                        if (!string.IsNullOrWhiteSpace(candidate.Name)
-                            && candidateModuleVersionId != Guid.Empty)
+                        if (string.IsNullOrWhiteSpace(candidate.Name))
+                        {
+                            acquisitionFailureDetail =
+                                "The initially selected assembly has no "
+                                + "metadata identity name.";
+                        }
+                        else if (candidateModuleVersionId == Guid.Empty)
+                        {
+                            acquisitionFailureDetail =
+                                "The initially selected image must declare a "
+                                + "non-empty module MVID.";
+                        }
+                        else
                         {
                             identity = candidate;
                             moduleVersionId = candidateModuleVersionId;
@@ -516,19 +547,23 @@ public sealed class ResolvedAssemblyReference
                     }
                 }
             }
-            catch (BadImageFormatException)
+            catch (BadImageFormatException ex)
             {
-                // The descriptor retains the selected image as a rejection carrier.
+                acquisitionFailureDetail =
+                    "The initially selected image is invalid: " + ex.Message;
             }
         }
 
         usedFallbackIdentity = identity is null;
-        ResolvedAssemblyReference descriptor = Create(
+        var descriptor = new ResolvedAssemblyReference(
+            new AssemblyAcquisitionRegistration(),
             identity ?? fallbackIdentity,
+            moduleVersionId: null,
             path: null,
             openRead,
             provenance,
-            lastWriteTimeUtc);
+            lastWriteTimeUtc,
+            acquisitionFailureDetail);
         if (moduleVersionId is { } observedModuleVersionId)
         {
             descriptor.Registration.BindContentModuleVersionId(
@@ -657,7 +692,8 @@ public sealed class ResolvedAssemblyReference
                 path: null,
                 OpenRead,
                 Provenance,
-                LastWriteTimeUtc);
+                LastWriteTimeUtc,
+                _acquisitionFailureDetail);
 
     /// <summary>
     /// Returns an immutable-content view of this acquisition after verifying
@@ -700,7 +736,8 @@ public sealed class ResolvedAssemblyReference
             Path,
             () => new MemoryStream(image.ToArray(), writable: false),
             Provenance,
-            LastWriteTimeUtc);
+            LastWriteTimeUtc,
+            _acquisitionFailureDetail);
     }
 
     /// <summary>
@@ -721,6 +758,9 @@ public sealed class ResolvedAssemblyReference
     public void ValidateOpenedMetadata(MetadataReader metadata)
     {
         ArgumentNullException.ThrowIfNull(metadata);
+        if (_acquisitionFailureDetail is { } acquisitionFailureDetail)
+            throw new BadImageFormatException(acquisitionFailureDetail);
+
         Guid openedModuleVersionId = metadata.GetGuid(
             metadata.GetModuleDefinition().Mvid);
         if (ModuleVersionId is { } expectedModuleVersionId)
@@ -766,7 +806,8 @@ public sealed class ResolvedAssemblyReference
             Path,
             openRead,
             Provenance,
-            lastWriteTimeUtc);
+            lastWriteTimeUtc,
+            _acquisitionFailureDetail);
     }
 
     sealed class CancellationObservingStream(

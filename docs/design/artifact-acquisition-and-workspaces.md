@@ -164,12 +164,17 @@ metadata bind at descriptor creation; lazy descriptors bind on their first
 verified open. Every later open, including a content snapshot, must carry the
 same MVID. Registration equality permits direct token reuse only after both
 descriptors have passed that validation. It does not permit a path replacement
-or same-identity content swap to reinterpret a token RID.
+or same-identity content swap to reinterpret a token RID. When initial
+inspection instead selects the fallback identity for malformed, native,
+netmodule, or nil-MVID content, that rejection is permanent for the descriptor
+and every derived view; replacing its opener or supplying a valid snapshot
+cannot turn the rejected acquisition into a participant.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`,
 `StreamFallbackFactory_BindsObservedModuleGeneration`,
+`StreamFallbackFactory_FallbackRejectionIsSticky`,
 `RegisteredDescriptorOpen_RejectsNilModuleMvid`,
 `SnapshotOpen_RejectsDifferentRegisteredModuleGeneration`, and
-`RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration`, and
+`RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration`, plus
 `PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration` gate
 this bind-once rule across descriptor, retained-image, and prefetched PDB paths.
 
@@ -191,11 +196,13 @@ current module, then resolved from its recorded current-assembly,
 assembly-reference,
 intrinsic-core-library, or module-reference scope through the frozen type
 resolution catalog. A definition outside the selected roots is identified by
-its module MVID and TypeDef token. A TypeRef that resolves into either selected
-root uses the root-pair identity, allowing a reference facade to correspond to
-the selected implementation TypeDef. Unresolved, ambiguous, stale, or
-differently owned nominal types do not correspond. The resulting MethodDef
-identity must also be unique in both acquisitions.
+its defining assembly identity, module MVID, and TypeDef token. A TypeRef that
+resolves into either selected root uses the root-pair identity only when both
+the root assembly identity and root module MVID match, allowing a reference
+facade to correspond to the selected implementation TypeDef without allowing a
+different owner with a colliding MVID/token layout. Unresolved, ambiguous,
+stale, or differently owned nominal types do not correspond. The resulting
+MethodDef identity must also be unique in both acquisitions.
 
 Missing or ambiguous identity correspondence is a visible failure; a foreign
 token, metadata-name fallback, or overload ordinal is never used as a fallback.
