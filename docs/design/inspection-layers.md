@@ -685,12 +685,13 @@ the completed group from later workspace work.
 An `AssemblyContextGroup` may defer actual resource release while a callback is
 active. A release cell becomes complete only after that group reaches
 quiescence, releases its owned resources and snapshots, and records the
-resulting group-level disposition. The target session exposes an asynchronous
-idempotent close operation so Browser/Wasm and other consumers can await that
-completion without blocking a thread. Close accepts no cancellation token once
-release is requested. Repeated close returns the same report instance.
+resulting group-level disposition. The target opening operation and live
+session close are asynchronous so Browser/Wasm and other consumers can await
+failed-open, cancellation, or close completion without blocking a thread.
+Close is idempotent, accepts no cancellation token once release is requested,
+and returns the same report instance on every call.
 
-Opening returns a discriminated `PackageRoleOpenOutcome`:
+Asynchronous opening returns a discriminated `PackageRoleOpenOutcome`:
 
 - `Realized` carries one live Queries-owned package-role session;
 - `Rejected` carries a stable Queries-owned primary diagnostic plus a complete
@@ -779,8 +780,10 @@ Migration preserves dependency direction and current behavior:
    groups beneath `InspectionWorkspace` and package-role composition. Current
    synchronous disposal remains a compatibility adapter over that one
    completion path.
-3. L1 adds the typed open/session/asynchronous-close path beside the current
-   throwing `RealizePackageAssemblyContextRoles` compatibility API.
+3. L1 adds the asynchronous typed-open/session/close path beside the current
+   throwing `RealizePackageAssemblyContextRoles` compatibility API. The
+   synchronous compatibility API retains its current throwing behavior; it
+   does not implement the target complete-report contract.
 4. The package composition adapter supplies its typed selected-role and
    Artifacts correspondence inputs after that adjacent migration exists. This
    document does not prescribe the adapter's type, factory, accessibility,
@@ -811,6 +814,7 @@ land:
 - `PackageRoleTerminalPrimary_FailureBeforeCancellationPreservesFailure`
 - `PackageRoleTerminalPrimary_CancellationBeforeFailurePreservesCancellation`
 - `PackageRoleCancellationException_AfterTransferCarriesCleanupReport`
+- `PackageRoleAsyncLifecycle_NeverBlocksSingleThreadedHost`
 - `PackageRoleTargetPath_ReturnsKeyedFailuresWithoutAggregateException`
 
 The expected binding, group, and cleanup sets must be derived from the plan, so
@@ -818,7 +822,10 @@ both missing and stale entries fail. The no-open gate must observe the real
 group-construction seam and fail when planning is bypassed. Existing
 `PackageAssemblyContextRealizationTests` and
 `PackageAssemblyContextRolesTests.Dispose_ContinuesAfterBothRoleGroupsFail`
-remain compatibility evidence; they do not prove the target typed path.
+remain compatibility evidence; they do not prove the target typed path. The
+single-threaded lifecycle gate exercises failed-open rollback, post-transfer
+cancellation, and session close through the asynchronous target path and fails
+if any completion uses a blocking wait.
 
 ### Package-role boundary non-goals
 
