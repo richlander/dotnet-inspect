@@ -406,6 +406,34 @@ public class NuGetSearchSourcesTests
         Assert.Contains(handler.Requested, u => u.StartsWith(SearchUrl + "?", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("https://feed.example/custom/service?sig=Ab%2f")]
+    [InlineData("https://feed.example/customindex.json/?sig=Ab%2f")]
+    public async Task SearchAsync_PathfulServiceIndexPreservesExactUrl(
+        string serviceIndex)
+    {
+        var handler = new RouteHandler
+        {
+            [RouteHandler.WithoutQuery(serviceIndex)] =
+                ServiceIndex(SearchUrl),
+            [SearchUrl] = """{"data":[]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [serviceIndex] });
+
+        Assert.Empty(outcome.Failures);
+        Assert.Empty(outcome.Results);
+        Assert.Equal(serviceIndex, handler.Requested[0]);
+        Assert.StartsWith(
+            SearchUrl + "?",
+            handler.Requested[1],
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task SearchAsync_ConfiguredDeadlineBoundsServiceIndexBody()
     {
@@ -428,7 +456,11 @@ public class NuGetSearchSourcesTests
                 }));
 
         Assert.Contains(
-            "NuGetRequestTimeoutException",
+            nameof(PackageSourceFailureKind.Timeout),
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configured deadline",
             ex.Message,
             StringComparison.Ordinal);
     }
@@ -468,7 +500,11 @@ public class NuGetSearchSourcesTests
 
         Assert.Contains(expectedReason, ex.Message);
         Assert.Contains($"HTTP {(int)status} {status}", ex.Message);
-        Assert.Contains("reading the service index", ex.Message);
+        Assert.Contains(
+            status == HttpStatusCode.BadRequest
+                ? nameof(PackageSourceFailureKind.Transport)
+                : nameof(PackageSourceFailureKind.AuthenticationRequired),
+            ex.Message);
         Assert.DoesNotContain("no searchable endpoint", ex.Message);
     }
 
@@ -520,7 +556,7 @@ public class NuGetSearchSourcesTests
     {
         var handler = new RouteHandler
         {
-            [indexUrl] = ServiceIndex(SearchUrl),
+            [NuGetOrgIndexUrl] = ServiceIndex(SearchUrl),
             [SearchUrl] = "<html>sign in</html>"
         };
         using var client = new HttpClient(handler);
@@ -534,21 +570,23 @@ public class NuGetSearchSourcesTests
 
         Assert.Contains("No configured NuGet source could be searched", exception.Message);
         Assert.Contains("nuget.org: search failed", exception.Message);
-        Assert.Contains(nameof(System.Text.Json.JsonException), exception.Message);
+        Assert.Contains(
+            nameof(PackageSourceFailureKind.InvalidResponse),
+            exception.Message);
         Assert.DoesNotContain("<html>", exception.Message);
         Assert.Collection(
             handler.Requested,
-            requested => Assert.Equal(indexUrl, requested),
+            requested => Assert.Equal(NuGetOrgIndexUrl, requested),
             requested => Assert.StartsWith(SearchUrl + "?", requested, StringComparison.Ordinal));
     }
 
     [Theory]
     [InlineData(
         """{"data":[{"id":null,"version":"1.0.0"}]}""",
-        nameof(System.Text.Json.JsonException))]
+        nameof(PackageSourceFailureKind.InvalidResponse))]
     [InlineData(
         """{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""",
-        nameof(InvalidOperationException))]
+        nameof(PackageSourceFailureKind.InvalidResponse))]
     public async Task SearchAsync_InvalidResultIdentity_ReportsSourceFailure(
         string body,
         string failureType)
@@ -648,17 +686,17 @@ public class NuGetSearchSourcesTests
         Assert.Contains(
             outcome.Failures,
             failure => failure.Contains(
-                nameof(NuGetMetadataResponseTooLargeException),
+                nameof(PackageSourceFailureKind.ResponseRejected),
                 StringComparison.Ordinal));
         Assert.Contains(
             outcome.Failures,
             failure => failure.Contains(
-                nameof(TimeoutException),
+                nameof(PackageSourceFailureKind.Timeout),
                 StringComparison.Ordinal));
         Assert.Contains(
             outcome.Failures,
             failure => failure.Contains(
-                nameof(IOException),
+                nameof(PackageSourceFailureKind.Transport),
                 StringComparison.Ordinal));
     }
 

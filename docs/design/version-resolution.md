@@ -80,14 +80,15 @@ another authorized producer's cached payload to answer. Payload acquisition
 then uses the ordinary host-supplied package store, and the realized platform
 coordinate retains the serving producer for exact re-acquisition.
 
-HTTP version enumeration and exact package payload requests use
-`IPackageSourceClient`. The desktop adapter chooses the application-owned
-producer-scoped authentication transport for production over a credential-free
-connection pipeline shared by origin, and preserves an injected transport for
-tests. Concurrent first access uniquely publishes the process-wide production
-client, while compatibility consumers test that identity without creating it.
-Multi-source semantic-version selection, NuGet.org registration
-enrichment, cache authority, and source failover remain package-layer policy.
+HTTP keyword and prefix search, version enumeration, and exact package payload
+requests use `IPackageSourceClient`. The desktop adapter chooses the
+application-owned producer-scoped authentication transport for production over
+a credential-free connection pipeline shared by origin, and preserves an
+injected transport for tests. Concurrent first access uniquely publishes the
+process-wide production client, while compatibility consumers test that
+identity without creating it. Multi-source search aggregation and mapping,
+semantic-version selection, NuGet.org registration enrichment, cache authority,
+and source failover remain package-layer policy.
 Candidate metadata is keyed by the complete ordered transport route, distinct
 from producer-scoped payload authorization. The Browser workspace supplies its
 host-bound Gallery client through the same borrowed-client seam, so platform
@@ -96,11 +97,13 @@ and package CDN routes without requesting the blocked NuGet.org service index.
 Every advertised `PackageBaseAddress` resource is validated before one is
 selected, including siblings named by an array-valued JSON-LD `@type`, so an
 unusable or credential-bearing sibling still makes the source incomplete.
-Configured base sources are normalized to `/v3/index.json` while signed query
-bytes remain unchanged, removing at most one optional trailing slash from an
-otherwise canonical index path. The v3 client constructor is the single owner
-of that source normalization, including for legacy factory overloads. Exact
-package pins are normalized once before cache lookup and payload acquisition.
+Configured pathless base sources are normalized to `/v3/index.json` while
+signed query bytes remain unchanged. Pathful service-index URLs remain exact,
+except that at most one optional trailing slash is removed from an otherwise
+canonical `/index.json` segment. The v3 client constructor is the single owner
+of that source normalization for search, version, manifest, and package
+operations, including for legacy factory overloads. Exact package pins are
+normalized once before cache lookup and payload acquisition.
 Borrowed clients retain authoritative listing state for floating selection,
 exclude unlisted candidates, and reject partial answers. NuGet.org listing
 policy follows the stable producer identity rather than the first signed alias

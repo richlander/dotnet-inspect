@@ -779,6 +779,9 @@ public sealed class PackageSourceClientTests
     [InlineData(
         "https://feed.example/nuget//?sig=Ab%2f",
         "https://feed.example/nuget//?sig=Ab%2f")]
+    [InlineData(
+        "https://feed.example/customindex.json/?sig=Ab%2f",
+        "https://feed.example/customindex.json/?sig=Ab%2f")]
     public async Task V3SourceNormalizationPreservesCustomPaths(
         string source,
         string normalized)
@@ -2050,6 +2053,54 @@ public sealed class PackageSourceClientTests
 
         Assert.Empty(result.Matches);
         Assert.Equal([customIndex, SearchRequest], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3PrefixSearchUsesDiscoveredSearchEndpoint()
+    {
+        const string request =
+            SearchEndpoint
+            + "?q=Contoso.&skip=0&take=100&prerelease=false&semVerLevel=2.0.0";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{SearchEndpoint}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [request] = """
+                {
+                  "data": [
+                    { "id": "Other.Package", "version": "1.0.0" },
+                    { "id": "Contoso.Tools", "version": "1.0.0" }
+                  ]
+                }
+                """,
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchByPrefixAsync(
+                "Contoso.",
+                take: 1,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        PackageSearchMatch match = Assert.Single(result.Matches);
+
+        Assert.Equal("Contoso.Tools", match.Metadata.Id);
+        Assert.Equal(
+            PackageSearchTruncationReason.RequestedLimit,
+            result.TruncationReason);
+        Assert.Equal([ServiceIndex, request], handler.Requested);
     }
 
     [Fact]

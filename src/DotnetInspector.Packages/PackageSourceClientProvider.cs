@@ -14,7 +14,8 @@ internal static class PackageSourceClientProvider
 {
     internal static IPackageSourceClient Create(
         PackageSource source,
-        HttpClient client)
+        HttpClient client,
+        NuGetFetchOptions? fetchOptions = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(client);
@@ -28,7 +29,7 @@ internal static class PackageSourceClientProvider
                 HttpClient routeTransport =
                     SelectTransport(transport, client);
                 NuGetFetchOptions options =
-                    FetchOptionsFor(routeTransport);
+                    fetchOptions ?? FetchOptionsFor(routeTransport);
                 transports.Add(
                     PackageSourceClientFactory.Create(
                         transport,
@@ -48,7 +49,7 @@ internal static class PackageSourceClientProvider
         return PackageSourceClientFactory.Create(
             source,
             selectedTransport,
-            FetchOptionsFor(selectedTransport));
+            fetchOptions ?? FetchOptionsFor(selectedTransport));
     }
 
     internal static HttpClient SelectTransport(

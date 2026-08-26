@@ -409,9 +409,13 @@ public static class PackageSourceClientFactory
             path.EndsWith("/", StringComparison.Ordinal)
                 ? path[..^1]
                 : path;
-        if (endpoint.AbsolutePath.TrimEnd('/').EndsWith(
-                "index.json",
-                StringComparison.OrdinalIgnoreCase))
+        if (path.Length != pathWithoutOptionalSlash.Length
+            && (pathWithoutOptionalSlash.EndsWith(
+                    "/index.json",
+                    StringComparison.OrdinalIgnoreCase)
+                || pathWithoutOptionalSlash.EndsWith(
+                    "/index.json/",
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return new Uri(
                 $"{pathWithoutOptionalSlash}{suffix}",
@@ -737,11 +741,37 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload;
 
-    public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default) =>
+        SearchCoreAsync(
+            query,
+            take,
+            prerelease,
+            byPrefix: false,
+            cancellationToken);
+
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default) =>
+        SearchCoreAsync(
+            prefix,
+            take,
+            prerelease,
+            byPrefix: true,
+            cancellationToken);
+
+    private async Task<PackageSourceOperationResult<PackageSearchResult>>
+        SearchCoreAsync(
+            string query,
+            int take,
+            bool prerelease,
+            bool byPrefix,
+            CancellationToken cancellationToken) =>
         await PackageSourceOperation.CaptureAsync(
             Identity,
             Kind,
@@ -776,6 +806,40 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                             endpoint,
                             _options,
                             retryTransientRequests: true);
+                        if (byPrefix)
+                        {
+                            PrefixSearchResult prefix =
+                                await search.SearchByPrefixWithStateAsync(
+                                    query,
+                                    take,
+                                    prerelease,
+                                    NuGetSourceRequest
+                                        .AuthenticationForEndpoint(
+                                            NuGetSourceRequest.EndpointUrl(
+                                                _endpoint),
+                                            endpoint,
+                                            _credential),
+                                    maximumSkip: null,
+                                    operation)
+                                .ConfigureAwait(false);
+                            return PackageSourceProjection.ProjectSearch(
+                                prefix.Matches,
+                                Identity,
+                                operation,
+                                prefix.Completion switch
+                                {
+                                    PrefixSearchCompletion.Complete =>
+                                        PackageSearchTruncationReason.None,
+                                    PrefixSearchCompletion.TakeReached =>
+                                        PackageSearchTruncationReason.RequestedLimit,
+                                    PrefixSearchCompletion.SourcePageLimitReached =>
+                                        PackageSearchTruncationReason.SourcePageLimit,
+                                    PrefixSearchCompletion.ClientPageLimitReached =>
+                                        PackageSearchTruncationReason.ClientPageLimit,
+                                    _ => throw new ArgumentOutOfRangeException(),
+                                });
+                        }
+
                         IReadOnlyList<SearchResult> results =
                             await search.SearchAsync(
                                     query,
@@ -821,17 +885,6 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 };
             },
             cancellationToken).ConfigureAwait(false);
-
-    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
-        string prefix,
-        int take = 100,
-        bool prerelease = false,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(
-            PackageSourceOperation.Unsupported<PackageSearchResult>(
-                Identity,
-                Kind,
-                PackageSourceCapabilities.Search));
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
