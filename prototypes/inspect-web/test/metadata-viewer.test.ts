@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindMetadataExplorer,
   coverageLabel,
   cssEscape,
   estimateExplorerPageSize,
@@ -17,7 +18,96 @@ import {
   renderMetadataExplorer,
   renderPackageMetadata,
   sameFocus,
+  type MetadataExplorerBindingActions,
 } from "../src/metadata-viewer.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly closestElements = new Map<string, FakeElement>();
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, event: Event = fakeDom.event()) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+
+  withClosest(selector: string, element: FakeElement) {
+    this.closestElements.set(selector, element);
+    return this;
+  }
+
+  closest(selector: string) {
+    return this.closestElements.get(selector) ?? null;
+  }
+}
+
+class FakeRoot {
+  private readonly single = new Map<string, FakeElement>();
+  private readonly multiple = new Map<string, FakeElement[]>();
+  readonly queriedSelectors = new Set<string>();
+
+  add(selector: string, element: FakeElement) {
+    this.single.set(selector, element);
+    return element;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+    return elements;
+  }
+
+  querySelector(selector: string) {
+    this.queriedSelectors.add(selector);
+    return this.single.get(selector) ?? null;
+  }
+
+  querySelectorAll(selector: string) {
+    this.queriedSelectors.add(selector);
+    return this.multiple.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): MetadataExplorerBindingActions {
+  return {
+    onClose: () => calls.push("close"),
+    onHistoryBack: () => calls.push("back"),
+    onHistoryForward: () => calls.push("forward"),
+    onHeapFocus: heap => calls.push(`heap:${heap}`),
+    onJump: (index, rowId) => calls.push(`jump:${index}:${rowId}`),
+    onOpenHeap: (assemblyFileName, heap) =>
+      calls.push(`open-heap:${assemblyFileName}:${heap}`),
+    onOpenTable: (assemblyFileName, index) =>
+      calls.push(`open-table:${assemblyFileName}:${index}`),
+    onPage: (index, startRowId) =>
+      calls.push(`page:${index}:${startRowId}`),
+    onRowFocus: (index, rowId) => calls.push(`row:${index}:${rowId}`),
+    onShowOverview: () => calls.push("overview"),
+    onTableFocus: (index, rowId) =>
+      calls.push(`table:${index}:${rowId}`),
+  };
+}
+
+function stoppableEvent() {
+  const state = { stopped: false };
+  const event = fakeDom.event({
+    stopPropagation: () => {
+      state.stopped = true;
+    },
+  });
+  return { event, state };
+}
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -32,6 +122,239 @@ function fmtBytes(value: number) {
 }
 
 const helpers = { escapeHtml, fmtBytes };
+
+test("overview bindings dispatch explorer navigation from the wall controls", () => {
+  const root = new FakeRoot();
+  const exit = root.add("#mde-exit", new FakeElement());
+  const back = root.add("#mde-hist-back", new FakeElement());
+  const forward = root.add("#mde-hist-fwd", new FakeElement());
+  const chip = new FakeElement({ mdeChip: "3" });
+  root.addAll("[data-mde-chip]", chip);
+  const heapChip = new FakeElement({ mdeHeapChip: "String" });
+  const emptyHeapChip = new FakeElement({ mdeHeapChip: "" });
+  root.addAll("[data-mde-heap-chip]", heapChip, emptyHeapChip);
+
+  const tableCard = new FakeElement({ mdeIndex: "6" });
+  const tableHead = new FakeElement().withClosest(".mde-card", tableCard);
+  const orphanTableHead = new FakeElement();
+  root.addAll(
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    tableHead,
+    orphanTableHead);
+  const heapCard = new FakeElement({ mdeHeap: "Blob" });
+  const heapHead = new FakeElement().withClosest(".mde-heap-card", heapCard);
+  const emptyHeapHead = new FakeElement().withClosest(
+    ".mde-heap-card",
+    new FakeElement({ mdeHeap: "" }));
+  root.addAll(
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    heapHead,
+    emptyHeapHead);
+  const row = new FakeElement({ mdeRow: "7:8" });
+  root.addAll(".mde-wall .mde-row[data-mde-row]", row);
+
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    fakeDom.parentNode(root),
+    { overview: true },
+    recordingActions(calls));
+
+  exit.dispatch("click");
+  back.dispatch("click");
+  forward.dispatch("click");
+  chip.dispatch("click");
+  heapChip.dispatch("click");
+  emptyHeapChip.dispatch("click");
+  tableHead.dispatch("click");
+  orphanTableHead.dispatch("click");
+  heapHead.dispatch("click");
+  emptyHeapHead.dispatch("click");
+  row.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "close",
+    "back",
+    "forward",
+    "table:3:0",
+    "heap:String",
+    "table:6:0",
+    "heap:Blob",
+    "table:7:8",
+  ]);
+  assert.equal(root.queriedSelectors.has("#mde-canvas"), false);
+  assert.equal(
+    root.queriedSelectors.has(".mde-focus .mde-row[data-mde-row]"),
+    false);
+});
+
+test("focus bindings dispatch lightbox controls and keep inner clicks contained", () => {
+  const root = new FakeRoot();
+  const canvas = root.add("#mde-canvas", new FakeElement());
+  const jump = new FakeElement({ mdeJump: "2:4" });
+  root.addAll("[data-mde-jump]", jump);
+  const overview = new FakeElement();
+  root.addAll("[data-mde-overview]", overview);
+  const page = new FakeElement({ mdePage: "5:20" });
+  root.addAll("[data-mde-page]", page);
+  const row = new FakeElement({ mdeRow: "4:9" });
+  root.addAll(".mde-focus .mde-row[data-mde-row]", row);
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    fakeDom.parentNode(root),
+    { overview: false },
+    recordingActions(calls));
+  const jumpClick = stoppableEvent();
+  const overviewClick = stoppableEvent();
+  const pageClick = stoppableEvent();
+
+  canvas.dispatch("click");
+  jump.dispatch("click", jumpClick.event);
+  overview.dispatch("click", overviewClick.event);
+  page.dispatch("click", pageClick.event);
+  row.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "overview",
+    "jump:2:4",
+    "overview",
+    "page:5:20",
+    "row:4:9",
+  ]);
+  assert.equal(jumpClick.state.stopped, true);
+  assert.equal(overviewClick.state.stopped, true);
+  assert.equal(pageClick.state.stopped, false);
+  for (const selector of [
+    ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    ".mde-wall .mde-row[data-mde-row]",
+  ]) {
+    assert.equal(root.queriedSelectors.has(selector), false, selector);
+  }
+});
+
+test("explorer bindings ignore malformed encoded coordinates", () => {
+  const focusRoot = new FakeRoot();
+  const invalidJumps = [
+    new FakeElement({ mdeJump: "" }),
+    new FakeElement({ mdeJump: "2" }),
+    new FakeElement({ mdeJump: "two:4" }),
+    new FakeElement({ mdeJump: "2:9007199254740992" }),
+  ];
+  const invalidPages = [
+    new FakeElement({ mdePage: "5:" }),
+    new FakeElement({ mdePage: "5:twenty" }),
+  ];
+  const invalidFocusRows = [
+    new FakeElement({ mdeRow: ":9" }),
+    new FakeElement({ mdeRow: "4:9:10" }),
+  ];
+  focusRoot.addAll("[data-mde-jump]", ...invalidJumps);
+  focusRoot.addAll("[data-mde-page]", ...invalidPages);
+  focusRoot.addAll(".mde-focus .mde-row[data-mde-row]", ...invalidFocusRows);
+
+  const overviewRoot = new FakeRoot();
+  const invalidOverviewRows = [
+    new FakeElement({ mdeRow: "7" }),
+    new FakeElement({ mdeRow: "-1:8" }),
+  ];
+  overviewRoot.addAll(
+    ".mde-wall .mde-row[data-mde-row]",
+    ...invalidOverviewRows);
+
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    fakeDom.parentNode(focusRoot),
+    { overview: false },
+    recordingActions(calls));
+  bindMetadataExplorer(
+    fakeDom.parentNode(overviewRoot),
+    { overview: true },
+    recordingActions(calls));
+
+  for (const element of [
+    ...invalidJumps,
+    ...invalidPages,
+    ...invalidFocusRows,
+    ...invalidOverviewRows,
+  ]) {
+    element.dispatch("click", stoppableEvent().event);
+  }
+
+  assert.deepEqual(calls, []);
+});
+
+test("metadata lens bindings open table and heap explorer views", () => {
+  const root = new FakeRoot();
+  const table = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeOpen: "6",
+  });
+  const tableZero = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeOpen: "0",
+  });
+  const pipeAssemblyTable = new FakeElement({
+    mdeAssembly: "A|6|B.dll",
+    mdeOpen: "2",
+  });
+  const invalidTables = [
+    new FakeElement({ mdeAssembly: "", mdeOpen: "6" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpen: "" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpen: "NaN" }),
+    new FakeElement({
+      mdeAssembly: "Contoso.dll",
+      mdeOpen: "9007199254740992",
+    }),
+  ];
+  root.addAll(
+    "[data-mde-open]",
+    table,
+    tableZero,
+    pipeAssemblyTable,
+    ...invalidTables);
+  const heap = new FakeElement({
+    mdeAssembly: "Contoso.dll",
+    mdeOpenHeap: "String",
+  });
+  const pipeAssemblyHeap = new FakeElement({
+    mdeAssembly: "A|6|B.dll",
+    mdeOpenHeap: "Blob",
+  });
+  const invalidHeaps = [
+    new FakeElement({ mdeAssembly: "", mdeOpenHeap: "String" }),
+    new FakeElement({ mdeAssembly: "Contoso.dll", mdeOpenHeap: "" }),
+  ];
+  root.addAll(
+    "[data-mde-open-heap]",
+    heap,
+    pipeAssemblyHeap,
+    ...invalidHeaps);
+  const chip = new FakeElement({ mdeChip: "3" });
+  root.addAll("[data-mde-chip]", chip);
+  const calls: string[] = [];
+  bindMetadataExplorer(
+    fakeDom.parentNode(root),
+    null,
+    recordingActions(calls));
+
+  table.dispatch("click");
+  tableZero.dispatch("click");
+  pipeAssemblyTable.dispatch("click");
+  for (const invalidTable of invalidTables) invalidTable.dispatch("click");
+  heap.dispatch("click");
+  pipeAssemblyHeap.dispatch("click");
+  for (const invalidHeap of invalidHeaps) invalidHeap.dispatch("click");
+  chip.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "open-table:Contoso.dll:6",
+    "open-table:Contoso.dll:0",
+    "open-table:A|6|B.dll:2",
+    "open-heap:Contoso.dll:String",
+    "open-heap:A|6|B.dll:Blob",
+  ]);
+  assert.equal(root.queriedSelectors.has("[data-mde-chip]"), false);
+});
 
 function assembly(overrides = {}) {
   return {
@@ -148,12 +471,14 @@ test("an assembly block lists non-empty heaps and tables sorted by row count", (
   assert.match(html, /#Strings/);
   assert.match(html, /#GUID/);
   assert.doesNotMatch(html, /#Blob/);
-  assert.match(html, /data-mde-open-heap="Contoso\.dll\|String"/);
+  assert.match(
+    html,
+    /data-mde-open-heap="String" data-mde-assembly="Contoso\.dll"/);
 
   const typeDefAt = html.indexOf("TypeDef");
   const methodDefAt = html.indexOf("MethodDef");
   assert.ok(methodDefAt > 0 && methodDefAt < typeDefAt, "tables sort by descending row count");
-  assert.match(html, /data-mde-open="Contoso\.dll\|2"/);
+  assert.match(html, /data-mde-open="2" data-mde-assembly="Contoso\.dll"/);
   assert.match(html, /meta-table-unprojected/);
   assert.match(html, /2\/3 populated/);
   assert.match(html, /v2\.5 · ILOnly · entry 0x6000001/);

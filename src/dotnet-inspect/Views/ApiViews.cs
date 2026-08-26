@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -776,7 +777,13 @@ public record FieldSummaryRow(
 public record EventSummaryRow(string Name, string Type);
 
 [MarkoutSerializable]
-public record MethodAttributeRow(string Name, string Value);
+public record MethodAttributeRow(
+    [property: MarkoutIgnore] InertString NameText,
+    [property: MarkoutIgnore] InertString ValueText)
+{
+    public string Name => NameText.ToString();
+    public string Value => ValueText.ToString();
+}
 
 /// <summary>
 /// View model for constructor emphasis (--ctor mode).
@@ -874,7 +881,7 @@ public sealed record AppliedTasteRow(
     string? Detail);
 
 /// <summary>
-/// Code sections for member command output (Decompiled Source, Annotated Source, Original Source, IL).
+/// Code sections for member command output (Decompiled Source, Annotated Source, PDB Source, IL).
 /// Serialized separately after the main TypeView.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
@@ -910,15 +917,15 @@ public class MemberCodeView
     [MarkoutSection(Name = "Semantics Overlay")]
     public CodeSection SemanticsOverlayCode { get; set; }
 
-    [MarkoutSection(Name = "Original Source")]
-    public CodeSection OriginalSourceCode { get; set; }
+    [MarkoutSection(Name = SectionNames.PdbSource)]
+    public CodeSection PdbSourceCode { get; set; }
 
     /// <summary>
-    /// True when <see cref="OriginalSourceCode"/> holds the bodyless-member explanation rather than
-    /// authored source. Not a section: consumers that treat the original source as text (Source
-    /// Diff) must skip it (issue #3299).
+    /// True when <see cref="PdbSourceCode"/> holds an explanation rather than PDB-selected source.
+    /// Not a section: consumers that treat the PDB source as text (Source Diff) must skip it
+    /// (issue #3299).
     /// </summary>
-    public bool OriginalSourceUnavailable { get; set; }
+    public bool PdbSourceUnavailable { get; set; }
 
     [MarkoutSection(Name = SectionNames.SourceDiff)]
     public CodeSection SourceDiffCode { get; set; }

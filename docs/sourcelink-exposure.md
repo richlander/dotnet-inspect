@@ -102,11 +102,16 @@ Selected member output already exposes source evidence:
 
 | Section | Purpose |
 | --- | --- |
-| `Original Source` | SourceLink-backed, portable-PDB-checksum-verified source text for one selected overload |
+| `PDB Source` | Portable-PDB-selected, checksum-verified source text acquired locally or through SourceLink for one selected overload |
 | `Source Locations` | file/URL/line rows for a member group or selected signature |
 | `Decompiled Source` | readable C# reconstructed from IL |
 | `Annotated Source` | C# plus hidden-fact comments and IL evidence |
 | `IL` | raw IL disassembly |
+
+`PDB Source` means that the returned bytes match the Portable PDB's document
+checksum and were selected through its source coordinates. Neither the checksum
+nor SourceLink origin attribution independently proves that those bytes were
+the physical syntax tree that produced a MethodDef.
 
 Single-type `Source Files` is the natural section home for type-to-URL rows when
 a user is already in a `type` flow. Printing a source body from `Source Files`
@@ -123,14 +128,14 @@ section, currently described as `Source Locations`.
 views so the experience progressively narrows. A member-group view can show one
 row per overload with enough selector/signature context to identify the row. A
 selected-signature view can show the same file/URL/line evidence for one
-signature without fetching the full `Original Source` body.
+signature without fetching the full `PDB Source` body.
 
 ### Removed source command
 
 The former `source` command has been folded into host-command sections and point
 queries. Issue [#1163](https://github.com/richlander/dotnet-inspect/issues/1163)
 records the removal path: source inventories became `Source Files` sections,
-source-body retrieval follows selected-member `Original Source` / package
+source-body retrieval follows selected-member `PDB Source` / package
 content patterns, availability checks live in `SourceLink: Integrity` and
 `SourceLink: Availability`, URL shape is selected with `--blob`, and IL offset
 symbolication is now `library --il-offset <token>+<offset>`, which supplies the
@@ -159,7 +164,7 @@ should come from the documentation block, not SourceLink URL inference.
 
 `--bare` is the right presentation modifier when a caller wants section content
 without a heading, table, or Markdown decoration. It supports type/member code
-sections such as `Decompiled Source`, `Annotated Source`, `Original Source`, and
+sections such as `Decompiled Source`, `Annotated Source`, `PDB Source`, and
 `IL`, one-column SourceLink URL output such as `Source Locations`, and package
 README/content payloads. It does not change the selected shape; it simply strips
 framing from an already-selected payload. `--count` remains the reduction that
@@ -217,6 +222,50 @@ into the cache by a prior render therefore makes the family discoverable on the
 next `-D`; the effective-section cache keys on this availability so warming or
 clearing the PDB busts a stale catalog. See
 `docs/design/section-model.md#symbol-dependent-discovery-sourcelink-family`.
+This is the existing library-only persistent compatibility catalog described
+under
+[`Existing library effective catalog`](design/section-model.md#existing-library-effective-catalog);
+it is not an authorization-bearing outcome cache for the planned type/member
+executor. At the metadata-format admission cutover, the bounded assembly gate
+runs over acquisition-retained bytes before this probe or any catalog lookup,
+and the catalog category also bumps. The assembly debug-directory read consumes
+those retained bytes rather than reopening a mutable assembly path. Portable
+PDB parsing after assembly admission may construct a PDB `MetadataReader`; it
+is not assembly metadata projection and remains governed by the existing
+embedded-PDB and expansion budgets.
+
+The successor catalog key replaces the predecessor `sl0`/`sl1` Boolean with
+typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity for
+one retained, assembly-identity-validated portable PDB. That identity includes
+the PDB content digest, discovery-relevant provider/provenance dimensions, and
+typed SourceLink effectiveness. The probe freezes this evidence into the
+effective-catalog subject before lookup; all PDB-dependent discovery and
+publication use it unchanged. Separately authorized source rendering or
+concurrent cache activity may warm and validate symbols, but cannot re-key the
+current catalog. An observed evidence-generation change declines publication,
+and the next invocation probes and recomputes under the new evidence. Replacing
+one SourceLink-bearing PDB with another therefore changes the next key even
+when both report true, because PDB document paths and other facts can change
+effective catalog membership. Rendering still opens and validates the current
+PDB rather than reusing catalog data as source evidence.
+
+Bare effective discovery owns one finite portable-PDB retention budget. Its
+compatibility default is 64 MiB, matching the existing
+`DiscoveryMaxEmbeddedPdbBytes`, and it applies uniformly to adjacent, symbol
+cache, acquired, and decompressed embedded PDB bytes. The owner reserves the
+selected PDB's declared length before allocation, copying, hashing, or
+`MetadataReaderProvider` construction; a non-seekable source uses a bounded
+copy that stops at limit plus one, and embedded content reserves its declared
+decompressed length before expansion. The retained snapshot holds the
+reservation through catalog lookup/production and releases it with the
+operation.
+
+An over-limit candidate returns typed `PortablePdbRetentionLimitExceeded` and
+performs no catalog read or write; it is not silently treated as `None` and does
+not fall through to another provider. Product effective-discovery construction
+cannot select `SourceLinkReadLimits.Unlimited`. `MDP017` gates near/over limits,
+every provider, the aggregate retained-byte peak, the one digest pass, and the
+same single-threaded Browser/Wasm failure.
 
 ## Network and performance policy
 
@@ -228,7 +277,7 @@ use the network only when the selected section justifies it.
 | Acquire one missing PDB | explicit SourceLink/source/provenance section, or detailed library provenance where already documented |
 | HEAD every source URL | explicit `SourceLink: Availability` / `SourceLink: Missing Files` |
 | Download every source body | explicit `SourceLink: Integrity` |
-| Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
+| Fetch one PDB-mapped member source body | explicit selected-member `PDB Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
 Every source-body fetch checks the final response URL after redirects. If the
@@ -271,8 +320,16 @@ network requests.
   the provenance grammar establishes an immutable commit-pinned GitHub or Azure
   DevOps URL. Other availability results retain a TTL; integrity results for
   unknown hosts and moving or ambiguous selectors are not cached.
-- Effective-section caches may summarize what sections are renderable, but must
-  be invalidated when section semantics change.
+- The existing bare-library effective catalog may persist successful section
+  summaries under its versioned semantic key. The slice-5 successor keys on
+  retained assembly content plus complete typed local-symbol discovery
+  evidence, not the predecessor `sl0`/`sl1` Boolean. Input-admission changes
+  bump the category before lookup so prior successful catalogs cannot bypass
+  the new gate; this cutover also runs bounded assembly-format admission before
+  every lookup. Assembly and PDB digest, admission, discovery, and publication
+  each use their owner-retained immutable content; bracketing hashes over a
+  mutable path are insufficient. Planned type/member authorization-dependent
+  outcomes remain operation-local and never consume that catalog.
 
 Cache reuse must never bypass PDB identity validation.
 

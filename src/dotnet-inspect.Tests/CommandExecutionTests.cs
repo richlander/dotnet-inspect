@@ -10,6 +10,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
@@ -43,6 +44,16 @@ namespace DotnetInspector.Tests;
 [Trait("Speed", "Slow")]
 public partial class CommandExecutionTests
 {
+    private const string PackageFixtureFeed =
+        "https://nuget.pkg.github.com/richlander/index.json";
+    private const string PackageFixtureId =
+        "DotnetInspect.TestAssets.ToolV2";
+    private const string PackageFixtureVersion = "1.0.0";
+    private const string PackageFixtureUserEnvironmentVariable =
+        "DOTNET_INSPECT_PACKAGE_FIXTURE_USER";
+    private const string PackageFixtureTokenEnvironmentVariable =
+        "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN";
+
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
@@ -911,7 +922,8 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string AssemblyPath, string FixtureDir) CreateNoSourceLinkDiscoveryAssembly()
+    private static (string AssemblyPath, string SourcePath, string FixtureDir)
+        CreateNoSourceLinkDiscoveryAssembly()
     {
         const string source =
             """
@@ -933,6 +945,9 @@ public partial class CommandExecutionTests
         {
             var assemblyPath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.dll");
             var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            var sourcePath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.cs");
+            var sourceEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            File.WriteAllText(sourcePath, source, sourceEncoding);
             var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
                 .Split(Path.PathSeparator)
                 .Select(path => MetadataReference.CreateFromFile(path));
@@ -940,9 +955,9 @@ public partial class CommandExecutionTests
                 "NoSourceLinkDiscovery",
                 [
                     CSharpSyntaxTree.ParseText(
-                        SourceText.From(source, Encoding.UTF8),
+                        SourceText.From(source, sourceEncoding),
                         new CSharpParseOptions(LanguageVersion.Preview),
-                        path: "/_/NoSourceLinkDiscovery.cs")
+                        path: sourcePath)
                 ],
                 references,
                 new CSharpCompilationOptions(
@@ -965,13 +980,256 @@ public partial class CommandExecutionTests
             using var sourceLink = SourceLinkService.Open(assemblyPath);
             Assert.True(sourceLink.HasPdb);
             Assert.False(sourceLink.HasSourceLink);
-            return (assemblyPath, fixtureDir);
+            return (assemblyPath, sourcePath, fixtureDir);
         }
         catch
         {
             Directory.Delete(fixtureDir, recursive: true);
             throw;
         }
+    }
+
+    private static (string AssemblyPath, string FixtureDir)
+        CreateEmbeddedSourceLinkDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class EmbeddedSourceLink
+            {
+                public static int Value() => 42;
+            }
+            """;
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"embedded-sourcelink-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                "EmbeddedSourceLinkDiscovery.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "EmbeddedSourceLinkDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview),
+                        path: "/_/EmbeddedSourceLinkDiscovery.cs")
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            using (var sourceLink = new MemoryStream(
+                Encoding.UTF8.GetBytes(
+                    """{"documents":{"/_/*":"https://example.test/*"}}""")))
+            {
+                EmitResult result = compilation.Emit(
+                    assembly,
+                    sourceLinkStream: sourceLink,
+                    options: new EmitOptions(
+                        debugInformationFormat:
+                            DebugInformationFormat.Embedded,
+                        pdbFilePath:
+                            "EmbeddedSourceLinkDiscovery.pdb"));
+                Assert.True(
+                    result.Success,
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
+
+            using var service =
+                SourceLinkService.Open(assemblyPath);
+            Assert.True(service.Context.HasEmbeddedPdb);
+            Assert.True(service.HasSourceLink);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+            throw;
+        }
+    }
+
+    private static (string AssemblyPath, string FixtureDir)
+        CreateIncompleteUnsafeDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class IncompleteUnsafeDiscovery
+            {
+                public static int Broken(int value)
+                {
+                    int local = value;
+                    return local + 1;
+                }
+            }
+            """;
+
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"incomplete-unsafe-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                "IncompleteUnsafeDiscovery.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "IncompleteUnsafeDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview))
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Debug,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            {
+                EmitResult result =
+                    compilation.Emit(assembly);
+                Assert.True(
+                    result.Success,
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
+
+            byte[] image = File.ReadAllBytes(assemblyPath);
+            using var peReader = new PEReader(
+                new MemoryStream(
+                    image,
+                    writable: false));
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            MethodDefinition method = reader.MethodDefinitions
+                .Select(reader.GetMethodDefinition)
+                .Single(method =>
+                    reader.GetString(method.Name) == "Broken");
+            MethodBodyBlock body =
+                peReader.GetMethodBody(
+                    method.RelativeVirtualAddress);
+            Assert.False(body.LocalSignature.IsNil);
+
+            int sectionIndex =
+                peReader.PEHeaders.GetContainingSectionIndex(
+                    method.RelativeVirtualAddress);
+            SectionHeader section =
+                peReader.PEHeaders.SectionHeaders[sectionIndex];
+            int headerOffset =
+                section.PointerToRawData
+                + method.RelativeVirtualAddress
+                - section.VirtualAddress;
+            Assert.Equal(3, image[headerOffset] & 3);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    headerOffset + 8,
+                    sizeof(int)),
+                0x11FFFFFE);
+            File.WriteAllBytes(
+                assemblyPath,
+                image);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+            throw;
+        }
+    }
+
+    private static string CompileBodyStateFixture(
+        string fixtureDir,
+        string assemblyName,
+        string source)
+    {
+        Directory.CreateDirectory(fixtureDir);
+        string assemblyPath = Path.Combine(fixtureDir, $"{assemblyName}.dll");
+        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator)
+            .Select(path => MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                deterministic: true));
+
+        using var assembly = File.Create(assemblyPath);
+        EmitResult result = compilation.Emit(assembly);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        return assemblyPath;
+    }
+
+    private static int FindMethodToken(
+        string assemblyPath,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            string fullName = string.IsNullOrEmpty(reader.GetString(type.Namespace))
+                ? reader.GetString(type.Name)
+                : $"{reader.GetString(type.Namespace)}.{reader.GetString(type.Name)}";
+            if (!StringComparer.Ordinal.Equals(fullName, typeName))
+                continue;
+
+            foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+            {
+                MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+                if (!StringComparer.Ordinal.Equals(reader.GetString(method.Name), methodName))
+                    continue;
+
+                int declaredParameterCount = method
+                    .GetParameters()
+                    .Count(handle => reader.GetParameter(handle).SequenceNumber > 0);
+                if (declaredParameterCount == parameterCount)
+                    return MetadataTokens.GetToken(methodHandle);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Method '{typeName}.{methodName}' with {parameterCount} parameter(s) was not found.");
     }
 
     private static (string PackagePath, string TempDir)
@@ -1319,34 +1577,7 @@ public partial class CommandExecutionTests
             }
 
             var root = CommandLineBuilder.CreateRootCommand();
-            var result = root.Parse(args);
-            // Mirror Program.cs: surface parse/validation errors (including the --rows
-            // head/tail window validator) as a clean "Error: ..." line on stderr with
-            // exit 1, instead of letting InvokeAsync print usage help.
-            if (result.Errors.Count > 0)
-            {
-                foreach (var error in result.Errors)
-                {
-                    // CommandError composes the severity prefix and contains the
-                    // message, so a message that already carries one is unwrapped
-                    // rather than prefixed twice.
-                    var message = error.Message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
-                        ? error.Message["Error:".Length..].TrimStart()
-                        : error.Message;
-                    CommandError.Write(message);
-                }
-                return 1;
-            }
-            try
-            {
-                return await CommandLineBuilder.InvokeAsync(result);
-            }
-            catch (RowWindowValidationException ex)
-            {
-                // Defensive: matches the Program.cs safety-net catch.
-                CommandError.Write(ex.Message);
-                return 1;
-            }
+            return await CommandLineBuilder.InvokeAsync(root.Parse(args));
         });
     }
 
@@ -1385,6 +1616,16 @@ public partial class CommandExecutionTests
         RunAppInDirectoryAsync(
             string workingDirectory,
             params string[] args)
+        => await RunAppInDirectoryWithEnvironmentAsync(
+            workingDirectory,
+            environment: null,
+            args);
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunAppInDirectoryWithEnvironmentAsync(
+            string workingDirectory,
+            IReadOnlyDictionary<string, string?>? environment,
+            params string[] args)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -1396,6 +1637,11 @@ public partial class CommandExecutionTests
         startInfo.ArgumentList.Add(typeof(CommandLineBuilder).Assembly.Location);
         foreach (string arg in args)
             startInfo.ArgumentList.Add(arg);
+        if (environment is not null)
+        {
+            foreach ((string name, string? value) in environment)
+                startInfo.Environment[name] = value;
+        }
 
         using Process process = Process.Start(startInfo)!;
         Task<string> output = process.StandardOutput.ReadToEndAsync();
@@ -3146,6 +3392,138 @@ public partial class CommandExecutionTests
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
+    [Theory]
+    [InlineData("String", "System.String")]
+    [InlineData("Object", "System.Object")]
+    [InlineData("Boolean", "System.Boolean")]
+    [InlineData("Void", "System.Void")]
+    public async Task Router_BareBclTypeName_IgnoresNestedSimpleNameCollisions(
+        string query,
+        string expectedType)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            query, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains($"# {expectedType}", output);
+        Assert.DoesNotContain("## Package Info", output);
+        Assert.Contains("resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Router_NestedPlatformTypePlusSyntax_RemainsResolvable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "JSType+String", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "# System.Runtime.InteropServices.JavaScript.JSType.String",
+            output);
+        Assert.Contains("resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Router_AmbiguousPlatformFind_ReportsAmbiguity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Timer", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'Timer' matched multiple platform types.",
+            error);
+        Assert.DoesNotContain("Package 'timer'", error);
+    }
+
+    [Fact]
+    public async Task Router_AmbiguousPlatformMemberFind_ReportsAmbiguity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Timer.Start", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'Timer' matched multiple platform types.",
+            error);
+        Assert.DoesNotContain("No members matched", error);
+    }
+
+    [Theory]
+    [InlineData("Dictionary*.KeyCollection", "GetEnumerator")]
+    [InlineData("Dictionary*+KeyCollection", "GetEnumerator")]
+    [InlineData("Delegate.InvocationListEnumerator*", "MoveNext")]
+    public async Task Type_UnqualifiedOwnerGlob_FindsDotSpelledNestedPlatformType(
+        string typeName,
+        string expectedMember)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeName,
+            "--platform",
+            "System.Private.CoreLib",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(expectedMember, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_OwnerQualifiedNestedGlob_PreservesMultipleMatches()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "OrderedDictionary<TKey,TValue>.*Collection",
+            "--platform",
+            "System.Collections",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("KeyCollection", output);
+        Assert.Contains("ValueCollection", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_TypeQualifiedMemberGlob_PeelsResolvedType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer.Deser*",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Deserialize", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "Enumerator*",
+            "--platform",
+            "System.Collections",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("LinkedList", output);
+        Assert.Contains("Enumerator", output);
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
     {
@@ -3156,6 +3534,1917 @@ public partial class CommandExecutionTests
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
         Assert.Contains("Library: System.Collections", output);
         Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>", "System.Collections")]
+    [InlineData("System.Span<T>", "System.Runtime")]
+    [InlineData("System.Threading.Tasks.Task<TResult>", "System.Runtime")]
+    [InlineData("System.Collections.Generic.IEnumerable<T>", "System.Runtime")]
+    public async Task Router_FullyQualifiedGenericPlatformType_PreservesContractSource(
+        string typeName,
+        string expectedLibrary)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            typeName, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"Library: {expectedLibrary}", output);
+        Assert.DoesNotContain("Library: System.Private.CoreLib", output);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>.Add")]
+    [InlineData("List<T>.Add")]
+    public async Task Router_GenericPlatformMember_PreservesContractDocumentation(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Represents a strongly typed list of objects",
+            output);
+        Assert.Contains(
+            "Adds an object to the end of the List.",
+            output);
+    }
+
+    [Theory]
+    [InlineData("List<T,U>.Add")]
+    [InlineData("System.Collections.Generic.List<T,U>.Add")]
+    [InlineData("System.Collections.Generic.List`2.Add")]
+    [InlineData("System.Collections.Generic.List`0.Add")]
+    [InlineData("System.Collections.Generic.List`.Add")]
+    [InlineData("System.Collections.Generic.List`999999999999999999999.Add")]
+    [InlineData("System.Collections.Generic.Dictionary<TKey,>")]
+    [InlineData("System.Collections.Generic.Dictionary<,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<>,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<TKey,<TValue>>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>U,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T><U>,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>[,TValue>")]
+    [InlineData("System.Collections.Generic.List<?>")]
+    [InlineData("System.Collections.Generic.List<.T>")]
+    [InlineData("System.Collections.Generic.List<T?*>")]
+    [InlineData("System.Collections.Generic.List<T U?>")]
+    [InlineData("System.Threading.Tasks.Task<T1,T2>")]
+    public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>?,string>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>[,],string>")]
+    [InlineData("System.Collections.Generic.List<(int,string)>")]
+    [InlineData("System.Action<(int,string)>")]
+    public async Task Router_ValidNestedGenericSuffixResolvesExactType(
+        string target)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+        "TryAdd",
+        false)]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+        "TryAdd",
+        true)]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator<TDelegate>",
+        "MoveNext",
+        false)]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator<TDelegate>",
+        "MoveNext",
+        true)]
+    public async Task Router_ExactCSharpInnerGenericTypePreservesSharedMemberFilter(
+        string target,
+        string member,
+        bool explicitPlatform)
+    {
+        string[] tail =
+        [
+            "-m",
+            member,
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        string[] scopedTail = explicitPlatform
+            ? ["--platform", "System.Private.CoreLib", .. tail]
+            : tail;
+
+        var direct = await RunAppAsync(
+            ["type", target, .. scopedTail]);
+        var routed = await RunAppAsync(
+            [target, .. scopedTail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("## Type Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitMemberOptionUsesNestedMetadataTypeIdentity()
+    {
+        const string target =
+            "System.Collections.Generic.List`1.Enumerator";
+        string[] tail =
+        [
+            "-m",
+            "MoveNext",
+            "--platform",
+            "System.Private.CoreLib",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "System.Collections.Generic.List<T>.Enumerator",
+            routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_SourcelessMemberOptionUsesNestedMetadataTypeIdentity()
+    {
+        const string target =
+            "System.Collections.Generic.List`1.Enumerator";
+        string[] tail =
+        [
+            "-m",
+            "MoveNext",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "System.Collections.Generic.List<T>.Enumerator",
+            routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_UnboundGenericTypePreservesMemberArity()
+    {
+        const string target =
+            "System.Collections.Generic.Dictionary<,>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections",
+            "-m",
+            "TryGetValue",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_OperatorLikeGenericArgumentRemainsTypeTarget()
+    {
+        const string target =
+            "System.Collections.Generic.List<System.op_Addition>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.TypeInfo,
+            "--schema",
+            "--table",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("Type", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<>")]
+    [InlineData("System.Collections.Generic.Dictionary<,>")]
+    public async Task Router_UnboundGenericTypeResolvesItsDeclaredArity(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count) && count > 0);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_MalformedWhitespaceGenericFilterDoesNotBroaden()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "System.Collections.Generic.List<T U?>",
+            "-S",
+            "Classes",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("List<T,U>")]
+    [InlineData("List`2")]
+    [InlineData("Dictionary<T>")]
+    [InlineData("Span<T,U>")]
+    public async Task Type_BareExplicitMissingGenericArity_DoesNotBroaden(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", target, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Span<T>", "System.Span")]
+    [InlineData("Task<TResult>", "System.Threading.Tasks.Task")]
+    [InlineData("IEnumerable<T>", "System.Collections.Generic.IEnumerable")]
+    public async Task Router_UnqualifiedGenericSameIdentity_UsesRuntimeContract(
+        string target,
+        string expectedType)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains($"# {expectedType}", output);
+        Assert.DoesNotContain(
+            "Platform type lookup is ambiguous",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Router_UnqualifiedGenericPlatformMember_AmbiguityFails()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "SequenceReader<T>.TryRead", "--all", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Platform type lookup is ambiguous",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Router_UnqualifiedGenericPlatformMember_ExplicitSourceDisambiguates()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "SequenceReader<T>.TryRead",
+            "--platform",
+            "System.Memory",
+            "--all",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# System.Buffers.SequenceReader&lt;T&gt;",
+            output);
+        Assert.Contains("TryRead", output);
+    }
+
+    [Fact]
+    public async Task Router_GenericPlatformType_UserFrameworkIsNotDuplicated()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List<T>",
+            "--framework",
+            "runtime",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("7", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("System.Threading.Tasks.Task<T>")]
+    [InlineData("System.Threading.Tasks.Task<T>.Result")]
+    public async Task Router_GenericPlatformTarget_UsesExplicitFrameworkOwner(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--framework",
+            "netstandard",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Threading.Tasks.Task", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_RouterDeferredTarget_UsesMetadataMemberBoundary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder.Capacity",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Properties", output);
+        Assert.Contains("| Capacity |", output);
+    }
+
+    [Fact]
+    public async Task Member_RouterDeferredTarget_ExactTypeKeepsTypeRendering()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# System.Collections.Immutable.ImmutableArray&lt;T&gt;.Builder",
+            output);
+        Assert.Contains("Kind: class", output);
+    }
+
+    [Fact]
+    public async Task Member_RouterDeferredTarget_ExactTypePreservesVerbosity()
+    {
+        string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        var direct = await RunAppAsync(
+            "type",
+            target,
+            "--platform",
+            "System.Collections.Immutable",
+            "-v:n",
+            "--tips",
+            "q");
+        var deferred = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Collections.Immutable",
+            "-v:n",
+            "--tips",
+            "q");
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesBodyKindQuery()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "--where",
+            "Kind=InvocationExpression",
+            "--table",
+            "--rows",
+            "1",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("InvocationExpression", deferred.Output);
+    }
+
+    [Fact]
+    public async Task Router_DeferredStaticDiscoveryWithBodyKindStaysOffline()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "Missing.Generic<T>.Add",
+                "--library",
+                missingAssembly,
+                "--where",
+                "Kind=InvocationExpression",
+                "-D",
+                "--schema",
+                "--tips",
+                "q"
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Body Shapes | section |", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberStaticDiscoveryKeepsBodyKindSection()
+    {
+        string[] common =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "--where",
+            "Kind=InvocationExpression",
+            "-D",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.Collections.Immutable.ImmutableArray<T>.Builder",
+                "-m",
+                "Add",
+                .. common
+            ]);
+        var deferred = await RunAppAsync(
+            [
+                "System.Collections.Immutable.ImmutableArray<T>.Builder.Add",
+                .. common
+            ]);
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Body Shapes | section |", direct.Output);
+        Assert.Contains("| Body Shapes | section |", deferred.Output);
+        Assert.Empty(direct.Error);
+        Assert.Empty(deferred.Error);
+    }
+
+    [Theory]
+    [InlineData("System.String.IndexOf:1", "IndexOf:2")]
+    [InlineData("System.String.IndexOf~aaaaaaaaaa", "IndexOf~bbbbbbbbbb")]
+    [InlineData("System.String.IndexOf:1", "IndexOf~aaaaaaaaaa")]
+    public async Task Router_DeferredMemberRejectsConflictingOverloadSelectors(
+        string target,
+        string explicitSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Runtime",
+            "-m",
+            explicitSelector,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot combine different overload selectors",
+            error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberAcceptsMatchingOverloadSelectors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf:1",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "IndexOf:1",
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("IndexOf", output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.List<T>.Add~590da2",
+        "Add~590da203f0")]
+    [InlineData(
+        "System.Collections.Generic.List<T>.Add~590da203f0",
+        "Add~590da2")]
+    public async Task Router_DeferredMemberAcceptsCompatibleDigestPrefixes(
+        string target,
+        string explicitSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Collections",
+            "-m",
+            explicitSelector,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Add", output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.List<T>",
+        "Type Info")]
+    [InlineData(
+        "System.Collections.Generic.List<T>.Add:1",
+        "Signature")]
+    public async Task Router_GenericStaticSchemaDoesNotResolveFramework(
+        string target,
+        string expectedSchemaItem)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--framework",
+            "runtime@0.0.0",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(expectedSchemaItem, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericPlatformMethod_UserFrameworkIsNotDuplicated()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Threading.Tasks.Task.FromResult<TResult>:1",
+            "--framework",
+            "runtime",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string[] arguments =
+        [
+            "Missing.Generic<T>",
+            "--library",
+            missingAssembly,
+            "-S",
+            "DefinitelyNotASection",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(1, direct.Exit);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(direct.Output);
+        Assert.Empty(deferred.Output);
+        Assert.Contains("Select value 'DefinitelyNotASection' not found.", direct.Error);
+        Assert.Contains("Select value 'DefinitelyNotASection' not found.", deferred.Error);
+        Assert.DoesNotContain("File not found", deferred.Error);
+        Assert.DoesNotContain("  Classes", deferred.Error);
+        Assert.DoesNotContain("  Inspection Failures", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedTargetRejectsUniversallyInvalidSectionBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var ambiguous = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
+        var explicitMember = await RunAppAsync(
+            "member",
+            "Missing.Type",
+            "--library",
+            missingAssembly,
+            "-m",
+            "Member",
+            "-S",
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, ambiguous.Exit);
+        Assert.Equal(1, explicitMember.Exit);
+        Assert.Empty(ambiguous.Output);
+        Assert.Empty(explicitMember.Output);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            ambiguous.Error);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            explicitMember.Error);
+        Assert.DoesNotContain("File not found", ambiguous.Error);
+        Assert.DoesNotContain("File not found", explicitMember.Error);
+        Assert.DoesNotContain("  Classes", ambiguous.Error);
+        Assert.DoesNotContain("  Inspection Failures", ambiguous.Error);
+        Assert.DoesNotContain("  Method Groups", explicitMember.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredPartialSectionDiagnosticIsEmittedOnce()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "-S",
+            "Methods,DefinitelyNotASection",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal(
+            1,
+            deferred.Error.Split('\n').Count(
+                static line => line.Contains(
+                    "Select value 'DefinitelyNotASection' not found.",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Router_DeferredOptionShapeRejectsBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string[] arguments =
+        [
+            "Missing.Generic<T>",
+            "--library",
+            missingAssembly,
+            "--json-array",
+            "--json",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "--json-array requires --value, --urls, --paths, or --print.",
+            deferred.Error);
+        Assert.DoesNotContain("File not found", deferred.Error);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(SectionNames.CallGraph)]
+    public async Task Router_DeferredTreeFormatConflictRejectsBeforeAcquisition(
+        string? section)
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        List<string> tail =
+        [
+            "--library",
+            missingAssembly,
+            "--tree",
+            "--json",
+            "--tips",
+            "q"
+        ];
+        if (section is not null)
+            tail.InsertRange(2, ["-S", section]);
+
+        var direct = await RunAppAsync(
+            ["member", "Missing.Generic<T>", "-m", "Member", .. tail]);
+        var deferred = await RunAppAsync(
+            ["Missing.Generic<T>.Member", .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "--tree is a standalone output format and cannot combine with another output format.",
+            deferred.Error);
+        Assert.DoesNotContain("File not found", deferred.Error);
+        Assert.DoesNotContain("Document --json cannot represent", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Router_DottedOverloadStaticDiscoveryUsesDetailPipeline()
+    {
+        string[] arguments =
+        [
+            "List<T>.Add:1",
+            "--platform",
+            "System.Collections",
+            "-D",
+            "Signature",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "List<T>",
+                "--platform",
+                "System.Collections",
+                "-m",
+                "Add:1",
+                .. arguments[3..]
+            ]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Signature | column |", deferred.Output);
+    }
+
+    [Fact]
+    public async Task Router_DottedDigestStaticDiscoveryUsesDetailPipeline()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Convert",
+            "-S",
+            "Member Index",
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+        Assert.Equal(0, inventory.Exit);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+
+        string[] discovery =
+        [
+            "-D",
+            "Signature",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                typeName,
+                "--library",
+                TestAssemblyPath,
+                "-m",
+                stableSelector,
+                .. discovery
+            ]);
+        var deferred = await RunAppAsync(
+            [
+                $"{typeName}.{stableSelector}",
+                "--library",
+                TestAssemblyPath,
+                .. discovery
+            ]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Signature | column |", deferred.Output);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeReusesResolvedApiSurface()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal(
+            1,
+            deferred.Error.Split('\n').Count(
+                static line => line.Contains(
+                    "Extracting API from:",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesTypeDocumentationDefaults()
+    {
+        string[] arguments =
+        [
+            "SequenceReader<T>",
+            "--platform",
+            "System.Memory",
+            "--markdown",
+            "-S",
+            "Methods",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Theory]
+    [InlineData("--shape")]
+    [InlineData("--tree")]
+    public async Task Router_DeferredExactTypePreservesTypeOnlyOutput(
+        string outputOption)
+    {
+        const string target = "SequenceReader<T>";
+        var direct = await RunAppAsync(
+            "type",
+            target,
+            "--platform",
+            "System.Memory",
+            outputOption,
+            "--tips",
+            "q");
+        var deferred = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Memory",
+            outputOption,
+            "--tips",
+            "q");
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Theory]
+    [InlineData("--focus", "allocation")]
+    [InlineData("--index", "1")]
+    public async Task Router_DeferredExactTypeRejectsMemberOnlyOption(
+        params string[] memberOnlyOption)
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            .. memberOnlyOption,
+            "--tips",
+            "q"
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Unrecognized option '{memberOnlyOption[0]}'",
+            error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesProjectSourceConflict()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Text.Json",
+            "--project",
+            "/tmp/missing.csproj",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["type", "System.Text.Json.JsonSerializer", .. tail]);
+        var routed = await RunAppAsync(
+            ["System.Text.Json.JsonSerializer", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            "--project cannot be combined",
+            routed.Error);
+    }
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public async Task Router_DeferredProjectSourcePreservesRepeatedOptionArity(
+        int projectCount,
+        bool explicitPlatform)
+    {
+        var repositoryRoot =
+            CommandErrorOwnershipTests.RepositoryRoot();
+        string[] projects =
+        [
+            Path.Combine(
+                repositoryRoot,
+                "src",
+                "dotnet-inspect",
+                "dotnet-inspect.csproj"),
+            Path.Combine(
+                repositoryRoot,
+                "src",
+                "CSharpText",
+                "CSharpText.csproj"),
+            Path.Combine(
+                repositoryRoot,
+                "src",
+                "dotnet-inspect.Tests",
+                "dotnet-inspect.Tests.csproj")
+        ];
+        List<string> tail = explicitPlatform
+            ? ["--platform", "System.Text.Json"]
+            : [];
+        for (var i = 0; i < projectCount; i++)
+        {
+            tail.Add("--project");
+            tail.Add(projects[i]);
+        }
+        tail.AddRange(["--tips", "q"]);
+
+        var target = explicitPlatform
+            ? "System.Text.Json.JsonSerializer"
+            : "Markout.MarkoutSerializer";
+        var direct = await RunAppAsync(
+            ["type", target, .. tail]);
+        var routed = await RunAppAsync(
+            [target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            $"expects a single argument but {projectCount} were provided",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesSharedMemberFilter()
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            "Add",
+            "--shape",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitTypeFilterSelectsTypeParser()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "-t",
+            "*SampleGenericClass*",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryQualifiedMemberUsesAssemblySource()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.TypeTargetedDecodeTests";
+        const string memberName =
+            "TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType";
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", typeName, "-m", memberName, .. tail]);
+        var routed = await RunAppAsync(
+            [$"{typeName}.{memberName}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("String")]
+    public async Task Member_SuppliedTypeAcceptsFullyQualifiedMemberFilter(
+        string typeName)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Runtime",
+            "-S",
+            "Methods",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var simple = await RunAppAsync(
+            ["member", typeName, "-m", "String.Contains", .. tail]);
+        var qualified = await RunAppAsync(
+            [
+                "member",
+                typeName,
+                "-m",
+                "System.String.Contains",
+                .. tail
+            ]);
+
+        Assert.Equal(simple, qualified);
+        Assert.Equal(0, qualified.Exit);
+        Assert.Equal("6", qualified.Output.Trim());
+        Assert.Empty(qualified.Error);
+    }
+
+    [Fact]
+    public async Task Member_SimpleSuppliedTypeRetainsDifferentQualifiedType()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Text.Json",
+            "-m",
+            "Other.Namespace.JsonElement.GetProperty:1",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", "System.Text.Json.JsonElement", .. tail]);
+        var simple = await RunAppAsync(
+            ["member", "JsonElement", .. tail]);
+
+        Assert.Equal(direct, simple);
+        Assert.Equal(1, simple.Exit);
+        Assert.Contains(
+            "No members matched filter "
+                + "'Other.Namespace.JsonElement.GetProperty'",
+            simple.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2.KeyCollection.CopyTo")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2+KeyCollection.CopyTo")]
+    public async Task Member_GlobTypeTargetNormalizesQualifiedOwner(
+        string memberFilter)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.Dictionary*.KeyCollection",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            memberFilter,
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericTypeFilterPreservesPlatformOwner()
+    {
+        SkipUnlessAspNetCoreAvailable();
+        const string target =
+            "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
+            + ".ArrayPoolBufferAdapter<T1,T2,T3>";
+
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "-t",
+            "5",
+            "--all",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("8", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericMemberFilterPreservesPlatformOwner()
+    {
+        SkipUnlessAspNetCoreAvailable();
+        const string target =
+            "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
+            + ".ArrayPoolBufferAdapter<T1,T2,T3>";
+
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "-m",
+            "explicit:ToResult",
+            "--framework",
+            "aspnetcore",
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_BareQualifiedExplicitInterfaceKeepsLongestTypePrefix()
+    {
+        const string typeName =
+            "System.Collections.Generic.List<T>";
+        const string memberName =
+            "System.Collections.IList.IsReadOnly";
+        string[] tail =
+        [
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "--platform",
+            "System.Collections",
+            "-m",
+            memberName,
+            .. tail
+        ]);
+        var routed = await RunAppAsync(
+            [$"{typeName}.{memberName}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_QualifiedNullableGenericOptionSelectorInfersType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "--platform",
+            "System.Collections",
+            "-m",
+            "System.Collections.Generic.List<T>"
+                + ".ConvertAll<TOutput?>",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_SuppliedTypeRetainsQualifiedOptionSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.List<T>",
+            "--platform",
+            "System.Collections",
+            "-m",
+            "System.Collections.IList.IsReadOnly",
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_ExplicitGenericFilterMatchesExactArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "System.Action<T>",
+            "-S",
+            "Delegates",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GlobalAliasWhitespaceGenericArgumentResolvesExactType()
+    {
+        const string target =
+            "System.Action<global :: System.String>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeRejectsEmbeddedMermaid()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "--markdown",
+            "--mermaid",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>")]
+    [InlineData("List<T>")]
+    public async Task Router_GenericTypeTargetWithMemberFilterUsesMemberCommand(
+        string target)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections",
+            "-m",
+            "ConvertAll<TOutput>",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_QualifiedGenericMemberFilterUsesTopLevelBoundary()
+    {
+        var target = typeof(MemberGenericSelectorFixture).FullName!;
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "GenericChoice<System.String>",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_GenericTypeTargetPreservesDigestMemberSelector()
+    {
+        const string target = "System.Collections.Generic.List<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            target,
+            "--platform",
+            "System.Collections",
+            "-m",
+            "ConvertAll<TOutput>",
+            "-S",
+            "Member Index",
+            "--table",
+            "--tips",
+            "q");
+        Assert.Equal(0, inventory.Exit);
+        var selector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("ConvertAll", StringComparison.Ordinal))
+            .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1])
+            .Single();
+        Assert.Contains('~', selector);
+
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections",
+            "-m",
+            selector,
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesSharedMemberLimit()
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            "1",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal("1", deferred.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("Add:1")]
+    [InlineData("Add~ffffffff")]
+    public async Task Router_DeferredExactTypePreservesLiteralTypeMemberFilter(
+        string memberFilter)
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            memberFilter,
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeRejectsGenericArityMemberFilter()
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            "Add<X>",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredStaticSchemaDoesNotResolveSource()
+    {
+        var missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "Missing.Generic<T>",
+            "--library",
+            missingAssembly,
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Type Info", output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("DotnetInspector.Tests.SampleGenericClass<T>")]
+    [InlineData("SampleGenericClass<T>")]
+    public async Task Router_ExplicitLibraryGenericTypeUsesAssemblySource(
+        string target)
+    {
+        string[] arguments =
+        [
+            target,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberOverloadSuffixSurvivesMetadataBoundary()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        const string target =
+            $"{typeName}.Convert<TResult>:1";
+        string[] projection =
+        [
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Convert<TResult>:1",
+            .. projection
+        ]);
+        var routed = await RunAppAsync(
+        [
+            target,
+            "--library",
+            TestAssemblyPath,
+            .. projection
+        ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberDigestSurvivesMetadataBoundary()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Convert",
+            "-S",
+            "Member Index",
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, inventory.Exit);
+        Assert.Empty(inventory.Error);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.StartsWith("Convert~", stableSelector);
+
+        var (exit, output, error) = await RunAppAsync(
+            $"{typeName}.{stableSelector}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".ctor:1")]
+    public async Task Router_DeferredConstructorSuffixUsesMemberRendering(
+        string memberSelector)
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        string[] projection = ["--table", "--tips", "q"];
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            memberSelector,
+            .. projection
+        ]);
+        var routed = await RunAppAsync(
+        [
+            $"{typeName}.{memberSelector}",
+            "--library",
+            TestAssemblyPath,
+            .. projection
+        ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredConstructorDigestSurvivesMetadataBoundary()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            ".ctor",
+            "-S",
+            "Member Index",
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, inventory.Exit);
+        Assert.Empty(inventory.Error);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.StartsWith(".ctor~", stableSelector);
+
+        var (exit, output, error) = await RunAppAsync(
+            $"{typeName}.{stableSelector}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData(".cctor")]
+    [InlineData(".CCTOR")]
+    public async Task Router_DeferredStaticConstructorPreservesCaseInsensitiveParity(
+        string memberSelector)
+    {
+        const string typeName =
+            "System.Collections.Generic.EqualityComparer<T>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "--all",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "-m",
+            memberSelector,
+            .. tail
+        ]);
+        var deferred = await RunAppAsync(
+        [
+            $"{typeName}.{memberSelector}",
+            .. tail
+        ]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal("1", deferred.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_UserCannotActivateRouterDeferredTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--router-deferred-type-or-member",
+            "forged",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Invalid internal router state", error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPackageBoundaryUsesAcquiredMetadata()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+            "--package",
+            "System.Collections.Concurrent@4.3.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("AlternateLookup", error);
+    }
+
+    [Fact]
+    public async Task Type_DottedTargetDoesNotFallBackToContainingType()
+    {
+        const string target =
+            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>";
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            target,
+            "--package",
+            "System.Collections.Concurrent@4.3.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Type '{target}' not found", error);
+    }
+
+    [Theory]
+    [InlineData("Dictionary<TKey,TValue>.KeyCollection")]
+    [InlineData("Dictionary`2.KeyCollection")]
+    public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            typeName, "--shape", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "sealed class System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection",
+            output);
+        Assert.DoesNotContain("No members matched", error);
+    }
+
+    [Theory]
+    [InlineData("ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>.TryAdd")]
+    [InlineData("ConcurrentDictionary`2.AlternateLookup`1.TryAdd")]
+    public async Task Router_GenericNestedTypeMember_UsesLongestExactTypePrefix(string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("TryAdd", output);
+        Assert.Contains("TAlternateKey key", output);
     }
 
     [Fact]
@@ -3191,6 +5480,127 @@ public partial class CommandExecutionTests
         Assert.Contains("IndexOf~", output);
         Assert.Contains("M:System.String.IndexOf(char)", output);
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("explicit:Abort:1")]
+    [InlineData("extension:Abort:1")]
+    public async Task Member_PlatformFindIfMiss_PreservesSelectorKind(
+        string selector)
+    {
+        string[] tail =
+        [
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "Microsoft.AspNetCore.Http.HttpContext",
+                "--platform",
+                "Microsoft.AspNetCore.Http.Abstractions",
+                "-m",
+                selector,
+                .. tail
+            ]);
+        var found = await RunAppAsync(
+            ["member", $"HttpContext.{selector}", .. tail]);
+
+        Assert.Equal(direct, found);
+        Assert.Equal(1, found.Exit);
+        Assert.Empty(found.Output);
+        Assert.Contains("No members matched selector 'Abort'", found.Error);
+    }
+
+    [Fact]
+    public async Task Member_PlatformFindIfMiss_PreservesSelectorDigest()
+    {
+        var inventory = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-m",
+            "Serialize",
+            "-S",
+            SectionNames.MemberIndex,
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+        Assert.Equal(0, inventory.Exit);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.Contains('~', stableSelector);
+
+        string[] tail =
+        [
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.Text.Json.JsonSerializer",
+                "--platform",
+                "System.Text.Json",
+                "-m",
+                stableSelector,
+                .. tail
+            ]);
+        var found = await RunAppAsync(
+            ["member", $"JsonSerializer.{stableSelector}", .. tail]);
+
+        Assert.Equal(direct, found);
+        Assert.Equal(0, found.Exit);
+        Assert.Equal("1", found.Output.Trim());
+        Assert.Empty(found.Error);
+    }
+
+    [Theory]
+    [InlineData("StatusCode")]
+    [InlineData("StatusCode:1")]
+    public async Task Member_PlatformFindIfMiss_PreservesExplicitIndex(
+        string selector)
+    {
+        string[] tail =
+        [
+            "--index",
+            "2",
+            "-S",
+            SectionNames.Signature,
+            "--tsv",
+            "--columns",
+            "canonical_signature",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "ControllerBase",
+                "--platform",
+                "Microsoft.AspNetCore.Mvc.Core",
+                "-m",
+                selector,
+                .. tail
+            ]);
+        var found = await RunAppAsync(
+            ["member", $"ControllerBase.{selector}", .. tail]);
+
+        Assert.Equal(direct.Output, found.Output);
+        Assert.Equal(0, found.Exit);
+        Assert.Contains("StatusCode", found.Output);
+        Assert.Empty(found.Error);
     }
 
     [Fact]
@@ -3275,6 +5685,20 @@ public partial class CommandExecutionTests
         Assert.Contains("Deserialize", output);
         Assert.Contains("Deserialize<TValue>", output);
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("AsSpan<T>")]
+    [InlineData("AsSpan`1")]
+    public async Task Type_GenericMemberFilter_RejectsUnsupportedArity(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "MemoryExtensions", "--platform", "System.Memory",
+            "-m", selector, "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("does not support generic arity selectors", error);
     }
 
     [Fact]
@@ -4460,6 +6884,596 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_PrefixBrowse_ExplicitPlatformNamespace_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json.Serialization",
+            "--platform",
+            "System.Text.Json",
+            "--table",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("best-effort prefix matches", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_PreservesLibraryInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Library Info"
+        ];
+
+        var direct = await RunAppAsync(["library", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# System.Text.Json.dll", routed.Output);
+        Assert.DoesNotContain("best-effort prefix matches", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_WithTypePositional_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "# System.Text.Json.JsonSerializer",
+            routed.Output);
+        Assert.Contains("## Type Info", routed.Output);
+        Assert.Contains("| Source | Platform |", routed.Output);
+        Assert.DoesNotContain("| Package |", routed.Output);
+        Assert.Empty(routed.Error);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("-k", "class")]
+    public async Task Router_ExplicitPlatformIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
+        params string[] leadingOptions)
+    {
+        string[] tail =
+        [
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "type",
+                "JsonSerializer",
+                "--platform",
+                "System.Text.Json",
+                .. leadingOptions,
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Text.Json",
+                "--platform",
+                "System.Text.Json",
+                .. leadingOptions,
+                "JsonSerializer",
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_UnknownOptionBeforeTypePositional_PreservesTypeDiagnostic()
+    {
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "--bogus",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(
+            "System.Text.Json",
+            "--platform",
+            "System.Text.Json",
+            "--bogus",
+            "JsonSerializer",
+            "--tips",
+            "q");
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            "Unrecognized option '--bogus'",
+            routed.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+        "TryAdd")]
+    [InlineData(
+        "System.Delegate.InvocationListEnumerator<TDelegate>",
+        "MoveNext")]
+    public async Task Router_ExplicitPlatformIdentity_CSharpInnerGenericTypePreservesSharedMemberFilter(
+        string target,
+        string member)
+    {
+        string[] tail =
+        [
+            "-m",
+            member,
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "type",
+                target,
+                "--platform",
+                "System.Private.CoreLib",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Private.CoreLib",
+                "--platform",
+                "System.Private.CoreLib",
+                target,
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("## Type Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_SourceBeforeTypePositional_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "--platform",
+            "System.Text.Json",
+            "JsonSerializer",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "# System.Text.Json.JsonSerializer",
+            routed.Output);
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_QualifiedMemberOptionSuppliesTarget()
+    {
+        string[] tail =
+        [
+            "-m",
+            "JsonSerializer.Serialize",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "--platform",
+                "System.Text.Json",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Text.Json",
+                "--platform",
+                "System.Text.Json",
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.NotEqual("0", routed.Output.Trim());
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_WithDottedTarget_PreservesDeferredMemberRouting()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains(
+            "# System.Text.Json.JsonSerializer",
+            routed.Output);
+        Assert.Contains("## Methods", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformIdentity_WithTypeOption_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "System.Text.Json",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-t",
+            "JsonSerializer",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-t",
+            "JsonSerializer",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("| Source | Platform |", routed.Output);
+        Assert.DoesNotContain("| Package |", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_PrefixBrowse_ExplicitLibrarySection_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "DotnetInspector.Tests.Sample",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Classes",
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryExactTypeRejectsListingSection()
+    {
+        string[] arguments =
+        [
+            "DotnetInspector.Tests.CommandExecutionTests",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Classes",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.DoesNotContain("best-effort prefix matches", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryQualifiedMemberRejectsListingSection()
+    {
+        const string target =
+            "DotnetInspector.Tests.TypeTargetedDecodeTests"
+            + ".TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType";
+
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Classes",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Classes' not found", error);
+        Assert.DoesNotContain("best-effort prefix matches", error);
+    }
+
+    [Fact]
+    public async Task Router_PrefixBrowse_ExplicitPackageNamespace_MatchesTypeCommand()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            string[] arguments =
+            [
+                "DotnetInspector.Tests.Sample",
+                "--package",
+                packagePath,
+                "--library",
+                "Test.Primary.dll",
+                "--table",
+                "--tips",
+                "q"
+            ];
+
+            var direct = await RunAppAsync(["type", .. arguments]);
+            var routed = await RunAppAsync(arguments);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.Contains("best-effort prefix matches", routed.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--library=")]
+    [InlineData("--library:")]
+    public async Task Router_AttachedEmptyLibraryValue_PreservesBoundedParseError(
+        string libraryOption)
+    {
+        var direct = await RunAppAsync(
+            "type",
+            "System.String",
+            libraryOption);
+        var routed = await RunAppAsync(
+            "System.String",
+            libraryOption);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Single(
+            routed.Error.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.DoesNotContain("Usage:", routed.Error);
+        Assert.DoesNotContain("Options:", routed.Error);
+        Assert.DoesNotContain("Commands:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("--library=-missing.dll")]
+    [InlineData("--library:-missing.dll")]
+    public async Task Router_AttachedLibraryValue_UsesTypeParser(
+        string libraryOption)
+    {
+        string[] arguments =
+        [
+            "System.String",
+            libraryOption,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedLibraryValue_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "DotnetInspector.CommandLineBuilder",
+            $"--library:{typeof(CommandLineBuilder).Assembly.Location}",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# DotnetInspector.CommandLineBuilder", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPlatformValue_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--platform:System.Runtime",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# System.String", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageValue_MatchesTypeCommand()
+    {
+        string[] arguments =
+        [
+            "JsonConvert",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.JsonConvert", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_SeparateDashPrefixedLibraryValue_UsesTypeParser()
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--library",
+            "-missing.dll",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+        Assert.DoesNotContain("Package", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_WindowsDriveLibraryValue_UsesTypeParser()
+    {
+        const string libraryPath = @"C:\missing.dll";
+        string[] arguments =
+        [
+            "System.String",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+        Assert.DoesNotContain("Package", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPlatformWithLibraryValue_UsesTypeParser()
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "--library",
+            "System.Private.CoreLib.dll",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+        Assert.DoesNotContain("Unrecognized option '--platform'", routed.Error);
+    }
+
+    [Fact]
     public async Task TypeListing_FacadePlatformLibrary_ShowsTypeForwardingDescription()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime");
@@ -4524,6 +7538,61 @@ public partial class CommandExecutionTests
         Assert.Contains("# Microsoft.AspNetCore.Builder.WebApplication", output);
         Assert.Contains("Library: Microsoft.AspNetCore", output);
         Assert.Contains("Source: Platform", output);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>.PooledBuffer")]
+    [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter`3.PooledBuffer")]
+    public async Task BareQualifiedGenericAspNetCoreType_RoutesAcrossPlatformFrameworks(string target)
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ArrayPoolBufferAdapter&lt;", output);
+        Assert.Contains(".PooledBuffer", output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Components.Endpoints", output);
+    }
+
+    [Fact]
+    public async Task BareQualifiedGenericAspNetCoreType_PreservesResolvedSource()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# Microsoft.AspNetCore.Http.HttpResults.Results&lt;",
+            output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Http.Results", output);
+    }
+
+    [Fact]
+    public async Task BareQualifiedGenericAspNetCoreMember_PreservesDocumentation()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>.ExecuteAsync",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "An IResult that could be one of two different IResult types.",
+            output);
+        Assert.Contains("ExecuteAsync", output);
     }
 
     [Fact]
@@ -6064,7 +9133,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
-        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.DoesNotContain("| Facts | section", output);
     }
@@ -6275,7 +9344,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints()
     {
-        // A property has no MethodDef of its own; its authored source is located through its
+        // A property has no MethodDef of its own; its PDB source is located through its
         // accessor's PDB sequence points, reported against the owning property (#3278).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
@@ -6290,31 +9359,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_PropertyAccessorOrdinals_BothRenderTheWholeProperty()
+    public async Task Member_PdbSource_PropertyAccessorOrdinals_BothRenderTheWholeProperty()
     {
         // Ordinal 1 addresses the getter and 2 the setter, matching the accessor addressing the
         // body sections use (#3278), and both resolve. Each renders the *whole property* rather
         // than its own accessor: a property split at an accessor boundary is not a C# declaration
-        // and never parses, so the accessor-scoped slice was a fragment by construction. Authored
-        // source is now located by declaration, and the declaration containing either accessor is
-        // the property.
+        // and never parses, so the accessor-scoped slice was a fragment by construction. PDB source
+        // is now located by declaration, and the declaration containing either accessor is the
+        // property.
         var (getterExit, getterOutput, getterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, getterExit);
         Assert.Empty(getterError);
-        Assert.Contains("## Original Source", getterOutput);
+        Assert.Contains("## PDB Source", getterOutput);
         Assert.Contains("get => _maxDepth;", getterOutput);
         Assert.Contains("_maxDepth = value;", getterOutput);
 
         var (setterExit, setterOutput, setterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:2", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, setterExit);
         Assert.Empty(setterError);
-        Assert.Contains("## Original Source", setterOutput);
+        Assert.Contains("## PDB Source", setterOutput);
         Assert.Contains("_maxDepth = value;", setterOutput);
         Assert.Contains("get => _maxDepth;", setterOutput);
 
@@ -6325,14 +9394,106 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
+    public async Task Member_OriginalSourceLegacyAlias_RendersCanonicalPdbSourceHeading()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## PDB Source", output);
+        Assert.DoesNotContain("## Original Source", output);
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_LocalDocumentDoesNotRequireSourceLinkMap()
+    {
+        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## PDB Source", output);
+            Assert.Contains(
+                "public static int Overloaded(int value) => value;",
+                output);
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_LocalChecksumMismatchIsVisible()
+    {
+        var (assemblyPath, sourcePath, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            string source = File.ReadAllText(sourcePath);
+            File.WriteAllText(
+                sourcePath,
+                source.Replace(
+                    "public static int Overloaded(int value) => value;",
+                    "public static int Overloaded(int value) => value + 1;",
+                    StringComparison.Ordinal),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## PDB Source", output);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, output);
+            Assert.DoesNotContain("value + 1", output);
+
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--json", "--print", "--tips", "q");
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, jsonOutput);
+            Assert.DoesNotContain("value + 1", jsonOutput);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DiffHelp_UsesPdbSourceAndHidesLegacyAuthoredSourceFlag()
+    {
+        var (exit, output, error) = await RunAppAsync("diff", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("--pdb-source", output);
+        Assert.DoesNotContain("--authored-source", output);
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
     {
         var canonical = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".ctor:1", "-S", "Original Source", "--tips", "q");
+            ".ctor:1", "-S", "PDB Source", "--tips", "q");
         var caseVariant = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".Ctor:1", "-S", "Original Source", "--tips", "q");
+            ".Ctor:1", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, canonical.Exit);
         Assert.Empty(canonical.Error);
@@ -6343,7 +9504,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void OriginalSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
+    public void PdbSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
     {
         const string source =
             "class C\n{\n"
@@ -6352,7 +9513,7 @@ public partial class CommandExecutionTests
             + "    void B() { }\n"
             + "}";
 
-        string normalized = ApiCommand.NormalizeAuthoredSourceLineEndings(source);
+        string normalized = ApiCommand.NormalizePdbSourceLineEndings(source);
         var resolved = ApiCommand.SliceResolvedMethodSource(
             normalized,
             startLine: 4,
@@ -6366,7 +9527,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void OriginalSource_ForwardsConditionalBranchEvidenceToTheSlicer()
+    public void PdbSource_ForwardsConditionalBranchEvidenceToTheSlicer()
     {
         const string source = """
             class C
@@ -6392,7 +9553,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
+    public void PdbSource_TokenDenseInputCarriesAVisibleFailureState()
     {
         string source = "class C { void M() { "
             + new string(';', 500_001)
@@ -6410,13 +9571,13 @@ public partial class CommandExecutionTests
         Assert.Null(resolved.Source);
         Assert.Contains(
             "lexical complexity limit",
-            ApiCommand.OriginalSourceUnavailableNote(
+            ApiCommand.PdbSourceUnavailableNote(
                 new MemberOptions { MemberSourceTooComplex = true }),
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public void OriginalSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
+    public void PdbSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
     {
         const string source = "class C\n{\n    void M() { }\n}";
 
@@ -6434,13 +9595,13 @@ public partial class CommandExecutionTests
         Assert.Equal("fixture.pdb", resolved.PdbPath);
         Assert.Contains(
             "sequence-point coordinates",
-            ApiCommand.OriginalSourceUnavailableNote(
+            ApiCommand.PdbSourceUnavailableNote(
                 new MemberOptions { MemberSourceCoordinatesInvalid = true }),
             StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource, "## Original Source")]
+    [InlineData(SectionNames.PdbSource, "## PDB Source")]
     [InlineData(SectionNames.SourceDiff, "## Source Diff")]
     public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
         string section,
@@ -6530,7 +9691,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ComplexSourceUnderDocumentJsonFailsVisibly()
+    public async Task Member_PdbSource_ComplexSourceUnderDocumentJsonFailsVisibly()
     {
         var type = new ApiType
         {
@@ -6544,7 +9705,7 @@ public partial class CommandExecutionTests
             JsonOutput = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { SectionNames.OriginalSource },
+                { SectionNames.PdbSource },
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -6563,14 +9724,48 @@ public partial class CommandExecutionTests
         Assert.Contains("add --print", error);
     }
 
+    [Fact]
+    public async Task Member_VerbosityIncludedComplexSourceUnderDocumentJsonFailsVisibly()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            Verbosity = Verbosity.Detailed,
+            MemberSourceTooComplex = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("lexical complexity limit", error);
+    }
+
     [Theory]
-    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
-    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
     [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, null, ApiCommand.NoMatchingPdbSourceReason)]
+    [InlineData(SectionNames.SourceDiff, null, ApiCommand.NoMatchingPdbSourceReason)]
     public async Task Member_SourceFailureInNonCodeFormatsFailsVisibly(
         string section,
-        bool coordinatesInvalid,
+        bool? coordinatesInvalid,
         string expectedFailure)
     {
         var type = new ApiType
@@ -6593,8 +9788,11 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = !coordinatesInvalid,
-                MemberSourceCoordinatesInvalid = coordinatesInvalid,
+                MemberSourceTooComplex = coordinatesInvalid == false,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid == true,
+                PdbSourceUnavailableReason = coordinatesInvalid is null
+                    ? ApiCommand.NoMatchingPdbSourceReason
+                    : null,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };
@@ -6617,9 +9815,183 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource, false, "lexical complexity limit")]
+    [InlineData(SectionNames.PdbSource, true)]
+    [InlineData(SectionNames.SourceDiff, true)]
+    [InlineData(SectionNames.PdbSource, false)]
+    [InlineData(SectionNames.SourceDiff, false)]
+    public async Task Member_InformationalSourceStateInNonCodeFormatsDoesNotBecomeFailure(
+        string section,
+        bool bodyless)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberHasNoBody = bodyless,
+                MemberHasNoPdbDeclaration = !bodyless,
+                PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, _, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SourceFailureUnderCountWithAnotherFormatGivesExecutableGuidance()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true, JsonOutput = true },
+            new MemberOptions { Count = true, Tabular = true },
+            new MemberOptions { Count = true, Tabular = true, Tsv = true },
+            new MemberOptions { Count = true, Tabular = true, Jsonl = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                PdbSourceUnavailableReason = ApiCommand.NoMatchingPdbSourceReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { SectionNames.PdbSource },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("replace --count with --print", error);
+
+            var printable = options with { Count = false, Print = true };
+            var (printExit, printOutput, printError) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    printable));
+
+            Assert.Equal(0, printExit);
+            Assert.Empty(printError);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, printOutput);
+        }
+    }
+
+    [Fact]
+    public async Task Member_VerbosityIncludedPdbSourceUnavailabilityDoesNotFailDocumentJson()
+    {
+        string assemblyPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string[] target =
+        [
+            "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
+            "--library", assemblyPath, "--all",
+        ];
+
+        var detailed = await RunAppAsync(
+            [.. target, "--json", "-v:d", "--tips", "q"]);
+
+        Assert.Equal(0, detailed.Exit);
+        Assert.Empty(detailed.Error);
+        using (var document = JsonDocument.Parse(detailed.Output))
+        {
+            Assert.Equal(
+                "BodyStateSample",
+                document.RootElement.GetProperty("name").GetString());
+        }
+
+        var selected = await RunAppAsync(
+            [.. target, "-S", "PDB Source", "--json", "--tips", "q"]);
+
+        Assert.Equal(1, selected.Exit);
+        Assert.Empty(selected.Output);
+        Assert.Contains(ApiCommand.NoPdbSourceMappingReason, selected.Error);
+        Assert.Contains("cannot represent this code-section failure", selected.Error);
+    }
+
+    [Theory]
+    [InlineData("@Source", false)]
+    [InlineData("@All", false)]
+    [InlineData("*", false)]
+    [InlineData("PDB Source", true)]
+    [InlineData("Source Diff", true)]
+    [InlineData("Original Source", true)]
+    public async Task Member_PdbSourceFailureUnderDocumentJsonHonorsExactSelection(
+        string selector,
+        bool exact)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
+            "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
+            "-S", selector, "--json", "--tips", "q");
+
+        if (exact)
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(ApiCommand.NoPdbSourceMappingReason, error);
+            Assert.Contains("cannot represent this code-section failure", error);
+        }
+        else
+        {
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "BodyStateSample",
+                document.RootElement.GetProperty("name").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
-    [InlineData(SectionNames.OriginalSource, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
     [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
     public async Task Member_SourceFailureUnderBareWithEarlierRendererFailsVisibly(
         string section,
@@ -6667,7 +10039,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.OriginalSource)]
+    [InlineData(SectionNames.PdbSource)]
     [InlineData(SectionNames.SourceDiff)]
     public async Task Member_ComplexSourceUnderEffectiveBareRendererRemainsRepresentable(string section)
     {
@@ -6712,7 +10084,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ComplexSourceUnderPrintJsonRemainsRepresentable()
+    public async Task Member_PdbSource_ComplexSourceUnderPrintJsonRemainsRepresentable()
     {
         var type = new ApiType
         {
@@ -6727,7 +10099,7 @@ public partial class CommandExecutionTests
             Print = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { SectionNames.OriginalSource },
+                { SectionNames.PdbSource },
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -6743,11 +10115,15 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("lexical complexity limit", output);
-        using var _ = JsonDocument.Parse(output);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            SectionNames.PdbSource,
+            document.RootElement.GetProperty("section").GetString());
+        Assert.DoesNotContain("Original Source", output);
     }
 
     [Fact]
-    public async Task Member_OriginalSource_ComplexSourceUnderBareRemainsRepresentable()
+    public async Task Member_PdbSource_ComplexSourceUnderBareRemainsRepresentable()
     {
         var type = new ApiType
         {
@@ -6761,7 +10137,7 @@ public partial class CommandExecutionTests
             Bare = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { SectionNames.OriginalSource },
+                { SectionNames.PdbSource },
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -6780,39 +10156,130 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
+    public async Task Member_PdbSource_BodylessMember_ExplainsWhyThereIsNoSource()
     {
-        // An abstract method has no IL body, so it has no authored source to resolve. That is a
+        // An abstract method has no IL body, so it has no PDB source to resolve. That is a
         // complete answer, not a failure: say so and keep exit 0 rather than rendering nothing
         // and leaving the caller unable to tell success from silent failure (#3299).
         var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "Original Source", "--tips", "q");
+            "Read", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, abstractExit);
         Assert.Empty(abstractError);
-        Assert.Contains("## Original Source", abstractOutput);
+        Assert.Contains("## PDB Source", abstractOutput);
         Assert.Contains("has no IL body", abstractOutput);
 
         // An interface method is bodyless for a different metadata reason and gets the same answer.
         var (interfaceExit, interfaceOutput, interfaceError) = await RunAppAsync(
             "member", "IJsonOnDeserialized", "--platform", "System.Text.Json",
-            "OnDeserialized", "-S", "Original Source", "--tips", "q");
+            "OnDeserialized", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, interfaceExit);
         Assert.Empty(interfaceError);
-        Assert.Contains("## Original Source", interfaceOutput);
+        Assert.Contains("## PDB Source", interfaceOutput);
         Assert.Contains("has no IL body", interfaceOutput);
+
+        // Platform inspection can read API shape from a different image than the runtime
+        // facade used for PDB lookup. The selected member's token cannot address that facade,
+        // so its owning image must preserve the bodyless fact. Exercise the legacy selector
+        // too: it still renders the canonical name.
+        var (forwardedExit, forwardedOutput, forwardedError) = await RunAppAsync(
+            "member", "System.Collections.IEnumerator", "--framework", "runtime",
+            "MoveNext", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, forwardedExit);
+        Assert.Empty(forwardedError);
+        Assert.Contains("## PDB Source", forwardedOutput);
+        Assert.Contains("has no IL body", forwardedOutput);
+        Assert.DoesNotContain(ApiCommand.NoPdbSourceMappingReason, forwardedOutput);
+
+        // Body-state inspection is metadata-only. Even a valid adjacent portable PDB must not be
+        // loaded before the selected P/Invoke method is classified as definitively bodyless.
+        var (pinvokeExit, pinvokeOutput, pinvokeError) = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--library", TestAssemblyPath, "--all",
+            "-S", "PDB Source", "--tips", "q", "--verbose");
+
+        Assert.Equal(0, pinvokeExit);
+        Assert.Contains("has no IL body", pinvokeOutput);
+        Assert.DoesNotContain("Loaded PDB", pinvokeError);
+    }
+
+    [Theory]
+    [InlineData("abstract", "relative")]
+    [InlineData("interface", "dot")]
+    [InlineData("extern", "parent")]
+    public async Task Member_BodylessSource_NonCanonicalAssemblyPathPreservesTokenIdentity(
+        string memberKind,
+        string pathStyle)
+    {
+        var (assemblyPath, typeName, memberName) = memberKind switch
+        {
+            "abstract" => (
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                "DiffFixtureSample.BodyStateSample",
+                "BodyState"),
+            "interface" => (
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                "DiffFixtureSample.IExplicitSurface",
+                "Get"),
+            _ => (
+                TestAssemblyPath,
+                typeof(SamplePInvokeClass).FullName!,
+                nameof(SamplePInvokeClass.GetCurrentProcessId)),
+        };
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        string relativePath = Path.GetRelativePath(
+            Environment.CurrentDirectory,
+            fullAssemblyPath);
+        string assemblyDirectory = Path.GetDirectoryName(fullAssemblyPath)!;
+        string suppliedPath = pathStyle switch
+        {
+            "relative" => relativePath,
+            "dot" => Path.Combine(".", relativePath),
+            _ => Path.Combine(
+                Path.GetDirectoryName(assemblyDirectory)!,
+                Path.GetFileName(assemblyDirectory),
+                "..",
+                Path.GetFileName(assemblyDirectory),
+                Path.GetFileName(fullAssemblyPath)),
+        };
+        Assert.NotEqual(fullAssemblyPath, suppliedPath);
+
+        foreach (string section in new[] { SectionNames.PdbSource, SectionNames.SourceDiff })
+        {
+            var bare = await RunAppAsync(
+                "member", typeName, memberName,
+                "--library", suppliedPath, "--all",
+                "-S", section, "--bare", "--tips", "q");
+            var count = await RunAppAsync(
+                "member", typeName, memberName,
+                "--library", suppliedPath, "--all",
+                "-S", section, "--count", "--tips", "q");
+
+            Assert.Equal(0, bare.Exit);
+            Assert.Empty(bare.Error);
+            Assert.Contains(
+                section == SectionNames.PdbSource
+                    ? ApiCommand.BodylessMemberNote
+                    : "PDB Source unavailable",
+                bare.Output);
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("0\n", count.Output);
+        }
     }
 
     [Fact]
-    public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
+    public async Task Member_PdbSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {
-        // Close negative: a member that does have a body still renders its authored source, so
+        // Close negative: a member that does have a body still renders its PDB source, so
         // the bodyless explanation never displaces real source (#3299).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -6821,7 +10288,84 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceDiff_BodylessMember_ReportsOriginalSourceUnavailable()
+    public void MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"body-state-order-{Guid.NewGuid():N}");
+
+        try
+        {
+            string referenceAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateReference",
+                """
+                using System.IO;
+                using System.Runtime.CompilerServices;
+
+                [assembly: ReferenceAssembly]
+
+                namespace BodyStateOrder;
+
+                public abstract class ReorderedOverloads
+                {
+                    public void Load() => throw null!;
+                    public abstract void Load(Stream stream);
+                }
+                """);
+            string runtimeAssembly = CompileBodyStateFixture(
+                fixtureDir,
+                "BodyStateRuntime",
+                """
+                using System.IO;
+
+                namespace BodyStateOrder;
+
+                public abstract class ReorderedOverloads
+                {
+                    public abstract void Load(Stream stream);
+                    public void Load() { }
+                }
+                """);
+            int selectedToken = FindMethodToken(
+                referenceAssembly,
+                "BodyStateOrder.ReorderedOverloads",
+                "Load",
+                parameterCount: 0);
+
+            using (var referenceContext = PdbContext.OpenMetadataOnly(referenceAssembly))
+                Assert.Null(referenceContext.MethodHasBody(selectedToken));
+            using (var runtimeContext = PdbContext.OpenMetadataOnly(runtimeAssembly))
+            {
+                Assert.False(
+                    runtimeContext.MethodHasBody(
+                        "BodyStateOrder.ReorderedOverloads",
+                        "Load",
+                        overloadIndex: 0,
+                        publicOnly: true));
+            }
+
+            bool? bodyState = ApiCommand.ResolveMemberBodyState(
+                runtimeAssembly,
+                "BodyStateOrder.ReorderedOverloads",
+                "Load",
+                overloadIndex: 0,
+                publicOnly: true,
+                referenceAssembly,
+                selectedToken,
+                log: null);
+
+            Assert.Null(bodyState);
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+                Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_BodylessMember_ReportsPdbSourceUnavailable()
     {
         // The bodyless explanation is prose about the member, not source text, so the diff must
         // report its "before" side unavailable rather than diffing the explanation (#3299).
@@ -6832,7 +10376,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("Original Source unavailable", output);
+        Assert.Contains("PDB Source unavailable", output);
         Assert.DoesNotContain("has no IL body", output);
     }
 
@@ -6846,7 +10390,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("--- Original Source", output);
+        Assert.Contains("--- PDB Source", output);
         Assert.Contains("+++ Decompiled Source", output);
         // The decompiled side is the accessor's own body, spelled with its metadata name.
         Assert.Contains("set_MaxDepth", output);
@@ -7286,7 +10830,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingQuery()
+    public async Task Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery()
     {
         string assemblyPath = typeof(InstructionProducer).Assembly.Location;
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -7314,13 +10858,164 @@ public partial class CommandExecutionTests
         Assert.Contains("trace: library", error);
         Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
+
+        var (bareExit, bareOutput, bareError) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D",
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, bareExit);
+        Assert.Contains(
+            $"| {SectionNames.UnsafeMembers} | section |",
+            bareOutput);
+        Assert.Contains(
+            UnsafeEvidencePresenceQuery.Definition.Name,
+            bareError);
+        Assert.DoesNotContain("body index", bareError);
+    }
+
+    [Fact]
+    public async Task Discover_Bare_OmitsUnsafeMembersWhenMethodBodiesHaveNoUnsafeEvidence()
+    {
+        var (assemblyPath, _, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", assemblyPath,
+                "-D",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain(
+                $"| {SectionNames.UnsafeMembers} | section |",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Discover_Bare_FailsVisiblyWhenUnsafePresenceIsIncomplete()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                assemblyPath,
+                "-D",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Could not determine {SectionNames.UnsafeMembers} applicability",
+                error);
+            Assert.Contains(
+                "Unsafe evidence presence is incomplete",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Discover_Bare_DoesNotLoadAdjacentSourceLinkPdb()
+    {
+        string assemblyPath =
+            FixtureCatalog.SourceLinkNormalized.AssemblyPath();
+        using (var sourceLink =
+            ILInspector.SourceLink.SourceLinkService.Open(
+                assemblyPath))
+        {
+            Assert.True(
+                sourceLink.HasSourceLink,
+                "The adjacent fixture PDB must carry SourceLink for this gate to prove it stays unloaded.");
+        }
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("@SourceLink", output);
+    }
+
+    [Fact]
+    public async Task Discover_Bare_PreservesEmbeddedSourceLinkDoor()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateEmbeddedSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (markdownExit, markdown, markdownError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--tips", "q");
+            var (jsonExit, json, jsonError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--json",
+                    "--tips", "q");
+            var (treeExit, tree, treeError) =
+                await RunAppAsync(
+                    "library", assemblyPath,
+                    "-D",
+                    "--tree",
+                    "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.Contains(
+                "| @SourceLink | category |",
+                markdown);
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            using JsonDocument document =
+                JsonDocument.Parse(json);
+            Assert.Contains(
+                document.RootElement.EnumerateArray(),
+                item =>
+                    item.GetProperty("name").GetString()
+                        == "@SourceLink"
+                    && item.GetProperty("kind").GetString()
+                        == "category");
+
+            Assert.Equal(0, treeExit);
+            Assert.Empty(treeError);
+            Assert.Contains("@SourceLink", tree);
+            Assert.Contains(
+                SectionNames.SourceLinkAvailability,
+                tree);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
     }
 
     [Fact]
     public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
-        const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v23";
+        const string legacyCategory = "effective-v27";
+        const string currentCategory = "effective-v28";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -7353,7 +11048,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains(SectionNames.References, output);
-            Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
+            Assert.Contains(SectionNames.UnsafeMembers, output);
         }
         finally
         {
@@ -9170,7 +12865,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.DoesNotContain("## IL", output);
     }
 
@@ -9306,7 +13001,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section |", output);
         Assert.Contains("| Annotated Source Document | section |", output);
-        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| Calls | section |", output);
         Assert.Contains("| Callers | section |", output);
@@ -9344,7 +13039,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Original Source | section |", output);
+        Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| Calls | section |", output);
         Assert.Contains("| Callers | section |", output);
         Assert.Contains("| Call Graph | section |", output);
@@ -9834,6 +13529,106 @@ public partial class CommandExecutionTests
             fact.GetProperty("conditionality").GetString(),
             fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
             fact.GetProperty("origin").GetString());
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_IgnoresStaleSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections = [SectionNames.AnnotatedSourceDocument],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("name", out _));
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_RejectsAuthoritativeComposition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSourceDocument,
+                    SectionNames.Signature
+                ],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_NonExactSingletonUsesOrdinaryDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                IncludeSections = [SectionNames.AnnotatedSourceDocument],
+                ExactIncludeSectionsOverride = [],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("name", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_NonExactCompositionUsesOrdinaryDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSourceDocument,
+                    SectionNames.Signature
+                ],
+                ExactIncludeSectionsOverride = [],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("name", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
     }
 
     [Fact]
@@ -10352,11 +14147,11 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
         Assert.Contains("```diff", output);
-        Assert.Contains("--- Original Source", output);
+        Assert.Contains("--- PDB Source", output);
         Assert.Contains("+++ Decompiled Source", output);
         Assert.Contains("-    return value + 2;", output);
         Assert.Contains("+public int AddOne(int value) => value + 1;", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.DoesNotContain("## Decompiled Source", output);
     }
 
@@ -10852,7 +14647,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## IL", output);
         Assert.DoesNotContain("## Annotated Source", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         // WriteNode<TValue>'s first parameter is `in TValue`; the call site
         // passes it without a keyword (an explicit `ref` here is CS1615). The
         // operand renders bare, not as the old `ref value` spelling.
@@ -10880,7 +14675,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("GetTypeInfo", output);
         Assert.Contains("WriteElement", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
     }
 
@@ -14040,6 +17835,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signals | section |", output);
         Assert.Contains("| Async Methods | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
+        Assert.Contains("| Unsafe Members | section |", output);
         Assert.DoesNotContain("section (opt-in)", output);
         Assert.DoesNotContain("section (verbose)", output);
     }
@@ -14067,7 +17863,7 @@ public partial class CommandExecutionTests
     public async Task CliDiscoverySections_AreSelectable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        var (noSourceLinkAssemblyPath, noSourceLinkFixtureDir) =
+        var (noSourceLinkAssemblyPath, _, noSourceLinkFixtureDir) =
             CreateNoSourceLinkDiscoveryAssembly();
         try
         {
@@ -14225,7 +18021,7 @@ public partial class CommandExecutionTests
         "Annotated Source Document",
         "Cost Overlay",
         "Semantics Overlay",
-        "Original Source",
+        "PDB Source",
         "Source Diff",
         "Calls",
         "Callers",
@@ -16650,8 +20446,8 @@ public partial class CommandExecutionTests
     [InlineData("System.Data.Common")]
     public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
     {
-        // Every generated section must render the same content whether it is asked for alone or
-        // alongside all the others. Asking for a section alone runs only its declared scanner or
+        // Every deterministic generated section must render the same content whether it is asked
+        // for alone or alongside all the others. Asking for a section alone runs only its declared
         // query closure, so undeclared dependencies render less in isolation.
         //
         // The section set is derived from the pipeline, not from the prerequisite declarations,
@@ -16662,15 +20458,18 @@ public partial class CommandExecutionTests
         // Body-index-backed producers are excluded for run time only, not correctness: each costs
         // seconds and this test does one run per section. A new body-index producer added here
         // would only make the test slower, never wrong.
-        string[] bodyIndexScanners =
-        [
-            LibrarySections.ScannerResourceTriage,
-        ];
         InspectionQueryDefinition[] bodyIndexQueries =
         [
+            BodyShapesQuery.Definition,
             OptimizationOpportunitiesQuery.Definition,
+            ResourceTriageQuery.Definition,
             TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
+        ];
+        InspectionQueryDefinition[] liveNetworkQueries =
+        [
+            SourceAvailabilityQuery.Definition,
+            SourceIntegrityQuery.Definition,
         ];
 
         // Parameter-scoped sections cannot be selected without their required input:
@@ -16683,12 +20482,10 @@ public partial class CommandExecutionTests
             SectionNames.BodyShapes,
         ];
 
-        var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
-        var bound = pipeline.ScannerBoundSections
+        var bound = pipeline.QueryBoundSections
             .Select(b => b.Name)
-            .Concat(pipeline.QueryBoundSections.Select(b => b.Name))
             .ToHashSet(StringComparer.Ordinal);
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
@@ -16696,14 +20493,14 @@ public partial class CommandExecutionTests
         foreach (var name in parameterScoped)
             Assert.Contains(name, bound);
 
-        var scannerNames = pipeline.ScannerBoundSections
-            .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
-            .Select(b => b.Name);
         var queryNames = pipeline.QueryBoundSections
-            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            // Availability and integrity intentionally observe live per-file network state, so
+            // separate invocations cannot promise byte-for-byte identical results. Their query
+            // closure and costs are pinned by LibrarySourceLinkSections_DemandSharedTypedQueries.
+            .Where(b => !bodyIndexQueries.Contains(b.Query)
+                && !liveNetworkQueries.Contains(b.Query))
             .Select(b => b.Name);
-        var names = scannerNames
-            .Concat(queryNames)
+        var names = queryNames
             .Where(n => !parameterScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
@@ -19922,6 +23719,600 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_LibraryValue_RoutesPackageToLibraryInspection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            "Newtonsoft.Json.dll",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("# Newtonsoft.Json.dll", output);
+        Assert.Contains("## Library Info", output);
+        Assert.DoesNotContain("## Package Info", output);
+        Assert.DoesNotContain("best-effort prefix matches", error);
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json", "lib/net6.0/Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json", @"lib\net6.0\Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json@13.0.4", "lib/net6.0/Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json@13.0.4", @"lib\net6.0\Newtonsoft.Json.dll")]
+    public async Task Router_PackageLibrarySubpath_PreservesPackageInspection(
+        string package,
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            package,
+            "--library",
+            libraryPath,
+            "-S",
+            "Library Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("## Library Info", routed.Output);
+    }
+
+    [Theory]
+    [InlineData(
+        "Newtonsoft.Json",
+        "lib/net6.0/Newtonsoft.Json.dll",
+        "Newtonsoft.Json.dll")]
+    [InlineData(
+        "Newtonsoft.Json@13.0.4",
+        "lib/net6.0/Newtonsoft.Json.dll",
+        "Newtonsoft.Json.dll")]
+    [InlineData(
+        "Microsoft.CodeAnalysis.BannedApiAnalyzers@5.6.0",
+        "analyzers/dotnet/cs/Microsoft.CodeAnalysis.BannedApiAnalyzers.dll",
+        "Microsoft.CodeAnalysis.BannedApiAnalyzers.dll")]
+    public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
+        string package,
+        string libraryPath,
+        string libraryName)
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"router-library-subpath-{Guid.NewGuid():N}");
+        var localLibrary = Path.Combine(
+            tempDir,
+            libraryPath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(localLibrary)!);
+        File.WriteAllText(localLibrary, "not an assembly");
+        try
+        {
+            string[] arguments =
+            [
+                package,
+                "--library",
+                libraryPath,
+                "-S",
+                "Library Info",
+                "--tips",
+                "q"
+            ];
+
+            var direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. arguments]);
+            var routed = await RunAppInDirectoryAsync(
+                tempDir,
+                arguments);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.Contains($"# {libraryName}", routed.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Router_UnpinnedPackageColonAttachedLibrarySubpath_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json",
+            "--library:lib/net6.0/Newtonsoft.Json.dll",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("## Library Info", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("lib/Debug/Missing.dll")]
+    [InlineData("lib/monoandroid/Missing.dll")]
+    [InlineData("lib/uap10.0/Missing.dll")]
+    [InlineData("lib/portable-net45+win8/Missing.dll")]
+    [InlineData("lib/x/lib/net8.0/Missing.dll")]
+    [InlineData("tools/netstandard/Missing.dll")]
+    [InlineData("lib/netcoreapp/Missing.dll")]
+    [InlineData("lib/net4.0/Missing.dll")]
+    [InlineData("ref/net6.0/Missing.dll")]
+    [InlineData("tools/net6.0/Missing.dll")]
+    [InlineData("runtimes/linux-x64/lib/net6.0/Missing.dll")]
+    [InlineData("analyzers/dotnet/cs/Missing.dll")]
+    [InlineData("build/net8.0/Missing.dll")]
+    [InlineData("tasks/Missing.dll")]
+    [InlineData("runtimes/linux-x64/native/Missing.dll")]
+    [InlineData("directory/lib/net8.0/Missing.dll")]
+    [InlineData(@"directory\Missing.dll")]
+    [InlineData("runtimes/lib/net8.0/Missing.dll")]
+    public async Task Router_PackageRelativeLibraryPath_RoutesPackage(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("not found in package", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("./missing/Newtonsoft.Json.dll")]
+    [InlineData(@"..\missing\Newtonsoft.Json.dll")]
+    [InlineData("/missing/Newtonsoft.Json.dll")]
+    [InlineData(@"\missing\Newtonsoft.Json.dll")]
+    [InlineData(@"C:\missing\Newtonsoft.Json.dll")]
+    public async Task Router_VersionedPackageRootedLibraryPath_UsesTypeParser(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("lib/net8bogus/missing.dll")]
+    [InlineData("lib/net-8.0/missing.dll")]
+    [InlineData("lib/net.8.0/missing.dll")]
+    [InlineData("lib/net+8.0/missing.dll")]
+    [InlineData("lib//net8.0/missing.dll")]
+    [InlineData("lib/./missing.dll")]
+    [InlineData("lib/net8.0/../missing.dll")]
+    [InlineData("runtimes/linux-x64/lib/../missing.dll")]
+    public async Task Router_MalformedPackageLibraryPath_UsesTypeParser(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "System.String",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("File not found:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("lib/net/Newtonsoft.Json.dll")]
+    [InlineData("runtimes/linux-x64/lib/net/Newtonsoft.Json.dll")]
+    public async Task Router_IncompleteFrameworkLibraryPath_DoesNotEnterPackageFallback(
+        string libraryPath)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.3",
+            "--library",
+            libraryPath,
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains("File not found:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json@13.0.4", null)]
+    [InlineData("Newtonsoft.Json", "13.0.4")]
+    public async Task Router_PackageVersion_DoesNotOverrideExplicitLibraryPath(
+        string package,
+        string? version)
+    {
+        List<string> arguments =
+        [
+            package,
+            "--library",
+            "lib/net8.0/../Newtonsoft.Json.dll",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q"
+        ];
+        if (version is not null)
+        {
+            arguments.Add("--version");
+            arguments.Add(version);
+        }
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(1, direct.Exit);
+        Assert.Equal(direct.Exit, routed.Exit);
+        Assert.DoesNotContain("# Newtonsoft.Json.dll", routed.Output);
+        Assert.DoesNotContain("not found in package", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_LibraryValue_IsIndependentOfCurrentDirectory()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"router-library-selector-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(
+            Path.Combine(tempDir, "Newtonsoft.Json.dll"),
+            "not an assembly");
+        try
+        {
+            string[] arguments =
+            [
+                "Newtonsoft.Json@13.0.4",
+                "--library",
+                "Newtonsoft.Json.dll",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q"
+            ];
+
+            var direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. arguments]);
+            var routed = await RunAppInDirectoryAsync(
+                tempDir,
+                arguments);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Router_BareLibraryFollowedByColonOption_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            "-v:q",
+            "-S",
+            "Library Info"
+        ];
+
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPackageIdentity_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json", routed.Output);
+        Assert.Contains("## Package Info", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("-k", "class")]
+    public async Task Router_ExplicitPackageIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
+        params string[] leadingOptions)
+    {
+        string[] tail =
+        [
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "type",
+                "JsonSerializer",
+                "--package",
+                "System.Text.Json",
+                .. leadingOptions,
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [
+                "System.Text.Json",
+                "--package",
+                "System.Text.Json",
+                .. leadingOptions,
+                "JsonSerializer",
+                .. tail
+            ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("JsonSerializer", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageIdentity_PreservesPackageInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json", routed.Output);
+        Assert.Contains("## Package Info", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageIdentity_WithTypePositional_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "JsonConvert",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonConvert",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.JsonConvert", routed.Output);
+        Assert.Contains("| Source | NuGet |", routed.Output);
+    }
+
+    [Theory]
+    [InlineData("13.0.4")]
+    [InlineData("13")]
+    [InlineData("13-beta")]
+    public async Task Router_ExplicitPackageIdentity_WithVersionPositional_PreservesPackageRouting(
+        string version)
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json",
+            version,
+            "--package",
+            "Newtonsoft.Json",
+            "-S",
+            "Package Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json",
+            version,
+            "-S",
+            "Package Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains(
+            "Multiple package output requires --json or a row format",
+            routed.Error);
+        Assert.DoesNotContain("Type Info", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_ColonAttachedPackageIdentity_WithMemberOption_PreservesMemberInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "JsonConvert",
+            "--package:Newtonsoft.Json@13.0.4",
+            "-m",
+            "SerializeObject",
+            "--index",
+            "1",
+            "-S",
+            "Signature",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "member",
+            "JsonConvert",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "-m",
+            "SerializeObject",
+            "--index",
+            "1",
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("## Signature", routed.Output);
+        Assert.Contains("Package: Newtonsoft.Json", routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_DuplicatePackageIdentity_PreservesMalformedOption()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "--version",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json@13.0.4",
+            "--package",
+            "--version",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("Unrecognized option '--package'", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_VersionedPackageTypeShorthand_PreservesTypeInspection()
+    {
+        string[] arguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "JsonConvert",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "type",
+            "JsonConvert",
+            "--package",
+            "Newtonsoft.Json@13.0.4",
+            "-S",
+            "Type Info",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.JsonConvert", routed.Output);
+    }
+
+    [Fact]
     public async Task Router_FacadePlatformBareName_RoutesToForwardedType()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
@@ -20252,7 +24643,7 @@ public partial class CommandExecutionTests
         Assert.Equal([SectionNames.Signature], SectionHeadings(output));
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## IL", output);
-        Assert.DoesNotContain("## Original Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.True(
             output.Split('\n').Length <= 8,
             $"Member detail overview grew to {output.Split('\n').Length} lines.");
@@ -20409,6 +24800,330 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("GenericChoice<T>(T value)", output);
         Assert.DoesNotContain("GenericChoice(string value)", output);
+    }
+
+    [Fact]
+    public async Task Member_ImpliedGenericSelector_RejectsNoncanonicalOptionArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "MemoryExtensions.AsSpan<T>", "--platform", "System.Memory",
+            "-m", "AsSpan`0", "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires exactly one member name", error);
+    }
+
+    [Fact]
+    public async Task Member_ImpliedGenericSelector_RejectsSecondMemberName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "List<T>.ConvertAll<TOutput>", "--platform", "System.Private.CoreLib",
+            "-m", "Add", "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires exactly one member name", error);
+    }
+
+    [Fact]
+    public async Task Member_GenericContainingTypeAndGenericMethod_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>.ConvertAll<TOutput>",
+            "--platform", "System.Collections",
+            "-S", "Signature", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("ConvertAll<TOutput><>")]
+    [InlineData("ConvertAll<<TOutput>>")]
+    [InlineData("ConvertAll<?>")]
+    public async Task Member_MalformedGenericMethodSelectorDoesNotBroaden(
+        string memberSelector)
+    {
+        var target =
+            $"System.Collections.Generic.List<T>.{memberSelector}";
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            target,
+            "--platform",
+            "System.Collections",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
+    [Fact]
+    public async Task Router_RepeatedNullableGenericArgumentDoesNotResolveType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List<T??>",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
+    [Theory]
+    [InlineData("Clear`0")]
+    [InlineData("ConvertAll`01")]
+    public async Task Router_NoncanonicalMemberArityDoesNotBroaden(
+        string memberSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            $"System.Collections.Generic.List<T>.{memberSelector}",
+            "--platform",
+            "System.Collections",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
+    [Fact]
+    public async Task Router_DottedExplicitInterfaceSelectorUsesMetadataBoundary()
+    {
+        const string target =
+            "System.Collections.Generic.EqualityComparer<T>"
+            + ".explicit:System.Collections.IEqualityComparer.Equals:1";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "--all",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal("1", deferred.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_QualifiedExplicitInterfaceGenericSelectorUsesMethodArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(GenericExplicitInterfaceFixture<>).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "explicit:DotnetInspector.Tests.IGenericExplicitInterfaceFixture<T>.Map<U,V>",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_SourcelessGenericShiftOperator_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Numerics.Vector<T>.operator<<",
+            "-S", SectionNames.Signature, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("operator<<")]
+    [InlineData("Operator<<")]
+    public async Task Router_ExplicitSourceGenericShiftOperator_ResolvesTheMember(
+        string memberSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            $"System.Numerics.Vector<T>.{memberSelector}",
+            "--platform",
+            "System.Numerics.Vectors",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("operator<")]
+    [InlineData("operator>")]
+    public async Task Router_ExplicitSourceAngleOperator_StaticSchemaUsesMemberPipeline(
+        string memberSelector)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Runtime",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.DateTime",
+                "-m",
+                memberSelector,
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            [$"System.DateTime.{memberSelector}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_LocalLibraryAngleOperator_StaticSchemaUsesMemberPipeline()
+    {
+        string[] tail =
+        [
+            "--library",
+            typeof(DateTime).Assembly.Location,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.DateTime",
+                "-m",
+                "operator>",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            ["System.DateTime.operator>", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_LocalLibraryCanonicalOperator_UsesMemberPipeline()
+    {
+        string[] tail =
+        [
+            "--library",
+            typeof(DateTime).Assembly.Location,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.DateTime",
+                "-m",
+                "op_Addition",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            ["System.DateTime.op_Addition", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_ExplicitSourceOperatorPrefixedIdentifierUsesMetadataBoundary()
+    {
+        const string target =
+            "DotnetInspector.Tests.Operators<T>.Apply";
+        string[] arguments =
+        [
+            target,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "member",
+            "DotnetInspector.Tests.Operators<T>",
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Apply",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Theory]
+    [InlineData("operatorApply")]
+    [InlineData("OperatorApply")]
+    public async Task Router_UnrecognizedOperatorPrefixDoesNotBroaden(
+        string memberName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            $"DotnetInspector.Tests.Operators<T>.{memberName}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(memberName, error);
     }
 
     [Fact]
@@ -20646,18 +25361,123 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    [Trait("Network", "GitHubPackages")]
     public async Task Package_Manifest_RendersToolManifestRows()
     {
-        var (exit, output, error) = await RunAppAsync("package", "Azure.Mcp", "-S", "Manifest");
+        string? username = Environment.GetEnvironmentVariable(
+            PackageFixtureUserEnvironmentVariable);
+        string? token = Environment.GetEnvironmentVariable(
+            PackageFixtureTokenEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(username)
+            || string.IsNullOrWhiteSpace(token))
+        {
+            Assert.Skip(
+                $"Set {PackageFixtureUserEnvironmentVariable} and "
+                + $"{PackageFixtureTokenEnvironmentVariable} to run the "
+                + "GitHub Packages fixture test.");
+            return;
+        }
 
-        Assert.Equal(0, exit);
-        Assert.Contains("## Manifest", output);
-        Assert.Contains("| Info | Manifest Version | 2 |", output);
-        Assert.DoesNotContain("| Info | Schema |", output);
-        Assert.Contains("| Info | Commands |", output);
-        Assert.Contains("| RID Package | linux-x64 | Azure.Mcp.linux-x64 | yes |", output);
-        Assert.DoesNotContain("## RID Packages", output);
-        Assert.DoesNotContain("Tip:", error);
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hosted-fixture-{Guid.NewGuid():N}");
+        string isolationName = $"hosted-fixture-{Guid.NewGuid():N}";
+        string isolatedCache = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{isolationName}");
+        string configPath = Path.Combine(tempDir, "NuGet.Config");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    tempDir,
+                    UnixFileMode.UserRead
+                        | UnixFileMode.UserWrite
+                        | UnixFileMode.UserExecute);
+            }
+
+            new XDocument(
+                new XElement(
+                    "configuration",
+                    new XElement(
+                        "packageSources",
+                        new XElement("clear"),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "github-fixtures"),
+                            new XAttribute("value", PackageFixtureFeed))),
+                    new XElement(
+                        "packageSourceCredentials",
+                        new XElement(
+                            "github-fixtures",
+                            new XElement(
+                                "add",
+                                new XAttribute("key", "Username"),
+                                new XAttribute("value", username)),
+                            new XElement(
+                                "add",
+                                new XAttribute("key", "ClearTextPassword"),
+                                new XAttribute("value", token))))))
+                .Save(configPath);
+
+            var (exit, output, error) =
+                await RunAppInDirectoryWithEnvironmentAsync(
+                tempDir,
+                new Dictionary<string, string?>
+                {
+                    ["DOTNET_INSPECT_CACHE_DIR"] = isolatedCache,
+                },
+                "--isolated",
+                isolationName,
+                "package",
+                $"{PackageFixtureId}@{PackageFixtureVersion}",
+                "-S",
+                "Manifest",
+                "--source",
+                PackageFixtureFeed,
+                "--nugetconfig",
+                configPath);
+
+            Assert.False(
+                output.Contains(token, StringComparison.Ordinal),
+                "The fixture credential was written to stdout.");
+            Assert.False(
+                error.Contains(token, StringComparison.Ordinal),
+                "The fixture credential was written to stderr.");
+            Assert.Equal(0, exit);
+            Assert.Contains("## Manifest", output);
+            Assert.Contains("| Info | Manifest Version | 2 |", output);
+            Assert.Contains(
+                $"| Info | Package | {PackageFixtureId} |",
+                output);
+            Assert.Contains(
+                $"| Info | Version | {PackageFixtureVersion} |",
+                output);
+            Assert.DoesNotContain("| Info | Schema |", output);
+            Assert.Contains(
+                "| Info | Commands | dotnet-inspect-fixture |",
+                output);
+            Assert.Contains(
+                "| RID Package | linux-x64 | "
+                    + $"{PackageFixtureId}.linux-x64 | yes |",
+                output);
+            Assert.Contains(
+                "| RID Package | win-x64 | "
+                    + $"{PackageFixtureId}.win-x64 | no |",
+                output);
+            Assert.DoesNotContain("Azure.Mcp", output);
+            Assert.DoesNotContain("## RID Packages", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+            if (Directory.Exists(isolatedCache))
+                Directory.Delete(isolatedCache, recursive: true);
+        }
     }
 
     [Fact]
@@ -25341,6 +30161,31 @@ public sealed class MemberGenericSelectorFixture
 {
     public string GenericChoice(string value) => value;
     public T GenericChoice<T>(T value) => value;
+}
+
+public interface IGenericExplicitInterfaceFixture<T>
+{
+    void Map<U>(U value);
+    void Map<U, V>(U first, V second);
+}
+
+public sealed class GenericExplicitInterfaceFixture<T>
+    : IGenericExplicitInterfaceFixture<T>
+{
+    void IGenericExplicitInterfaceFixture<T>.Map<U>(U value)
+    {
+    }
+
+    void IGenericExplicitInterfaceFixture<T>.Map<U, V>(U first, V second)
+    {
+    }
+}
+
+public sealed class Operators<T>
+{
+    public T Apply(T value) => value;
+    public TResult Convert<TResult>(T value) => default!;
+    public TResult Convert<TResult>(IEnumerable<T> values) => default!;
 }
 
 public sealed class CommandExecutionSourceDiffFixture

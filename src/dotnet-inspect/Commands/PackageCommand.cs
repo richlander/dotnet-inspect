@@ -326,7 +326,10 @@ public class PackageCommand
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
                         if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
                             return rangeListingExit;
-                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            rangeRows,
+                            options,
+                            Console.Out);
                         return 0;
                     }
 
@@ -409,7 +412,10 @@ public class PackageCommand
                     if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
-                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            [pinnedMatch],
+                            options,
+                            Console.Out);
                     else
                         WriteSingleVersion(versionQueryPinned, options);
                     return 0;
@@ -460,7 +466,9 @@ public class PackageCommand
                     // listed by construction. Emit it as a one-row listing so the flag still
                     // produces the tagged column the user asked for.
                     OutputFormatter.WriteVersionListings(
-                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                        [new PackageVersionInfo(latest, Listed: true)],
+                        options,
+                        Console.Out);
                     return 0;
                 }
 
@@ -541,7 +549,10 @@ public class PackageCommand
 
                 if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
                     return listingExit;
-                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
+                OutputFormatter.WriteVersionListings(
+                    listings,
+                    options,
+                    Console.Out);
                 return 0;
             }
 
@@ -3766,7 +3777,6 @@ public class PackageCommand
 
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
@@ -3820,18 +3830,24 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        var scanners = pipeline.GetRequiredScanners(
+        HashSet<InspectionQueryDefinition> sectionQueries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        var queries = pipeline.GetRequiredQueries(
-            libraryOptions.Verbosity,
-            libraryOptions.IncludeSections,
-            libraryOptions.FixedOverview,
-            commandDemand: commandQueryDemand);
+        if (sectionQueries.Contains(BodyShapesQuery.Definition)
+            && libraryOptions.BodyKindQuery.HasFilter
+            && libraryOptions.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
+        HashSet<InspectionQueryDefinition> queries = sectionQueries;
+        foreach ((_, InspectionQueryDefinition query) in commandQueryDemand)
+            queries.Add(query);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -3878,8 +3894,6 @@ public class PackageCommand
                     packageName,
                     version,
                     context.HttpClient,
-                    scanners: scanners,
-                    scannerRegistry: scannerRegistry,
                     queries: queries,
                     queryRegistry: queryRegistry,
                     assemblyReference: assemblyReference,

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using System.Collections.Immutable;
 using CSharpText;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
@@ -342,7 +343,10 @@ public static class PlatformResolver
                 if (!Directory.Exists(refPackPath))
                     continue;
 
-                var versions = GetInstalledVersions(refPackPath);
+                var versions = GetInstalledVersions(refPackPath)
+                    .Where(version =>
+                        HasReferenceAssemblies(refPackPath, version))
+                    .ToList();
                 if (versions.Count == 0)
                     continue;
 
@@ -424,6 +428,12 @@ public static class PlatformResolver
         return Path.Combine(versionPath, tfmDirs[0]!);
     }
 
+    private static bool HasReferenceAssemblies(
+        string refPackPath,
+        string version) =>
+        GetRefAssemblyPath(refPackPath, version) is { } referencePath
+        && CountAssemblies(referencePath) > 0;
+
     /// <summary>
     /// Lists all assemblies in a ref assembly directory.
     /// </summary>
@@ -492,6 +502,8 @@ public static class PlatformResolver
 
             foreach (var v in GetInstalledVersions(refPackPath))
             {
+                if (!HasReferenceAssemblies(refPackPath, v))
+                    continue;
                 if (!allVersions.Any(x => x.Version == v))
                 {
                     allVersions.Add((v, refPackPath));
@@ -955,6 +967,172 @@ public static class PlatformResolver
             refPath,
             runtime.ShortName,
             runtime.LatestVersion);
+    }
+
+    /// <summary>
+    /// Resolves a user type pattern against one explicitly selected framework
+    /// reference catalog.
+    /// </summary>
+    public static PlatformTypeLookupOutcome LookupTypeInFramework(
+        string typeName,
+        string frameworkSpec,
+        string? packsDirectory = null)
+    {
+        var (refPath, version, error) =
+            ResolveFramework(frameworkSpec, packsDirectory);
+        if (error is not null || refPath is null || version is null)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    error ?? $"The {frameworkSpec} reference catalog is unavailable."));
+        }
+
+        var atIndex = frameworkSpec.LastIndexOf('@');
+        var frameworkName = atIndex > 0
+            ? frameworkSpec[..atIndex]
+            : frameworkSpec;
+        return PlatformTypeCatalog.Lookup(
+            typeName,
+            refPath,
+            frameworkName,
+            version);
+    }
+
+    /// <summary>
+    /// Resolves a user type pattern across every installed platform reference
+    /// catalog without choosing a first-enumerated assembly.
+    /// </summary>
+    public static PlatformTypeLookupOutcome LookupTypeAcrossFrameworks(
+        string typeName,
+        string? packsDirectory = null)
+    {
+        if (PlatformTypeLookupPattern.Create(typeName)
+            is PlatformTypeLookupPatternResult.Rejected invalid)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(invalid.Failure);
+        }
+
+        var frameworks = GetInstalledFrameworks(packsDirectory);
+        if (frameworks.Count == 0)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "No platform reference catalogs are available."));
+        }
+
+        var candidates =
+            ImmutableArray.CreateBuilder<PlatformTypeLookupCandidate>();
+        PlatformTypeLookupFailure? catalogFailure = null;
+        foreach (var framework in frameworks)
+        {
+            var refPath = GetRefAssemblyPath(
+                framework.Path,
+                framework.LatestVersion);
+            if (refPath == null)
+            {
+                catalogFailure ??= new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    $"The {framework.ShortName} reference catalog is unavailable.");
+                continue;
+            }
+
+            switch (PlatformTypeCatalog.Lookup(
+                typeName,
+                refPath,
+                framework.ShortName,
+                framework.LatestVersion))
+            {
+                case PlatformTypeLookupOutcome.Resolved resolved:
+                    candidates.Add(resolved.Candidate);
+                    break;
+                case PlatformTypeLookupOutcome.Ambiguous ambiguous:
+                    candidates.AddRange(ambiguous.Candidates);
+                    break;
+                case PlatformTypeLookupOutcome.Rejected rejected:
+                    catalogFailure ??= rejected.Failure;
+                    break;
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return catalogFailure is not null
+                ? new PlatformTypeLookupOutcome.Rejected(catalogFailure)
+                : new PlatformTypeLookupOutcome.Missing();
+        }
+
+        IEnumerable<PlatformTypeLookupCandidate> selected = candidates;
+        var definitions = candidates
+            .Where(candidate =>
+                candidate.DeclarationKind
+                    == PlatformTypeDeclarationKind.Definition)
+            .ToArray();
+        if (definitions.Length > 0)
+            selected = definitions;
+
+        var distinct = selected
+            .DistinctBy(
+                candidate =>
+                    $"{candidate.Assembly.Identity.Name}\0{candidate.Type.ToMetadataFullName()}",
+                StringComparer.OrdinalIgnoreCase)
+            .OrderBy(
+                candidate => candidate.Assembly.Identity.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ThenBy(
+                candidate => candidate.Type.ToMetadataFullName(),
+                StringComparer.OrdinalIgnoreCase)
+            .ToImmutableArray();
+        if (distinct.Length > 1
+            && distinct
+                .Select(candidate => candidate.Type.ToMetadataFullName())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() == 1)
+        {
+            var resolvedTypeName = distinct[0].Type.ToMetadataFullName();
+            var assemblyPrefixMatches = distinct
+                .Where(candidate =>
+                    resolvedTypeName.StartsWith(
+                        candidate.Assembly.Identity.Name + ".",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(
+                    candidate => candidate.Assembly.Identity.Name.Length)
+                .ToArray();
+            if (assemblyPrefixMatches.Length > 0
+                && (assemblyPrefixMatches.Length == 1
+                    || assemblyPrefixMatches[0].Assembly.Identity.Name.Length
+                        > assemblyPrefixMatches[1].Assembly.Identity.Name.Length))
+            {
+                return new PlatformTypeLookupOutcome.Resolved(
+                    assemblyPrefixMatches[0]);
+            }
+
+            foreach (string framework in
+                new[] { "runtime", "aspnetcore", "netstandard" })
+            {
+                var frameworkMatches = distinct
+                    .Where(candidate =>
+                        candidate.Assembly.Provenance
+                            is AssemblyResolutionProvenance.PlatformAsset platform
+                        && platform.Framework.Equals(
+                            framework,
+                            StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (frameworkMatches.Length == 1)
+                {
+                    return new PlatformTypeLookupOutcome.Resolved(
+                        frameworkMatches[0]);
+                }
+
+                if (frameworkMatches.Length > 1)
+                    break;
+            }
+        }
+
+        return distinct.Length == 1
+            ? new PlatformTypeLookupOutcome.Resolved(distinct[0])
+            : new PlatformTypeLookupOutcome.Ambiguous(distinct);
     }
 
     /// <summary>

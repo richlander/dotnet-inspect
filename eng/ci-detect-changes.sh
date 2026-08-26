@@ -288,6 +288,9 @@ while IFS= read -r -d '' file; do
     eng/test-ci-change-detection.cs) CODE=true ;;
     eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
+    # Package fixture inputs are executable test evidence. The fast CLI test
+    # lane packs and inspects them; the product pack job does not consume them.
+    eng/package-fixtures/*) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
@@ -320,6 +323,9 @@ while IFS= read -r -d '' file; do
     # Controls checkout line endings on Windows, including the raw
     # string fixtures this lane exists to validate.
     .gitattributes) CODE=true ;;
+    # InstallScriptTests runs the Windows bootstrap under both PowerShell
+    # engines; installer-only changes must reach that test lane.
+    install.ps1) CODE=true ;;
     # GateExpectedClassesTests lives in the fast lane and is the only
     # thing keeping this file honest against the pre-merge preset, so
     # editing the file must run the lane that validates it.

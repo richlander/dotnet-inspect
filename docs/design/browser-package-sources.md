@@ -285,12 +285,12 @@ Candidate results retain this status per reporting source rather than reducing
 it to one package-wide Boolean. An aggregate view can therefore show that a
 coordinate is unlisted on Gallery while available from a private feed.
 
-The current product still uses `PackageVersionInfo.Listed` and reports
-registration-outage enumeration as listed fail-open data. Replacing that
-current behavior and its Markdown/TSV/JSONL projection with the target typed
-status is implementation work for
-[#4239](https://github.com/richlander/dotnet-inspect/issues/4239), not behavior
-claimed by this documentation-only PR.
+The typed Gallery source client implements this contract for Browser
+enumeration. Desktop compatibility paths still use
+`PackageVersionInfo.Listed` and report registration-outage enumeration as
+listed fail-open data. Replacing that desktop behavior and its
+Markdown/TSV/JSONL projection remains implementation work for
+[#4239](https://github.com/richlander/dotnet-inspect/issues/4239).
 
 ## Cache and provenance
 
@@ -584,10 +584,25 @@ The v3 compatibility adapter also owns an isolated credential-free
 `HttpClient`; it does not accept a shared client or opaque caller handler that
 could inject ambient credentials into feed-advertised resources. Its default
 desktop handler disables cookies, default credentials, and preauthentication.
+The configured source host and port may resolve to private addresses because
+that endpoint is an explicit user choice. Every feed-advertised cross-origin
+resource and every redirect hop instead uses the shared network-destination
+policy: DNS resolution and connection stay together, and any non-public
+address rejects the request. This preserves private-feed use without granting
+the feed response authority to probe another private service. The shared
+policy canonicalizes bracketed and unbracketed IPv6 host spellings before
+applying the configured-origin exception.
+Configured service indexes and feed-advertised search resources share one URL
+normalization path: it supplies the implicit root slash, normalizes IDN hosts,
+escapes literal Unicode, and preserves existing ASCII path/query escapes that
+may be signed.
 Browser/Wasm avoids unsupported handler credential properties and instead marks
-each request with `BrowserRequestCredentials.Omit`; explicit source
-authorization remains a request header. Source credentials are passed
-separately and are adopted only for same-origin resources.
+each request with `BrowserRequestCredentials.Omit` and Fetch
+`redirect: error`; explicit source authorization remains a request header.
+Because Browser/Wasm cannot enforce the desktop DNS boundary, v3 resources
+must remain on the configured source origin. The built-in Gallery continues to
+use its separate fixed-host transport. Source credentials are passed separately
+and are adopted only for same-origin resources.
 Desktop automatic redirects are disabled. A bounded source-owned redirect
 handler reapplies explicit authorization only when the target remains on the
 credential's original origin and strips it from cross-origin hops. Exceeding
@@ -596,9 +611,28 @@ targets with malformed raw text, unusable IDNA hosts, or embedded user
 information are typed invalid responses rather than normalized requests.
 `RuntimeFactoriesDoNotAcceptSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
-`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
-construction. `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch
-credential option, and
+`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate shared transport
+construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
+gates the Gallery-specific Browser handler, and
+`GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that the Gallery
+factory uses the bounded desktop redirect policy.
+`DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint` gates the configured
+private-origin exception and feed-directed destination rejection.
+`DefaultV3TransportAllowsConfiguredPrivateIpv6Source` gates IPv6-literal
+configured origins.
+`DefaultV3TransportNormalizesPathlessServiceIndexRoot` gates the implicit root
+path on the desktop wire, while
+`V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
+an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
+resource normalization.
+`DefaultV3VersionAndPackagePreserveSignedServiceIndexBytes` gates the same
+configured-index byte preservation for version and package operations on the
+desktop wire.
+`HttpClientFactoryTests.PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect`
+gates the same shared address policy across redirect hops.
+`BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch credential and
+redirect options, `BrowserV3ResourcesRequireSameOrigin` gates resource
+authorization, and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
 `DesktopRedirectLimitAllowsFiveAndRejectsSix` and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
@@ -616,59 +650,161 @@ transport profile, capability, and exact coordinate when applicable, and
 distinguish unsupported capability, exact payload absence, authentication,
 timeout, malformed metadata, bounded-response rejection, and transport
 failure. Their retained messages are source-safe summaries rather than
-transport URLs or response text. A returned payload stream remains deadline
+transport URLs or response text. Caller cancellation remains cancellation,
+deadline aborts are typed timeouts, and transport-originated cancellation with
+neither condition active is a typed transport failure.
+`V3SearchCallerCancellationRemainsCancellation`,
+`V3SearchUsesLibraryDeadline`, and
+`V3ServiceIndexTransportCancellationIsTypedTransport` gate that precedence.
+A returned payload stream remains deadline
 bound, but timeout or transport failure during its later consumption is an
 exception because the operation result has already been returned. Invalid
 caller coordinates and caller cancellation likewise remain exceptions rather
 than being misreported as source failures.
 
-The Gallery version-enumeration result is still the complete raw flat-container
-list, so every candidate currently carries `unknown` listing state. Canonical
-NuGet.org and custom v3 enumeration also report `unknown`, because a raw
-flat-container list can include unlisted versions without carrying their
+Gallery version enumeration joins the complete flat-container list with the
+SemVer2 registration index. Inline pages are consumed in place. External page
+IDs are accepted only as validated HTTPS package-page identities and are
+rebased to the Gallery CDN; their advertised host is never dereferenced.
+Registration pages are fetched in bounded concurrent batches under the same
+operation deadline. Each response remains bounded by the configured metadata
+response limit, 16 MiB by default. Every external-page batch has a separate
+concurrent materialization limit, 64 MiB by default; failed attempts return
+their batch capacity before retry. Separately, the index, all pages, and retry
+traffic share an aggregate registration-work limit, also 64 MiB by default. A
+reader waits when all remaining capacity is only temporarily held by in-flight
+reads; the overflow probe runs only after committed bytes have permanently
+exhausted the applicable budget. The index admits at most 128 pages, and leaf
+work is capped at the greater of 4,096 observations or four times the
+flat-container candidate count. The aggregate default is pinned above the
+measured 18,163,736-byte, 25-page MassTransit registration canary, and the batch
+default is pinned above eight responses whose combined size exceeds the
+per-response limit. Page, leaf, batch, and aggregate exhaustion are resource
+rejection rather than malformed JSON, while Gallery enumeration still projects
+each case as typed partial.
+Parsing validates every leaf inside those budgets but retains listing state only
+for normalized flat-container candidates, so unrelated registration versions
+cannot grow retained registration state. Inline and external leaf traversal
+checks cancellation and the monotonic operation deadline every 128 observations;
+on single-threaded Browser/Wasm it also yields at those checkpoints so pending
+timer and caller-cancellation work can run. A complete join reports authoritative
+`listed` and `unlisted` candidates. Missing, malformed, incomplete, unavailable,
+or over-budget registration data returns the flat-container candidates as a
+typed partial result with `unknown` state. Duplicate JSON properties are
+malformed rather than allowing one of several possible listing readings to
+become authoritative. Deadline expiry during traversal, coverage, or final
+authority projection also returns the partial result, while caller cancellation
+outranks a concurrent page failure.
+
+Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
+a raw flat-container list can include unlisted versions without carrying their
 state. `not-applicable` remains available for source kinds that genuinely have
 no listing concept. Gallery search reports `listed`, because unlisted
 coordinates do not appear in that search surface. `PackageVersionResult`
-exposes whether all listing states are authoritative, so raw Gallery and v3
-results cannot be admitted into a listing-aware cache. Registration joining
-remains follow-up work.
+exposes whether all listing states are authoritative, so partial Gallery and
+raw v3 results cannot be admitted into a listing-aware cache.
 
 The Browser workspace now uses this client as its built-in NuGet.org
 transport. Exact coordinates bypass discovery and request the Gallery package
 CDN directly. Omitted root versions use an exact-ID Gallery search and select
-its listed stable result. Raw flat-container enumeration remains available to
-the Browser version picker, while wildcard and range dependency selection
-fails closed when listing authority is absent. The typed payload's advertised
-length flows through the shared `PackagePayloadAcquisition` admission and
-store pipeline, so Browser cache reservation, archive limits, producer
-authorization, and publication are not reimplemented in the host. Desktop
-package-resolution consumers remain on the compatibility path.
+its listed stable result. Complete enumeration remains available to the
+Browser version picker; wildcard and range dependency selection excludes
+unlisted versions and fails closed when listing authority is absent. The typed
+payload's advertised length flows through the shared
+`PackagePayloadAcquisition` admission and store pipeline, so Browser cache
+reservation, archive limits, producer authorization, and publication are not
+reimplemented in the host. Desktop package-resolution consumers remain on the
+compatibility path.
 
-The v3 compatibility adapter initially exposes version and package-payload
-operations only, and validates package coordinates before any service-index or
-payload request. Search remains on the existing package-layer service-index
-discovery path until that resource discovery moves into the typed client; the
-adapter does not restore the retired NuGet.org-only search shortcut.
+The v3 compatibility adapter exposes search, version, and package-payload
+operations. It validates package coordinates before any service-index or
+payload request. Search discovers the highest supported
+`SearchQueryService` capability from the source's service index, preserves
+equivalent endpoint order for failover, scopes credentials to the service-index
+origin, stops endpoint failover on authentication rejection, and retains signed
+endpoint query bytes. `Capabilities` describes operations implemented by the
+runtime client; a particular v3 feed that does not advertise a search resource
+returns typed `Unsupported` from that operation. The adapter does not restore
+the retired NuGet.org-only search shortcut.
+`NuGetV3PackageResourceClient` owns `PackageBaseAddress` discovery,
+normalization, version-index URL construction, and exact package URL
+construction for the v3 source client. The canonical NuGet.org v3 client
+discovers the advertised package base instead of substituting the legacy
+flat-container constant. Legacy `NuGetClient` delegates those operations to
+the same source-owned primitive while retaining its canonical shortcut until
+its consumers migrate. V3 package payloads retain the advertised response
+length. Custom v3 symbol payload remains explicitly unsupported because
+`PackageBaseAddress` defines no symbol-package download route; the operation
+does not probe NuGet.org or construct a `.snupkg` URL.
 The local-folder descriptor remains modeled without a runtime client.
 `PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
+`V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
+`CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
+`CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress`,
+`LegacyNuGetClientRetainsCanonicalFlatContainerShortcut`,
+`V3SearchPreservesDeclaredQueryBytes`,
+`V3SearchPreservesSignedBytesWhileNormalizingIdn`,
+`V3SearchNormalizesIdnServiceIndex`,
+`V3SearchInvalidRawServiceIndexIsTypedInvalidResponse`,
+`V3MalformedAdvertisedSearchIsTypedInvalidResponse`,
+`V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
+`V3SearchUsesLibraryDeadline`,
+`V3SearchTransportTimeoutIsTypedTimeout`,
+`V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
+`GalleryEnumerationJoinsAuthoritativeListingState`,
+`GalleryExternalRegistrationPageIsValidatedAndRebased`,
+`GalleryExternalPagesUseBoundedConcurrency`,
+`GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+`GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
+`GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary`,
+`GalleryRegistrationDefaultBatchExceedsPerResponseLimit`,
+`GalleryRegistrationReservationWaitsForReturnedCapacity`,
+`GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
+`GalleryLatePageDeadlineReturnsMaterializationCapacity`,
+`GalleryCleanupFailureReturnsMaterializationCapacity`,
+`GalleryRegistrationAggregateCountsFailedAttemptBytes`,
+`GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
+`GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+`GalleryRegistrationTraversalHonorsCallerCancellation`,
+`GalleryRegistrationTraversalUsesMonotonicDeadline`,
+`RegistrationResourceLimitsMapToResponseRejected`,
+`GalleryRejectsIneligibleExternalRegistrationPage`,
+`GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+`GalleryCorruptEncodedVersionMetadataIsInvalidResponse`,
+`GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
+`GalleryMalformedExternalPageIsTypedPartialEnumeration`,
+`GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
+`GalleryCallerCancellationDuringRegistrationRemainsCancellation`,
+`GalleryCallerCancellationOutranksConcurrentRegistrationFault`,
+`GalleryFinalListingProjectionExpiresToPartial`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
-`CanonicalV3EnumerationReportsUnknownListingState`,
 `V3InvalidVersionMetadataIsTypedFailure`,
 `V3UnusablePackageBaseAddressIsInvalidResponse`,
 `V3SignedPackageBaseAddressPreservesQuery`,
+`V3VersionAndPackageDoNotSendCredentialCrossOrigin`,
+`V3MissingPackageIsTypedAbsence`,
 `V3EscapesUnicodePackageIdsAsPathSegments`,
 `V3NormalizesIdnPackageBaseAddress`,
 `V3PreservesIpv6BracketsWhenEscapingBasePath`,
+`DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources`,
 `GalleryMissingPackageIsTypedAbsence`,
 `GalleryClassifiesBoundedMetadataRejection`,
 `GalleryClassifiesHttpFailures`,
 `GalleryCallerCancellationRemainsCancellation`,
-`CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
+`BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
+gates the Browser's listing-aware dependency range selection, and
+`BrowserEngineBoundaryTests.DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`
+gates that a partial result cannot select an unknown candidate.
+`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration`
+and
+`BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
+gate the deadline margin that preserves partial version-picker enumeration when
+optional registration stalls.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
@@ -676,16 +812,13 @@ The remaining structural problem is that existing package-resolution consumers
 still largely equate a source with a v3 service-index URL. The implementation
 should:
 
-1. Move v3 resource discovery and URL construction fully into its source client.
-2. Join Gallery registration metadata so complete enumeration reports
-   authoritative per-version listing state.
-3. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
+1. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
    the source-client boundary.
-4. Add environment-scoped availability observations without mutating durable
+2. Add environment-scoped availability observations without mutating durable
    candidate observations.
-5. Let desktop and browser hosts choose transport implementations without
+3. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-6. Replace the browser's singleton `default versus mirror` state with a source
+4. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
 
 The product libraries must own these contracts. A browser harness may present

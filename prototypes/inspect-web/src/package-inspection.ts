@@ -1,6 +1,7 @@
 import {
   packageIdentityKey,
   type DependencyGroupData,
+  type PackageLens,
   type PackageIdentity,
 } from "./data.ts";
 import type {
@@ -32,7 +33,7 @@ export interface PackagePerformance {
 export interface PackageInspectionState {
   packages: AppPackage[];
   atPackageRoot: boolean;
-  packageLens: string;
+  packageLens: PackageLens;
   packageDependencies: BrowserPackageDependencies | null;
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
@@ -97,7 +98,7 @@ export interface PackageInspectionDependencies {
   describeError(error: unknown): string;
   refreshPackageStats(): void;
   render(): void;
-  renderDependencyGraph(): void;
+  renderDependencyGraph(): Promise<void>;
 }
 
 export interface PackageInspectionCoordinator {
@@ -167,7 +168,7 @@ export function createPackageInspectionCoordinator(
       && !state.workspaceDependencyLoads.has(
         workspaceDependencyKey(packageModel)));
     if (!missing.length) {
-      dependencies.renderDependencyGraph();
+      await dependencies.renderDependencyGraph();
       return;
     }
     for (const packageModel of missing) {
@@ -253,7 +254,7 @@ export function createPackageInspectionCoordinator(
         }
         dependencies.refreshPackageStats();
         dependencies.render();
-        void ensureWorkspaceDependencies();
+        await ensureWorkspaceDependencies();
       }
     },
 

@@ -1,0 +1,149 @@
+name: Publish package fixtures
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: Fixture family to publish
+        required: true
+        type: choice
+        options:
+          - tool-v2
+          - metadata-confusion
+      confirm:
+        description: 'Type "publish" to publish the current immutable fixture version'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-package-fixtures
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Read fixture version
+        id: fixture
+        shell: bash
+        env:
+          FIXTURE_FAMILY: ${{ inputs.fixture }}
+        run: |
+          version=$(dotnet msbuild \
+            eng/package-fixtures/PackageFixtures.proj \
+            -p:FixtureFamily="$FIXTURE_FAMILY" \
+            -getProperty:FixtureVersion)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate fixture catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+            -class "DotnetInspector.Tests.PackageFixtureTests" \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Package fixture test filter selected no tests." >&2
+            exit 1
+          fi
+
+      - name: Pack fixture packages
+        shell: bash
+        env:
+          FIXTURE_FAMILY: ${{ inputs.fixture }}
+          FIXTURE_VERSION: ${{ steps.fixture.outputs.version }}
+        run: |
+          case "$FIXTURE_FAMILY" in
+            tool-v2)
+              dotnet pack eng/package-fixtures/PackageFixtures.proj \
+                -c Release \
+                -o artifacts/package-fixtures \
+                -p:FixtureFamily=tool-v2 \
+                -p:FixturePackage=linux-x64 \
+                -p:FixtureRepositoryCommit="$GITHUB_SHA"
+              dotnet pack eng/package-fixtures/PackageFixtures.proj \
+                -c Release \
+                -o artifacts/package-fixtures \
+                -p:FixtureFamily=tool-v2 \
+                -p:FixturePackage=pointer \
+                -p:FixtureRepositoryCommit="$GITHUB_SHA"
+              test -f \
+                "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.linux-x64.${FIXTURE_VERSION}.nupkg"
+              test -f \
+                "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.${FIXTURE_VERSION}.nupkg"
+              expected_count=2
+              ;;
+            metadata-confusion)
+              package="artifacts/package-fixtures/DotnetInspect.TestAssets.MetadataConfusion.${FIXTURE_VERSION}.nupkg"
+              dotnet pack eng/package-fixtures/PackageFixtures.proj \
+                -c Release \
+                -o artifacts/package-fixtures \
+                -p:FixtureFamily=metadata-confusion \
+                -p:FixturePackage=metadata-confusion \
+                -p:FixtureRepositoryCommit="$GITHUB_SHA"
+              test -f "$package"
+              dotnet run \
+                --project "eng/package-fixtures/metadata-confusion/${FIXTURE_VERSION}/generator" \
+                -c Release -- \
+                verify-package "$package"
+              expected_count=1
+              ;;
+            *)
+              echo "::error::Unknown fixture family: $FIXTURE_FAMILY" >&2
+              exit 1
+              ;;
+          esac
+          test "$(find artifacts/package-fixtures -name '*.nupkg' -type f | wc -l)" \
+            -eq "$expected_count"
+
+      - name: Upload fixture packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-fixtures-${{ inputs.fixture }}-${{ steps.fixture.outputs.version }}
+          path: artifacts/package-fixtures/*.nupkg
+          if-no-files-found: error
+
+      - name: Publish immutable fixture version
+        shell: bash
+        env:
+          FIXTURE_FAMILY: ${{ inputs.fixture }}
+          FIXTURE_VERSION: ${{ steps.fixture.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "$FIXTURE_FAMILY" in
+            tool-v2)
+              dotnet nuget push \
+                "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.linux-x64.${FIXTURE_VERSION}.nupkg" \
+                --source https://nuget.pkg.github.com/richlander/index.json \
+                --api-key "$GITHUB_TOKEN"
+              dotnet nuget push \
+                "artifacts/package-fixtures/DotnetInspect.TestAssets.ToolV2.${FIXTURE_VERSION}.nupkg" \
+                --source https://nuget.pkg.github.com/richlander/index.json \
+                --api-key "$GITHUB_TOKEN"
+              ;;
+            metadata-confusion)
+              dotnet nuget push \
+                "artifacts/package-fixtures/DotnetInspect.TestAssets.MetadataConfusion.${FIXTURE_VERSION}.nupkg" \
+                --source https://nuget.pkg.github.com/richlander/index.json \
+                --api-key "$GITHUB_TOKEN"
+              ;;
+            *)
+              echo "::error::Unknown fixture family: $FIXTURE_FAMILY" >&2
+              exit 1
+              ;;
+          esac

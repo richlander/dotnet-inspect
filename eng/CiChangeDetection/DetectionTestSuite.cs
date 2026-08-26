@@ -287,6 +287,19 @@ internal static class DetectionTestSuite
                 $"{FormatValues(source)}");
         }
 
+        Dictionary<string, string> windowsInstaller = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "install.ps1",
+            outputs);
+        if (windowsInstaller["code"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Windows installer canary did not select code: " +
+                FormatValues(windowsInstaller));
+        }
+
         Dictionary<string, string> webDependency = RunDetection(
             repository,
             body,
@@ -567,6 +580,28 @@ internal static class DetectionTestSuite
             packaging,
             selected: "packaging",
             notSelected: "docs");
+
+        Dictionary<string, string> packageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/tool-v2/1.0.0/pointer.nuspec",
+            outputs);
+        AssertRouting(
+            packageFixture,
+            selected: "code",
+            notSelected: "packaging");
+
+        Dictionary<string, string> metadataPackageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/metadata-confusion/1.0.0/metadata-confusion.nuspec",
+            outputs);
+        AssertRouting(
+            metadataPackageFixture,
+            selected: "code",
+            notSelected: "packaging");
 
         Dictionary<string, string> workflow = RunDetection(
             repository,

@@ -16,7 +16,7 @@ shared contracts, not dynamically loaded plugins.
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
-SourceLink, authored-or-decompiled type/member source, and API-comparison
+SourceLink, PDB-mapped-or-decompiled type/member source, and API-comparison
 inspection plus implementation-relationship and type/member search inspection
 are the first typed-query canaries: commands and
 section catalogs plan typed demand while queries remain independent of
@@ -68,6 +68,19 @@ membership; `Execute_ReportsMemberPreflightDecodeFailureBeforeProducers` gates
 visible artifact failure, and
 `Execute_ReportsTypeDeclarationRejectionBeforeProducers` gates typed metadata
 rejection at the preflight boundary.
+
+The desktop CLI now consumes that architecture through
+`graph integrations`. Repeated package coordinates and one shared target
+framework lower through `WorkspaceContextLoader` to exactly one group; the
+realized package identities become the explicit induced subjects, and the
+command passes the selected Integration relationship descriptors directly to
+the query. The command does not invent a CLI graph IR, infer identity from
+labels, or add direction/depth to induction. Markdown, tree, Mermaid, tabular,
+and JSON output are presentation projections over the resulting
+`InspectionGraphDocument`. Typed loader and graph failures remain visible, and
+the sequential registry executor remains the command's execution policy.
+`InspectionGraphCommandTests.ExecuteAsync_UsesExactPackageSetAndStructuredRequest`
+gates this composition.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -386,9 +399,9 @@ requests add a `MemberAnchor` and MethodDef token, so target identity is never
 recovered from display text. The query resolves that target against the
 participant's retained immutable image, then takes a content-backed reference
 for asynchronous source work without consuming the participant snapshot.
-Checksum-verified authored source wins when available. Otherwise the
+Checksum-verified PDB source wins when available. Otherwise the
 Decompiler runs over the same content reference and the participant's frozen
-`IAssemblyBindingPolicy`; an authored integrity failure remains attached to a
+`IAssemblyBindingPolicy`; a PDB-source integrity failure remains attached to a
 successful decompiled result rather than being rewritten as absence. When both
 producers are unavailable, the result carries both typed attempts instead of
 empty text.
@@ -398,9 +411,9 @@ The query's moderated network work requires explicit symbol HTTP, `IPdbStore`,
 capabilities. `InMemoryPdbStore` and `InMemorySourceContentStore` provide the
 filesystem-free host shape. Absolute source paths recorded in a PDB are
 disabled by default at this boundary and require an explicit opt-in.
-`AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`,
-`MissingAuthoredSource_FallsBackToDecompiler`,
-`AuthoredIntegrityFailure_IsPreservedBesideDecompiler`, and
+`AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedPdbSource`,
+`MissingPdbSource_FallsBackToDecompiler`,
+`PdbSourceIntegrityFailure_IsPreservedBesideDecompiler`, and
 `NeitherSourceAvailable_ReturnsTypedFailure` gate these claims.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
@@ -448,15 +461,15 @@ and passes that shared policy snapshot to every participant in that group.
 `--tfm all` therefore creates separate groups for distinct framework, asset-kind,
 and runtime directories rather than mixing binding universes. The host executes
 the group query only for explicit Integrations demand, including demand
-introduced by scanner prerequisites, correlates entries by acquisition
+introduced by query prerequisites, correlates entries by acquisition
 registration, and projects them into the existing per-library Finding model.
 Query production and the asynchronous library pipeline consume one
 participant's retained snapshot before the group releases it and advances, so
 the group keeps its complete binding universe without retaining the package's
-cumulative image bytes. The legacy Integrations scanner recognizes populated
-Findings and does not rescan. When Opportunities is selected, the host executes
-the typed Integrations prerequisite and dependent Opportunities query inside
-that same participant callback before release. Rejected or failed prerequisite
+cumulative image bytes. The retained typed Integrations result prevents a
+second scan. When Opportunities is selected, the host executes the typed
+Integrations prerequisite and dependent Opportunities query inside that same
+participant callback before release. Rejected or failed prerequisite
 entries remain typed dependent outcomes, and a blank assembly identity remains
 a compatibility skip. Direct `library` and package `--library` remain
 single-assembly controls.
@@ -655,22 +668,23 @@ Product-resident home demos ship as a static id→factory registry
 (`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
 `RendererRegistry` style); hosts resolve one demo via
 `ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records (coordinates and view focus today). The **target** run model is a
-closed preset over the open query/section product: the registry fixes inputs
-and names **existing product section(s)**; the host runs the normal section
-pipeline and returns those sections in ordinary formats. That full section
-binding and run path are not implemented yet—current plans are a partial
-binding (see the workspace-definitions residual). Demos must not call past
-sections into ad hoc inspection APIs; a capability that is not a product
-section is not a home demo until the section exists. Once section binding and
-run exist, CLI argv, definition plans, and browser engine operations (including
-a generated TypeScript binding of that engine surface) must be encodings of the
-same preset—not parallel demo systems. Group-subscription grammar and
-share-packet transposition remain design-ahead of that loader. When run exists,
-selecting a scenario must lower into the same acquisition and typed query paths
-used by an interactive request—it must not create a second demo-only execution
-path. Today resolve stops at the plan (`ResolvedScenario`); acquisition and
-section execution are still host/future work on top of that plan. Detail:
+peer records and requires a `ProductDemoSections` binding. Home demos are closed
+presets over the open query/section product: the registry fixes inputs and names
+**existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
+Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
+table/tsv/jsonl keep Callers when the demo has caller scope so the re-add stays
+one section, otherwise Call Graph so package-local entry points still emit rows;
+mermaid keeps Call Graph; document JSON fails closed until graph projection
+lands); the CLI host runs them through the normal type/member section pipelines
+(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
+sections in ordinary formats. Demos must not call past sections into ad hoc
+inspection APIs; a capability that is not a product section is not a home demo
+until the section exists. CLI argv, definition plans, and browser engine
+operations (including a generated TypeScript binding of that engine surface)
+must be encodings of the same preset—not parallel demo systems. Residual:
+minted view-facet ids, `WorkspaceContextLoader` as the shared group-run owner,
+and Call Graph structured-JSON projection (see
+workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
@@ -758,7 +772,9 @@ query declares:
 | Inputs | Which typed content and prior results does it consume? |
 | Cost | Is the work bounded, network-bound, source-content-bound, or exhaustive? |
 | Capabilities | What must the caller authorize? |
+| Execution modes | May the producer render, run as an effectiveness probe, or both? |
 | Dependencies | Which producer results must exist first? |
+| Conditional successors | Which typed predecessor outcome selects each fallback path? |
 | Lifetimes | Which acquired images, catalogs, or other bound resources must remain alive? |
 | Correspondence | Which owner establishes relationships between the inputs? |
 | Result | Which typed value or failure does it return? |
@@ -766,31 +782,45 @@ query declares:
 CLI sections and Wasm views lower their selections into this plan. They do not
 own acquisition cost or producer dependencies.
 
-The existing `ScannerRegistry` remains an assembly-local predecessor: its
-explicit prerequisites, once-per-run resources, deterministic ordering, and
-tracing are useful foundations. `DotnetInspector.Queries` and its optional
-Research-backed companion now own typed metadata, direct-reference,
+The assembly-local string-keyed scanner predecessor has been retired.
+`DotnetInspector.Queries` and its optional Research-backed companion now own
+typed metadata, direct-reference,
 assembly-context reference, package dependency-group, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
 SourceLink, API-comparison, and Analysis body-signal comparison plans. The
 Analysis query
 consumes old/new `LibraryBodyIndex` collections and returns
 `ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
-a transitional adapter. String keys, mutable CLI models, path-shaped residual
-inputs, and command-owned acquisition remain migration boundaries rather than
-workspace contracts.
+a transitional adapter. Mutable CLI models, path-shaped residual inputs, and command-owned acquisition
+remain migration boundaries rather than workspace contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic
 prerequisite order. It passes each query's maximum transitive cost into the host
-execution scope. SourceLink demonstrates the network boundary: a moderated
-document prerequisite may acquire one PDB, while availability and integrity
-declare unbounded work and accept host-owned HTTP clients and an optional cache.
+execution scope. A conditional successor is part of the closed graph before
+execution and is selected only by its predecessor's typed outcome. Preflight
+records authorization or denial for every successor; execution cannot add one.
+A denied optional successor does not prevent an earlier branch from succeeding,
+but selecting that successor produces its recorded typed denial. SourceLink
+demonstrates the network boundary: a local-PDB read may finish without
+acquisition, while a typed miss reaches a separately preflighted moderated PDB
+acquisition successor. Availability and integrity declare unbounded work and
+accept host-owned HTTP clients and an optional cache.
 
 ### Executor
 
 Sequential topological execution defines the baseline. It works in
 single-threaded Wasm, is easy to audit, and provides the reference ordering for
 every other policy.
+
+The host preflights common prerequisites, independent demand roots, and every
+conditional successor. Each executable closure carries its granted
+capabilities, execution mode, and probe policy; each unavailable closure
+carries a typed request, capability, cost, mode, or policy denial. Discovery
+can map an unavailable section root to a typed unknown while executing other
+roots. Explicit render demand reports that denial as non-success. Plan-level
+denial is reserved for mandatory common work that must complete before section
+roots can be classified; a denied section root remains section-scoped even
+when it is the sole demand.
 
 A later executor may schedule independent nodes concurrently. Concurrency must
 not alter:
@@ -914,6 +944,11 @@ correspondence results only when their authorization scope is compatible. The
 cache answers only after that decision; it does not introduce candidates or
 widen authorization.
 
+Fallback availability is a typed producer outcome, not authority. A local
+cache miss may select a PDB-acquisition successor only when preflight recorded
+that successor as authorized. A denied successor remains denied even if the
+content later becomes available through another operation.
+
 This is the acquisition analogue of other owner-issued safety currencies. The
 acquisition owner authorizes content, a catalog authorizes correspondence, and
 the presentation boundary produces `InertString`. None can be reconstructed by
@@ -949,6 +984,65 @@ The cache owner for each result must still define:
 
 A cache may make a correct query faster. It must not change which query was
 asked or which producer's bytes the caller is authorized to inspect.
+
+A persistent derived-result cache is an alternate entry into the pipeline
+stage that produced it. A cache hit may skip an earlier gate only when all of
+these are true:
+
+- the gate establishes a stable property of the exact content or immutable
+  producer evidence, not current-request authorization or lease liveness;
+- the cache key is derived from the digest the owner computed over retained
+  immutable content/evidence and names that content, not the snapshot instance
+  or its generation;
+- the entry's gate, producer, and cache publication consumed one such retained
+  snapshot and its owner-computed identity;
+- the entry was written only after the gate succeeded; and
+- the category or payload records the complete gate-contract version.
+
+When a result depends on several retained artifacts or external evidence, the
+semantic key identifies every contributing content snapshot and every
+provenance dimension that can change the derived result. An availability
+Boolean is sufficient only when a declaration-derived closure proves the
+cached payload is a function of that Boolean alone.
+
+Root request and acquisition provenance participates by the same rule. Two
+routes to the same retained bytes may share a cache entry only when every
+producer and cached section/field predicate is route-independent; otherwise an
+owner-issued typed route identity belongs in the semantic key. A resolved path
+does not reconstruct whether the caller selected platform, package, direct
+file, or another subject route.
+
+The cache subject is immutable from lookup through cold production and
+publication. Publication uses the exact evidence identities every producer
+consumed; it cannot re-probe and file that result under post-production
+evidence. An observed evidence-generation change either declines publication
+or starts a later authorized operation that recomputes under the new subject.
+
+Hashes taken before and after work over a separately reopened mutable path do
+not establish this identity: the source may change from W to S and back to W
+while the gate and producer consume S. The acquisition owner computes the
+digest from retained immutable bytes and supplies those same bytes to the cold
+path; neither the producer nor cache owner may reconstruct identity by reopening
+the source. A later source replacement belongs to a later acquisition.
+
+Current request, host, capability, and liveness policy is never certified by a
+cache version and must be re-evaluated on every use. When a release introduces
+or tightens stable admission, validation, failure, or projection semantics
+after an existing cache lookup, the cache owner must either run that gate on
+every hit or select a successor contract version before post-cutover lookup.
+Extending only the new write path does not certify predecessor entries.
+
+Every such cutover needs paired non-vacuity evidence: seed a predecessor entry
+for content newly rejected by the gate and prove it cannot produce success,
+then seed one for still-valid content and prove the cold path recomputes and
+publishes a reusable successor entry. When the source can change, inject a
+W-to-S-to-W replacement through the product acquisition seam, count source
+opens, and prove no result derived from S can be published or read under W's
+identity. This repository-wide cutover rule is unverified as a global
+inventory; each adopting cache must name its owning gate. `MDP017` in
+[member inspection planning and Metadata
+projection](design/member-inspection-planning-and-metadata-projection.md) is the
+worked gate for the library effective-catalog format-admission cutover.
 
 ### `InertString`
 

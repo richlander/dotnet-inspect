@@ -10,9 +10,15 @@ do.
 Related docs:
 
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
+- [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [Command model](command-model.md) — command surface and shared options
+- [The package query CLI](package-query-cli.md) — a facet-matched package
+  corpus row applying this ladder's "declared row unit" discipline, and the
+  source of [#4677](https://github.com/richlander/dotnet-inspect/issues/4677),
+  a proposal to redefine this document's `-n`/rendered-line default as a
+  universal item-count flag instead
 
 ## The shape ladder
 
@@ -42,6 +48,43 @@ declared row unit is a directed edge: `--count` counts relationships, and
 `--rows` selects the same ordered relationships whether the graph is rendered
 as a Markdown edge table, standalone tree, standalone Mermaid diagram, or
 tabular stream. Tree nodes are presentation context, not additional rows.
+`graph integrations` uses the same row contract: one row is one directed
+logical relationship. Its package groups and finer member/type nodes are
+presentation context, while `--count` and `--rows` count or select logical
+edges consistently across Markdown, tree, Mermaid, tabular, and structured
+output. Isolated explicit packages remain node/group context in graph and JSON
+views, but never become empty data rows in the default Markdown edge table.
+`OutputModes_UseTheSameWindowedLogicalEdges` gates the rendered Markdown table
+row count against the selected logical-edge count.
+
+The `graph integrations --json` failure array preserves both presentation and
+typed addressing: each failure carries its rendered target plus
+`target_kind`/`target_id`, and Integration failures retain structured producer,
+kind, assembly-reference, acquisition-failure, and exception fields. Opaque
+workspace registration handles are deliberately not stringified; the graph
+target and typed reference evidence remain the identities a consumer can
+interpret outside the owning workspace.
+Failure-targeted nodes and groups remain in the JSON document as diagnostic
+context even when they are not endpoints of the selected edge window; they are
+not additional relationship rows. Structured diagnostic text crosses the same
+lossless inert containment boundary as human-readable failures.
+`VisibleGraphFailure_PreservesOutputAndNonzeroExit` gates target
+resolvability, and `StructuredFailureText_IsInertAfterJsonParsing` gates
+containment after a JSON consumer decodes the value.
+
+Integration graph edge rows carry `source`, `source_assembly`, `source_group`,
+`relationship`, `target`, `target_assembly`, `target_group`, `occurrences`,
+and `evidence`. Assembly and group fields preserve endpoint identity within a
+multi-assembly package and package ownership across package contexts;
+plain-text and graph node labels carry the same context. JSON nodes also carry
+assembly identity, and failure target labels retain it. JSON and JSONL keep
+occurrence counts numeric and absent values null; JSON edges carry projected
+evidence rather than exposing
+document-local occurrence ids without the occurrence collection that owns
+them. `ProductionShapedEndpoints_RetainPackageOwnership`,
+`AcquiredEndpoints_RetainAssemblyWithinOnePackage`,
+`AcquiredFailureTargets_RetainAssemblyWithinOnePackage`, and
+`OutputModes_UseTheSameWindowedLogicalEdges` gate these contracts.
 
 ## Flag families
 
@@ -423,7 +466,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) selects **lowered** vocabulary — computed table columns such as `Return Type` have no counterpart in the typed object model — so naming one opts into the lowered display view instead of the pre-lowered typed document (#3494). On `find`, that combination renders the projected sections as JSON, using the same machine key names `--jsonl` and the pre-lowered `--json` use (`type`, not the `Type` heading Markdown shows) so the flag keeps one vocabulary whether or not a projection was requested, and honoring `--rows`/`--compact` like every other format. Elsewhere the lowered JSON view is not wired yet, so the combination is still rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with `--rows`/`--compact` preserved. `find` and `vocabulary` currently wire the lowered path; `type` and `member` reject unsupported combinations, while some other paths still succeed after silently dropping the projection. The no-truncation target under #4677 is currently unverified; the required future `ProjectedJsonWindowingTests` gate owns it. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

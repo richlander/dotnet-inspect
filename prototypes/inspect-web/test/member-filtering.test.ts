@@ -13,7 +13,6 @@ import {
   restoreLibraryScope,
   restoreMemberHistoryState,
 } from "../src/member-filtering.ts";
-import type { BodyTarget } from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
   const member = { name: "Value" };
@@ -44,7 +43,7 @@ test("body targets must identify the selected overload or one of its accessor bo
       member,
       overload),
     false);
-  assert.equal(bodyTargetMatchesOverload({} as BodyTarget, member, overload), false);
+  assert.equal(bodyTargetMatchesOverload({}, member, overload), false);
 });
 
 test("body targets round-trip through the compact rich-packet tuple", () => {
@@ -53,8 +52,12 @@ test("body targets round-trip through the compact rich-packet tuple", () => {
     selectorKey: "getter",
     metadataToken: 11,
   };
-
   assert.deepEqual(decodeBodyTarget(encodeBodyTarget(target)), target);
+  assert.equal(encodeBodyTarget({
+    memberName: null,
+    selectorKey: null,
+    metadataToken: null,
+  }), null);
   assert.deepEqual(
     decodeBodyTarget(["get_Value", "getter", null]),
     { memberName: "get_Value", selectorKey: "getter", metadataToken: null });
@@ -100,7 +103,7 @@ test("history rejects a missing member and stale overload body", () => {
     memberTraitFilter: "",
     memberTextFilter: "",
     selectedOverloadIndex: 4,
-    memberSection: "source",
+    memberSection: "source" as const,
     bodyTarget: {
       metadataToken: 99,
       memberName: "Build",
@@ -162,14 +165,16 @@ const groups = [
 ];
 
 test("member filters compose on one matching overload", () => {
-  assert.equal(memberGroupMatches(groups[0], {
+  const methodGroup = groups[0];
+  assert.ok(methodGroup);
+  assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "public",
     trait: "isStatic",
     query: "path",
   }), true);
 
-  assert.equal(memberGroupMatches(groups[0], {
+  assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "protected",
     trait: "isStatic",
@@ -202,7 +207,7 @@ test("member search covers names and signatures", () => {
 test("member scope follows the resolved type identity", () => {
   const state = {
     atPackageRoot: false,
-    lens: "api",
+    lens: "api" as const,
     selectedMemberKey: "",
     memberBrowseTypeId: "Type0",
     selectedTypeId: null,

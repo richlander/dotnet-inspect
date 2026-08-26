@@ -1,5 +1,6 @@
 import type { BrowserCallGraph } from "./inspect-web-engine.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
+import { mergeInspectionErrors } from "./data.ts";
 
 export interface PlatformStackEntry {
   graph: BrowserCallGraph;
@@ -19,6 +20,10 @@ export interface MemberCallGraphRequest {
   version: string;
   framework: string;
   assembly: string;
+  platformPack: string;
+  platformAssemblyVersion: string | null;
+  platformAssemblyCulture: string | null;
+  platformAssemblyPublicKeyToken: string | null;
   typeIdentity: string;
   type: string;
   platformType: string;
@@ -34,24 +39,38 @@ export interface MemberCallGraphRequest {
 export interface PlatformDrillRequest {
   framework: string;
   assembly: string;
+  pack: string;
+  assemblyVersion: string | null;
+  assemblyCulture: string | null;
+  assemblyPublicKeyToken: string | null;
   type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
   title: string;
   errorTarget: string;
+  isCurrent(): boolean;
 }
 
 export interface CallGraphInspectionState {
   memberCallGraph: BrowserCallGraph | null;
   memberCallGraphLoading: boolean;
   memberCallGraphError: string;
+  graphMemberNavigationError: string;
   memberCallGraphKey: string;
   memberCallGraphExpanding: boolean;
   memberCallGraphSeq: number;
   platformStack: PlatformStackEntry[];
   platformDrillLoading: boolean;
   platformDrillError: string;
+}
+
+export function callGraphErrorForView(state: CallGraphInspectionState) {
+  return state.platformStack.length > 0
+    ? mergeInspectionErrors(state.graphMemberNavigationError, "")
+    : mergeInspectionErrors(
+        state.graphMemberNavigationError,
+        state.memberCallGraphError);
 }
 
 export interface CallGraphInspectionDependencies {
@@ -63,6 +82,10 @@ export interface CallGraphInspectionDependencies {
   queryPlatform(request: {
     framework: string;
     assembly: string;
+    pack: string;
+    assemblyVersion: string | null;
+    assemblyCulture: string | null;
+    assemblyPublicKeyToken: string | null;
     type: string;
     member: string;
     selectorKey: string;
@@ -82,7 +105,7 @@ export interface CallGraphInspectionDependencies {
 export interface CallGraphInspectionCoordinator {
   load(request: MemberCallGraphRequest): Promise<void>;
   drill(request: PlatformDrillRequest): Promise<void>;
-  popDrill(): void;
+  popDrill(): Promise<void>;
 }
 
 export function createCallGraphInspectionCoordinator(
@@ -104,23 +127,31 @@ export function createCallGraphInspectionCoordinator(
     state.memberCallGraphExpanding = false;
     state.memberCallGraphError = "";
     const preservedFocus = dependencies.renderPreservingMemberFocus();
+    const ownsRequest = () =>
+      sequence === state.memberCallGraphSeq
+      && request.isCurrent()
+      && state.memberCallGraphKey === request.signature;
     try {
       const graph = await dependencies.queryPlatform({
         framework: request.framework,
         assembly: request.assembly,
+        pack: request.platformPack,
+        assemblyVersion: request.platformAssemblyVersion,
+        assemblyCulture: request.platformAssemblyCulture,
+        assemblyPublicKeyToken: request.platformAssemblyPublicKeyToken,
         type: request.platformType,
         member: request.member,
         selectorKey: request.selectorKey,
         metadataToken: request.metadataToken,
       });
-      if (sequence !== state.memberCallGraphSeq) return;
+      if (!ownsRequest()) return;
       state.memberCallGraph = graph;
       state.memberCallGraphLoading = false;
       state.memberCallGraphExpanding = false;
       dependencies.renderPreservingMemberFocus(preservedFocus);
       await dependencies.renderCallGraph();
     } catch (error) {
-      if (sequence !== state.memberCallGraphSeq) return;
+      if (!ownsRequest()) return;
       state.memberCallGraphLoading = false;
       state.memberCallGraphExpanding = false;
       state.memberCallGraphError = dependencies.describeError(error);
@@ -133,7 +164,7 @@ export function createCallGraphInspectionCoordinator(
       if (state.memberCallGraphKey === request.signature
         && (state.memberCallGraph || state.memberCallGraphError)) {
         dependencies.render();
-        dependencies.renderCallGraph();
+        await dependencies.renderCallGraph();
         return;
       }
       state.memberCallGraphKey = request.signature;
@@ -155,8 +186,15 @@ export function createCallGraphInspectionCoordinator(
         sequence === state.memberCallGraphSeq
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature;
+      let local: BrowserCallGraph | null = null;
+      const canceledExpansionStillMatchesView = () =>
+        local != null
+        && request.isCurrent()
+        && state.memberCallGraphKey === request.signature
+        && state.memberCallGraph === local
+        && !state.memberCallGraphExpanding;
       try {
-        const local = await dependencies.queryWorkspace(request, []);
+        local = await dependencies.queryWorkspace(request, []);
         if (!ownsRequest()) return;
         state.memberCallGraph = local;
         state.memberCallGraphLoading = false;
@@ -172,15 +210,32 @@ export function createCallGraphInspectionCoordinator(
           const full = await dependencies.queryWorkspace(
             request,
             request.workspacePackages);
-          if (!ownsRequest()) return;
           const previousMermaid = state.memberCallGraph?.mermaid;
+          if (!ownsRequest()) {
+            if (!canceledExpansionStillMatchesView()) return;
+            state.memberCallGraph = full;
+            dependencies.refreshPackageStats();
+            if (!state.platformDrillLoading && state.platformStack.length === 0)
+              dependencies.patchCallGraphSection(previousMermaid);
+            return;
+          }
           state.memberCallGraph = full;
           state.memberCallGraphExpanding = false;
           dependencies.refreshPackageStats();
           dependencies.patchCallGraphSection(previousMermaid);
         }
       } catch (error) {
-        if (!ownsRequest()) return;
+        if (!ownsRequest()) {
+          if (!canceledExpansionStillMatchesView()) return;
+          state.memberCallGraphError = mergeInspectionErrors(
+            state.memberCallGraphError,
+            `Workspace expansion was incomplete: ${dependencies.describeError(error)}`);
+          if (state.platformDrillLoading || state.platformStack.length > 0)
+            return;
+          dependencies.renderPreservingMemberFocus(preservedFocus);
+          await dependencies.renderCallGraph();
+          return;
+        }
         state.memberCallGraphLoading = false;
         state.memberCallGraphExpanding = false;
         if (state.memberCallGraph) {
@@ -201,15 +256,28 @@ export function createCallGraphInspectionCoordinator(
       state.platformDrillLoading = true;
       state.platformDrillError = "";
       const preservedFocus = dependencies.renderPreservingMemberFocus();
+      const ownsRequest = () =>
+        sequence === state.memberCallGraphSeq && request.isCurrent();
+      const abandonStaleRequest = () => {
+        if (sequence !== state.memberCallGraphSeq) return;
+        state.platformDrillLoading = false;
+        dependencies.renderPreservingMemberFocus();
+      };
       try {
         const graph = await dependencies.queryPlatform(request);
-        if (sequence !== state.memberCallGraphSeq) return;
+        if (!ownsRequest()) {
+          abandonStaleRequest();
+          return;
+        }
         state.platformStack.push({ graph, title: request.title });
         state.platformDrillLoading = false;
         dependencies.renderPreservingMemberFocus(preservedFocus);
         await dependencies.renderCallGraph();
       } catch (error) {
-        if (sequence !== state.memberCallGraphSeq) return;
+        if (!ownsRequest()) {
+          abandonStaleRequest();
+          return;
+        }
         state.platformDrillLoading = false;
         state.platformDrillError =
           `Could not descend into ${request.errorTarget}: ${dependencies.describeError(error)}`;
@@ -218,12 +286,15 @@ export function createCallGraphInspectionCoordinator(
       }
     },
 
-    popDrill() {
+    async popDrill() {
       if (state.platformStack.length === 0) return;
+      state.memberCallGraphSeq++;
+      state.memberCallGraphExpanding = false;
+      state.platformDrillLoading = false;
       state.platformStack.pop();
       state.platformDrillError = "";
       dependencies.render();
-      dependencies.renderCallGraph();
+      await dependencies.renderCallGraph();
     },
   };
 }

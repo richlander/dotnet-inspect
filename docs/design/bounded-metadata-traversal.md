@@ -202,12 +202,22 @@ unsafe signature. Each boundary must remain independently enforced.
 ## Validation ownership
 
 SRM remains the parser and authority for the structural checks it exposes.
-dotnet-inspect must not independently reimplement:
+Except for the registered metadata-root admission guard and lossless-row
+exception below, dotnet-inspect must not independently reimplement:
 
 - metadata header, stream, heap, table-size, or row-count bounds;
-- coded-token decoding and allowed handle kinds;
+- coded-token decoding and allowed handle kinds except through a registered
+  lossless-row exception below;
 - signature grammar and malformed-blob exceptions;
-- individual row and heap access bounds.
+- individual row and heap access bounds except through a registered
+  lossless-row exception below.
+
+These are target constraints, not a claim that every legacy path already
+conforms. In particular,
+`ILInspector.Analysis.StructuralCloneAnalysis.ReadUserStringHeap` currently
+parses metadata stream headers to locate `#US`; that is pre-existing migration
+debt, not precedent for another decoder, and neither exception below authorizes
+or widens it.
 
 SRM performs these checks while constructing the reader and accessing metadata
 ([reader bounds](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/MetadataReader.cs#L178-L347),
@@ -216,6 +226,85 @@ The product maps the resulting SRM exception into its failure-bearing outcome
 at the operation boundary. SRM does not enforce every ECMA semantic rule;
 dotnet-inspect adds one only when a product operation requires it, not to
 produce a second general metadata validator.
+
+### Metadata-root admission guard
+
+Product metadata work must reject unsupported Windows Metadata before
+constructing `MetadataReader`: SRM reader initialization can scan tables, so
+using `MetadataReader.MetadataVersion` would perform attacker-sized row work
+before product admission. The one registered admission guard is
+`MetadataImageFormatClassifier` in MetadataPrimitives.
+
+The guard borrows the acquisition-owned `PEReader`, obtains its owner-bound
+metadata block, and reads only the ECMA-335 root signature, fixed
+major/minor/reserved fields, signed padded-version length, and at most the
+declared 256-byte padded field. ECMA-335 permits at most 255 bytes including the
+version terminator and rounds the stored length to four-byte alignment.
+`PEReader.HasMetadata == false` returns typed `NoMetadata` without requesting a
+block. An unmappable metadata directory, truncated fixed prefix, signature,
+negative/over-256 length, and block-bound failures are typed malformed-root
+results; lazy block-materialization I/O remains an acquisition failure. SRM may
+accept a longer field when enough bytes remain; the guard intentionally rejects
+it because it is outside the ECMA-335 bound and could hide a format marker
+beyond the fixed window.
+
+The guard searches the bytes through the first null for the exact ordinal ASCII
+`WindowsRuntime` marker used by SRM. It does not decode or expose the version
+string, parse stream headers, heaps, table headers, row counts, coded indexes,
+or rows, or construct a `MetadataReader`. A lazy `PEReader` may materialize the
+complete metadata directory while obtaining the owner-bound block. That
+acquisition cost is visible and measured separately; after materialization,
+the classifier's own work and allocation are bounded by the root prefix and
+256-byte field rather than metadata row count.
+
+This is an admission guard, not WinMD semantic support and not a second metadata
+reader. A supported result authorizes no metadata fact; it only allows the
+ordinary SRM reader to perform complete structural parsing under the product's
+row admission. `MDP017` in
+[member inspection planning and Metadata
+projection](member-inspection-planning-and-metadata-projection.md) owns exact
+API closure, fixed-work, malformed-root, marker, and no-reader-before-reject
+gates. Adding another root/header probe requires an explicit design change.
+
+### Lossless-row exception
+
+A narrow raw-row primitive is permitted only when SRM exposes the table's
+layout but no public row API can preserve evidence required by a product
+contract. The exception is not permission for a second general metadata
+reader. Each admitted table must be named in
+[Shared metadata primitives](../metadata-primitives.md), together with:
+
+- the exact columns and coded-index tags the primitive may decode;
+- the borrowed immutable metadata image and reader lifetime it accepts;
+- the public SRM layout APIs that locate and size the table;
+- checked row, column, and coded-index validation;
+- charging before handle retention or collection materialization;
+- a neutral result that contains no consumer semantics or presentation;
+- valid-row parity against an independent raw metadata oracle that preserves
+  the table's rows and SRM's higher-level projection where one exists;
+- malformed, over-budget, Browser/Wasm, NativeAOT, and architecture-closure
+  gates.
+
+`ILInspector.MetadataPrimitives` is the only owner of such mechanics. Its
+surface is one typed reader per admitted table, not a public general row or
+coded-index decoder. Consumers retain semantic validation and failure policy.
+A new table requires an explicit design change and its own gates.
+
+The first registered exception is `MethodSemantics`. SRM's public
+`PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` APIs
+materialize all `Other` rows before returning, collapse duplicate standard
+roles, and omit unrecognized combined role values. The shared primitive may
+decode only the `Semantics`, `Method`, and `Association` columns, including the
+`HasSemantics` Property/Event tag, so Metadata can charge and validate every
+association before that evidence is lost. `MDP016` in
+[member inspection planning and Metadata
+projection](member-inspection-planning-and-metadata-projection.md) is the named
+gate for this exception. Its row oracle is `ildasm`, whose property/event blocks
+preserve the ordered association/role/method multiset on conventional valid
+metadata. Construction-known `ilasm`/`MetadataBuilder` and byte-patched
+fixtures own physical row identity and raw-bit expectations. `mdv` is not an
+oracle for this table because it folds the rows through SRM's lossy convenience
+accessors.
 
 dotnet-inspect adds checks only where SRM does not provide a resource-safe or
 semantic guarantee:
@@ -333,6 +422,12 @@ Current and candidate ceilings are:
 | Generic arity expansion | 1,024 | Candidate; prevents metadata names such as ``Type`2000000000`` from driving unbounded loops |
 | TypeSpec active bytes | 4,096 | Active existing `TypeSpecGuard` policy |
 | Signature structural depth | 512 | Active existing `SignatureBlobGuard` policy |
+| Metadata rows admitted | Operation `MaxMetadataRows` | Active in API extraction; charges each declared table row once before traversal |
+| Retained MethodSemantics associations | Corpus-derived before activation | Candidate; separately bounds the immutable association index without double-charging admitted rows |
+
+Image admission is unconditional. An explicit `Unbounded` policy preserves
+compatibility for callers that have not migrated, but no product entry point
+may retain it when shared declaration admission activates.
 
 The relationship-node ceiling was activated after scanning the .NET 11
 preview 6 runtime and reference packs

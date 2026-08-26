@@ -150,7 +150,7 @@ function inspectionDependencies(
       error instanceof Error ? error.message : String(error),
     refreshPackageStats: () => {},
     render: () => {},
-    renderDependencyGraph: () => {},
+    renderDependencyGraph: async () => {},
     ...overrides,
   };
 }
@@ -323,7 +323,9 @@ test("dependency results cache for a resident package after the foreground lens 
       queryDependencies: async () => request.promise,
       refreshPackageStats: () => events.push("stats"),
       render: () => events.push("render"),
-      renderDependencyGraph: () => events.push("graph"),
+      renderDependencyGraph: async () => {
+        events.push("graph");
+      },
     }));
 
   const load = coordinator.loadDependencies(packageItem, "first");
@@ -649,15 +651,17 @@ test("workspace dependency loading records failures and ignores runtime packs", 
     "Example.Dependency");
   assert.equal(Object.hasOwn(state.workspaceDependencyErrors, goodKey), false);
   const partialKey = workspaceDependencyKey(partial);
+  const partialWorkspace = state.workspaceDependencies[partialKey];
+  assert.ok(partialWorkspace);
   assert.equal(
-    state.workspaceDependencies[partialKey].dependencyGroupError,
+    partialWorkspace.dependencyGroupError,
     "no dependency group matches net10.0");
   assert.equal(
     state.workspaceDependencyErrors[partialKey],
     "no dependency group matches net10.0");
-  assert.deepEqual(
-    state.workspaceDependencies[workspaceDependencyKey(bad)].dependencyGroups,
-    []);
+  const failedWorkspace = state.workspaceDependencies[workspaceDependencyKey(bad)];
+  assert.ok(failedWorkspace);
+  assert.deepEqual(failedWorkspace.dependencyGroups, []);
   assert.equal(
     state.workspaceDependencyErrors[workspaceDependencyKey(bad)],
     "dependency feed unavailable");
@@ -682,7 +686,9 @@ test("workspace dependency loading skips keys already in flight", async () => {
         queries++;
         return dependencyResult();
       },
-      renderDependencyGraph: () => graphRenders++,
+      renderDependencyGraph: async () => {
+        graphRenders++;
+      },
     }));
 
   await coordinator.ensureWorkspaceDependencies();

@@ -43,9 +43,36 @@ Library uses `@Library` and `@Surface` as its base categories. Package uses
 `@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
-no category and is selected by exact name (or an explicit matching wildcard).
-The explicit-only `Body Shapes` section is likewise uncategorized; its required
+no category and is selected for rendering by exact name (or an explicit
+matching wildcard). Target-aware bare discovery lists it when a bounded,
+early-exit presence probe finds evidence or the metadata scan produces a
+renderable incomplete-decode diagnostic. The probe caches no-copy signature
+marker scans by blob and streams IL without copying or materializing decoded
+instruction arrays. It borrows the command-owned, non-prefetched PE reader and
+walks methods sequentially in metadata order, so an early finding does not
+materialize the complete image and concurrent suffix work cannot consume its
+budget first. It charges signature and visited-IL bytes to separate 4 MiB
+assembly-wide budgets and fails visibly when either budget is exhausted or a
+candidate declaration, local, or call signature cannot be decoded safely. A
+namespace and type-name match for `System.Runtime.CompilerServices.Unsafe` is
+only a candidate; terminal evidence requires the same trusted framework
+identity as the full census. The reader is supplied through a synchronous
+capability callback whose contract forbids retention or disposal; it does not
+materialize that census. The
+explicit-only `Body Shapes` section is likewise uncategorized; its required
 `Kind=...` predicate supplies its scope.
+
+`UnsafeEvidencePresenceTests.UnsafeEvidencePresence_UserDefinedUnsafeLookalikeDoesNotCountAsEvidence`,
+`UnsafeEvidencePresence_RejectsAssemblyIlAboveBudget`,
+`UnsafeEvidencePresence_StopsBeforeCopyingOrMaterializingLargeSuffix`,
+`UnsafeEvidencePresence_EarlierEvidenceIsNotScheduleDependent`,
+`UnsafeEvidencePresence_EarlierIncompleteResultOverridesLaterEvidence`,
+`UnsafeEvidencePresence_CustomModifiedPointerLocalCountsAsEvidence`,
+`UnsafeEvidencePresence_GuardRejectedPointerMethodDefDeclarationFailsVisibly`,
+`UnsafeEvidencePresence_GuardRejectedPointerMethodDefCallFailsVisibly`, and
+`IndexBuildInvariantTests.UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext`
+gate the trusted-identity, bounded-streaming, deterministic-order,
+failure-visibility, and non-prefetch properties.
 
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.
@@ -97,7 +124,7 @@ The library command is the reference discovery model:
 
 | Gesture | Meaning |
 | --- | --- |
-| `-D` | Cheap, target-aware base catalog and applicable category doors |
+| `-D` | Cheap, target-aware base catalog, applicable category doors, and effective standalone sections |
 | `-D --effective` | Full effective base catalog |
 | `-D @Category` | Structural category membership |
 | `-D @Category --effective` | Effective category membership |
@@ -111,7 +138,9 @@ can exceed that budget.
 
 `-D --effective` spends the larger producer budget. Without an explicit
 category, it remains scoped to base categories so it cannot implicitly run
-performance, metadata, SourceLink, and other domains together.
+performance, metadata, SourceLink, and other domains together. A standalone
+section may define its own bounded presence probe for the bare catalog without
+joining the base scope; `Unsafe Members` is the current library example.
 
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
@@ -120,15 +149,57 @@ work should follow the reference model rather than copy a legacy command.
 
 Package acquisition and symbol/source acquisition are separate.
 
-- A package may be downloaded to resolve the requested target.
-- Default gestures must not automatically fetch symbols or source content.
-- Embedded, adjacent, or cached symbols may be used by network-free gestures
-  when their latency budget permits.
-- Selecting a network-bound section or running full effective discovery for a
-  category may authorize the capability declared by that section.
+Capability-bearing gestures carry **request provenance**, not authority.
+Argument parsing retains the user's original verbosity, explicit
+section/category/glob selection, discovery mode, and explicit policy flags.
+After selection binds stable sections to typed queries, the planner closes
+their transitive producer graph and the disclosure policy maps that provenance
+to requests for capabilities declared on unconditional and conditional paths.
+The host preflight grants or denies every path before execution.
 
-Capability authorization comes from the user's gesture, not from an internal
-verbosity promotion.
+Conditional paths preserve fallback without granting authority late. A local
+symbol probe may run under `LocalPdbRead` and return a typed miss. A
+`PdbAcquire` successor is present in the closed graph and is independently
+granted or denied by preflight; the local probe may succeed even when that
+successor is denied. On a miss, execution follows only the recorded successor
+disposition and never requests new authority.
+
+Symbol policy distinguishes three capabilities:
+
+- `LocalPdbRead`: bounded reads from an embedded PDB, an adjacent PDB, or an
+  already-populated symbol cache, with no network acquisition;
+- `PdbAcquire`: acquiring a missing PDB from an authorized source;
+- `SourceContent`: fetching or reading authored source content.
+
+Exact render selection of a source-content section may request all three on
+the paths its producer graph declares. Discovery selection retains the same
+provenance but requests only capabilities declared by its discovery mode and
+probe policy.
+For example, plain library discovery may request `LocalPdbRead` for its bounded
+SourceLink-door probe, while named/category type/member discovery requests none
+of the three. An explicit effective-discovery policy may request more.
+Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
+source-audit work where the selected section's bound query and disclosure
+policy permit it, but it does not request `SourceContent` merely because code
+promoted the effective verbosity. Query definitions alone declare producer
+requirements and conditional successors. Section descriptors bind typed
+queries and apply disclosure/request policy to gesture provenance; they
+neither restate producer requirements nor grant authority. Artifact
+admission/query leases revalidate the authorized closure at content access.
+
+- A package may be downloaded to resolve the requested target.
+- Default gestures must not automatically acquire PDBs or access source
+  content.
+- Embedded, adjacent, or cached symbols avoid network cost, but may be used
+  only when the host-preflight-authorized plan includes `LocalPdbRead` for that
+  producer and coordinate. Availability is not authority.
+- Selecting a network-bound render section or running an explicitly
+  capability-bearing effective-discovery gesture may request the capability
+  required by the section's bound query and permitted by disclosure policy.
+
+Capability-request provenance comes from the user's gesture, not from an
+internal verbosity promotion. Capability authorization comes solely from host
+preflight.
 
 ## Projection
 

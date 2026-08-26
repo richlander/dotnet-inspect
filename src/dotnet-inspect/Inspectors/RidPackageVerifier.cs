@@ -42,9 +42,21 @@ public static class RidPackageVerifier
                         version,
                         logger.Log,
                         sourceOptions);
-                    ridPkg.Exists = nuspec is not null;
+                    ridPkg.Exists = nuspec is not null
+                        ? true
+                        : await PackageExtractor.PackageVersionExistsAsync(
+                            client,
+                            ridPkg.PackageId,
+                            version,
+                            logger.Log,
+                            sourceOptions);
 
-                    string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
+                    string status = ridPkg.Exists switch
+                    {
+                        true => "available",
+                        false => "NOT FOUND",
+                        null => "UNKNOWN",
+                    };
                     logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
                 }
                 catch (PackageSourceMappingException)
@@ -53,7 +65,7 @@ public static class RidPackageVerifier
                 }
                 catch (Exception ex)
                 {
-                    ridPkg.Exists = false;
+                    ridPkg.Exists = null;
                     logger.Log(
                         $"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version}): {ex.Message}");
                 }

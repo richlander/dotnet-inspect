@@ -11,8 +11,23 @@
       "headers": {
         "Cache-Control": "no-cache, no-store, must-revalidate"
       }
+    },
+    {
+      "route": "/credits",
+      "rewrite": "/index.html",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      }
     }
   ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/api/*",
+      "/assets/*",
+      "/_framework/*"
+    ]
+  },
   "platform": {
     "apiRuntime": "dotnet-isolated:8.0"
   }
