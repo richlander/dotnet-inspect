@@ -1183,6 +1183,64 @@ public sealed class LibraryBodyIndex
             rootSnapshot);
     }
 
+    /// <summary>
+    /// Determines whether an opened metadata context contains any unsafe
+    /// declaration or body evidence, stopping after the first finding instead
+    /// of materializing a whole-assembly body index or PE image.
+    /// </summary>
+    /// <remarks>
+    /// Gates:
+    /// <c>Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery</c> and
+    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>.
+    /// </remarks>
+    public static bool HasUnsafeEvidence(
+        string path,
+        PdbContext context)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(context);
+
+        return context.InspectImage(
+            peReader => HasUnsafeEvidence(
+                path,
+                peReader));
+    }
+
+    /// <summary>
+    /// Determines whether an immutable PE image contains unsafe evidence.
+    /// Prefer the context overload when an owning metadata context is already
+    /// open.
+    /// </summary>
+    public static bool HasUnsafeEvidence(
+        string path,
+        ImmutableArray<byte> image)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A PE image is required.",
+                nameof(image));
+        }
+
+        using var peReader = new PEReader(image);
+        return HasUnsafeEvidence(path, peReader);
+    }
+
+    static bool HasUnsafeEvidence(
+        string path,
+        PEReader peReader)
+    {
+        if (!peReader.HasMetadata)
+            return false;
+
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            peReader.GetMetadataReader(),
+            peReader);
+        return builder.HasUnsafeEvidence();
+    }
+
     static LibraryBodyIndex BuildFromReader(
         string path,
         PEReader peReader,

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -93,6 +94,134 @@ public class InstructionDecoderTests
         Assert.Equal(3, instructions[0].NextOffset);
         Assert.Equal((3, ILOpCode.Ldarg_0), (instructions[1].Offset, instructions[1].OpCode));
         Assert.Equal((4, ILOpCode.Ret), (instructions[2].Offset, instructions[2].OpCode));
+    }
+
+    [Fact]
+    public void Visit_streams_method_tokens_and_encoded_lengths()
+    {
+        const int methodToken = 0x06000001;
+        byte[] il = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        var visited = new List<(ILOpCode, int, int)>();
+
+        bool completed = Visit(
+            il,
+            (opcode, token, length) =>
+            {
+                visited.Add((opcode, token, length));
+                return true;
+            });
+
+        Assert.True(completed);
+        Assert.Equal(
+            [
+                (ILOpCode.Call, methodToken, 5),
+                (ILOpCode.Ret, 0, 1),
+            ],
+            visited);
+    }
+
+    [Fact]
+    public void Visit_can_stop_before_a_malformed_suffix()
+    {
+        byte[] il = [0x29, 0x00, 0x00, 0x00, 0x00, 0xFE];
+
+        bool completed = Visit(
+            il,
+            (_, _, _) => false);
+
+        Assert.False(completed);
+    }
+
+    [Fact]
+    public void Visit_rejects_malformed_or_dangling_input()
+    {
+        byte[][] malformed =
+        [
+            [0x28, 0x00],
+            [0x45, 0x01, 0x00, 0x00, 0x00],
+            [0xFE],
+            [0xFE, 0x14],
+        ];
+
+        foreach (byte[] il in malformed)
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => Visit(il, (_, _, _) => true));
+        }
+    }
+
+    static bool Visit(
+        byte[] il,
+        Func<ILOpCode, int, int, bool> visitor)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Visit.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Visit"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        var code = new BlobBuilder(il.Length);
+        code.WriteBytes(il);
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        using var reader =
+            new PEReader(ImmutableArray.Create(image.ToArray()));
+        MetadataReader metadataReader =
+            reader.GetMetadataReader();
+        MethodDefinition method =
+            metadataReader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodBodyBlock body =
+            reader.GetMethodBody(
+                method.RelativeVirtualAddress);
+
+        return InstructionDecoder.Visit(body, visitor);
     }
 }
 

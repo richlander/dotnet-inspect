@@ -924,6 +924,42 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             "Lifted source-owner resolution contains a cycle.");
     }
 
+    internal bool HasUnsafeEvidence()
+    {
+        var methodRunner =
+            new LibraryMethodAnalysisRunner(this);
+
+        foreach (var typeHandle in _reader.TypeDefinitions)
+        {
+            var typeDefinition =
+                _reader.GetTypeDefinition(typeHandle);
+            foreach (var methodHandle in typeDefinition.GetMethods())
+            {
+                UnsafeEvidencePresenceMethodResult result =
+                    methodRunner.ProbeUnsafeEvidence(
+                    typeHandle,
+                    typeDefinition,
+                    methodHandle);
+                ThrowIfIncomplete(result.Diagnostic);
+                if (result.HasEvidence)
+                    return true;
+            }
+        }
+
+        return false;
+
+        static void ThrowIfIncomplete(
+            AnalysisDiagnostic? diagnostic)
+        {
+            if (diagnostic is null)
+                return;
+
+            throw new InvalidDataException(
+                $"Unsafe evidence presence is incomplete because {diagnostic.Method} " +
+                $"could not be analyzed: {diagnostic.Message}");
+        }
+    }
+
     // Assemblies with at least this many methods use the parallel per-method analysis path.
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;

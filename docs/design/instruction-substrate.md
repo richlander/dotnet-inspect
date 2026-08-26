@@ -55,7 +55,11 @@ dependency direction and the assembly owner.
   instruction stream (offset-keyed), the EH-aware `BlockGraph`, and offset→
   instruction/block lookup. This is the de-dup target and the Research join key.
   `MethodInstructions` is the Layer 0 façade; `InstructionDecoder.Decode` +
-  `BlockGraph.Build` are the throwing primitives.
+  `BlockGraph.Build` are the materializing throwing primitives.
+  `InstructionDecoder.Visit` is the no-copy, non-materializing primitive for
+  bounded early-exit consumers; a complete visit enforces the same opcode,
+  operand, switch-table, and dangling-prefix structure, while a stopped visit
+  deliberately leaves the unseen suffix unvalidated.
 - **Layer 1 — interpretation (per-consumer, opt-in, not shared).** Reaching-defs
   (Analysis), ownership-flow summaries over reaching-defs (Analysis),
   allocation/loop facts (Analysis), the decompiler's symbolic IR stack, and the
@@ -253,6 +257,11 @@ the bugs it fixes. Two gate kinds instead:
   original bytes from the decoder's semantic fields; and, for the typed stack, the
   computed evaluation-stack depth never exceeds the body's declared `MaxStack`.
   All hold over `System.Private.CoreLib`.
+- **Streaming visitor gates**:
+  `InstructionDecoderTests.Visit_streams_method_tokens_and_encoded_lengths`,
+  `Visit_rejects_malformed_or_dangling_input`, and
+  `Visit_can_stop_before_a_malformed_suffix` enforce the complete-visit and
+  early-stop contracts without requiring an instruction array.
 - **Directional differential** vs each replaced decoder over the corpus: classify
   every diff as improvement / neutral / regression; the gate is **zero
   regressions** (not zero diffs), with improvements characterized by an absolute
