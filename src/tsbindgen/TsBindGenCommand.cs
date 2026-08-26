@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Reflection.PortableExecutable;
 using ILInspector.Analysis;
@@ -58,11 +59,30 @@ public static class TsBindGenCommand
                 return 1;
             }
 
+            // One read, one image. The metadata surface and the IL body index
+            // must describe the same bytes: reading the file twice lets two
+            // different images share an MVID and token layout, so evidence
+            // gathered from one can authenticate a member that only exists in
+            // the other.
+            ImmutableArray<byte> image;
+            try
+            {
+                image = ImmutableArray.CreateRange(
+                    File.ReadAllBytes(assemblyPath));
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException
+                    or ArgumentException or NotSupportedException)
+            {
+                stderr.WriteLine(
+                    $"tsbindgen: could not read '{assemblyPath}': {ex.Message}");
+                return 1;
+            }
+
             ApiSurface apiSurface;
             try
             {
-                using FileStream stream = File.OpenRead(assemblyPath);
-                using var peReader = new PEReader(stream);
+                using var peReader = new PEReader(image);
 
                 // includeAll: true, not false. The [JSExport] wire boundary is not "public API" in
                 // the documentation sense: a consuming assembly commonly keeps its
@@ -82,15 +102,48 @@ public static class TsBindGenCommand
                 return 1;
             }
 
+            ApiSurfaceInspectionFailure? incompleteExtraction =
+                apiSurface.InspectionFailures.FirstOrDefault(
+                    static failure =>
+                        failure.Operation
+                            != ApiSurface.ConstraintResolutionOperation);
+            if (incompleteExtraction is not null)
+            {
+                string location = incompleteExtraction.SubjectToken == 0
+                    ? "assembly metadata"
+                    : $"metadata token 0x{incompleteExtraction.SubjectToken:X8}";
+                stderr.WriteLine(
+                    $"tsbindgen: {location}: metadata extraction did not produce a complete surface.");
+                return 1;
+            }
+
+            if (emitJsPath is not null
+                && apiSurface.AssemblyIdentity is null)
+            {
+                stderr.WriteLine(
+                    "tsbindgen: --emit-js requires an assembly manifest identity.");
+                return 1;
+            }
+
             global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
             try
             {
-                // Only DirectCalls (MethodEvidence) is needed for wire-contract resolution;
-                // allocation/optimization-opportunity analysis is unrelated work this command
-                // doesn't consume, so it's explicitly left out rather than paid for by default.
-                LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
-                    assemblyPath, LibraryBodyAnalysisFeatures.MethodEvidence);
+                // JsonWireContractFlow adds only the argument and result value
+                // provenance that authenticates generated JsonTypeInfo<T>
+                // registrations. Allocation and opportunity analysis remain
+                // unrelated work this command does not request.
+                LibraryBodyIndex bodyIndex =
+                    LibraryBodyIndex.OpenFromPrefetchedImage(
+                        assemblyPath,
+                        image,
+                        LibraryBodyAnalysisFeatures.MethodEvidence
+                            | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
                 jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+            }
+            catch (UnsupportedJsExportSurfaceException ex)
+            {
+                stderr.WriteLine($"tsbindgen: {ex.Message}");
+                return 1;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException or IOException or UnauthorizedAccessException)
@@ -102,7 +155,17 @@ public static class TsBindGenCommand
             }
 
             var diagnostics = new TsBindGenDiagnostics();
-            string generated = DtsEmitter.Emit(jsExportSurface, diagnostics);
+            string generated;
+            try
+            {
+                generated = DtsEmitter.Emit(jsExportSurface, diagnostics);
+            }
+            catch (UnsupportedWireContractException ex)
+            {
+                stderr.WriteLine($"tsbindgen: {ex.Message}");
+                return 1;
+            }
+
             int exitCode = diagnostics.HasUnmappedTypes ? 1 : 0;
 
             foreach (TsBindGenDiagnostic diagnostic in diagnostics.UnmappedTypes)
@@ -111,7 +174,27 @@ public static class TsBindGenCommand
                     $"tsbindgen: {diagnostic.Location}: {diagnostic.CSharpType} has no TypeScript mapping.");
             }
 
-            if (emitJsPath is not null)
+            if (diffAgainst is not null)
+            {
+                if (!File.Exists(diffAgainst))
+                {
+                    stderr.WriteLine($"tsbindgen: --diff-against file not found: {diffAgainst}");
+                    return 1;
+                }
+
+                string handWritten = File.ReadAllText(diffAgainst);
+                if (!DriftDetector.IsCovered(generated, handWritten))
+                {
+                    stderr.WriteLine($"tsbindgen: drift detected against {diffAgainst}.");
+                    stderr.WriteLine();
+                    stderr.WriteLine("--- generated ---");
+                    stderr.WriteLine(generated);
+                    return 1;
+                }
+            }
+
+            if (emitJsPath is not null
+                && !diagnostics.HasUnmappedTypes)
             {
                 string generatedJs = JsEmitter.Emit(jsExportSurface);
                 try
@@ -132,22 +215,6 @@ public static class TsBindGenCommand
             {
                 stdout.Write(generated);
                 return exitCode;
-            }
-
-            if (!File.Exists(diffAgainst))
-            {
-                stderr.WriteLine($"tsbindgen: --diff-against file not found: {diffAgainst}");
-                return 1;
-            }
-
-            string handWritten = File.ReadAllText(diffAgainst);
-            if (!DriftDetector.IsCovered(generated, handWritten))
-            {
-                stderr.WriteLine($"tsbindgen: drift detected against {diffAgainst}.");
-                stderr.WriteLine();
-                stderr.WriteLine("--- generated ---");
-                stderr.WriteLine(generated);
-                return 1;
             }
 
             stdout.WriteLine($"tsbindgen: no drift detected against {diffAgainst}.");

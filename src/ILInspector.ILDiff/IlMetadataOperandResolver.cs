@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 
@@ -452,7 +453,7 @@ public static partial class IlBodyDiff
         }
 
         public string GetSZArrayType(string elementType) => $"{elementType}[]";
-        public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
+        public string GetArrayType(string elementType, ArrayShape shape) => ArrayShapeText.Format(elementType, shape.Rank);
         public string GetByReferenceType(string elementType) => $"{elementType}&";
         public string GetPointerType(string elementType) => $"{elementType}*";
         public string GetPinnedType(string elementType) => $"{elementType} pinned";
