@@ -359,6 +359,121 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(0, handler.Requests);
     }
 
+    [Theory]
+    [InlineData("?sig=rotating", "query")]
+    [InlineData("#signed", "fragment")]
+    public async Task PlatformWorkspace_GalleryProducerAliasesUseGalleryClient(
+        string suffix,
+        string targetSuffix)
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.90";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization = new UniformPackageSourceAuthorization(
+            [
+                new PackageSource(
+                    "Signed Gallery",
+                    $"https://api.nuget.org/v3/index.json{suffix}"),
+            ]);
+
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                $"net11.0-gallery-alias-{targetSuffix}",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal("runtime", resolution.Coordinate.Family);
+        Assert.False(handler.ServiceIndexRequested);
+        Assert.True(handler.Requests > 0);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_RetainedScopeRevalidatesCurrentAuthorization()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.91";
+        const string targetFramework =
+            "net11.0-retained-source-authorization";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var galleryHandler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var galleryClient = new HttpClient(galleryHandler);
+        using (BrowserPlatformScopeResolution initial =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                targetFramework,
+                galleryClient,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+        }
+
+        var aliasHandler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var aliasClient = new HttpClient(aliasHandler);
+        using (BrowserPlatformScopeResolution alias =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                targetFramework,
+                aliasClient,
+                new UniformPackageSourceAuthorization(
+                    [
+                        new PackageSource(
+                            "Signed Gallery",
+                            "https://api.nuget.org/v3/index.json?sig=current"),
+                    ]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.Equal("runtime", alias.Coordinate.Family);
+        }
+        Assert.Equal(0, aliasHandler.Requests);
+
+        var privateHandler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var privateClient = new HttpClient(privateHandler);
+        var privateAuthorization = new UniformPackageSourceAuthorization(
+            [
+                new PackageSource(
+                    "Private",
+                    "https://private.example/v3/index.json"),
+            ]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    targetFramework,
+                    privateClient,
+                    privateAuthorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "is not authorized by the current host",
+            error.Message);
+        Assert.DoesNotContain("private.example", error.Message);
+        Assert.Equal(0, privateHandler.Requests);
+    }
+
     [Fact]
     public async Task PlatformWorkspace_ResolvesUnknownFamilyFromProductPacks()
     {

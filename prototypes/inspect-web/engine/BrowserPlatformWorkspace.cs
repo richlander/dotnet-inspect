@@ -132,6 +132,8 @@ internal sealed record BrowserPlatformAssemblyRequest(
 /// and
 /// <c>BrowserEngineBoundaryTests.PlatformWorkspace_FailedUnknownFamilyProbePreservesCumulativeState</c>
 /// gate cumulative state across probe suspension, scope pressure, and failure.
+/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_RetainedScopeRevalidatesCurrentAuthorization</c>
+/// gates producer authorization before a retained scope is reused.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformWorkspace
@@ -527,6 +529,35 @@ internal static class BrowserPlatformWorkspace
             ? BrowserPackageWorkspace.LeaseScope(retained)
             : null;
 
+    static void ValidateRetainedScopeAuthorization(
+        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
+        Host host)
+    {
+        var families = new HashSet<string>(StringComparer.Ordinal);
+        foreach (RealizedMemberCoordinate.Platform coordinate in coordinates)
+        {
+            if (!families.Add(coordinate.Family))
+                continue;
+
+            PackageSourceAuthorization authorization =
+                WorkspaceContextLoader.AuthorizePlatformSources(
+                    coordinate.Family,
+                    host.SourceAuthorization);
+            PackageSource? producer = authorization.Sources.FirstOrDefault(
+                source => NuGetSourceResolver.SourceKey(source).Equals(
+                    coordinate.Producer,
+                    StringComparison.Ordinal));
+            if (producer is null)
+            {
+                throw new InvalidOperationException(
+                    "The retained Browser platform producer is not authorized "
+                    + "by the current host.");
+            }
+
+            host.SourceClientFor(producer);
+        }
+    }
+
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
@@ -584,6 +615,7 @@ internal static class BrowserPlatformWorkspace
             && state.Scope is { } retained
             && BrowserPackageWorkspace.IsScopeRetained(retained))
         {
+            ValidateRetainedScopeAuthorization(state.Coordinates, host);
             BrowserPackageWorkspace.TouchScope(retained);
             WorkspaceContextMember retainedParticipant =
                 retained.Participant(
@@ -1245,7 +1277,7 @@ internal static class BrowserPlatformWorkspace
         internal IPackageSourceClient SourceClientFor(PackageSource source)
         {
             ArgumentNullException.ThrowIfNull(source);
-            string selectedProducer = NuGetCache.GetSourceKey(source.Url);
+            string selectedProducer = NuGetSourceResolver.SourceKey(source);
             string clientProducer =
                 NuGetCache.GetSourceKey(SourceClient.Identity.Value);
             if (!selectedProducer.Equals(

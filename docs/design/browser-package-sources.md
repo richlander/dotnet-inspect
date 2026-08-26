@@ -623,7 +623,7 @@ configured origins.
 path on the desktop wire, while
 `V3SearchCanonicalIndexRemovesTrailingSlashBeforeSignedQuery` gates canonical
 index spelling without rewriting signed query bytes,
-`V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
+`V3SearchPathlessBaseSourcePreservesSignedQuery` gates root insertion before
 an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
 resource normalization.
 `DefaultV3VersionAndPackagePreserveSignedServiceIndexBytes` gates the same
@@ -860,6 +860,10 @@ The current Browser platform host lends one NuGet Gallery client only when its
 producer identity matches the authorized source selected by the package layer.
 `BrowserEngineBoundaryTests.PlatformWorkspace_CustomSourceAuthorizationFailsBeforeGalleryRequest`
 gates rejection of a mismatch before any request is dispatched.
+`BrowserEngineBoundaryTests.PlatformWorkspace_GalleryProducerAliasesUseGalleryClient`
+gates signed query and fragment aliases of that producer, and
+`BrowserEngineBoundaryTests.PlatformWorkspace_RetainedScopeRevalidatesCurrentAuthorization`
+gates current producer authorization before retained-scope reuse.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 

@@ -1283,7 +1283,7 @@ public static class WorkspaceContextLoader
         }
 
         PackageSourceAuthorization authorization =
-            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+            AuthorizePlatformSources(family, options.SourceAuthorization);
         if (authorization.Sources.Count == 0)
         {
             LogPlatformDetail(
@@ -1495,7 +1495,9 @@ public static class WorkspaceContextLoader
         RealizedMemberCoordinate.Platform pinned = members[0];
         string packageId = PlatformPackageId(pinned.Family);
         PackageSourceAuthorization authorization =
-            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+            AuthorizePlatformSources(
+                pinned.Family,
+                options.SourceAuthorization);
         PackageSource? producer = authorization.Sources.FirstOrDefault(
             source => string.Equals(
                 NuGetSourceResolver.SourceKey(source),
@@ -1824,6 +1826,20 @@ public static class WorkspaceContextLoader
     static bool MatchesTarget(NuGetVersion package, Version target) =>
         package.Major == target.Major
         && package.Minor == target.Minor;
+
+    /// <summary>
+    /// Resolves the sources a host authorizes for one product-owned platform
+    /// family.
+    /// </summary>
+    public static PackageSourceAuthorization AuthorizePlatformSources(
+        string family,
+        IPackageSourceAuthorization sourceAuthorization)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        return sourceAuthorization.AuthorizeSourcesFor(
+            PlatformPackageId(family));
+    }
 
     static string PlatformPackageId(string family) =>
         family.ToLowerInvariant() switch

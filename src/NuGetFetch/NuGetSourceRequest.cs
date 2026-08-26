@@ -14,7 +14,7 @@ namespace NuGetFetch;
 /// <c>V3SearchPreservesSignedBytesWhileNormalizingIdn</c>,
 /// <c>V3SearchNormalizesIdnServiceIndex</c>,
 /// <c>V3SearchNormalizesAdvertisedUnicodeEndpoint</c>,
-/// <c>V3SearchPathlessServiceIndexPreservesSignedQuery</c>, and
+/// <c>V3SearchPathlessBaseSourcePreservesSignedQuery</c>, and
 /// <c>CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut</c> gate these rules.
 /// </remarks>
 internal static class NuGetSourceRequest
