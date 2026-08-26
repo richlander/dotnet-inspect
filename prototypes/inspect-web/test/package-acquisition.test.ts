@@ -93,8 +93,12 @@ function generatedPackageSurfaceRejectsMutation(
   surface.version = "application state";
   // @ts-expect-error Generated wire collections are readonly.
   surface.types[0] = typeSurface("Application.Type");
+  const type = surface.types[0];
+  if (!type) return;
+  const member = type.api[0];
+  if (!member) return;
   // @ts-expect-error Nested generated wire collections are readonly.
-  surface.types[0].api[0] = surface.types[0].api[0];
+  type.api[0] = member;
 }
 void generatedPackageSurfaceRejectsMutation;
 
