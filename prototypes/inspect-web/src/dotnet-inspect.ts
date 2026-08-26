@@ -6514,13 +6514,16 @@ function renderLoading() {
 async function loadSelectedMemberDocumentation() {
   const type = selectedType();
   const member = selectedMember(type);
-  if (!type || !member
-    || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
+  if (!type || !member) {
     render();
     return;
   }
-  const overload = member.overloads[state.selectedOverloadIndex ?? 0];
-  if (!overload) return;
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
+    render();
+    return;
+  }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
   return memberDetailInspection.loadDocumentation({
@@ -6542,11 +6545,14 @@ async function loadSelectedMemberSource() {
   }
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member
-    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
-    : undefined;
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberSourceError = "Select a concrete overload before opening Source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6574,9 +6580,14 @@ async function loadSelectedMemberSource() {
 async function loadSelectedMemberAnnotatedSource() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberAnnotatedError = "Select a concrete overload before opening Annotated source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6982,9 +6993,14 @@ function nextPaint() {
 async function loadSelectedMemberCallGraph() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberCallGraphError = "Select a concrete overload before opening Call graph.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -8052,9 +8068,14 @@ function navigateToMember(
 async function loadSelectedMemberFacts() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberFactsError = "Select a concrete overload before opening Facts.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }

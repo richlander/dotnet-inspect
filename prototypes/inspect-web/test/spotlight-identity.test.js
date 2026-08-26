@@ -3059,6 +3059,23 @@ test("moving between members keeps the active section sticky, falling back to Ov
     /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
 });
 
+test("every overload-specific member loader leaves a multi-overload picker inert", () => {
+  for (const name of [
+    "loadSelectedMemberDocumentation",
+    "loadSelectedMemberSource",
+    "loadSelectedMemberAnnotatedSource",
+    "loadSelectedMemberCallGraph",
+    "loadSelectedMemberFacts",
+  ]) {
+    const body =
+      appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
+      ?? "";
+    assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
+    assert.match(body, /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
+    assert.doesNotMatch(body, /selectedOverloadIndex \?\? 0/);
+  }
+});
+
 // `memberSectionIdsFor` is the admission set for the member strip, for the URL `?section=`
 // token, and for the share packet's `c` token, so a section the catalog defines but this
 // function omits is defined and never reachable. It used to restate the roster, which the
