@@ -73,6 +73,33 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "src",
+            "DotnetInspector.Artifacts",
+            "DotnetInspector.Artifacts.csproj");
+        Assert.True(
+            File.Exists(project),
+            $"Artifact contracts project not found: {project}");
+
+        HashSet<string> closure =
+            CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
+        Assert.Equal(
+            [Path.GetFullPath(project)],
+            closure.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Microsoft.CodeAnalysis.BannedApiAnalyzers",
+                "Microsoft.NET.ILLink.Tasks",
+            ],
+            CommandErrorOwnershipTests.ProjectPackageDependencies(project)
+                .Order(StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void PackageAssetsReader_IncludesResolvedTransitivePackages()
     {
         using JsonDocument assets = JsonDocument.Parse(
