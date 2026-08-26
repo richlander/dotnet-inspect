@@ -538,6 +538,253 @@ This boundary does not define:
   integrity; or
 - a global operation-stage catalog or shared cross-component lifecycle.
 
+## Package-role planning and cleanup boundary
+
+**Status:** target design for #4745; unimplemented and unverified until the
+named gates in [Package-role migration and gates](#package-role-migration-and-gates)
+land.
+
+This boundary is owned by the L1 `DotnetInspector.Queries` component and this
+document. Package-specific composition may remain in an optional physical
+companion so core assembly Queries can reach its source-neutral inputs without
+retaining a package implementation dependency. That physical split does not
+create a second architectural owner.
+
+`DotnetInspector.Artifacts` remains the adjacent source-neutral owner. It owns
+artifact generations, identities, acquisition registrations and outcomes,
+diagnostics, guarded content access, and acquisition leases under
+[Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).
+The package adapter owns package coordinates and asset selection. L1 consumes
+their owner-issued typed results; it does not mint an artifact identity,
+reinterpret a non-acquired outcome as an empty role, select package assets, or
+dispose a borrowed acquisition lease.
+
+### Current package-role gap
+
+`InspectionWorkspace.RealizePackageAssemblyContextRoles` already determines
+whether the selected implementation assets are absent, shared with the surface,
+or separate before `CreateRole` opens package entries. It does not return that
+decision as an inert plan. The same operation then opens entries, decodes
+assembly identity, creates live groups, and exposes one
+`PackageAssemblyContextRealization : IDisposable`.
+
+Construction and disposal failures lose the role-group coordinate that existed
+before opening. `PackageAssemblyContextRoles.DisposeGroups` attempts both
+distinct groups but throws an unkeyed `AggregateException`; construction and
+wrapper failures can add another aggregate layer. A consumer may flatten that
+exception graph, but cannot prove which planned group transferred, which group
+was released, or which group failed cleanup.
+
+The current contract remains documented under
+[Workspace definitions](workspace-definitions.md). It is migration evidence,
+not the target result shape. Its shared-group reuse, reference-only surfaces,
+exact participant correspondence, no-partial-group validation, and attempt-all
+cleanup behavior remain required.
+
+### Imported prerequisites
+
+Planning begins after source acquisition and package asset selection. Its
+inputs contain:
+
+- exact package-owner-selected surface and implementation occurrences;
+- the exact Artifacts-issued registration for every selected artifact;
+- the owner-issued correspondence from each selected package occurrence to
+  its neutral assembly projection; and
+- role-local group policy supplied as Queries input.
+
+The input records are idless from L1's perspective. They may borrow Artifacts,
+package, and Metadata values, but they cannot carry a caller-created Queries
+operation, binding, or group id.
+
+L1 accepts only the acquired, authorized values provided through that typed
+seam. An Artifacts `Unavailable`, `Rejected`, or `Failed` outcome remains that
+owner's result and cannot become an empty package-role plan. The adapter decides
+which package entries occupy each role and whether a surface occurrence has a
+selected implementation counterpart. L1 does not recover those decisions from
+entry paths, package labels, decoded assembly names, MVIDs, list positions, or
+display text.
+
+Acquisition may already have opened source content before this boundary. The
+plan-before-open rule begins at L1 ownership transfer: no L1 assembly
+projection, retained snapshot, assembly-context group, or derived group
+resource may be opened or retained until one valid plan exists.
+
+### Package-role plan
+
+One planning invocation mints:
+
+- one opaque `PackageRoleRealizationOperationId`;
+- one opaque `PackageRoleBindingId` for every submitted role occurrence; and
+- the exact set of opaque `PackageRoleGroupId` values that this operation may
+  own.
+
+The ids are sealed Queries-owned reference identities with non-public
+constructors and operation-local parentage. Reusing the same imported artifact
+in another invocation mints new ids. Repeating one imported registration in
+multiple role occurrences preserves the multiplicity and mints one binding id
+per occurrence; artifact identity remains provenance and correspondence, not
+role-binding or group identity.
+
+The result is one immutable `PackageRoleRealizationPlan`. It copies the
+submitted role occurrences and policy values, retains their exact typed
+owner-issued antecedents, and closes one topology:
+
+| Topology | Role meaning | Exact owned-group domain |
+| --- | --- | --- |
+| `Absent` | no implementation role was selected | surface group only |
+| `Shared` | surface and implementation use one exact compatible selection | surface and implementation name the same group id |
+| `Separate` | implementation has a distinct selected role | distinct surface and implementation group ids |
+
+The package-owner selection proof, including explicit reference-only
+occurrences, determines role correspondence. L1 associates each fresh binding
+id with its exact submitted antecedent while planning; it does not collect
+bindings and later join them by ordinal or evidence. A missing implementation
+counterpart for one surface occurrence remains explicit correspondence absence
+inside a present role and does not imply that the whole implementation topology
+is `Absent`.
+
+Planning validates only Queries-owned shape: non-empty surface membership,
+topology consistency, operation-local uniqueness, role-policy compatibility,
+and complete exact antecedent association. Invalid shape returns a typed
+Queries planning rejection before any group creation. Package selection,
+Artifacts registration, acquisition outcome, assembly decoding, and projection
+validation remain with their owners.
+
+The plan is inert. It retains no stream, open callback, assembly image,
+`AssemblyContextGroup`, derived resource, cleanup delegate, acquisition lease,
+exception, or package-authored diagnostic text. Caller mutation after planning
+cannot alter role membership, group count, topology, correspondence, or policy.
+
+### Realization and completion
+
+Realization consumes one plan exactly once. Before a planned group can transfer
+into Queries lifetime, L1 creates one fixed cleanup record slot keyed by that
+group's `PackageRoleGroupId`. The cleanup domain is therefore known and bounded
+at plan time: one record for `Absent` or `Shared`, two for `Separate`. This is a
+component-local fixed-domain table, not a shared cleanup authority or budget
+ledger.
+
+Opening returns a discriminated `PackageRoleOpenOutcome`:
+
+- `Realized` carries one live Queries-owned package-role session;
+- `Rejected` carries a stable Queries-owned primary diagnostic plus a complete
+  immutable cleanup report when the plan cannot be admitted; and
+- `Failed` carries a stable Queries-owned primary diagnostic plus a complete
+  immutable cleanup report when execution fails.
+
+Those arms are the only expected non-cancellation failure channel. Expected
+admission and opening failures are returned, and cleanup failure is represented
+only in the report rather than thrown as a primary failure. The primary
+diagnostic is authoritative; the cleanup report records only the disposition
+of planned groups and never becomes a competing primary result.
+
+The primary outcome in this boundary is package-role realization, not later
+query, Research, publication, or presentation work. An imported owner
+diagnostic may be retained as its exact typed value, but L1 does not copy its
+code or summary into a new interpretation. Queries-owned diagnostics use a
+stable reason and fixed owner-authored summary; they retain no raw exception,
+exception message, stack trace, package entry name, or package-authored text.
+
+A successful open cannot truthfully contain its future cleanup result. The live
+session therefore exposes an explicit idempotent close operation that releases
+every transferred group and returns the final immutable
+`PackageRoleCleanupReport`. Repeated close returns the same report without
+releasing a group again. Expected cleanup failure is represented in that report
+and close does not throw it. The target session is not an `IDisposable` whose
+only failure channel is an exception; current throwing `Dispose` surfaces
+remain compatibility adapters until their callers migrate.
+
+Every cleanup report has exactly the plan's group-id domain. Each
+`PackageRoleGroupCleanupRecord` is one of:
+
+- `NotTransferred`, when ownership of that planned group never completed;
+- `Released`, when the transferred group released successfully; or
+- `Failed`, with one bounded Queries-owned group-release diagnostic.
+
+`Realized` sessions close with no `NotTransferred` records. A failed open first
+attempts every group whose ownership transferred, even when an earlier release
+fails, then returns its primary diagnostic and complete report. Shared topology
+transfers and releases its one group exactly once even though both role views
+name it. Separate topology records implementation and surface cleanup under
+their distinct ids; cleanup order never becomes identity.
+
+L1 captures a group failure at that exact group's release site. It does not
+flatten, retain, count, reorder, or reinterpret the group's exception graph.
+One group-level `Failed` record says only that release of that planned group
+failed. The primary realization diagnostic remains primary and cleanup failure
+cannot replace it.
+
+Cancellation before any ownership transfer propagates as cancellation.
+Cancellation after transfer first attempts every transferred group's cleanup
+and then throws one dedicated
+`PackageRoleRealizationCanceledException : OperationCanceledException`. That
+exception preserves the original cancellation token and exposes the one
+immutable keyed cleanup report through a typed property. It is the only
+post-transfer cancellation channel; no open outcome or close failure is also
+returned. The report remains ancillary cleanup evidence, cancellation remains
+the primary result, and the exception does not wrap cleanup exceptions or turn
+cancellation into a failure outcome.
+
+The report is inert. It may retain the operation id, topology, group ids,
+cleanup states, and stable Queries diagnostics. It retains no group, role
+participant, artifact or assembly descriptor, acquisition registration, lease,
+content accessor, callback, exception, or cleanup authority.
+
+### Package-role migration and gates
+
+Migration preserves dependency direction and current behavior:
+
+1. L1 adds the pure planning contract and purpose-built topology fixtures. No
+   package entry or group is opened by this slice.
+2. L1 adds the typed open/session/close path beside the current throwing
+   `RealizePackageAssemblyContextRoles` compatibility API.
+3. The package composition adapter supplies its typed selected-role and
+   Artifacts correspondence inputs after that adjacent migration exists. This
+   document does not prescribe the adapter's type, factory, accessibility,
+   acquisition, or package-selection implementation.
+4. Product callers migrate to the typed path. Only then may the compatibility
+   `AggregateException` surfaces and direct package dependencies be retired
+   under their owning migration plans.
+
+The target contract remains unimplemented until these named non-vacuity gates
+land:
+
+- `PackageRolePlan_ClosesTopologyBeforeAnyGroupCreation`
+- `PackageRolePlan_PreservesEverySelectedOccurrenceAndExactAntecedent`
+- `PackageRolePlan_MintsFreshOperationLocalIdentities`
+- `PackageRolePlan_RejectsInvalidShapeWithoutOwnershipTransfer`
+- `PackageRolePlan_PlannedGroupsEqualCleanupRecordDomain`
+- `PackageRoleOpen_CreatesOnlyPlannedGroups`
+- `PackageRoleOpenFailure_PreservesPrimaryAndCompleteCleanupReport`
+- `PackageRoleClose_AttemptsEveryTransferredGroupAndKeysEachOutcome`
+- `PackageRoleSharedTopology_ReleasesOneGroupExactlyOnce`
+- `PackageRoleCleanupReport_RetainsNoBorrowedInputsOrExceptions`
+- `PackageRoleCancellationException_AfterTransferCarriesCleanupReport`
+- `PackageRoleTargetPath_ReturnsKeyedFailuresWithoutAggregateException`
+
+The expected binding, group, and cleanup sets must be derived from the plan, so
+both missing and stale entries fail. The no-open gate must observe the real
+group-construction seam and fail when planning is bypassed. Existing
+`PackageAssemblyContextRealizationTests` and
+`PackageAssemblyContextRolesTests.Dispose_ContinuesAfterBothRoleGroupsFail`
+remain compatibility evidence; they do not prove the target typed path.
+
+### Package-role boundary non-goals
+
+This boundary does not define:
+
+- Artifacts identity, acquisition, authorization, guarded-content, lease,
+  diagnostic, adapter, generation, or quiescence semantics;
+- package coordinates, TFM/RID selection, archive layout, asset selection, or
+  package provenance;
+- Metadata assembly decoding, identity, or projection rules;
+- a global stage catalog, cleanup service, exception collector, or budget
+  ledger;
+- cross-version endpoints, comparison population sealing, Research admission,
+  producer execution, or Implementation Diff orchestration;
+- outer-result publication, CLI/output behavior, or row integrity; or
+- Source, PDB, network, cache, retry, or authored-source behavior.
+
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
