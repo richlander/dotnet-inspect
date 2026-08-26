@@ -184,7 +184,8 @@ The CLI owns parsing and creates an immutable intent. The explicit or inferred
 inspection surface (`Type`, `Member`, or `Commandless`), exact type names,
 dotted type-or-member spellings, explicit member filters, overload ordinals,
 digests, generic arity, section/category selectors, projection selectors,
-discovery mode, and format remain distinct fields. A `type` surface with `-m`
+discovery mode, and format remain distinct fields. A `type` surface with
+`--member`
 remains a type inspection with its existing type-view filtering semantics; the
 filter does not silently reroute it to the member surface.
 
@@ -243,7 +244,7 @@ The inspection routes use four different catalogs:
 | Catalog | Realized owner and model | Route states |
 | --- | --- | --- |
 | Assembly type list | `ApiTypeSectionDescriptors` over `ApiSurface` | No exact type supplied, type glob, failed exact lookup promoted to prefix browse, or platform prefix browse |
-| Type/member list | `ApiMemberSectionDescriptors` over one `ApiType` | Resolved exact type, including the type surface with `-m` filters |
+| Type/member list | `ApiMemberSectionDescriptors` over one `ApiType` | Resolved exact type, including the type surface with `--member` filters |
 | Name-scoped overload inventory | `ApiMemberOverloadSectionDescriptors` over a resolved member set | Member filters without exact-target demand |
 | Exact-member detail | `ApiMemberDetailSectionDescriptors` over one resolved member target | Exact selector or valid exact-target promotion |
 
@@ -354,7 +355,7 @@ Address resolution follows this matrix:
 | Implied and explicit refinements have complementary components | Merge the present components into one logical selector |
 | Implied and explicit refinements have different present overload, digest, or generic-arity components | Return a typed selector-conflict diagnostic |
 | Explicit `type` surface with no exact type, a type glob, or a prefix-browse result | Select the assembly-type-list catalog |
-| Explicit `type` surface with a resolved exact type, with or without `-m`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
+| Explicit `type` surface with a resolved exact type, with or without `--member`/kind filters | Select the type/member-list catalog and preserve type-view filter semantics |
 | Explicit `member` surface with no member gesture | Select the type/member-list catalog |
 | Explicit `member` surface with bare-name or glob filters | Resolve every filter, then deduplicate their union as `ResolvedMemberSet` |
 | Any logical inventory filter resolves to no members | Return one typed aggregate retaining every missed filter and suggestion before union materialization |
@@ -386,7 +387,7 @@ The resolution uses existing typed identity owners:
   final structural selection.
 
 Inspection surface, resolved route kind, and selector kind choose the active
-section catalog; raw target count does not. A type gesture with `-m` stays on
+section catalog; raw target count does not. A type gesture with `--member` stays on
 the type/member-list catalog. A member bare name that resolves to one overload
 remains an overload inventory unless canonical exact-member demand promotes
 it. A type glob or prefix browse stays on the assembly-type-list catalog even
@@ -1448,7 +1449,8 @@ dual-success, complementary refinement, conflicting refinement, distinct
 inventory-filter per-filter outcomes and deduplication, bare-name/glob
 zero-one-many and partial-miss results, surface/route/selector-driven
 four-catalog selection, cross-catalog canonical target requirements,
-exact-section/alias/category/glob detail promotion, explicit `type -m` versus
+exact-section/alias/category/glob detail promotion, explicit `type --member`
+versus
 `member` compatibility, explicit-member no-selector type view and dotted-tail
 static-schema alternatives, and conflicting positional/qualified and
 qualified/qualified types.
@@ -1712,7 +1714,7 @@ test method name, but the PR must map each test to its gate ID.
 | `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, commandless structural alternatives, and explicit-member dotted-tail alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; artifact-owner lease revalidation; same-target effective discovery under granting and denying hosts in both execution orders; two freshly minted same-host, same-target, same-request operations in which one receives an injected producer failure and the other succeeds after recovery, repeated in both operation orders; explicit attempts to present the first operation's plan to the second operation and to execute it after disposing the first context, both rejected before cache or producer access; and architecture closure proving the planned type/member executor never reads or writes the library-only `effective-v*` catalog. Together these prove completed outcomes are scoped to one operation-bound preflighted plan while persistent producer evidence is independently reauthorized |
 | `MIP005` | Presentation cannot widen work | A non-vacuity test that fails when render-manifest or ordinary rendering starts an undeclared producer |
-| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type -m` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, explicit-member no-selector type view, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless and explicit-member dotted-tail static alternatives, unavailable detail sections, and overload/digest/arity cases |
+| `MIP006` | Address and catalog resolution are deterministic, diagnostic, and surface-preserving | The slice-2 structural-view mapping remains closed; set equality between the type/member catalog/route registry and its four realized pipeline owners plus every entry route; exact type, fallback peel, dual-success, qualified/positional conflict, same-type and conflicting qualified/qualified selectors, identical/complementary/conflicting implied-explicit refinement, per-filter bare-name/glob outcomes, partial misses, overlapping-filter deduplication, zero/one/multiple inventory results, exact selector success/failure, explicit `type --member` versus `member` catalog/output compatibility, surface/route/selector-driven assembly-type-list/type-member-list/overload-inventory/detail catalogs, explicit-member no-selector type view, targetless/glob/failed-exact/platform-prefix list routes, cross-catalog `MemberSet` and `ExactMember` identities, exact-section/alias/category/glob detail promotion, commandless and explicit-member dotted-tail static alternatives, unavailable detail sections, and overload/digest/arity cases |
 | `MIP007` | L1 member execution remains content-shaped and owner-authorized | Architecture closure plus admission/query-lease tests proving no readable path or descriptor bypass |
 | `MIP008` | The plan executes sequentially without filesystem assumptions | Browser/Wasm host test over in-memory content with the same producer trace and failures |
 | `MIP009` | The path remains NativeAOT-friendly, SRM-only, Roslyn-free, and load-free | NativeAOT publish/run plus dependency and inspected-assembly-loading architecture gates |

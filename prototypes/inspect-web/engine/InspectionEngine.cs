@@ -675,6 +675,188 @@ public static partial class InspectionEngine
     }
 
     /// <summary>
+    /// Product-ranked optimization-opportunity members for one package workspace. Analysis owns
+    /// opportunity and member order; the query owns index lifetime and public-API attribution;
+    /// this host only maps the typed rows to the existing browser wire contract.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackagePerformance(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        ImmutableArray<BrowserWorkspaceParticipant> participants =
+            scope.ImplementationParticipants.Length > 0
+                ? scope.ImplementationParticipants
+                : scope.SurfaceParticipants;
+
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextOptimizationOpportunitiesQuery.Definition,
+                    AssemblyContextOptimizationOpportunitiesQuery.Execute);
+        AssemblyContextOptimizationOpportunitiesResult result =
+            scope.UseImplementationOrSurface(
+                group =>
+                    registry.Run(
+                            [
+                                AssemblyContextOptimizationOpportunitiesQuery
+                                    .Definition,
+                            ],
+                            group)
+                        .Get(
+                            AssemblyContextOptimizationOpportunitiesQuery
+                                .Definition));
+        BrowserPackageSurface surface =
+            ProjectPackageSurface(scope, scope.Coordinates[0]);
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers =
+        [
+            .. surface.Types.SelectMany(type =>
+                type.Api.Select(member => (
+                    type.Assembly,
+                    type.DefinitionId,
+                    member.StableSelector))),
+        ];
+
+        var failures = new List<string>();
+        if (!string.IsNullOrWhiteSpace(surface.InspectionError))
+            failures.Add($"API surface: {surface.InspectionError}");
+        foreach (AssemblyContextEntry<
+            AssemblyOptimizationOpportunityRanking> entry
+            in result.Assemblies.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Rejected
+                    rejected:
+                    failures.Add(
+                        $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})");
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Failed failed:
+                    failures.Add(
+                        $"{failed.Subject.Identity.Name}: "
+                        + failed.Error.Message);
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Available
+                    available:
+                    failures.AddRange(
+                        available.Value.Diagnostics.Select(
+                            diagnostic =>
+                                $"{available.Subject.Identity.Name}: "
+                                + $"performance analysis incomplete for "
+                                + $"{diagnostic.Method}: "
+                                + diagnostic.Message));
+                    failures.AddRange(
+                        available.Value.ApiSurfaceInspectionFailures
+                            .Select(
+                                failure =>
+                                    $"{available.Subject.Identity.Name}: "
+                                    + $"{failure.Operation}: "
+                                    + failure.Detail));
+                    break;
+            }
+        }
+
+        BrowserPerformanceMember[] members =
+            ApplyPerformanceMemberLimit(
+                PerformanceMembers(
+                    result,
+                    participants,
+                    scope,
+                    navigableMembers),
+                failures);
+
+        return JsonSerializer.Serialize(
+            new BrowserPackagePerformance(
+                members,
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures),
+                result.NonPublicOpportunities,
+                result.TotalOpportunities),
+            BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
+        AssemblyContextOptimizationOpportunitiesResult result,
+        ImmutableArray<BrowserWorkspaceParticipant> participants,
+        BrowserInspectionScope scope,
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers)
+    {
+        foreach (AssemblyContextOptimizationOpportunityMember member
+            in result.RankedMembers)
+        {
+            if (member.Member.PublicMember is not { } publicMember)
+                continue;
+
+            BrowserWorkspaceParticipant analysisParticipant =
+                participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        member.Subject.Registration));
+            BrowserWorkspaceParticipant? surfaceParticipant =
+                scope.TryGetSurfaceParticipant(analysisParticipant);
+            if (surfaceParticipant is null
+                || !navigableMembers.Contains((
+                    surfaceParticipant.Asset.AssemblyName,
+                    publicMember.Type,
+                    publicMember.StableSelector)))
+            {
+                continue;
+            }
+
+            yield return new BrowserPerformanceMember(
+                surfaceParticipant.Asset.AssemblyName,
+                publicMember.Type,
+                publicMember.Member,
+                publicMember.StableSelector,
+                [.. publicMember.BodyTokens],
+                member.Member.Ranking.Opportunities.Length,
+                member.Member.Ranking.InLoopCount,
+                [.. member.Member.Ranking.Shapes],
+                member.Member.Ranking.Confidence);
+        }
+    }
+
+    internal static BrowserPerformanceMember[] ApplyPerformanceMemberLimit(
+        IEnumerable<BrowserPerformanceMember> candidates,
+        ICollection<string> failures)
+    {
+        const int MemberLimit = 200;
+        var members = new List<BrowserPerformanceMember>(MemberLimit);
+        foreach (BrowserPerformanceMember candidate in candidates)
+        {
+            if (members.Count == MemberLimit)
+            {
+                failures.Add(
+                    $"Performance ranking truncated after the top "
+                    + $"{MemberLimit} navigable public members.");
+                break;
+            }
+
+            members.Add(candidate);
+        }
+
+        return [.. members];
+    }
+
+    /// <summary>
     /// A progressively acquired member call graph, produced by <see cref="MemberCallGraphSession"/>
     /// over one workspace spanning every package the site currently has open. Callers in a sibling
     /// package are only visible when that package is a participant of the same binding-consistent

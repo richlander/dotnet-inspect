@@ -76,6 +76,7 @@ export interface SourceInspectionDependencies {
     request: GraphSourceRequest,
     taste: string,
   ): Promise<BrowserSource>;
+  memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
   describeError(error: unknown): string;
   render(): void;
@@ -102,7 +103,9 @@ export function createSourceInspectionCoordinator(
 
   return {
     cancelHiddenRequest() {
-      if (!sourceSurfaceIsVisible(state)
+      if (!sourceSurfaceIsVisible(
+          state,
+          dependencies.memberSourceHasConcreteOverload())
         && cancelSourceRequestState(state)) {
         dependencies.cancelEngineSourceRequest();
       }

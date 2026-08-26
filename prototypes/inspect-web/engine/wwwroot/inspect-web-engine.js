@@ -49,8 +49,7 @@ let searchTypesExport;
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET WebAssembly…");
   const runtime = await dotnet.create();
-  const config = runtime.getConfig();
-  const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
+  const exports = await runtime.getAssemblyExports("InspectWeb.Engine");
   buildIdentityExport = exports.InspectionEngine.BuildIdentity;
   cancelSourceQueryExport = exports.InspectionEngine.CancelSourceQuery;
   configureHostExport = exports.InspectionEngine.ConfigureHost;
@@ -233,7 +232,8 @@ export async function queryPackageOpportunities(packageId, version, targetFramew
 
 export async function queryPackagePerformance(packageId, version, targetFramework) {
   if (!queryPackagePerformanceExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackagePerformanceExport(packageId, version, targetFramework);
+  const result = await queryPackagePerformanceExport(packageId, version, targetFramework);
+  return JSON.parse(result);
 }
 
 export async function queryPackageVersions(packageId) {

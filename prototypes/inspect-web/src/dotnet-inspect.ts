@@ -77,6 +77,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectedConcreteOverload,
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
@@ -103,6 +104,7 @@ import {
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
+  resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
@@ -770,6 +772,7 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.selectorKey,
     request.metadataToken,
     taste),
+  memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
   describeError: errorMessage,
   render,
@@ -1994,10 +1997,30 @@ function navMode() {
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
-function resetMemberSectionState() {
+function memberSourceHasConcreteOverload() {
+  const member = selectedMember(selectedType());
+  return Boolean(
+    member
+    && selectedConcreteOverload(
+      member.overloads,
+      state.selectedOverloadIndex));
+}
+
+function currentSourceOperationKind() {
+  return activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function currentSourceReloadKind() {
+  return sourceReloadKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function clearMemberContentCache() {
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
-  state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -2010,18 +2033,67 @@ function resetMemberSectionState() {
   state.selectedBodyTarget = null;
 }
 
+function resetMemberSectionState() {
+  state.memberSection = "overview";
+  clearMemberContentCache();
+}
+
+function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
+  if (!member
+    || !memberSectionsFor(member).some(([id]) => id === state.memberSection)) {
+    state.memberSection = "overview";
+  }
+}
+
+function loadMemberSectionContent(id: MemberSection) {
+  if (id === "source")
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  else if (id === "annotated")
+    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "call-graph")
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  else if (id === "facts")
+    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  else if (id === "overview")
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  else
+    assertNever(id, "member section");
+}
+
 function openMemberGroup(key: string) {
-  const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
+  const type = selectedType();
+  const preserveSection =
+    state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
+  const group = memberGroups(type).find(candidate => candidate.key === key);
   const graphOnlyTarget =
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
-  state.memberBrowseTypeId = selectedType()?.id ?? "";
+  state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
-  resetMemberSectionState();
+  clearMemberContentCache();
   state.selectedBodyTarget = graphOnlyTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  if (!preserveSection) {
+    state.memberSection = "overview";
+  } else {
+    const retainedSection = state.memberSection;
+    let selectedFirstOverload = false;
+    if (state.memberSection !== "overview"
+      && group
+      && group.overloads.length > 1
+      && state.selectedOverloadIndex == null) {
+      state.selectedOverloadIndex = 0;
+      state.selectedBodyTarget = graphOnlyBodyTarget(group.overloads[0]);
+      selectedFirstOverload = true;
+    }
+    retainMemberSectionIfSupported(group);
+    if (selectedFirstOverload && state.memberSection !== retainedSection) {
+      state.selectedOverloadIndex = null;
+      state.selectedBodyTarget = null;
+    }
+  }
+  loadMemberSectionContent(state.memberSection);
 }
 
 function enterMemberScope() {
@@ -2064,9 +2136,10 @@ function openOverload(index: number) {
   const graphTarget = graphOnlyBodyTarget(
     selectedMember(selectedType())?.overloads[index]);
   state.selectedOverloadIndex = index;
-  resetMemberSectionState();
+  clearMemberContentCache();
   state.selectedBodyTarget = graphTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  retainMemberSectionIfSupported(selectedMember(selectedType()));
+  loadMemberSectionContent(state.memberSection);
 }
 
 // Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
@@ -2083,18 +2156,7 @@ function applyMemberSection(id: MemberSection) {
     invalidateMemberCallGraphWork(state);
   }
   state.memberSection = id;
-  if (id === "source")
-    observeAsync(loadSelectedMemberSource(), "Loading member source");
-  else if (id === "annotated")
-    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-  else if (id === "call-graph")
-    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-  else if (id === "facts")
-    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
-  else if (id === "overview")
-    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-  else
-    assertNever(id, "member section");
+  loadMemberSectionContent(id);
 }
 
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
@@ -2132,8 +2194,14 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
-    if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
-      render();
+    if (entry.group.key === state.selectedMemberKey) {
+      if (entry.group.overloads.length === 1) {
+        render();
+      } else {
+        state.selectedOverloadIndex = null;
+        clearMemberContentCache();
+        render();
+      }
     } else {
       openMemberGroup(entry.group.key);
     }
@@ -2444,7 +2512,7 @@ function render() {
 }
 
 function maybeAutoLoadVisibleSource() {
-  const kind = activeSourceOperationKind(state);
+  const kind = currentSourceOperationKind();
   if (kind === "graph") {
     if (state.graphSourceRequest
       && sourceRequestNeedsLoad(
@@ -2476,7 +2544,9 @@ function maybeAutoLoadVisibleSource() {
   }
   if (kind === "member") {
     const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    const overload = member
+      ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+      : undefined;
     if (!member || !overload) return;
     const signature = memberRequestSignature(type, overload, false, true);
     if (sourceRequestNeedsLoad(
@@ -2805,12 +2875,10 @@ const packageInspection = createPackageInspectionCoordinator({
       framework,
       assemblyFileName,
       pack),
-  queryPackagePerformance: async packageModel =>
-    parseEngineJson<PackagePerformance>(
-      await inspectPackagePerformance(
-        packageModel.id,
-        packageModel.version,
-        packageModel.activeFramework)),
+  queryPackagePerformance: packageModel => inspectPackagePerformance(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
   queryPlatformPerformance: async (framework, assemblyFileName, pack) =>
     parseEngineJson<PackagePerformance>(
       await inspectPlatformPerformance(
@@ -3050,7 +3118,7 @@ function renderPackagePerformance() {
     : "";
 
   if (!members.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${scanScope}${nonPublicNote}. Open a member's Facts lens to inspect its body directly.</p></section>`;
+    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${scanScope}${nonPublicNote}.</p></section>`;
   }
 
   const rows = members.map(member => {
@@ -3058,7 +3126,7 @@ function renderPackagePerformance() {
     const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
     const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
     return `
-      <button class="perf-row" data-perf-token="${member.metadataToken}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+      <button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open member">
         <span class="perf-count">${member.opportunityCount}</span>
         <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
         <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
@@ -3068,7 +3136,7 @@ function renderPackagePerformance() {
   const summary = `
     <section class="document-section">
       <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${scanScope}</span></div>
-      <p class="lens-note">Ranked by in-loop opportunities, then count. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its Facts lens.</p>
+      <p class="lens-note">Ranked by product triage policy. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its API details.</p>
     </section>`;
 
   return `${picker}${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;
@@ -3456,18 +3524,21 @@ function ensureExplorerResizeListener() {
 }
 
 
-// is joined against the same public API surface the nav pane renders, so the member,
-// its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token: string, assembly: string, typeId: string) {
+// Stable product identities bridge implementation-body evidence to the
+// reference-preferred surface the navigation pane renders.
+function drillToPerfMember(
+  stableSelector: string,
+  assembly: string,
+  typeId: string,
+) {
   const pkg = currentPackage();
-  const numeric = Number(token);
-  const targetType = pkg.types.find(type =>
-    type.id === typeId
-    && type.assembly === assembly
-    && (type.api || []).some(member => member.metadataToken === numeric));
-  if (!targetType) return;
-  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
-  if (!member) return;
+  const target = resolvePackagePerformanceMember(pkg, {
+    assembly,
+    typeId,
+    stableSelector,
+  });
+  if (!target) return;
+  const { type: targetType, member } = target;
 
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
@@ -3479,13 +3550,15 @@ function drillToPerfMember(token: string, assembly: string, typeId: string) {
   state.selectedMemberKey = key;
   const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
+    ? group.overloads.findIndex(
+      overload => overload.stableSelector === stableSelector)
     : -1;
   state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
   resetMemberSectionState();
-  state.memberSection = "facts";
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
-  observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  observeAsync(
+    loadSelectedMemberDocumentation(),
+    "Loading member documentation");
 }
 
 function renderPackageOverview() {
@@ -4159,7 +4232,7 @@ const packageViewActions: PackageViewBindingActions = {
   },
   onPerformanceMemberSelect: target => {
     drillToPerfMember(
-      target.metadataToken,
+      target.stableSelector,
       target.assembly,
       target.typeId);
   },
@@ -6467,13 +6540,16 @@ function renderLoading() {
 async function loadSelectedMemberDocumentation() {
   const type = selectedType();
   const member = selectedMember(type);
-  if (!type || !member
-    || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
+  if (!type || !member) {
     render();
     return;
   }
-  const overload = member.overloads[state.selectedOverloadIndex ?? 0];
-  if (!overload) return;
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
+    render();
+    return;
+  }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
   return memberDetailInspection.loadDocumentation({
@@ -6489,15 +6565,20 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
-  if (activeSourceOperationKind(state) !== "member") {
+  if (currentSourceOperationKind() !== "member") {
     render();
     return;
   }
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberSourceError = "Select a concrete overload before opening Source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6525,9 +6606,14 @@ async function loadSelectedMemberSource() {
 async function loadSelectedMemberAnnotatedSource() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberAnnotatedError = "Select a concrete overload before opening Annotated source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6582,14 +6668,16 @@ function memberRequestIsCurrent(
   const type = selectedType();
   if (!type) return false;
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : undefined;
   return overload != null
     && memberRequestSignature(type, overload, includeBody, includeTaste)
       === signature;
 }
 
 async function loadSelectedTypeSource() {
-  if (activeSourceOperationKind(state) !== "type") {
+  if (currentSourceOperationKind() !== "type") {
     renderPreservingMemberFocus();
     return;
   }
@@ -6610,7 +6698,7 @@ async function loadSelectedTypeSource() {
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
     isVisible: () =>
-      activeSourceOperationKind(state) === "type"
+      currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
   });
 }
@@ -6931,9 +7019,14 @@ function nextPaint() {
 async function loadSelectedMemberCallGraph() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberCallGraphError = "Select a concrete overload before opening Call graph.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -7862,7 +7955,7 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
-  switch (sourceReloadKind(state)) {
+  switch (currentSourceReloadKind()) {
     case "graph":
       if (state.graphSourceRequest) {
         observeAsync(
@@ -8001,9 +8094,14 @@ function navigateToMember(
 async function loadSelectedMemberFacts() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberFactsError = "Select a concrete overload before opening Facts.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
