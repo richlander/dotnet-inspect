@@ -15,7 +15,7 @@ public class ArrayShapeTextTests
     [InlineData(4, "int32[,,,]")]
     public void RendersLoadableRanksFaithfully(int rank, string expected)
     {
-        string rendered = ArrayShapeText.Format("int32", rank);
+        string rendered = ArrayShapeText.Format("int32", new ArrayShape(rank, [], []));
 
         Assert.Equal(expected, rendered);
         Assert.DoesNotContain("invalid rank", rendered, StringComparison.Ordinal);
@@ -30,7 +30,7 @@ public class ArrayShapeTextTests
     [Fact]
     public void DistinguishesARankOneMdArrayFromAVector()
     {
-        Assert.Equal("int32[...]", ArrayShapeText.Format("int32", 1));
+        Assert.Equal("int32[...]", ArrayShapeText.Format("int32", new ArrayShape(1, [], [])));
     }
 
     /// <summary>
@@ -40,7 +40,72 @@ public class ArrayShapeTextTests
     [Fact]
     public void MarksARankNoArrayCouldDeclare()
     {
-        Assert.Equal("int32[/* invalid rank 0 */]", ArrayShapeText.Format("int32", 0));
+        Assert.Equal(
+            "int32[/* invalid rank 0 */]",
+            ArrayShapeText.Format("int32", new ArrayShape(0, [], [])));
+    }
+
+    [Fact]
+    public void RendersSizesAndLowerBoundsInILAsmSyntax()
+    {
+        Assert.Equal(
+            "int32[0...,0...]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [], [0, 0])));
+        Assert.Equal(
+            "int32[6,-2...3]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [6, 6], [0, -2])));
+        Assert.Equal(
+            "int32[6,,]",
+            ArrayShapeText.Format("int32", new ArrayShape(3, [6], [])));
+        Assert.Equal(
+            "int32[-2...,,]",
+            ArrayShapeText.Format("int32", new ArrayShape(3, [], [-2])));
+        Assert.Equal(
+            "int32[0...,]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [], [0])));
+    }
+
+    [Fact]
+    public void RendersTheLargestLoadableShapeFaithfully()
+    {
+        var sizes = ImmutableArray.CreateRange(Enumerable.Repeat(1, ArrayShapeText.MaxRenderableRank));
+        var lowerBounds = ImmutableArray.CreateRange(Enumerable.Repeat(0, ArrayShapeText.MaxRenderableRank));
+        string rendered = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, sizes, lowerBounds));
+
+        Assert.Equal($"int32[{string.Join(',', sizes)}]", rendered);
+    }
+
+    [Fact]
+    public void MarksDimensionCountsNoLoadableShapeCouldHave()
+    {
+        var excess = ImmutableArray.CreateRange(
+            Enumerable.Repeat(0, ArrayShapeText.MaxRenderableRank + 1));
+
+        string sizes = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, excess, []));
+        string lowerBounds = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, [], excess));
+
+        Assert.Equal(
+            "int32[/* invalid size count 33 for rank 32 */]",
+            sizes);
+        Assert.Equal(
+            "int32[/* invalid lower-bound count 33 for rank 32 */]",
+            lowerBounds);
+        Assert.True(sizes.Length < 64);
+        Assert.True(lowerBounds.Length < 64);
+    }
+
+    [Fact]
+    public void MarksANegativeSize()
+    {
+        Assert.Equal(
+            "int32[/* invalid size -1 at dimension 0 */]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [-1], [])));
     }
 
     [Theory]
@@ -89,7 +154,7 @@ public class ArrayShapeTextTests
     {
         string rendered = ArrayShapeText.Format(
             "int32",
-            ArrayShapeText.MaxRenderableRank);
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, [], []));
 
         Assert.Equal(
             $"int32[{new string(',', ArrayShapeText.MaxRenderableRank - 1)}]",
@@ -103,7 +168,7 @@ public class ArrayShapeTextTests
     [InlineData(-1)]
     public void MarksRanksNoArrayCouldHave(int rank)
     {
-        string rendered = ArrayShapeText.Format("int32", rank);
+        string rendered = ArrayShapeText.Format("int32", new ArrayShape(rank, [], []));
 
         Assert.Equal($"int32[/* invalid rank {rank} */]", rendered);
 

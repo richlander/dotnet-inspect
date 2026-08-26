@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using System.Text;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -5,10 +8,12 @@ namespace ILInspector.Metadata;
 /// carry no materialization budget of their own.
 /// </summary>
 /// <remarks>
-/// Rank is the one ArrayShape field that drives work without consuming blob bytes in proportion
-/// to it: <c>ELEMENT_TYPE_ARRAY</c> followed by four bytes of compressed rank encodes 536,870,911
-/// dimensions, and the natural spelling materializes a separator string that long. Every
-/// byte-oriented structural check passes such a blob, and <see cref="SignatureBlobGuard"/>
+/// Rank can drive work without consuming blob bytes in proportion to it:
+/// <c>ELEMENT_TYPE_ARRAY</c> followed by four bytes of compressed rank encodes 536,870,911
+/// dimensions, and the natural spelling materializes a separator string that long. Sizes and
+/// lower bounds are materialized arrays by the time a provider receives them, but a caller can
+/// also construct an <see cref="ArrayShape"/> directly, so their counts are bounded here too.
+/// Every byte-oriented structural check passes a hostile rank, and <see cref="SignatureBlobGuard"/>
 /// deliberately does not charge rank, because <c>TypeNodeProvider.GetArrayType</c> charges it
 /// against a real budget and reports the overrun as a visible decode failure rather than silently
 /// dropping the member.
@@ -62,25 +67,68 @@ public static class ArrayShapeText
             : $"/* invalid rank {rank} */";
 
     /// <summary>
-    /// <paramref name="elementType"/> followed by its bracketed dimensions in IL-assembler
-    /// syntax, or a marker when the rank could not belong to a loadable array.
+    /// <paramref name="elementType"/> followed by <paramref name="shape"/> in IL-assembler
+    /// syntax, or a marker when the shape could not belong to a loadable array.
     /// </summary>
     /// <remarks>
     /// ILAsm spells a rank-1 multi-dimensional array <c>int32[...]</c>, distinct from the vector
     /// <c>int32[]</c> that <c>GetSZArrayType</c> renders; <c>ildasm</c> is the oracle for that
     /// spelling. Collapsing the two would emit IL that round-trips to a different signature.
     /// <c>ILDisassemblerComparisonTests.CanonicalIL_ArraySpellings_ReassembleToTheSameSignature</c>
-    /// gates that by reassembling what this spells and requiring a byte-identical signature blob.
-    /// <para>
-    /// Known gap, deliberately not asserted: this renders rank only, so an <c>ArrayShape</c>
-    /// carrying explicit sizes or lower bounds loses them — <c>int32[0...,0...]</c> renders as
-    /// <c>int32[,]</c>, which ILAsm reassembles to a different signature. That conflation is
-    /// pre-existing and unrelated to bounding rank; it is tracked separately rather than
-    /// silently implied to be handled here.
-    /// </para>
+    /// gates the rank, size, and lower-bound spellings by reassembling them and requiring
+    /// byte-identical signature blobs.
     /// </remarks>
-    public static string Format(string elementType, int rank)
-        => rank == 1
-            ? $"{elementType}[...]"
-            : $"{elementType}[{FormatDimensions(rank)}]";
+    public static string Format(string elementType, ArrayShape shape)
+    {
+        int rank = shape.Rank;
+        if (!IsLoadableRank(rank))
+            return $"{elementType}[/* invalid rank {rank} */]";
+
+        if (shape.Sizes.Length > rank)
+            return $"{elementType}[/* invalid size count {shape.Sizes.Length} for rank {rank} */]";
+
+        if (shape.LowerBounds.Length > rank)
+            return $"{elementType}[/* invalid lower-bound count {shape.LowerBounds.Length} for rank {rank} */]";
+
+        var text = new StringBuilder(elementType);
+        text.Append('[');
+        for (int dimension = 0; dimension < rank; dimension++)
+        {
+            if (dimension > 0)
+                text.Append(',');
+
+            bool hasSize = dimension < shape.Sizes.Length;
+            bool hasLowerBound = dimension < shape.LowerBounds.Length;
+            if (hasSize)
+            {
+                int size = shape.Sizes[dimension];
+                if (size < 0)
+                    return $"{elementType}[/* invalid size {size} at dimension {dimension} */]";
+
+                int lowerBound = hasLowerBound ? shape.LowerBounds[dimension] : 0;
+                if (lowerBound == 0)
+                {
+                    text.Append(size);
+                }
+                else
+                {
+                    text.Append(lowerBound);
+                    text.Append("...");
+                    text.Append((long)lowerBound + size - 1L);
+                }
+            }
+            else if (hasLowerBound)
+            {
+                text.Append(shape.LowerBounds[dimension]);
+                text.Append("...");
+            }
+            else if (rank == 1)
+            {
+                text.Append("...");
+            }
+        }
+
+        text.Append(']');
+        return text.ToString();
+    }
 }
