@@ -163,8 +163,18 @@ public sealed class MetadataTypeDefinitionIndex
     public bool TryGetUniqueDefinition(
         MetadataTypeDefinitionName name,
         out TypeDefinitionHandle handle)
+        => TryGetDefinition(
+            name,
+            out handle,
+            out _);
+
+    internal bool TryGetDefinition(
+        MetadataTypeDefinitionName name,
+        out TypeDefinitionHandle handle,
+        out bool ambiguous)
     {
         ArgumentNullException.ThrowIfNull(name);
+        ambiguous = false;
         int parentNode = 0;
         for (int i = 0; i < name.Segments.Length; i++)
         {
@@ -180,6 +190,7 @@ public sealed class MetadataTypeDefinitionIndex
             if (nodes[parentNode].Ambiguous)
             {
                 handle = default;
+                ambiguous = true;
                 return false;
             }
         }
