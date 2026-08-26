@@ -127,6 +127,7 @@ browser it can use known web endpoints without requesting
 | --- | --- |
 | Keyword search and latest listed version | NuGet Gallery search service |
 | Complete version enumeration | `globalcdn.nuget.org/v3-flatcontainer/{id}/index.json` |
+| Exact package manifest | `globalcdn.nuget.org/v3-flatcontainer/{id}/{version}/{id}.nuspec` |
 | Per-version listing status | `globalcdn.nuget.org/v3/registration5-gz-semver2/{id}/index.json` |
 | Package payload | `globalcdn.nuget.org/packages/{id}.{version}.nupkg` |
 | Symbol package | `globalcdn.nuget.org/symbol-packages/{id}.{version}.snupkg` |
@@ -137,6 +138,15 @@ policy. Version enumeration joins the flat-container list with the registration
 listing status, preserving the listing-aware behavior defined by
 [version resolution](version-resolution.md). Search results are not written
 into the complete version-list cache.
+
+Prefix profiles combine listed-only search metadata with bounded exact
+manifest requests. Search metadata owns package owners, verification, and
+download counts; the `.nuspec` owns authors and declared dependency groups.
+The profile path does not request `.nupkg` payloads or open assemblies.
+Individual package selection may separately authorize those operations.
+NuGet.org's documented maximum search `skip` is 3,000. Reaching that boundary
+before the requested prefix result count marks the profile truncated rather
+than presenting the reachable prefix matches as complete.
 
 Registration indexes have two page shapes:
 
@@ -558,7 +568,8 @@ The existing NuGetFetch shape is a useful base:
 - it resolves multiple configured sources;
 - it implements package source mapping;
 - it source-scopes candidates and payload provenance; and
-- its v3 primitives already own service-index, version, and package requests.
+- its v3 primitives already own service-index, version, manifest, and package
+  requests.
 
 The first two implementation slices establish the typed source identity,
 credential-free descriptor, capability, runtime-client, and factory contracts
@@ -613,7 +624,9 @@ information are typed invalid responses rather than normalized requests.
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate shared transport
 construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
-gates the Gallery-specific Browser handler, and
+gates the Gallery-specific Browser handler,
+`CredentialFreeBrowserTransportAvoidsUnsupportedHandlerConfiguration` gates
+the CLI host's credential-free Browser handler, and
 `GalleryDesktopTransportFollowsSourceOwnedRedirects` gates that the Gallery
 factory uses the bounded desktop redirect policy.
 `DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint` gates the configured
@@ -716,9 +729,9 @@ reservation, archive limits, producer authorization, and publication are not
 reimplemented in the host. Desktop package-resolution consumers remain on the
 compatibility path.
 
-The v3 compatibility adapter exposes search, version, and package-payload
-operations. It validates package coordinates before any service-index or
-payload request. Search discovers the highest supported
+The v3 compatibility adapter exposes search, version, manifest, and
+package-payload operations. It validates package coordinates before any
+service-index or payload request. Search discovers the highest supported
 `SearchQueryService` capability from the source's service index, preserves
 equivalent endpoint order for failover, scopes credentials to the service-index
 origin, stops endpoint failover on authentication rejection, and retains signed
@@ -785,7 +798,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3InvalidVersionMetadataIsTypedFailure`,
 `V3UnusablePackageBaseAddressIsInvalidResponse`,
 `V3SignedPackageBaseAddressPreservesQuery`,
-`V3VersionAndPackageDoNotSendCredentialCrossOrigin`,
+`V3VersionManifestAndPackageDoNotSendCredentialCrossOrigin`,
 `V3MissingPackageIsTypedAbsence`,
 `V3EscapesUnicodePackageIdsAsPathSegments`,
 `V3NormalizesIdnPackageBaseAddress`,

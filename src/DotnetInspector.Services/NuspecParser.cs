@@ -88,10 +88,36 @@ public static class NuspecParser
     {
         var result = new NuspecData();
 
-        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        XElement root = doc.Root
+            ?? throw new InvalidDataException(
+                "The package manifest is missing its document root.");
+        if (!root.Name.LocalName.Equals(
+                "package",
+                StringComparison.Ordinal)
+            || !IsNuspecNamespace(root.Name.Namespace))
+        {
+            throw new InvalidDataException(
+                "The package manifest has an invalid document root.");
+        }
+
+        XElement[] metadataElements =
+        [
+            .. root.Elements().Where(element =>
+                element.Name.LocalName.Equals(
+                    "metadata",
+                    StringComparison.Ordinal)
+                && IsNuspecNamespace(element.Name.Namespace)),
+        ];
+        if (metadataElements.Length > 1)
+        {
+            throw new InvalidDataException(
+                "The package manifest contains multiple metadata elements.");
+        }
+
+        XElement? metadata = metadataElements.SingleOrDefault();
+        XNamespace ns = metadata?.Name.Namespace ?? root.Name.Namespace;
         result.ManifestVersion = GetManifestVersion(ns);
 
-        var metadata = doc.Root?.Element(ns + "metadata");
         if (metadata == null) return result;
 
         result.PackageName = metadata.Element(ns + "id")?.Value;
@@ -219,12 +245,19 @@ public static class NuspecParser
 
         const string prefix = "http://schemas.microsoft.com/packaging/";
         const string suffix = "/nuspec.xsd";
-        if (uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            && uri.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-        {
-            return uri[prefix.Length..^suffix.Length];
-        }
+        return uri[prefix.Length..^suffix.Length];
+    }
 
-        return uri;
+    private static bool IsNuspecNamespace(XNamespace ns)
+    {
+        var uri = ns.NamespaceName;
+        if (string.IsNullOrWhiteSpace(uri))
+            return true;
+
+        const string prefix = "http://schemas.microsoft.com/packaging/";
+        const string suffix = "/nuspec.xsd";
+        return uri.Length > prefix.Length + suffix.Length
+            && uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && uri.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
     }
 }
