@@ -271,12 +271,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 bool typeSourceGenerated,
                 ref MethodIdentity? asyncSource)
     {
-        asyncSource = _declaredSourceResolver.ResolveAsyncSiblingSource(
-            context.Method,
-            methodDefinition,
-            typeSourceGenerated);
-        if (asyncSource is null)
+        if (!_declaredSourceResolver.TryResolveAsyncSiblingSource(
+                context.Method,
+                methodDefinition,
+                typeSourceGenerated,
+                ref asyncSource))
+        {
             return [];
+        }
         return CollectAsyncSiblingOpportunities(
             context,
             calls,

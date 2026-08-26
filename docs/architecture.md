@@ -899,9 +899,9 @@ Research overlay bridge, and the application layer:
   expansion sequence, and publishes declared-source mappings plus recoverable
   diagnostics. It owns no metadata image or parallel scheduling lifetime.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
-  state-machine body requirements. The resolver reuses primary metadata
-  identity and generated-code judgments plus the builder's shared local
-  type-definition index.
+  state-machine body requirements. The async source resolver reuses primary
+  metadata identity and generated-code judgments plus the builder's shared
+  local type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and

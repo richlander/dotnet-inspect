@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -28,27 +29,27 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
     readonly LibraryBodyAsyncSourceResolver
         _asyncSourceResolver = asyncSourceResolver;
 
-    internal MethodIdentity? ResolveAsyncSiblingSource(
+    internal bool TryResolveAsyncSiblingSource(
         MethodIdentity method,
         MethodDefinition methodDefinition,
-        bool typeSourceGenerated)
+        bool typeSourceGenerated,
+        [NotNullWhen(true)] ref MethodIdentity? asyncSource)
     {
-        MethodIdentity? asyncSource =
-            _asyncSourceResolver.ResolveSourceMethod(
-                method,
-                methodDefinition,
-                typeSourceGenerated);
+        asyncSource = _asyncSourceResolver.ResolveSourceMethod(
+            method,
+            methodDefinition,
+            typeSourceGenerated);
         if (asyncSource is null)
-            return null;
+            return false;
         if (CompilerGeneratedNames
                 .IsLocalFunctionOrLambda(asyncSource.Name)
             && !TryResolveUltimateLiftedOwner(
                 asyncSource,
                 out _))
         {
-            return null;
+            return false;
         }
-        return asyncSource;
+        return true;
     }
 
     internal bool TryResolveLiftedSourceOwner(
