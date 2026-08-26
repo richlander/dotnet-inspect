@@ -10,17 +10,17 @@
 ## Status
 
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
-This is stack slice 2 of 2 and depends on the structured implementation-
-evidence design in [#4560](https://github.com/richlander/dotnet-inspect/pull/4560).
-Slice-0 companion discovery also depends on the shared Metadata state-machine
-relationship substrate tracked by
-[#4669](https://github.com/richlander/dotnet-inspect/issues/4669). That
-prerequisite does not alter or block #4560: it replaces duplicate
-consumer-local structural discovery before this design is implemented.
-The user approved that split after adversarial round 30 so this document
-owns only classic-async classification, reconstruction, projection, and
-honesty. It does not redefine implementation-evidence identity,
-acquisition, population, query lifetime, budgets, or completion.
+This is a standalone design. [#4684](https://github.com/richlander/dotnet-inspect/issues/4684)
+decouples classic-async reconstruction from the structured Implementation Diff
+design in [#4560](https://github.com/richlander/dotnet-inspect/pull/4560).
+Implementing slice 0 depends on the shared Metadata state-machine relationship
+substrate tracked by
+[#4669](https://github.com/richlander/dotnet-inspect/issues/4669), not on
+Implementation Diff. This document owns only classic-async classification,
+reconstruction, projection, and honesty. Implementation Diff is an independent
+downstream integration and optional measurement consumer; its participant,
+correspondence, population, work-item, budget, query-lifetime, completion, and
+result currencies never enter ordinary reconstruction.
 
 Not implemented. `ClassicAsyncReconstructionPass` remains the current
 fixture-shaped raise.
@@ -300,20 +300,19 @@ still owns each handle. Only the controlled no-provenance paths may reach the
 these typed acquisition results as well as resetting the parent classic
 directive.
 
-Exact, carried, and physical-selector resolution are prerequisites to async
-projection. Their exact address, strict carried identity, cross-version
-correspondence, endpoint/participant realization, and failure contracts are
-owned by
-[Member target resolution](member-target-resolution.md#physical-body-addressing),
-[Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md#comparison-endpoint-realization),
-and
-[Implementation Diff](implementation-diff.md#structured-comparison-lifecycle).
-The async layer accepts the resulting `MetadataBodyRequest`, resolves it once
-through the canonical Metadata owner, and consumes only a successfully
-validated `MetadataMethodAddress`. It never mints comparison participants,
-rebuilds correspondence from display identity, or re-resolves implementation
-evidence. An address failure remains the prerequisite's typed visible failure
-and stops before async classification.
+Exact, carried, and selector resolution are prerequisites to async projection.
+`MetadataBodyProjector` resolves its `MetadataBodyRequest` once through the
+canonical Metadata owner and consumes only a successfully validated
+`MetadataMethodAddress`; [member target resolution](member-target-resolution.md)
+owns the user-facing selector and body-target boundary. An address failure
+remains a typed visible failure and stops before async classification.
+
+Ordinary async projection does not realize comparison endpoints, mint
+participants or work items, perform cross-version correspondence, or consume
+an Implementation Diff operation or result. A downstream comparison may
+independently select exact per-side addresses and pass each physical MethodDef
+to `CSharpBodyDiff`; that integration does not become an input to
+`MetadataBodyProjector` or `ClassicAsyncReconstructionPass`.
 
 State-machine relationship discovery is a second, same-reader prerequisite.
 [#4669](https://github.com/richlander/dotnet-inspect/issues/4669) owns a
@@ -321,11 +320,11 @@ bounded, immutable `StateMachineRelationshipIndex` in `ILInspector.Metadata`.
 For one `MetadataReader`, it answers exact kickoff-to-execution and
 execution-to-kickoff queries with module-scoped method/type identities, claim
 kind, exact interface implementation roles, and typed absent, unresolved,
-malformed, duplicate, cross-kind, and ambiguous outcomes. Workspace and
-package roles select the participant and reader in which the index runs; they
-do not own state-machine semantics. The async layer consumes the index result
-only after exact body addressing and does not rescan attributes, interfaces,
-signatures, or `MethodImpl` rows to reconstruct the relationship.
+malformed, duplicate, cross-kind, and ambiguous outcomes. The owning
+`MetadataSource` supplies the reader in which the index runs; hosts do not own
+state-machine semantics. The async layer consumes the index result only after
+exact body addressing and does not rescan attributes, interfaces, signatures,
+or `MethodImpl` rows to reconstruct the relationship.
 
 After resolution, the projector performs metadata async classification
 once, before inspecting or importing the body. Contradictory positive
@@ -738,7 +737,7 @@ projection:
   without incrementing; every other imported projection increments once
   before stage/render disposition.
 - `CSharpBodyDiff` remains outside source-body preparation. It renders the
-  prerequisite-selected physical MethodDef, stamps no declaration, imports no
+  request-selected physical MethodDef, stamps no declaration, imports no
   companion, and gives a kickoff no reconstructed/declined outcome. An exact
   support host may retain only its local no-edit acknowledgment/application.
 - `PipelineStages` is an orchestration exception to the projector front
@@ -771,19 +770,21 @@ Routing it through `MetadataBodyProjector` would admit foreign offsets,
 change implementation-diff lines/LCS, and violate the physical evidence
 contract. Slice 0 does not do that.
 
-Physical implementation comparison receives its selected work items and exact
-per-side addresses from the structured implementation-evidence owner. Within
-each validated item, `CSharpBodyDiff` remains a seam-free physical MethodDef
-projection: it does not import companion bodies, reconstruct a kickoff, or
-introduce foreign offsets. A kickoff therefore receives no classic outcome or
-marker. An exact support MethodDef may carry only its local no-edit
-`SupportMethodAcknowledgment` and replayable application. Physical line and IL
-offsets remain local to the selected MethodDef.
+Implementation Diff is an independent downstream consumer. After its own
+selection and correspondence logic chooses exact per-side physical MethodDefs,
+each `CSharpBodyDiff` remains a seam-free projection: it does not import
+companion bodies, reconstruct a kickoff, or introduce foreign offsets. A
+kickoff therefore receives no classic outcome or marker. An exact support
+MethodDef may carry only its local no-edit `SupportMethodAcknowledgment` and
+replayable application. Physical line and IL offsets remain local to the
+selected MethodDef.
 
-This document gates that async-specific behavior only. Target selection,
-participant correspondence, work-item totality, authored-source eligibility,
-query lifetime, budgets, completed results, and CLI failure semantics remain
-exclusively owned by the prerequisite designs.
+This document gates only that async-specific integration behavior.
+[Implementation Diff](implementation-diff.md) independently owns target
+selection, participant correspondence, work-item totality, authored-source
+eligibility, query lifetime, budgets, completed results, and CLI failure
+semantics. Those contracts are neither prerequisites nor currencies of
+ordinary async reconstruction.
 
 The declaration rule uses the exact facts:
 
@@ -1154,9 +1155,13 @@ it claims a marker.
 Intended contract: compile the raised method with Roslyn, Release,
 `runtime-async=off`, and compare the regenerated `MoveNext` (or
 behavioral execution covering result, exception, suspension, and
-side effects). Until that harness exists, slices after 0 are
-blocked. Slice 0 owes A/B for honesty markers and physical preservation
-of every exact support MethodDef (library + corpus).
+side effects). That separately owned measurement should use the lowest
+suitable typed IL comparison API and may optionally consume Implementation
+Diff's direct-comparison operation when available. Neither the measurement nor
+ordinary reconstruction depends on the higher-level comparison lifecycle.
+Until that harness exists, slices after 0 are blocked. Slice 0 owes A/B for
+honesty markers and physical preservation of every exact support MethodDef
+(library + corpus).
 
 ## Slices
 
@@ -1172,7 +1177,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Consume prerequisite-resolved body requests through `MetadataBodyProjector` and #4669 structural relationships through the thin companion adapter; keep `ClassificationFailed`, relationship failure, `Bodyless`, import, stage, and render states distinct. Capture and replay one exact-host `ClassicAsyncDecision`; keep support acknowledgment local, exact, replayable, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Keep physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and implementation-evidence infrastructure are unchanged. |
+| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep `ClassificationFailed`, relationship failure, `Bodyless`, import, stage, and render states distinct. Capture and replay one exact-host `ClassicAsyncDecision`; keep support acknowledgment local, exact, replayable, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Keep physical C# evidence seam-free. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and independent Implementation Diff infrastructure are unchanged; no comparison operation/result enters reconstruction. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, broader state-dispatch descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
@@ -1258,8 +1263,11 @@ Decompiler-owned relationship resolver while waiting for them.
   carrier or accepted nested classic-async raise.
 - Teaching `TypeShellProducer` about reconstruction outcomes.
 - Changing `CSharpBodyDiff` rendering from physical MethodDef evidence into a
-  reconstructed source-body comparison. Typed per-side body selection and
-  structural correspondence are required and are not part of this non-goal.
+  reconstructed source-body comparison. Independent comparison owners retain
+  typed per-side selection and correspondence.
+- Making ordinary async reconstruction depend on Implementation Diff
+  participants, work items, mechanisms, budgets, correspondence, query
+  completion, or results.
 - Designing a state-dispatch raise before a corpus census.
 - Another `TryBuild*` matcher.
 
@@ -1267,9 +1275,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Fact | Owner |
 | --- | --- |
-| Implementation-evidence endpoint realization and participant correspondence | [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md#comparison-endpoint-realization) |
-| Exact/carried body addressing and cross-version correspondence | [Member target resolution](member-target-resolution.md#physical-body-addressing) |
-| Work items, mechanisms, population, async query lifetime, budgets, completion, and failure semantics | [Implementation Diff](implementation-diff.md#structured-comparison-lifecycle) |
+| Exact/carried/selector source-body addressing | Decompiler `MetadataBodyProjector` over Metadata resolution; [member target resolution](member-target-resolution.md) owns user-facing selection |
 | Disjoint runtime/classic/iterator evidence scan | Metadata, with collapsed `StateMachineAsync` retained only as compatibility inventory |
 | Kickoff/state-machine/support-method relationships and reverse lookup | Metadata `StateMachineRelationshipIndex`, tracked by #4669 |
 | Complete async classification transport | Guarded Metadata classifier to every exact top-level and foreign import |
@@ -1285,19 +1291,20 @@ Decompiler-owned relationship resolver while waiting for them.
 | Nested lambda/local-function embedding disposition | Decompiler `NestedFunctionEmbeddingPolicy` |
 | Public typed-body and whole-type carriers | Decompiler `MemberBodyProductionResult` and internal `DecompiledBodyProjection` |
 | Research source presentation | Research over Decompiler-prepared clones |
-| Physical C# async behavior | Decompiler `CSharpBodyDiff` over prerequisite-selected exact MethodDefs |
+| Physical C# async behavior | Decompiler `CSharpBodyDiff` over independently selected exact MethodDefs |
+| Optional cross-version endpoint, participant, correspondence, work-item, mechanism, population, budget, completion, and result lifecycle | Independent [Implementation Diff](implementation-diff.md) consumer |
 | CLI presentation | CLI |
 
 ## Gates
 
 Honesty is unverified until these exist. They exercise the render or named
-library/corpus surface, not only the metadata predicate. Identity,
-participant, work-item, mechanism, budget, query-lifetime, and CLI-exit gates
-are inherited from the prerequisite designs and are not repeated here.
+library/corpus surface, not only the metadata predicate. Independent
+Implementation Diff lifecycle gates are not repeated here because they do not
+gate ordinary reconstruction.
 
 | Gate | Surface | Fails if |
 | --- | --- | --- |
-| Prerequisite consumer conformance | Decompiler + Research + Queries source-architecture tests | Async projection mints or reinterprets participant/work-item identity, bypasses prerequisite address resolution, or defines a second implementation-evidence population/lifetime |
+| Ordinary-path independence | Decompiler + Research + Queries source-architecture tests | Async projection mints or consumes an Implementation Diff participant, correspondence receipt, work item, mechanism, budget, query lifetime, completion, or result; or body projection bypasses exact address resolution |
 | Exact async population matrix | Metadata + Decompiler top-level and foreign imports | Runtime, classic, and iterator evidence collapse; contradictory positives do not fail before body/import; or custom classic builders escape visible decline |
 | Exact state-machine relationship index | `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations` over Metadata fixtures | Explicit/implicit interface implementation, signature, custom modifiers, `MethodImpl`, claim kind, named decoys, or metadata order select the wrong MethodDef |
 | State-machine relationship totality | `StateMachineRelationshipIndex_PropagatesTypedFailures` over Metadata fixtures | Missing, duplicate, cross-kind, unresolved, malformed, foreign-module, budget, or ambiguous evidence becomes empty success, throws an expected decode failure, or loses its candidates and reason |
@@ -1325,7 +1332,7 @@ are inherited from the prerequisite designs and are not repeated here.
 | Declaration modifier by stage-local state | CLI + typed/whole-member/type | Declined classic retains `async`, reconstructed classic omits it, runtime async loses it, or post-classic failure changes the retained decision's modifier |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape | Lifecycle states collapse, failures acquire success-shaped outcomes, or inspection accounting changes |
 | Exact legacy raise population | Existing accepted fixtures + close negatives | Slice 0 widens accepted reconstruction or a new eligibility path escapes set equality |
-| Physical implementation C# boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures | The physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, or changes unrelated offsets |
+| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures | The physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, loses local acknowledgment, changes unrelated offsets, or makes ordinary reconstruction depend on the comparison operation/result |
 | `DecompilerResult` value semantics | Decompiler tests | Outcome, decline, disposition, or support acknowledgment is omitted from equality/hash/`with` behavior |
 | Corpus A/B | `CorpusSensor` / `IrImporter.ImportAssembly` | Product and corpus policy differ, support methods are hollowed, or fidelity/coverage changes are unrecorded |
 
