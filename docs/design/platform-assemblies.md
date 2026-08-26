@@ -95,7 +95,9 @@ rows cannot multiply work already charged to the operation. Storage successfully
 read before a later malformed field is charged before the failure is cached,
 including for distinct rows that share heap storage. Named-type correspondence
 storage reads are charged during signature decode, so repeated TypeRefs cannot
-amplify shared scope scans outside the operation budget.
+amplify shared scope scans outside the operation budget. TypeDef
+generic-parameter rows are charged and projected once per reader and TypeDef,
+including malformed projections.
 Direct exported-root implementations are range-validated before their flags or
 target kind can classify them as ordinary rejected evidence.
 

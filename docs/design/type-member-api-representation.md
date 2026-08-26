@@ -119,7 +119,9 @@ successfully read before a later malformed field is charged before the failure
 is cached, including for distinct assembly-reference rows that share heap
 storage. Named-type correspondence storage is read while signatures are
 decoded, and each read is charged to the operation budget, so repeated TypeRefs
-cannot amplify shared scope scans.
+cannot amplify shared scope scans. TypeDef generic-parameter rows are likewise
+charged before enumeration; successful and malformed arity projections are
+cached per reader and TypeDef for the operation.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -149,6 +151,9 @@ identity.
 `ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget`,
 `ResolveApiMember_EmptyFullAssemblyKeyCountsNormalizedTokenInStructuralBudget`,
 `ResolveApiMember_DistinctTypeReferencesSharingLargeAssemblyNameFailBeforeScanAmplification`,
+`ResolveApiMember_ReusedTypeDefinitionGenericParametersAreProjectedOnce`,
+`MethodCorrespondenceContext_TypeDefinitionGenericParametersAreChargedOnce`,
+`MethodCorrespondenceContext_MalformedTypeDefinitionGenericParametersAreChargedOnce`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

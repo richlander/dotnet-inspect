@@ -1071,6 +1071,100 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_ReusedTypeDefinitionGenericParametersAreProjectedOnce()
+    {
+        byte[] source =
+            BuildRepeatedTypeDefinitionArityScanImage(
+                methodCount: 1,
+                genericParameterCount: 0);
+        byte[] target =
+            BuildRepeatedTypeDefinitionArityScanImage(
+                methodCount: 5_000,
+                genericParameterCount: 65_000);
+
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        timer.Stop();
+
+        Assert.True(
+            result.Status == MethodCorrespondenceStatus.Absent,
+            result.Failure);
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromMilliseconds(500),
+            $"Correspondence took {timer.Elapsed}.");
+    }
+
+    [Fact]
+    public void MethodCorrespondenceContext_TypeDefinitionGenericParametersAreChargedOnce()
+    {
+        using var pe =
+            new PEReader(
+                new MemoryStream(
+                    BuildRepeatedTypeDefinitionArityScanImage(
+                        methodCount: 1,
+                        genericParameterCount: 65_000)));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type =
+            reader.TypeDefinitions.Last();
+        var context =
+            new ApiMemberIdentity.MethodCorrespondenceContext();
+        int charged = 0;
+
+        Assert.True(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                type,
+                value => charged += value,
+                out int firstCount));
+        Assert.True(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                type,
+                value => charged += value,
+                out int secondCount));
+
+        Assert.Equal(65_000, firstCount);
+        Assert.Equal(firstCount, secondCount);
+        Assert.Equal(65_000, charged);
+    }
+
+    [Fact]
+    public void MethodCorrespondenceContext_MalformedTypeDefinitionGenericParametersAreChargedOnce()
+    {
+        using var pe =
+            new PEReader(
+                new MemoryStream(
+                    BuildRepeatedTypeDefinitionArityScanImage(
+                        methodCount: 1,
+                        genericParameterCount: 65_000,
+                        malformedGenericParameterIndex: true)));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type =
+            reader.TypeDefinitions.Last();
+        var context =
+            new ApiMemberIdentity.MethodCorrespondenceContext();
+        int charged = 0;
+
+        Assert.False(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                type,
+                value => charged += value,
+                out int firstCount));
+        Assert.False(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                type,
+                value => charged += value,
+                out int secondCount));
+
+        Assert.Equal(-1, firstCount);
+        Assert.Equal(firstCount, secondCount);
+        Assert.Equal(65_000, charged);
+    }
+
+    [Fact]
     public void ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget()
     {
         byte[] source =
@@ -3409,6 +3503,78 @@ public sealed class MethodCorrespondenceResolverTests
             0x5a, 0x61, 0x78, 0x0d,
             0x2f, 0xb4, 0x83, 0xe9,
         ];
+    }
+
+    static byte[] BuildRepeatedTypeDefinitionArityScanImage(
+        int methodCount,
+        int genericParameterCount,
+        bool malformedGenericParameterIndex = false)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "RepeatedTypeDefinitionArityScan");
+        TypeDefinitionHandle parameterType = default;
+        if (genericParameterCount > 0)
+        {
+            parameterType =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(
+                        $"G`{genericParameterCount}"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(
+                        methodCount + 1));
+            for (int i = 0; i < genericParameterCount; i++)
+            {
+                metadata.AddGenericParameter(
+                    parameterType,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{i}"),
+                    i);
+            }
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(
+            parameterType.IsNil ? 0 : 1);
+        signature.WriteByte(0x01);
+        if (!parameterType.IsNil)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(parameterType) << 2);
+        }
+        BlobHandle signatureBlob =
+            metadata.GetOrAddBlob(signature);
+        StringHandle methodName =
+            metadata.GetOrAddString("M");
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signatureBlob,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        byte[] image = Serialize(metadata);
+        if (malformedGenericParameterIndex)
+        {
+            using var pe =
+                new PEReader(new MemoryStream(image));
+            MetadataReader reader = pe.GetMetadataReader();
+            int offset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.GenericParam);
+            image[offset] = 1;
+            image[offset + 1] = 0;
+        }
+        return image;
     }
 
     static byte[] BuildMethodComparisonNameImage(

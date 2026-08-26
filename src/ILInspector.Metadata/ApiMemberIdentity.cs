@@ -102,6 +102,12 @@ public static class ApiMemberIdentity
             MetadataReader,
             Dictionary<AssemblyReferenceHandle, ExceptionDispatchInfo>>
             _failedAssemblyReferenceProjections = [];
+        readonly Dictionary<
+            MetadataReader,
+            Dictionary<
+                TypeDefinitionHandle,
+                (bool Success, int Count)>>
+            _typeDefinitionGenericParameterCounts = [];
 
         internal IntrinsicCoreLibraryForwardedRootProjection
             GetOrAddIntrinsicCoreLibraryForwardedRoots(
@@ -116,6 +122,42 @@ public static class ApiMemberIdentity
                 _intrinsicCoreLibraryForwardedRoots.Add(reader, roots);
             }
             return roots;
+        }
+
+        internal bool TryGetTypeDefinitionGenericParameterCount(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            Action<int> charge,
+            out int count)
+        {
+            if (!_typeDefinitionGenericParameterCounts.TryGetValue(
+                    reader,
+                    out Dictionary<
+                        TypeDefinitionHandle,
+                        (bool Success, int Count)>? counts))
+            {
+                counts = [];
+                _typeDefinitionGenericParameterCounts.Add(
+                    reader,
+                    counts);
+            }
+            if (counts.TryGetValue(
+                    handle,
+                    out (bool Success, int Count) cached))
+            {
+                count = cached.Count;
+                return cached.Success;
+            }
+
+            bool success =
+                MetadataTypeDeclarationProbe
+                    .TryGetGenericParameterCount(
+                        reader,
+                        handle,
+                        charge,
+                        out count);
+            counts.Add(handle, (success, count));
+            return success;
         }
 
         internal AssemblyReferenceIdentity ProjectAssemblyReference(
@@ -1960,7 +2002,10 @@ public static class ApiMemberIdentity
                 ValidateCorrespondenceTypeDefinitionGenericArity(
                     reader,
                     handle,
-                    _workBudget);
+                    _workBudget,
+                    _correspondenceContext
+                        ?? throw new InvalidOperationException(
+                            "Correspondence construction requires an operation context."));
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[
                     MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -2894,7 +2939,10 @@ public static class ApiMemberIdentity
             ValidateCorrespondenceTypeDefinitionGenericArity(
                 reader,
                 typeHandle,
-                workBudget);
+                workBudget,
+                correspondenceContext
+                    ?? throw new InvalidOperationException(
+                        "Correspondence construction requires an operation context."));
         }
         var provider = new AnchorSignatureTypeProvider(
             workBudget,
@@ -2986,7 +3034,8 @@ public static class ApiMemberIdentity
     static int ValidateCorrespondenceTypeDefinitionGenericArity(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        AnchorSignatureWorkBudget workBudget)
+        AnchorSignatureWorkBudget workBudget,
+        MethodCorrespondenceContext correspondenceContext)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
@@ -3009,9 +3058,11 @@ public static class ApiMemberIdentity
         int enclosingGenericCount = 0;
         for (int i = 0; i < consumed; i++)
         {
-            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+            if (!correspondenceContext
+                    .TryGetTypeDefinitionGenericParameterCount(
                     reader,
                     chain[i],
+                    workBudget.Charge,
                     out int cumulativeGenericCount))
             {
                 throw new BadImageFormatException(

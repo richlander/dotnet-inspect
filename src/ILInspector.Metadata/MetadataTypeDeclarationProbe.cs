@@ -947,12 +947,36 @@ public static class MetadataTypeDeclarationProbe
         MetadataReader reader,
         TypeDefinitionHandle handle,
         out int count)
+        => TryGetGenericParameterCount(
+            reader,
+            handle,
+            beforeEnumerate: null,
+            out count);
+
+    internal static bool TryGetGenericParameterCount(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Action<int>? beforeEnumerate,
+        out int count)
     {
         count = 0;
+        GenericParameterHandleCollection parameters;
         try
         {
-            GenericParameterHandleCollection parameters =
+            parameters =
                 reader.GetTypeDefinition(handle).GetGenericParameters();
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            count = -1;
+            return false;
+        }
+
+        beforeEnumerate?.Invoke(parameters.Count);
+        try
+        {
             foreach (GenericParameterHandle parameter in parameters)
             {
                 if (reader.GetGenericParameter(parameter).Index
