@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -516,28 +517,64 @@ public static class MetadataDeclarationQuery
     /// </summary>
     /// <summary>
     /// True when <paramref name="typeDef"/> declares a member that occupies a
-    /// virtual slot it did not introduce: a virtual method that is not
-    /// <see cref="MethodAttributes.NewSlot"/>, or the body of a
-    /// <c>MethodImpl</c> row. A base type owns such a slot, so a shell that
-    /// drops the base must drop the member's <c>override</c> with it.
+    /// virtual slot on its base class that it did not introduce: a virtual
+    /// method that is not <see cref="MethodAttributes.NewSlot"/>, or the body
+    /// of a <c>MethodImpl</c> row whose declaration authenticates to a class
+    /// slot on this image's base chain. A base type owns such a slot, so a
+    /// shell that drops the base must drop the member's <c>override</c> with
+    /// it.
     ///
-    /// Read from method attribute flags and <c>MethodImpl</c> rows only; no
-    /// name or rendered signature participates. A malformed row fails closed to
-    /// <see langword="false"/>, which is the drop-the-base answer.
+    /// A <c>MethodImpl</c> row alone is not that evidence. An explicit
+    /// interface implementation is also a <c>MethodImpl</c>, and the interface
+    /// declaration it names is owned by the interface rather than the base
+    /// class, so counting rows would retain a constructed generic base for a
+    /// type that inherits no slot from it. Each row is therefore authenticated
+    /// through <see cref="GetSameAssemblyOverrideSlot"/>, which resolves the
+    /// declaration to a unique non-interface method on the authenticated base
+    /// chain and refuses anything else.
+    ///
+    /// Read from method attribute flags and authenticated <c>MethodImpl</c>
+    /// rows only; no name or rendered signature participates. A malformed row
+    /// fails closed to <see langword="false"/>, which is the drop-the-base
+    /// answer. Gated by
+    /// <c>ReusesInheritedVirtualSlot_DeclinesExplicitInterfaceOnlyMethodImpl</c>,
+    /// with
+    /// <c>ReusesInheritedVirtualSlot_AcceptsAuthenticatedClassMethodImpl</c>
+    /// and <c>ReusesInheritedVirtualSlot_AcceptsInheritedVirtualSlotFlags</c>
+    /// as its non-vacuity controls.
     /// </summary>
     public static bool ReusesInheritedVirtualSlot(MetadataReader reader, TypeDefinition typeDef)
     {
         ArgumentNullException.ThrowIfNull(reader);
         try
         {
-            if (typeDef.GetMethodImplementations().Count != 0)
-                return true;
-
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var attributes = reader.GetMethodDefinition(methodHandle).Attributes;
                 if ((attributes & MethodAttributes.Virtual) != 0
                     && (attributes & MethodAttributes.NewSlot) == 0)
+                {
+                    return true;
+                }
+            }
+
+            foreach (var implementationHandle in typeDef.GetMethodImplementations())
+            {
+                var implementation =
+                    reader.GetMethodImplementation(implementationHandle);
+                if (implementation.MethodBody.Kind
+                    != HandleKind.MethodDefinition)
+                {
+                    continue;
+                }
+
+                var bodyHandle =
+                    (MethodDefinitionHandle)implementation.MethodBody;
+                if (GetSameAssemblyOverrideSlot(
+                        reader,
+                        reader.GetMethodDefinition(bodyHandle)
+                            .GetDeclaringType(),
+                        bodyHandle) is not null)
                 {
                     return true;
                 }
@@ -617,11 +654,19 @@ public static class MetadataDeclarationQuery
     }
 
     /// <summary>
-    /// True when <paramref name="method"/> has the exact name and signature of
-    /// one of <c>System.Object</c>'s three overridable members. Every type
-    /// position is read as a primitive element type, so a hostile image cannot
-    /// satisfy this with a type reference that merely renders as
-    /// <c>string</c>, <c>int</c>, <c>bool</c>, or <c>object</c>.
+    /// True when <paramref name="method"/> has the exact name, signature
+    /// header, and signature of one of <c>System.Object</c>'s three
+    /// overridable members. Every type position is read as a primitive element
+    /// type, so a hostile image cannot satisfy this with a type reference that
+    /// merely renders as <c>string</c>, <c>int</c>, <c>bool</c>, or
+    /// <c>object</c>, and the header is required to be the source-declarable
+    /// instance default-calling-convention shape an intrinsic slot actually
+    /// has. A vararg, explicit-<c>this</c>, generic, or missing-<c>HASTHIS</c>
+    /// signature is a different slot no matter how its parameters render.
+    /// Gated by
+    /// <c>AuthenticatedObjectSlotOverride_DeclinesMalformedSignatureHeader</c>,
+    /// whose non-vacuity control is
+    /// <c>AuthenticatedObjectSlotOverride_AcceptsSameImageChainToObject</c>.
     /// </summary>
     static bool MatchesObjectIntrinsicSlot(
         MetadataReader reader,
@@ -644,6 +689,9 @@ public static class MetadataDeclarationQuery
             return false;
 
         MethodSignature<TypeNode> signature = decoded.Value;
+        if (!IsSourceDeclarableInstanceSignature(signature))
+            return false;
+
         return reader.GetString(method.Name) switch
         {
             "ToString" => signature.ParameterTypes.Length == 0
@@ -660,6 +708,24 @@ public static class MetadataDeclarationQuery
             => node is PrimitiveTypeNode primitive
                 && primitive.Name == name;
     }
+
+    /// <summary>
+    /// True when a decoded method signature carries the header a
+    /// source-declarable instance method has: the method signature kind, the
+    /// default managed calling convention, an implicit <c>this</c>, no
+    /// explicit <c>this</c>, and no vararg sentinel splitting the parameter
+    /// list. Every other header describes a member C# cannot declare and whose
+    /// slot correspondence this image therefore cannot authenticate.
+    /// </summary>
+    static bool IsSourceDeclarableInstanceSignature(
+        MethodSignature<TypeNode> signature)
+        => signature.Header.Kind == SignatureKind.Method
+            && signature.Header.CallingConvention
+                == SignatureCallingConvention.Default
+            && signature.Header.IsInstance
+            && !signature.Header.HasExplicitThis
+            && signature.RequiredParameterCount
+                == signature.ParameterTypes.Length;
 
     /// <summary>
     /// Locates the nearest same-assembly virtual slot reused by
@@ -1175,6 +1241,9 @@ public static class MetadataDeclarationQuery
         OverrideModifier ReturnModifier,
         OverrideTypeContext TypeContext,
         IReadOnlyList<OverrideParameterShape> Parameters,
+        SignatureHeader Header,
+        int GenericParameterCount,
+        int RequiredParameterCount,
         bool IsDegraded);
 
     static OverrideSlotShape GetOverrideSlotShape(
@@ -1298,6 +1367,9 @@ public static class MetadataDeclarationQuery
                 [.. typeDef.GetGenericParameters()],
                 [.. method.GetGenericParameters()]),
             parameterShapes,
+            nodeSignature.Header,
+            nodeSignature.GenericParameterCount,
+            nodeSignature.RequiredParameterCount,
             isDegraded);
     }
 
@@ -1354,8 +1426,12 @@ public static class MetadataDeclarationQuery
         OverrideSlotShape method,
         OverrideSlotShape candidate)
     {
-        if (method.IsDegraded || candidate.IsDegraded)
+        if (method.IsDegraded
+            || candidate.IsDegraded
+            || !SignatureHeadersCorrespond(method, candidate))
+        {
             return false;
+        }
 
         var budget = new OverrideCompatibilityBudget();
         bool matches = ParametersMatch(
@@ -1370,6 +1446,47 @@ public static class MetadataDeclarationQuery
                 budget);
         return matches && !budget.IsExhausted;
     }
+
+    /// <summary>
+    /// True when the implementation and the base declaration carry the same
+    /// source-relevant method signature header: signature kind, calling
+    /// convention, implicit <c>this</c>, explicit <c>this</c>, generic arity,
+    /// and required parameter count.
+    ///
+    /// Parameter and return correspondence alone does not decide slot
+    /// correspondence, because the header carries facts the decoded type list
+    /// never shows. A vararg signature's sentinel splits its parameter list, an
+    /// explicit-<c>this</c> signature passes its receiver as a declared
+    /// parameter, and a signature without <c>HASTHIS</c> is a static slot no
+    /// instance declaration occupies. Each is refused on both sides, and the
+    /// two headers must then be identical, so a source <c>override</c> is never
+    /// reconstructed over a header C# cannot spell. Gated by
+    /// <c>SameAssemblyOverrideSlot_DeclinesMalformedSignatureHeader</c> over
+    /// the vararg, explicit-<c>this</c>, and missing-<c>HASTHIS</c> shapes,
+    /// whose non-vacuity controls are
+    /// <c>SameAssemblyOverrideSlot_AllowsSourceDeclarableSignatureHeader</c>
+    /// and
+    /// <c>SameAssemblyOverrideSlot_UsesCompilerProducedCovariantMethodImpl</c>.
+    /// </summary>
+    static bool SignatureHeadersCorrespond(
+        OverrideSlotShape method,
+        OverrideSlotShape candidate)
+        => IsSourceDeclarableInstanceHeader(method)
+            && IsSourceDeclarableInstanceHeader(candidate)
+            && method.Header.RawValue == candidate.Header.RawValue
+            && method.GenericParameterCount
+                == candidate.GenericParameterCount
+            && method.RequiredParameterCount
+                == candidate.RequiredParameterCount;
+
+    static bool IsSourceDeclarableInstanceHeader(
+        OverrideSlotShape shape)
+        => shape.Header.Kind == SignatureKind.Method
+            && shape.Header.CallingConvention
+                == SignatureCallingConvention.Default
+            && shape.Header.IsInstance
+            && !shape.Header.HasExplicitThis
+            && shape.RequiredParameterCount == shape.Parameters.Count;
 
     static bool ParametersMatch(
         MetadataReader reader,
@@ -1448,7 +1565,13 @@ public static class MetadataDeclarationQuery
         }
 
         if (IsObject(candidate.ReturnTypeNode))
-            return true;
+        {
+            return ConvertsToObjectReturn(
+                reader,
+                method.ReturnTypeNode,
+                method.TypeContext,
+                budget);
+        }
         if (IsObject(method.ReturnTypeNode))
             return false;
 
@@ -1509,6 +1632,64 @@ public static class MetadataDeclarationQuery
             methodReturnHandle,
             candidate.ReturnTypeNode,
             candidateReturnHandle,
+            budget);
+    }
+
+    /// <summary>
+    /// True when the implementation return converts to a base declaration
+    /// whose return is a plain <c>object</c>.
+    ///
+    /// Every reference type converts to <c>object</c> in the CLR, but a
+    /// reconstructed source <c>override</c> needs more than that. The
+    /// declaration carries no wrapper, so a modified, pinned, byref, or
+    /// otherwise wrapped implementation return is the wrapper asymmetry the
+    /// modifier rules already refuse -- the shapes are checked here rather than
+    /// assumed, because a wrapper's reference-ness reads through to its inner
+    /// type and would otherwise answer for the wrapper itself. Every
+    /// current-image definition the implementation return reaches must also
+    /// resolve uniquely, so an ambiguous or unavailable local definition
+    /// declines instead of riding the universal conversion. The remaining
+    /// shapes prove reference-ness through
+    /// <see cref="TypeIsAuthenticatedReferenceType"/>, which validates a
+    /// generic parameter's whole constraint set first. Gated by
+    /// <c>SameAssemblyOverrideSlot_DeclinesModifiedReturnAgainstObjectDeclaration</c>
+    /// and
+    /// <c>SameAssemblyOverrideSlot_DeclinesAmbiguousExactLocalReturnAgainstObjectDeclaration</c>,
+    /// whose non-vacuity control is
+    /// <c>SameAssemblyOverrideSlot_AllowsExactLocalReferenceReturnAgainstObjectDeclaration</c>.
+    /// </summary>
+    static bool ConvertsToObjectReturn(
+        MetadataReader reader,
+        TypeNode implementation,
+        OverrideTypeContext context,
+        OverrideCompatibilityBudget budget)
+    {
+        if (!budget.TryCharge() || implementation.IsDegraded)
+            return false;
+
+        // An allow list rather than a rejection list: a shape this comparison
+        // does not know is not proof of anything.
+        if (implementation is not (NamedTypeNode
+            or GenericTypeNode
+            or SZArrayTypeNode
+            or MDArrayTypeNode
+            or PrimitiveTypeNode
+            or GenericParameterNode))
+        {
+            return false;
+        }
+
+        if (HasUnavailableOrAmbiguousExactLocalDefinition(
+                reader,
+                implementation))
+        {
+            return false;
+        }
+
+        return TypeIsAuthenticatedReferenceType(
+            reader,
+            implementation,
+            context,
             budget);
     }
 
@@ -1622,11 +1803,13 @@ public static class MetadataDeclarationQuery
                 || !TypeIsAuthenticatedReferenceType(
                     reader,
                     methodSz.ElementType,
-                    methodContext)
+                    methodContext,
+                    budget)
                 || !TypeIsAuthenticatedReferenceType(
                     reader,
                     candidateSz.ElementType,
-                    candidateContext))
+                    candidateContext,
+                    budget))
             {
                 return OverrideCompatibility.Incompatible;
             }
@@ -1650,11 +1833,13 @@ public static class MetadataDeclarationQuery
                 && TypeIsAuthenticatedReferenceType(
                     reader,
                     methodMd.ElementType,
-                    methodContext)
+                    methodContext,
+                    budget)
                 && TypeIsAuthenticatedReferenceType(
                     reader,
                     candidateMd.ElementType,
-                    candidateContext)
+                    candidateContext,
+                    budget)
                 ? CompareVariantTypeArguments(
                     reader,
                     methodMd.ElementType,
@@ -1668,14 +1853,30 @@ public static class MetadataDeclarationQuery
         if (method is not GenericTypeNode methodGeneric
             || candidate is not GenericTypeNode candidateGeneric
             || !GenericDefinitionsCorrespond(
-               methodGeneric,
-               candidateGeneric)
-            || methodGeneric.Arguments.Length
-               != candidateGeneric.Arguments.Length
-            || !TryFindExactLocalTypeDefinition(
-               reader,
-               methodGeneric,
-               out TypeDefinitionHandle genericDefinitionHandle))
+                methodGeneric,
+                candidateGeneric))
+        {
+            return OverrideCompatibility.Unknown;
+        }
+
+        // Corresponding definitions whose constructions disagree on how many
+        // arguments they carry -- against each other, or against the arity the
+        // definition's own encoded name declares -- are structurally different
+        // types. That is a disproof this image owns even when the definition
+        // itself lives outside it, so it is Incompatible rather than the
+        // let-the-compiler-decide Unknown an exact external construction earns.
+        if (methodGeneric.Arguments.Length
+                != candidateGeneric.Arguments.Length
+            || !EncodedArgumentCountAgrees(methodGeneric)
+            || !EncodedArgumentCountAgrees(candidateGeneric))
+        {
+            return OverrideCompatibility.Incompatible;
+        }
+
+        if (!TryFindExactLocalTypeDefinition(
+                reader,
+                methodGeneric,
+                out TypeDefinitionHandle genericDefinitionHandle))
         {
             return OverrideCompatibility.Unknown;
         }
@@ -1703,6 +1904,9 @@ public static class MetadataDeclarationQuery
             return OverrideCompatibility.Unknown;
         }
 
+        bool ownerMayDeclareVariance = OwnerMayDeclareVariance(
+            reader,
+            genericDefinitionHandle);
         bool hasUnknown = false;
         for (int index = 0;
             index < genericParameters.Length;
@@ -1718,6 +1922,12 @@ public static class MetadataDeclarationQuery
             GenericParameterAttributes variance =
                 genericParameters[index].Attributes
                 & GenericParameterAttributes.VarianceMask;
+            if (variance != GenericParameterAttributes.None
+                && !ownerMayDeclareVariance)
+            {
+                return OverrideCompatibility.Incompatible;
+            }
+
             OverrideCompatibility argumentCompatibility =
                 variance switch
                 {
@@ -1874,15 +2084,18 @@ public static class MetadataDeclarationQuery
 
         if (IsObject(candidate))
         {
-            return TypeParameterKindClassifier.Classify(
+            // The reference-type flag proves conversion to object, but only
+            // once the parameter's whole constraint set is known to decode:
+            // a degraded or non-uniquely-resolving sibling constraint is
+            // malformed current-image evidence about this very parameter, and
+            // accepting the flag anyway would let metadata order decide
+            // whether that evidence is fatal.
+            return GenericParameterProvesReferenceType(
                     reader,
+                    method,
                     parameterHandle,
-                    method.HasValueTypeConstraint,
-                    method.HasReferenceTypeConstraint,
-                    new TypeParameterKindClassifier
-                        .ChainState())
-                    == TypeParameterTypeKind
-                        .ReferenceType
+                    methodContext,
+                    budget)
                 ? OverrideCompatibility.Compatible
                 : OverrideCompatibility.Incompatible;
         }
@@ -2124,7 +2337,8 @@ public static class MetadataDeclarationQuery
     static bool TypeIsAuthenticatedReferenceType(
         MetadataReader reader,
         TypeNode type,
-        OverrideTypeContext context)
+        OverrideTypeContext context,
+        OverrideCompatibilityBudget budget)
     {
         if (type.IsDegraded)
             return false;
@@ -2133,7 +2347,8 @@ public static class MetadataDeclarationQuery
             return TypeIsAuthenticatedReferenceType(
                 reader,
                 passthrough.Inner,
-                context);
+                context,
+                budget);
 
         if (type is not GenericParameterNode parameter)
             return type.IsReferenceType;
@@ -2142,15 +2357,72 @@ public static class MetadataDeclarationQuery
                 parameter,
                 context,
                 out GenericParameterHandle parameterHandle)
-            && TypeParameterKindClassifier.Classify(
+            && GenericParameterProvesReferenceType(
+                reader,
+                parameter,
+                parameterHandle,
+                context,
+                budget);
+    }
+
+    /// <summary>
+    /// True when a type parameter's own metadata proves it is a reference
+    /// type: its complete constraint set decodes cleanly under
+    /// <paramref name="budget"/>, and the classifier then reports
+    /// <see cref="TypeParameterTypeKind.ReferenceType"/>.
+    ///
+    /// The constraint-set validation is not redundant with the classifier. The
+    /// classifier answers from the reference-type flag and the constraint
+    /// chain it needs, so a sibling constraint that decodes degraded or does
+    /// not resolve to a unique local definition never reaches it. That sibling
+    /// is malformed evidence about this parameter, and reference-ness is what
+    /// authorizes both <c>T</c>-to-object correspondence and generic array
+    /// covariance, so it fails the relationship closed rather than being
+    /// ignored. A parameter constrained only by the reference-type flag has an
+    /// empty constraint set, decodes trivially, and remains accepted. Gated by
+    /// <c>SameAssemblyOverrideSlot_DeclinesDegradedSiblingConstraintForObjectReturn</c>
+    /// and
+    /// <c>SameAssemblyOverrideSlot_DeclinesDegradedSiblingConstraintForArrayCovariance</c>,
+    /// whose non-vacuity controls are
+    /// <c>SameAssemblyOverrideSlot_AllowsReferenceConstrainedGenericCovariantMethodImpl</c>,
+    /// <c>SameAssemblyOverrideSlot_AllowsAuthenticatedReferenceConstraintForObjectReturn</c>,
+    /// and
+    /// <c>SameAssemblyOverrideSlot_AllowsReferenceFlagOnlyConstraintForArrayCovariance</c>.
+    /// </summary>
+    static bool GenericParameterProvesReferenceType(
+        MetadataReader reader,
+        GenericParameterNode parameter,
+        GenericParameterHandle parameterHandle,
+        OverrideTypeContext context,
+        OverrideCompatibilityBudget budget)
+    {
+        try
+        {
+            if (!TryDecodeConstraintSet(
                     reader,
-                    parameterHandle,
-                    parameter.HasValueTypeConstraint,
-                    parameter.HasReferenceTypeConstraint,
-                    new TypeParameterKindClassifier
-                        .ChainState())
-                == TypeParameterTypeKind
-                    .ReferenceType;
+                    reader.GetGenericParameter(parameterHandle),
+                    context,
+                    budget,
+                    out _))
+            {
+                return false;
+            }
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return false;
+        }
+
+        return TypeParameterKindClassifier.Classify(
+                reader,
+                parameterHandle,
+                parameter.HasValueTypeConstraint,
+                parameter.HasReferenceTypeConstraint,
+                new TypeParameterKindClassifier.ChainState())
+            == TypeParameterTypeKind.ReferenceType;
     }
 
     static bool ArrayShapesCorrespond(
@@ -2216,6 +2488,72 @@ public static class MetadataDeclarationQuery
         GenericTypeNode left,
         GenericTypeNode right)
         => TypeDefinitionsCorrespond(left, right);
+
+    /// <summary>
+    /// True when a constructed generic carries exactly as many arguments as
+    /// the arity its own encoded definition name declares, summed over every
+    /// nested segment. A construction that disagrees with its definition's
+    /// encoded arity is malformed, and the disagreement is readable without
+    /// resolving the definition, so it disproves correspondence for external
+    /// definitions too. A node that carries no encoded counts states no arity
+    /// to disagree with and is left to the checks that follow.
+    /// </summary>
+    static bool EncodedArgumentCountAgrees(GenericTypeNode type)
+    {
+        if (type.MetadataNameParts is not { } parts)
+            return true;
+
+        if (parts.IntroducedTypeParameterCounts is { } counts)
+            return counts.Sum() == type.Arguments.Length;
+
+        // A reference has no metadata-verified counts -- reading them would
+        // mean loading the referenced assembly, which this product does not do
+        // -- so its own encoded name is the only arity it states. A name that
+        // carries no canonical suffix at all states none, and is left to the
+        // checks that follow.
+        int declared = GenericArity(parts.Segments);
+        return declared == 0
+            || declared == type.Arguments.Length;
+    }
+
+    /// <summary>
+    /// True when a generic definition in this image is a kind the CLI lets
+    /// declare variant type parameters: an interface, or a delegate whose base
+    /// resolves through an authenticated core library.
+    ///
+    /// Variance is metadata a class may not carry, so honoring a variance flag
+    /// on a class owner would let a malformed image widen argument
+    /// correspondence into a covariant or contravariant comparison the runtime
+    /// never performs. Delegate-ness is authenticated the same way the object
+    /// root is, because a local type merely spelled <c>System.MulticastDelegate</c>
+    /// is not evidence. Gated by
+    /// <c>SameAssemblyOverrideSlot_DeclinesVarianceOnIneligibleOwner</c> over
+    /// the class and impersonating-delegate owners, whose non-vacuity controls
+    /// are <c>SameAssemblyOverrideSlot_AllowsVarianceOnEligibleOwner</c> over
+    /// the interface and delegate owners and
+    /// <c>SameAssemblyOverrideSlot_AllowsCompilerProducedNestedGenericVariance</c>.
+    /// </summary>
+    static bool OwnerMayDeclareVariance(
+        MetadataReader reader,
+        TypeDefinitionHandle definitionHandle)
+    {
+        try
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(definitionHandle);
+            return (definition.Attributes & TypeAttributes.Interface) != 0
+                || ApiSurfaceExtractor.IsCoreLibraryDelegateBaseType(
+                    reader,
+                    definition.BaseType);
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     static bool HasGenericShape(TypeNode type)
         => type is GenericTypeNode
@@ -2458,7 +2796,10 @@ public static class MetadataDeclarationQuery
     /// predicate is consulted.
     ///
     /// Fails closed. A supertype outside this image, an unrecorded
-    /// instantiation, a degraded or undecodable row, a cycle, more than
+    /// instantiation, a degraded or undecodable row, a cycle, an instantiation
+    /// whose exact identity would expand past
+    /// <see cref="MetadataSafetyPolicy.MaxExactInstantiationIdentityChars"/>,
+    /// more than
     /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/> distinct
     /// ancestors, and an exhausted comparison budget all decline rather than
     /// authenticate. Gated by
@@ -2491,6 +2832,8 @@ public static class MetadataDeclarationQuery
 
         var pending = new Queue<OverrideBaseInstantiation>();
         var visited = new HashSet<string>(StringComparer.Ordinal);
+        var identities = new Dictionary<TypeNode, string>(
+            ReferenceEqualityComparer.Instance);
         var supertypes = new List<OverrideBaseInstantiation>();
         pending.Enqueue(
             new OverrideBaseInstantiation(
@@ -2506,7 +2849,16 @@ public static class MetadataDeclarationQuery
             }
 
             OverrideBaseInstantiation current = pending.Dequeue();
-            if (!visited.Add(InstantiationKey(current)))
+            if (!TryGetInstantiationKey(
+                    current,
+                    identities,
+                    budget,
+                    out string? key))
+            {
+                return false;
+            }
+
+            if (!visited.Add(key))
                 continue;
 
             if (current.Definition == declarationHandle
@@ -2611,26 +2963,92 @@ public static class MetadataDeclarationQuery
     /// Identifies one ancestry step by its exact definition token and the
     /// exact structural identity of every argument, so a diamond is visited
     /// once while two different instantiations of the same definition stay
-    /// distinct. A self-referential base that keeps producing new
-    /// instantiations is bounded by the caller's node cap and comparison
-    /// budget rather than by this set.
+    /// distinct.
+    ///
+    /// A substituted step is a DAG whose nodes are shared, but its structural
+    /// identity is the expanded tree, and a base that squares its own
+    /// instantiation each step doubles that tree per step. The expanded size
+    /// is therefore charged to <paramref name="budget"/> and checked against
+    /// <see cref="MetadataSafetyPolicy.MaxExactInstantiationIdentityChars"/>
+    /// from each argument's precomputed estimate <em>before</em> any text is
+    /// materialized, so the walk declines within bounded memory instead of
+    /// exhausting it below the node ceiling. Identity remains exact: nothing
+    /// is truncated or hashed, and a step whose identity cannot be taken
+    /// exactly is refused, never approximated. Gated by
+    /// <c>SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosed</c>
+    /// and
+    /// <c>SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosedWithinMemory</c>,
+    /// whose non-vacuity control is the exact-instantiation assertion
+    /// <c>BranchingConstructedAncestryWorker</c> makes in the same
+    /// heap-limited child process, plus
+    /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry</c>.
     /// </summary>
-    static string InstantiationKey(OverrideBaseInstantiation type)
+    static bool TryGetInstantiationKey(
+        OverrideBaseInstantiation type,
+        Dictionary<TypeNode, string> identities,
+        OverrideCompatibilityBudget budget,
+        [NotNullWhen(true)] out string? key)
     {
+        key = null;
+        if (!budget.TryCharge())
+            return false;
+
         var builder = new StringBuilder();
         builder.Append(
             MetadataTokens.GetToken(type.Definition)
                 .ToString(CultureInfo.InvariantCulture));
         if (type.TypeArguments is { } arguments)
         {
+            long estimate = 0;
+            foreach (TypeNode argument in arguments)
+            {
+                estimate += argument.EstimatedRenderedLength;
+                if (estimate
+                    > MetadataSafetyPolicy
+                        .MaxExactInstantiationIdentityChars)
+                {
+                    return false;
+                }
+            }
+
+            // One charge per node-sized unit of the expansion about to be
+            // materialized, so a step whose identity is legitimately large
+            // still spends budget proportional to the work it costs.
+            for (long charged = 0; charged < estimate; charged += 64)
+            {
+                if (!budget.TryCharge())
+                    return false;
+            }
+
             foreach (TypeNode argument in arguments)
             {
                 builder.Append('|');
-                builder.Append(argument.StructuralIdentity());
+                builder.Append(
+                    ExactStructuralIdentity(argument, identities));
             }
         }
 
-        return builder.ToString();
+        key = builder.ToString();
+        return true;
+    }
+
+    /// <summary>
+    /// The exact structural identity of one argument node, memoized by
+    /// reference across a single ancestry walk. Substitution shares node
+    /// instances between steps, so memoizing keeps a repeated argument from
+    /// re-expanding; the expansion itself is already bounded by
+    /// <see cref="TryGetInstantiationKey"/>.
+    /// </summary>
+    static string ExactStructuralIdentity(
+        TypeNode node,
+        Dictionary<TypeNode, string> identities)
+    {
+        if (identities.TryGetValue(node, out string? identity))
+            return identity;
+
+        identity = node.StructuralIdentity();
+        identities[node] = identity;
+        return identity;
     }
 
     public static MetadataPropertyDeclaration GetProperty(
@@ -2822,26 +3240,51 @@ public static class MetadataDeclarationQuery
         }
     }
 
+    /// <summary>
+    /// The unique property in <paramref name="typeHandle"/> that
+    /// <paramref name="accessorHandle"/> is an accessor of.
+    ///
+    /// Well-formed metadata associates an accessor with at most one property,
+    /// but nothing in the format enforces it, and the association decides
+    /// which declaration's accessibility a reconstructed accessor inherits.
+    /// Taking the first matching row would let the answer depend on row order,
+    /// so a second association refuses instead: the scan continues past the
+    /// first match and declines when more than one property claims the
+    /// accessor. Gated by
+    /// <c>PropertyDeclaration_DeclinesAccessorClaimedByMultipleProperties</c>
+    /// over both metadata row orders, whose non-vacuity control is
+    /// <c>PropertyDeclaration_UsesUniquePropertyAssociationForAccessor</c>.
+    /// </summary>
     static bool TryGetPropertyForAccessor(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle accessorHandle,
         out PropertyDefinition property)
     {
+        property = default;
+        bool found = false;
         var typeDef = reader.GetTypeDefinition(typeHandle);
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var candidate = reader.GetPropertyDefinition(propertyHandle);
             var accessors = candidate.GetAccessors();
-            if (accessors.Getter == accessorHandle || accessors.Setter == accessorHandle)
+            if (accessors.Getter != accessorHandle
+                && accessors.Setter != accessorHandle)
             {
-                property = candidate;
-                return true;
+                continue;
             }
+
+            if (found)
+            {
+                property = default;
+                return false;
+            }
+
+            property = candidate;
+            found = true;
         }
 
-        property = default;
-        return false;
+        return found;
     }
 
     public static MetadataFieldDeclaration GetField(

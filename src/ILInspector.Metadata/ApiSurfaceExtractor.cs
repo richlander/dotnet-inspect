@@ -3666,6 +3666,67 @@ public static class ApiSurfaceExtractor
         }
     }
 
+    /// <summary>
+    /// True when <paramref name="typeHandle"/> is the base a delegate
+    /// definition carries: <c>System.Delegate</c> or
+    /// <c>System.MulticastDelegate</c>, authenticated the same way the object
+    /// root is rather than accepted on spelling.
+    ///
+    /// A cross-assembly reference must resolve through a recognized core
+    /// library, matched by assembly name and strong-name public-key token. A
+    /// same-image definition counts only when this image is itself that core
+    /// library, so an arbitrary assembly cannot manufacture delegate-ness by
+    /// declaring its own <c>System.MulticastDelegate</c>. Every other handle
+    /// kind, including a constructed <c>TypeSpec</c>, fails closed.
+    /// </summary>
+    internal static bool IsCoreLibraryDelegateBaseType(
+        MetadataReader reader,
+        EntityHandle typeHandle)
+    {
+        try
+        {
+            switch (typeHandle.Kind)
+            {
+                case HandleKind.TypeReference:
+                    TypeReference typeRef =
+                        reader.GetTypeReference(
+                            (TypeReferenceHandle)typeHandle);
+                    return reader.StringComparer.Equals(
+                            typeRef.Namespace,
+                            "System")
+                        && IsDelegateRootName(reader, typeRef.Name)
+                        && ResolvesThroughCoreLibrary(
+                            reader,
+                            typeRef.ResolutionScope);
+                case HandleKind.TypeDefinition:
+                    TypeDefinition definition =
+                        reader.GetTypeDefinition(
+                            (TypeDefinitionHandle)typeHandle);
+                    return definition.GetDeclaringType().IsNil
+                        && reader.StringComparer.Equals(
+                            definition.Namespace,
+                            "System")
+                        && IsDelegateRootName(reader, definition.Name)
+                        && CoreLibraryRootAuthentication
+                            .DeclaresUniqueTopLevelCoreLibraryRoot(reader);
+                default:
+                    return false;
+            }
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+
+        static bool IsDelegateRootName(
+            MetadataReader reader,
+            StringHandle name)
+            => reader.StringComparer.Equals(name, "MulticastDelegate")
+                || reader.StringComparer.Equals(name, "Delegate");
+    }
+
     // The reference assemblies and runtime cores that define the real
     // System.Object, paired with the strong-name public-key token(s) each is
     // legitimately signed with. `mscorlib` shipped under several Microsoft

@@ -34,8 +34,8 @@ internal static class OverrideBaseChain
     /// <summary>
     /// Walks the same-image base chain of <paramref name="derivedHandle"/>,
     /// stopping at the first base that leaves this image, is not a constructed
-    /// generic instantiation of a same-image definition, or cannot be decoded.
-    /// The chain is bounded by
+    /// generic instantiation of a same-image definition, is not a class, or
+    /// cannot be decoded. The chain is bounded by
     /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>.
     /// </summary>
     internal static List<OverrideBaseInstantiation> SameAssemblyBases(
@@ -93,8 +93,14 @@ internal static class OverrideBaseChain
                 return chain;
             }
 
-            if (!visited.Add(nextHandle))
+            if (!MatchesSupertypeRole(
+                    reader,
+                    nextHandle,
+                    SupertypeRole.BaseClass)
+                || !visited.Add(nextHandle))
+            {
                 return chain;
+            }
 
             chain.Add(new OverrideBaseInstantiation(nextHandle, nextArguments));
             current = nextHandle;
@@ -109,7 +115,8 @@ internal static class OverrideBaseChain
     /// inside this image until the chain terminates at the authenticated
     /// <c>System.Object</c> of a recognized core library. A base that leaves
     /// the image as anything else, an undecodable or non-constructed generic
-    /// base, a cycle, and a chain longer than
+    /// base, a base step that is an interface rather than a class, a cycle,
+    /// and a chain longer than
     /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/> all fail closed,
     /// because each leaves room for an unseen base to own the slot.
     /// </summary>
@@ -166,8 +173,14 @@ internal static class OverrideBaseChain
                 return false;
             }
 
-            if (!visited.Add(next))
+            if (!MatchesSupertypeRole(
+                    reader,
+                    next,
+                    SupertypeRole.BaseClass)
+                || !visited.Add(next))
+            {
                 return false;
+            }
 
             current = next;
         }
@@ -186,9 +199,10 @@ internal static class OverrideBaseChain
     /// Fails closed by omission. A supertype that leaves this image, a
     /// <c>TypeDef</c> row naming a generic definition whose arguments the row
     /// cannot carry, a <c>TypeSpec</c> that is not a generic instantiation of
-    /// a same-image definition, and any undecodable, degraded, or over-budget
-    /// row are all left out, so no caller can prove ancestry through evidence
-    /// this image does not carry. Gated by
+    /// a same-image definition, a row whose target contradicts its role --
+    /// see <see cref="MatchesSupertypeRole"/> -- and any undecodable,
+    /// degraded, or over-budget row are all left out, so no caller can prove
+    /// ancestry through evidence this image does not carry. Gated by
     /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantReturnThroughConstructedGenericAncestry</c>,
     /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantInterfaceReturnThroughConstructedGenericAncestry</c>,
     /// and
@@ -219,6 +233,7 @@ internal static class OverrideBaseChain
                 definition,
                 type.TypeArguments,
                 baseHandle,
+                SupertypeRole.BaseClass,
                 out OverrideBaseInstantiation baseType))
         {
             supertypes.Add(baseType);
@@ -237,6 +252,7 @@ internal static class OverrideBaseChain
                         definition,
                         type.TypeArguments,
                         interfaceHandle,
+                        SupertypeRole.Interface,
                         out OverrideBaseInstantiation implemented))
                 {
                     supertypes.Add(implemented);
@@ -256,6 +272,7 @@ internal static class OverrideBaseChain
         TypeDefinition declaringType,
         ImmutableArray<TypeNode>? substitution,
         EntityHandle handle,
+        SupertypeRole role,
         out OverrideBaseInstantiation supertype)
     {
         supertype = default;
@@ -265,8 +282,11 @@ internal static class OverrideBaseChain
         if (handle.Kind == HandleKind.TypeDefinition)
         {
             var definition = (TypeDefinitionHandle)handle;
-            if (!IsNonGenericDefinition(reader, definition))
+            if (!IsNonGenericDefinition(reader, definition)
+                || !MatchesSupertypeRole(reader, definition, role))
+            {
                 return false;
+            }
 
             supertype = new OverrideBaseInstantiation(definition, null);
             return true;
@@ -279,7 +299,8 @@ internal static class OverrideBaseChain
                 declaringType,
                 substitution,
                 out TypeDefinitionHandle instantiated,
-                out ImmutableArray<TypeNode> arguments))
+                out ImmutableArray<TypeNode> arguments)
+            || !MatchesSupertypeRole(reader, instantiated, role))
         {
             return false;
         }
@@ -433,6 +454,57 @@ internal static class OverrideBaseChain
                 (TypeNode)new DegradedTypeNode());
             decoded = node as GenericTypeNode;
             return decoded is not null;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The role a supertype row plays for the type that carries it. A
+    /// <c>TypeDef.Extends</c> row is a base class; an
+    /// <c>InterfaceImpl.Interface</c> row is an interface.
+    /// </summary>
+    internal enum SupertypeRole
+    {
+        BaseClass,
+        Interface,
+    }
+
+    /// <summary>
+    /// True when a same-image supertype definition is the kind its row claims
+    /// it is: a class for a base-class row, an interface for an
+    /// <c>InterfaceImpl</c> row.
+    ///
+    /// The two roles carry different slot semantics -- a base class supplies
+    /// inherited virtual slots and a covariant return's class ancestry, an
+    /// interface supplies neither -- and the CLI never lets one stand in for
+    /// the other. Nothing in the format prevents a malformed image from
+    /// writing an interface into <c>Extends</c> or a class into
+    /// <c>InterfaceImpl</c>, so the claim is checked against the target's own
+    /// <see cref="TypeAttributes.Interface"/> flag rather than trusted. Gated
+    /// by
+    /// <c>SameAssemblyOverrideSlot_DeclinesInterfaceImplementationNamingAClass</c>
+    /// and
+    /// <c>SameAssemblyOverrideSlot_DeclinesBaseTypeNamingAnInterface</c>,
+    /// whose non-vacuity control is
+    /// <c>SameAssemblyOverrideSlot_AuthenticatesCovariantInterfaceReturnThroughConstructedGenericAncestry</c>.
+    /// </summary>
+    static bool MatchesSupertypeRole(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        SupertypeRole role)
+    {
+        try
+        {
+            bool isInterface =
+                (reader.GetTypeDefinition(handle).Attributes
+                    & TypeAttributes.Interface) != 0;
+            return isInterface == (role == SupertypeRole.Interface);
         }
         catch (Exception exception)
             when (exception is BadImageFormatException

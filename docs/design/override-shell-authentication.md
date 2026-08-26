@@ -92,8 +92,15 @@ A virtual `NewSlot` method or property accessor is reconstructed as a source
    static/instance shape.
 3. Parameters correspond exactly by scoped structural identity and
    ref/out/in shape.
-4. Return modifiers correspond exactly.
-5. Return types are equal or the compatibility matrix below permits a
+4. The two signature headers correspond in every source-relevant fact: both
+   are managed method signatures with instance `this`, no explicit `this`, the
+   default calling convention rather than vararg, the same generic arity, and
+   the same required parameter count. A header fact the decoded parameter list
+   never shows -- a vararg sentinel splitting that list, a receiver passed as a
+   declared parameter, a static slot no instance declaration occupies -- is
+   refused on both sides rather than compared away.
+5. Return modifiers correspond exactly.
+6. Return types are equal or the compatibility matrix below permits a
    covariant conversion.
 
 An interface declaration, unrelated class declaration, ambiguous declaration,
@@ -113,10 +120,29 @@ instantiation of a definition in this image, a `MemberRef` that does not resolve
 to exactly one method on an authenticated chain step, and an instantiation whose
 arguments do not correspond all decline. No step matches a rendered name.
 
+Each supertype step is also validated for the role its metadata row claims. An
+`extends` target must be a class and an `InterfaceImpl` target must be an
+interface, whether the row names a `TypeDef` directly or a constructed
+`TypeSpec` over one. Nothing in the format enforces that pairing, and the roles
+carry different authority: a class base owns virtual slots and constructor
+exposure, while an interface row does not. An `InterfaceImpl` naming a class,
+or an `extends` naming an interface, is malformed evidence about the hierarchy
+and declines rather than being read as the other kind. The base-only walks --
+the class chain and the walk to the authenticated `System.Object` root -- accept
+class steps alone for the same reason.
+
 A reconstructed shell spells a same-assembly base reached directly, and one
 reached through a constructed generic `TypeSpec` when the same Metadata-owned
 traversal resolves it to a definition in this image *and* the derived type reuses
-a virtual slot it did not introduce. A constructed base is otherwise left
+a virtual slot it did not introduce. That reuse is itself authenticated: either
+the type declares a virtual method that is not `NewSlot` -- the inherited-slot
+flags a compiler emits for an implicit `override` -- or one of its `MethodImpl`
+rows resolves to an authenticated class override slot on the base chain. The
+presence of a `MethodImpl` row alone is not reuse. An explicit interface
+implementation is a private `newslot virtual final` method plus a `MethodImpl`,
+so it carries the same row while occupying a slot the interface introduced, and
+retaining a constructed generic base on that evidence would spell a base the
+type never inherited a slot from. A constructed base is otherwise left
 dropped, because a closed instantiation whose only constructor is parameterized
 carries the same implicit-`base()` exposure an external base does. An external
 base is always dropped because the shell cannot own its construction, and
@@ -124,9 +150,12 @@ dropping a base drops `override` from every member whose slot that base owned.
 
 An `Object` intrinsic slot is authenticated the same way. `ToString`,
 `GetHashCode`, and `Equals(object)` reuse `System.Object`'s slot only when the
-method is non-static, non-`NewSlot`, non-generic, its signature matches the
-intrinsic read from primitive element types rather than from a rendered name,
-and its same-image base chain terminates at the strong-name-authenticated
+method is non-static, non-`NewSlot`, non-generic, its signature header is one a
+source declaration can occupy -- a managed method signature with instance
+`this`, no explicit `this`, the default calling convention rather than vararg,
+and a parameter list its own required count agrees with -- its signature matches
+the intrinsic read from primitive element types rather than from a rendered
+name, and its same-image base chain terminates at the strong-name-authenticated
 corelib `System.Object`. A base that leaves the image is not proof of the
 `Object` slot, because that base may declare its own `NewSlot` virtual of the
 same shape.
@@ -159,6 +188,19 @@ Every current-image named definition reachable through the structural tree must
 resolve uniquely. Wrapper nodes preserve their own shape while current-image
 fail-closed inspection descends into their children.
 
+Identity is also the visited state of the ancestry walk, and a substituted
+ancestry step is a DAG whose nodes are shared while its structural identity is
+the expanded tree. A base that instantiates itself over a pair of its own
+argument -- `Middle<T> : Middle<Pair<T, T>>` -- therefore doubles that tree per
+step and exhausts hundreds of megabytes long before the relationship node
+ceiling is reached, because the ceiling counts steps rather than the size of
+each step. The expanded size is bounded before any text is materialized: each
+step's identity is charged to the shared comparison budget from the arguments'
+precomputed size estimates, refused outright above the exact-identity character
+cap, and memoized per node so a shared subgraph is spelled once. The identity
+that results is still exact -- nothing is hashed, truncated, or approximated --
+and a step whose identity cannot be taken exactly declines.
+
 ## Return compatibility matrix
 
 In the table, *implementation* is the reconstructed member and *declaration* is
@@ -171,18 +213,37 @@ the authenticated base slot.
 | SZ arrays | Both are SZ arrays; both element types are authenticated reference types; recurse covariantly on elements | Element result |
 | Multidimensional arrays | Both are MD arrays with identical rank, sizes, and lower bounds; both elements are authenticated reference types; recurse covariantly | Element result |
 | Constructed local generics | One exact local generic definition resolves uniquely; arity and every argument correspond under its declared variance | Aggregate argument result |
-| Constructed external generics | Definition identities correspond, no current-image dependency is missing, and local variance metadata is unavailable | `Unknown` for compiler validation |
+| Constructed external generics | Definition identities correspond, no current-image dependency is missing, argument counts agree with each other and with the arity each encoded definition name declares, and local variance metadata is unavailable | `Unknown` for compiler validation |
+| Constructed external generics whose argument counts disagree | Counts differ between the two sides, or a side's count differs from the arity its own encoded definition name declares | `Incompatible` |
 | Local named types | Both exact definitions resolve uniquely | `Compatible` only when the implementation is the same as or derives from or implements the declaration |
 | Local named ancestry through constructed bases or interfaces | Every step is a same-image `TypeDef` or a constructed `TypeSpec` over a definition in this image, with substituted arguments carried forward | `Compatible` only on an exact definition-token and exact-instantiation match within the shared budget |
 | External named types | Exact scopes authenticate but hierarchy is unavailable | `Unknown`, unless same-name/different-scope evidence disproves correspondence |
 | Generic implementation parameter | The generic-parameter rules below establish equality or conversion | Rule result |
 | Generic declaration parameter only | No covariant conversion can be proved | `Incompatible` |
+| Declaration is plain `object` | The implementation is an unwrapped named, constructed, array, primitive, or generic-parameter shape whose every reachable current-image definition resolves uniquely, and that shape is an authenticated reference type | `Compatible` |
 | Value or degraded shape | No authenticated reference conversion exists | `Incompatible` |
 
 Invariant generic arguments require exact structural correspondence. Covariant
 and contravariant arguments recurse in their declared direction. A local
 same-spelled generic definition never supplies variance for an external
 definition.
+
+Variance flags are honored only from a definition the CLI lets declare them: an
+interface, or a delegate whose base resolves through the authenticated core
+library on the same terms as the `System.Object` root. A class may not declare
+a variant type parameter at all, so honoring the flag on a class owner would let
+a malformed image widen an invariant argument comparison into a covariant one
+the runtime never performs. A variance flag on an ineligible owner fails the
+comparison closed rather than being ignored, because ignoring it would silently
+accept the malformed row as invariant metadata.
+
+Conversion to a plain `object` declaration is decided in that order too. Wrapper
+symmetry and unique current-image resolution are established first, so a
+modified or pinned implementation returning plain `object` declines for
+asymmetry rather than being read through its wrapper, and an implementation
+whose exact local definition is unavailable or ambiguous declines rather than
+being accepted as some reference type. Only a shape that survives both checks is
+asked whether it is an authenticated reference type.
 
 Local named ancestry is a metadata walk on the same terms as slot
 authentication, not a `TypeDef` walk. `Dog : Middle<int>` and
@@ -237,6 +298,13 @@ degraded row and accepting the sibling would let metadata order decide whether
 malformed current-image evidence is fatal. Among fully decoded constraints the
 rule stays existential: any one of them may establish the conversion.
 
+The reference-type flag is subject to the same rule. Before that flag may
+authenticate `T`-to-`object` correspondence or generic array covariance, the
+parameter's complete constraint set is decoded under the shared budget, so a
+malformed or degraded sibling constraint fails the relationship closed instead
+of being bypassed by the flag. A parameter constrained only by the flag has an
+empty constraint set, decodes trivially, and keeps its existing meaning.
+
 ## Constructor authentication
 
 Metadata owns the reusable CLI constructor predicate. A method is an instance
@@ -273,6 +341,14 @@ Flattened shells that omit the base list also omit an explicit base initializer.
 Property accessibility begins with the best accessor present on the property.
 When only one accessor exists, Metadata may follow its authenticated override
 slot to the base property to recover the source-level property accessibility.
+
+The accessor's property association must be unique. Well-formed metadata
+associates an accessor with at most one property, but nothing in the format
+enforces it, and that association decides which declaration's accessibility the
+reconstructed property inherits. Taking the first matching row would let the
+answer depend on metadata row order, so the scan continues past the first match
+and declines when a second property claims the same accessor; both row orders
+therefore produce the same refusal.
 
 The traversal is iterative, tracks visited accessor handles, and is bounded by
 the metadata relationship limit. A self-base cycle, mutual-base cycle,
@@ -341,6 +417,11 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_DeclinesNestedVsNamespaceParameter`
 - `SameAssemblyOverrideSlot_DeclinesIncompatibleCovariantReturn`
 - `SameAssemblyOverrideSlot_DeclinesIncompatibleStructuredReturn`
+- `SameAssemblyOverrideSlot_DeclinesMalformedSignatureHeader`
+- `SameAssemblyOverrideSlot_AllowsSourceDeclarableSignatureHeader`
+- `ReusesInheritedVirtualSlot_DeclinesExplicitInterfaceOnlyMethodImpl`
+- `ReusesInheritedVirtualSlot_AcceptsAuthenticatedClassMethodImpl`
+- `ReusesInheritedVirtualSlot_AcceptsInheritedVirtualSlotFlags`
 - `CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot`
 - `CompileBackTargets_AllFullPreservesUnrelatedCovariantMethodImpl`
 
@@ -356,9 +437,14 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_AuthenticatesDirectCovariantReturnThroughTypeDefAncestry`
 - `SameAssemblyOverrideSlot_AuthenticatesConstructedGenericAncestryWithMatchingArgument`
 - `SameAssemblyOverrideSlot_DeclinesConstructedGenericAncestryWithDifferentArgument`
+- `SameAssemblyOverrideSlot_AuthenticatesInterfaceAncestryThroughInterfaceImplementation`
+- `SameAssemblyOverrideSlot_DeclinesInterfaceImplementationNamingAClass`
+- `SameAssemblyOverrideSlot_DeclinesBaseTypeNamingAnInterface`
 - `AuthenticatedObjectSlotOverride_AcceptsSameImageChainToObject`
 - `AuthenticatedObjectSlotOverride_DeclinesOverrideOfExternalBase`
 - `AuthenticatedObjectSlotOverride_DeclinesNewSlotObjectShapedVirtual`
+- `AuthenticatedObjectSlotOverride_DeclinesMalformedSignatureHeader`
+- `AuthenticatedObjectSlotOverride_AcceptsSourceDeclarableSignatureHeader`
 - `CompileBackTargets_PrefersSameAssemblyToStringSlotOverIntrinsicObjectShortcut`
 - `CompileBackTargets_DoesNotRebindFlattenedExternalObjectShapedSlotToObject`
 - `CompileBackTargets_AllFullPreservesReferenceConstrainedGenericCovariantMethodImpl`
@@ -371,6 +457,8 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_DeepGenericParameterChainDoesNotCrashProcess`
 - `SameAssemblyOverrideSlot_CyclicConstructedAncestryFailsClosed`
 - `SameAssemblyOverrideSlot_ExpandingConstructedAncestryFailsClosedWithinBudget`
+- `SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosed`
+- `SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosedWithinMemory`
 
 ### Wrappers, arrays, and local definition trust
 
@@ -381,6 +469,10 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_DeclinesDifferentMultiDimensionalArrayShape`
 - `SameAssemblyOverrideSlot_DeclinesAmbiguousExactLocalGenericDefinition`
 - `SameAssemblyOverrideSlot_DeclinesArrayWrappedAmbiguousExactLocalGenericDefinition`
+- `SameAssemblyOverrideSlot_DeclinesModifiedReturnAgainstObjectDeclaration`
+- `SameAssemblyOverrideSlot_DeclinesAmbiguousExactLocalReturnAgainstObjectDeclaration`
+- `SameAssemblyOverrideSlot_AllowsExactLocalReferenceReturnAgainstObjectDeclaration`
+- `SameAssemblyOverrideSlot_AllowsSyntheticExactLocalReferenceReturnAgainstObjectDeclaration`
 
 ### Generic conversions and external unknowns
 
@@ -402,6 +494,14 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_AllowsValidOnlyExplicitConstraintSet`
 - `SameAssemblyOverrideSlot_DeclinesDegradedOnlyConstraint`
 - `SameAssemblyOverrideSlot_DeclinesMixedDegradedAndValidConstraintSet`
+- `SameAssemblyOverrideSlot_DeclinesDegradedSiblingConstraintForObjectReturn`
+- `SameAssemblyOverrideSlot_DeclinesDegradedSiblingConstraintForArrayCovariance`
+- `SameAssemblyOverrideSlot_AllowsAuthenticatedReferenceConstraintForObjectReturn`
+- `SameAssemblyOverrideSlot_AllowsReferenceFlagOnlyConstraintForArrayCovariance`
+- `SameAssemblyOverrideSlot_DeclinesExternalConstructedArityMismatch`
+- `SameAssemblyOverrideSlot_AllowsMatchingExternalConstruction`
+- `SameAssemblyOverrideSlot_DeclinesVarianceOnIneligibleOwner`
+- `SameAssemblyOverrideSlot_AllowsVarianceOnEligibleOwner`
 - `CompileBackTargets_PreservesExternalGenericCovariantMethodImpl`
 
 ### Constructor planning
@@ -424,6 +524,8 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `PropertyDeclaration_DerivesPropertyAccessibilityAcrossAcyclicSetterOnlyOverrideChain`
 - `PropertyDeclaration_SelfBasePropertyCycleFailsClosed`
 - `PropertyDeclaration_TwoTypePropertyCycleFailsClosed`
+- `PropertyDeclaration_DeclinesAccessorClaimedByMultipleProperties`
+- `PropertyDeclaration_UsesUniquePropertyAssociationForAccessor`
 
 ### End-to-end compile-back
 

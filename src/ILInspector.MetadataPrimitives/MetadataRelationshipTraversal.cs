@@ -118,6 +118,24 @@ public static class MetadataSafetyPolicy
     public const int MaxOverrideCompatibilityWork = 16 * MaxRelationshipNodes;
 
     /// <summary>
+    /// Maximum estimated expanded size, in characters, of the exact structural
+    /// identity computed for one ancestry step while authenticating an
+    /// override slot.
+    ///
+    /// A substituted ancestry step is a shared-node DAG, but its exact
+    /// structural identity is the expanded <em>tree</em>. A base that squares
+    /// its own instantiation each step -- <c>Middle&lt;T&gt; :
+    /// Middle&lt;Pair&lt;T, T&gt;&gt;</c> -- doubles that tree per step, so
+    /// the identity of the eighth step is already millions of characters and
+    /// exhausts memory long before the node ceiling is reached. The estimate
+    /// is available without materializing text, so the expanded work is
+    /// charged and refused before it is done. Real constructed ancestry is
+    /// orders of magnitude smaller than this ceiling. Gated by
+    /// <c>SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosedWithinMemory</c>.
+    /// </summary>
+    public const int MaxExactInstantiationIdentityChars = 8 * 1024;
+
+    /// <summary>
     /// Maximum characters in one structured type name: its namespace plus every root-to-leaf
     /// segment, plus one delimiter per segment boundary.
     /// </summary>

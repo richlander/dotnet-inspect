@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -2010,12 +2011,13 @@ public sealed class MetadataDeclarationQueryTests
         Dag,
     }
 
-    enum ConstructedGenericAncestryShape
+    public enum ConstructedGenericAncestryShape
     {
         MatchingArgument,
         DifferentArgument,
         Cyclic,
         Expanding,
+        BranchingExpansion,
     }
 
     /// <summary>
@@ -2052,6 +2054,8 @@ public sealed class MetadataDeclarationQueryTests
             MetadataTokens.TypeDefinitionHandle(3);
         TypeDefinitionHandle dog =
             MetadataTokens.TypeDefinitionHandle(4);
+        TypeDefinitionHandle pair =
+            MetadataTokens.TypeDefinitionHandle(5);
 
         EntityHandle middleBase = shape switch
         {
@@ -2060,6 +2064,11 @@ public sealed class MetadataDeclarationQueryTests
                 AddSyntheticNestedSelfInstantiationTypeSpec(
                     metadata,
                     middle),
+            ConstructedGenericAncestryShape.BranchingExpansion =>
+                AddSyntheticBranchingSelfInstantiationTypeSpec(
+                    metadata,
+                    middle,
+                    pair),
             _ => objectType,
         };
         EntityHandle dogBase = AddSyntheticConstructedTypeSpec(
@@ -2103,6 +2112,19 @@ public sealed class MetadataDeclarationQueryTests
                 dogBase,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1)));
+        if (shape == ConstructedGenericAncestryShape.BranchingExpansion)
+        {
+            Assert.Equal(
+                pair,
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    default,
+                    metadata.GetOrAddString("Pair`2"),
+                    objectType,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        }
+
         TypeDefinitionHandle baseType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
@@ -2125,6 +2147,19 @@ public sealed class MetadataDeclarationQueryTests
             GenericParameterAttributes.None,
             metadata.GetOrAddString("T"),
             index: 0);
+        if (shape == ConstructedGenericAncestryShape.BranchingExpansion)
+        {
+            metadata.AddGenericParameter(
+                pair,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("TFirst"),
+                index: 0);
+            metadata.AddGenericParameter(
+                pair,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("TSecond"),
+                index: 1);
+        }
 
         BlobHandle declaredReturn = shape
             is ConstructedGenericAncestryShape.MatchingArgument
@@ -3531,6 +3566,1638 @@ public sealed class MetadataDeclarationQueryTests
         return SerializeSyntheticMetadata(metadata);
     }
 
+    // ---- Round-27 authentication gates ----------------------------------
+
+    [Theory]
+    [InlineData(ReferenceConstraintAuthenticationShape.FlagOnly)]
+    [InlineData(
+        ReferenceConstraintAuthenticationShape.FlagWithValidConstraint)]
+    public void SameAssemblyOverrideSlot_AllowsAuthenticatedReferenceConstraintForObjectReturn(
+        ReferenceConstraintAuthenticationShape shape)
+    {
+        using var stream = new MemoryStream(
+            BuildReferenceConstraintAuthenticationImage(
+                shape,
+                arrayReturn: false));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesDegradedSiblingConstraintForObjectReturn()
+    {
+        using var stream = new MemoryStream(
+            BuildReferenceConstraintAuthenticationImage(
+                ReferenceConstraintAuthenticationShape
+                    .FlagWithDegradedConstraint,
+                arrayReturn: false));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsReferenceFlagOnlyConstraintForArrayCovariance()
+    {
+        using var stream = new MemoryStream(
+            BuildReferenceConstraintAuthenticationImage(
+                ReferenceConstraintAuthenticationShape.FlagOnly,
+                arrayReturn: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesDegradedSiblingConstraintForArrayCovariance()
+    {
+        using var stream = new MemoryStream(
+            BuildReferenceConstraintAuthenticationImage(
+                ReferenceConstraintAuthenticationShape
+                    .FlagWithDegradedConstraint,
+                arrayReturn: true));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosed()
+    {
+        using var stream = new MemoryStream(
+            BuildConstructedGenericAncestryImage(
+                ConstructedGenericAncestryShape.BranchingExpansion));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    /// <summary>
+    /// A base that squares its own instantiation each ancestry step expands the
+    /// exact structural identity exponentially, which exhausted hundreds of
+    /// megabytes before the node ceiling was ever reached. The child process
+    /// runs under a hard GC heap limit far below what the unbounded expansion
+    /// needed, so the containment is proved by the child completing rather than
+    /// by a managed catch, which an <see cref="OutOfMemoryException"/> of that
+    /// shape does not reliably permit.
+    /// </summary>
+    [Fact]
+    public void SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosedWithinMemory()
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(
+            typeof(MetadataDeclarationQueryTests).Assembly.Location);
+        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add(
+            $"*{nameof(BranchingConstructedAncestryWorker)}*");
+        startInfo.Environment[BranchingAncestryWorkerVariable] =
+            nameof(BranchingConstructedAncestryWorker);
+        startInfo.Environment["DOTNET_GCHeapHardLimit"] = "0x10000000";
+
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        string standardOutput = process.StandardOutput.ReadToEnd();
+        string standardError = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(
+            process.ExitCode == 0,
+            $"The branching-ancestry worker exited {process.ExitCode}.\n"
+                + $"stdout:\n{standardOutput}\n"
+                + $"stderr:\n{standardError}");
+    }
+
+    /// <summary>
+    /// Runs inside the child process started by
+    /// <see cref="SameAssemblyOverrideSlot_BranchingConstructedAncestryFailsClosedWithinMemory"/>.
+    /// The exact-instantiation control runs in the same constrained process, so
+    /// a bound that declined everything could not pass this worker.
+    /// </summary>
+    [Fact]
+    public void BranchingConstructedAncestryWorker()
+    {
+        if (Environment.GetEnvironmentVariable(
+                BranchingAncestryWorkerVariable)
+            != nameof(BranchingConstructedAncestryWorker))
+        {
+            return;
+        }
+
+        AssertConstructedAncestry(
+            ConstructedGenericAncestryShape.BranchingExpansion,
+            authenticated: false);
+        AssertConstructedAncestry(
+            ConstructedGenericAncestryShape.MatchingArgument,
+            authenticated: true);
+
+        static void AssertConstructedAncestry(
+            ConstructedGenericAncestryShape shape,
+            bool authenticated)
+        {
+            using var stream = new MemoryStream(
+                BuildConstructedGenericAncestryImage(shape));
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var (derivedHandle, methodHandle) =
+                GetSyntheticDerivedMethod(reader);
+
+            MetadataOverrideSlot? slot =
+                MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                    reader,
+                    derivedHandle,
+                    methodHandle);
+            if (authenticated)
+                Assert.NotNull(slot);
+            else
+                Assert.Null(slot);
+        }
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsExactLocalReferenceReturnAgainstObjectDeclaration()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .LocalReferenceObjectCovariantReturnDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                GetMethodHandle(derived, "Value")));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsSyntheticExactLocalReferenceReturnAgainstObjectDeclaration()
+    {
+        using var stream = new MemoryStream(
+            BuildObjectReturnConversionImage(
+                ObjectReturnConversionShape.ExactLocalReference));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesModifiedReturnAgainstObjectDeclaration()
+    {
+        using var stream = new MemoryStream(
+            BuildObjectReturnConversionImage(
+                ObjectReturnConversionShape.ModifiedLocalReference));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesAmbiguousExactLocalReturnAgainstObjectDeclaration()
+    {
+        using var stream = new MemoryStream(
+            BuildObjectReturnConversionImage(
+                ObjectReturnConversionShape.AmbiguousLocalReference));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AuthenticatesInterfaceAncestryThroughInterfaceImplementation()
+    {
+        using var stream = new MemoryStream(
+            BuildSupertypeRoleImage(
+                SupertypeRoleShape.ValidInterfaceImplementation));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesInterfaceImplementationNamingAClass()
+    {
+        using var stream = new MemoryStream(
+            BuildSupertypeRoleImage(
+                SupertypeRoleShape.InterfaceImplementationNamesClass));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesBaseTypeNamingAnInterface()
+    {
+        using var stream = new MemoryStream(
+            BuildSupertypeRoleImage(
+                SupertypeRoleShape.BaseTypeNamesInterface));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void ReusesInheritedVirtualSlot_DeclinesExplicitInterfaceOnlyMethodImpl()
+    {
+        var type = Reader.GetTypeDefinition(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures
+                    .ExplicitInterfaceOnlyImplementation)));
+
+        // The MethodImpl is present; what is absent is any inherited class
+        // virtual slot for it to reuse.
+        Assert.NotEmpty(type.GetMethodImplementations());
+        Assert.False(
+            MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
+                Reader,
+                type));
+    }
+
+    [Fact]
+    public void ReusesInheritedVirtualSlot_AcceptsAuthenticatedClassMethodImpl()
+    {
+        var type = Reader.GetTypeDefinition(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures
+                    .CovariantReturnDerived)));
+
+        // A covariant return is newslot virtual final plus a MethodImpl, so the
+        // attribute test alone cannot see the reuse.
+        Assert.NotEmpty(type.GetMethodImplementations());
+        Assert.True(
+            MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
+                Reader,
+                type));
+    }
+
+    [Fact]
+    public void ReusesInheritedVirtualSlot_AcceptsInheritedVirtualSlotFlags()
+    {
+        var type = Reader.GetTypeDefinition(
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures
+                    .PlainOverrideDerived)));
+
+        Assert.Empty(type.GetMethodImplementations());
+        Assert.True(
+            MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
+                Reader,
+                type));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsSourceDeclarableSignatureHeader()
+    {
+        using var stream = new MemoryStream(
+            BuildOverrideSignatureHeaderImage(
+                OverrideSignatureHeaderShape.SourceDeclarable));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Theory]
+    [InlineData(OverrideSignatureHeaderShape.VarArg)]
+    [InlineData(OverrideSignatureHeaderShape.ExplicitThis)]
+    [InlineData(OverrideSignatureHeaderShape.MissingHasThis)]
+    public void SameAssemblyOverrideSlot_DeclinesMalformedSignatureHeader(
+        OverrideSignatureHeaderShape shape)
+    {
+        // Both sides carry the same malformed header, so the refusal cannot
+        // come from the two headers merely disagreeing.
+        using var stream = new MemoryStream(
+            BuildOverrideSignatureHeaderImage(shape));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void AuthenticatedObjectSlotOverride_AcceptsSourceDeclarableSignatureHeader()
+    {
+        using var stream = new MemoryStream(
+            BuildObjectIntrinsicSignatureHeaderImage(
+                OverrideSignatureHeaderShape.SourceDeclarable));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.True(
+            MetadataDeclarationQuery.IsAuthenticatedObjectSlotOverride(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Theory]
+    [InlineData(OverrideSignatureHeaderShape.VarArg)]
+    [InlineData(OverrideSignatureHeaderShape.ExplicitThis)]
+    [InlineData(OverrideSignatureHeaderShape.MissingHasThis)]
+    public void AuthenticatedObjectSlotOverride_DeclinesMalformedSignatureHeader(
+        OverrideSignatureHeaderShape shape)
+    {
+        using var stream = new MemoryStream(
+            BuildObjectIntrinsicSignatureHeaderImage(shape));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.False(
+            MetadataDeclarationQuery.IsAuthenticatedObjectSlotOverride(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsMatchingExternalConstruction()
+    {
+        using var stream = new MemoryStream(
+            BuildExternalConstructedArityImage(
+                ExternalConstructedArityShape.MatchingArity));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        // The construction is external, so local metadata cannot decide the
+        // hierarchy: the slot is preserved for the compiler to validate.
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Theory]
+    [InlineData(ExternalConstructedArityShape.MismatchedArgumentCount)]
+    [InlineData(ExternalConstructedArityShape.MismatchedEncodedCount)]
+    public void SameAssemblyOverrideSlot_DeclinesExternalConstructedArityMismatch(
+        ExternalConstructedArityShape shape)
+    {
+        using var stream = new MemoryStream(
+            BuildExternalConstructedArityImage(shape));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Theory]
+    [InlineData(VarianceOwnerKind.Interface)]
+    [InlineData(VarianceOwnerKind.Delegate)]
+    public void SameAssemblyOverrideSlot_AllowsVarianceOnEligibleOwner(
+        VarianceOwnerKind kind)
+    {
+        using var stream = new MemoryStream(
+            BuildVarianceOwnerKindImage(kind));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.NotNull(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Theory]
+    [InlineData(VarianceOwnerKind.Class)]
+    [InlineData(VarianceOwnerKind.ImpersonatingDelegate)]
+    public void SameAssemblyOverrideSlot_DeclinesVarianceOnIneligibleOwner(
+        VarianceOwnerKind kind)
+    {
+        using var stream = new MemoryStream(
+            BuildVarianceOwnerKindImage(kind));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (derivedHandle, methodHandle) =
+            GetSyntheticDerivedMethod(reader);
+
+        Assert.Null(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+    }
+
+    [Fact]
+    public void PropertyDeclaration_UsesUniquePropertyAssociationForAccessor()
+    {
+        Assert.Equal(
+            "public",
+            ResolveDuplicateAssociationAccessibility(
+                DuplicatePropertyAssociationShape.Unique));
+    }
+
+    [Theory]
+    [InlineData(DuplicatePropertyAssociationShape.DecoyFirst)]
+    [InlineData(DuplicatePropertyAssociationShape.DecoyLast)]
+    public void PropertyDeclaration_DeclinesAccessorClaimedByMultipleProperties(
+        DuplicatePropertyAssociationShape shape)
+    {
+        // Both row orders answer the same way: the accessor's association is
+        // not unique, so the base property's accessibility is not adopted.
+        Assert.Equal(
+            "protected",
+            ResolveDuplicateAssociationAccessibility(shape));
+    }
+
+    static string ResolveDuplicateAssociationAccessibility(
+        DuplicatePropertyAssociationShape shape)
+    {
+        using var stream = new MemoryStream(
+            BuildDuplicatePropertyAssociationImage(shape));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle derivedHandle =
+            reader.TypeDefinitions.Single(handle =>
+                reader.GetString(
+                    reader.GetTypeDefinition(handle).Name)
+                == "Derived");
+        TypeDefinition derived =
+            reader.GetTypeDefinition(derivedHandle);
+
+        return MetadataDeclarationQuery.GetProperty(
+                reader,
+                derived,
+                GetProperty(derived, "Value", reader))
+            .Accessibility;
+    }
+
+    const string BranchingAncestryWorkerVariable =
+        "DOTNET_INSPECT_BRANCHING_ANCESTRY_WORKER";
+
+    public enum ReferenceConstraintAuthenticationShape
+    {
+        FlagOnly,
+        FlagWithValidConstraint,
+        FlagWithDegradedConstraint,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived&lt;T&gt; : Base</c> whose <c>T Value()</c> -- or
+    /// <c>T[] Value()</c> -- carries a class <c>MethodImpl</c> onto a base slot
+    /// returning <c>object</c> (or <c>object[]</c>), with <c>T</c> always
+    /// carrying the reference-type flag and the requested constraint set
+    /// beside it. Only reference-ness authorizes either conversion, so a
+    /// constraint the shared budget cannot decode is malformed evidence about
+    /// the very parameter the answer rests on.
+    /// </summary>
+    static byte[] BuildReferenceConstraintAuthenticationImage(
+        ReferenceConstraintAuthenticationShape shape,
+        bool arrayReturn)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("ReferenceConstraintAuthentication");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                derivedType,
+                GenericParameterAttributes.ReferenceTypeConstraint,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        switch (shape)
+        {
+            case ReferenceConstraintAuthenticationShape
+                .FlagWithValidConstraint:
+                metadata.AddGenericParameterConstraint(parameter, animal);
+                break;
+            case ReferenceConstraintAuthenticationShape
+                .FlagWithDegradedConstraint:
+                metadata.AddGenericParameterConstraint(
+                    parameter,
+                    AddSyntheticOverDeepArrayTypeSpec(
+                        metadata,
+                        animal,
+                        depth: SignatureBlobGuard.DefaultMaxDepth + 64));
+                break;
+        }
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticObjectReturnSignature(metadata, arrayReturn),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                arrayReturn
+                    ? AddSyntheticGenericParameterArrayReturnSignature(
+                        metadata)
+                    : AddSyntheticGenericParameterReturnSignature(metadata),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    public enum ObjectReturnConversionShape
+    {
+        ExactLocalReference,
+        ModifiedLocalReference,
+        AmbiguousLocalReference,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> whose <c>Animal Value()</c> carries a class
+    /// <c>MethodImpl</c> onto a base slot returning plain <c>object</c>. The
+    /// shape wraps that return in a custom modifier the declaration cannot
+    /// carry, or adds a second <c>Animal</c> definition so the return no longer
+    /// resolves to a unique current-image definition.
+    /// </summary>
+    static byte[] BuildObjectReturnConversionImage(
+        ObjectReturnConversionShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("ObjectReturnConversion");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle modifierType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("IsVolatile"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        if (shape == ObjectReturnConversionShape.AmbiguousLocalReference)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticObjectReturnSignature(
+                    metadata,
+                    wrapInArray: false),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                shape == ObjectReturnConversionShape.ModifiedLocalReference
+                    ? AddSyntheticModifiedReturnSignature(
+                        metadata,
+                        modifierType,
+                        animal)
+                    : AddSyntheticMethodSignature(metadata, animal),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    public enum SupertypeRoleShape
+    {
+        ValidInterfaceImplementation,
+        InterfaceImplementationNamesClass,
+        BaseTypeNamesInterface,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> whose <c>Dog Value()</c> carries a class
+    /// <c>MethodImpl</c> onto a base slot whose declared return is only
+    /// reachable through one same-image supertype row of <c>Dog</c>. The shape
+    /// controls whether that row's target is the kind the row claims: an
+    /// interface reached through <c>InterfaceImpl</c>, a class written into
+    /// <c>InterfaceImpl</c>, or an interface written into <c>Extends</c>.
+    /// </summary>
+    static byte[] BuildSupertypeRoleImage(SupertypeRoleShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("SupertypeRole");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle contract =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("IContract"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                shape == SupertypeRoleShape.BaseTypeNamesInterface
+                    ? contract
+                    : objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        if (shape != SupertypeRoleShape.BaseTypeNamesInterface)
+        {
+            metadata.AddInterfaceImplementation(
+                dog,
+                shape == SupertypeRoleShape
+                    .InterfaceImplementationNamesClass
+                    ? animal
+                    : contract);
+        }
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMethodSignature(
+                    metadata,
+                    shape == SupertypeRoleShape
+                        .InterfaceImplementationNamesClass
+                        ? animal
+                        : contract),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticMethodSignature(metadata, dog),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    public enum OverrideSignatureHeaderShape
+    {
+        SourceDeclarable,
+        VarArg,
+        ExplicitThis,
+        MissingHasThis,
+    }
+
+    static byte SignatureHeaderByte(OverrideSignatureHeaderShape shape)
+        => shape switch
+        {
+            // HASTHIS | VARARG
+            OverrideSignatureHeaderShape.VarArg => 0x25,
+            // HASTHIS | EXPLICITTHIS | DEFAULT
+            OverrideSignatureHeaderShape.ExplicitThis => 0x60,
+            // DEFAULT with no HASTHIS
+            OverrideSignatureHeaderShape.MissingHasThis => 0x00,
+            _ => 0x20,
+        };
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> where both <c>Animal Value()</c>
+    /// signatures carry the same calling-convention header, so a refusal can
+    /// only come from that header not being one a source <c>override</c> can
+    /// declare -- never from the two sides disagreeing.
+    /// </summary>
+    static byte[] BuildOverrideSignatureHeaderImage(
+        OverrideSignatureHeaderShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("OverrideSignatureHeader");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        BlobHandle signature = AddSyntheticRawHeaderReturnSignature(
+            metadata,
+            SignatureHeaderByte(shape),
+            animal);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : object</c> declaring a virtual, non-newslot
+    /// <c>ToString</c> whose calling-convention header follows
+    /// <paramref name="shape"/>. The base reference carries a real core-library
+    /// public-key token, so the object root authenticates and the header is the
+    /// only thing under test.
+    /// </summary>
+    static byte[] BuildObjectIntrinsicSignatureHeaderImage(
+        OverrideSignatureHeaderShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("ObjectIntrinsicSignatureHeader");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticCoreLibraryReference(metadata);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Derived"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ToString"),
+            AddSyntheticRawHeaderStringReturnSignature(
+                metadata,
+                SignatureHeaderByte(shape)),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    public enum ExternalConstructedArityShape
+    {
+        MatchingArity,
+        MismatchedArgumentCount,
+        MismatchedEncodedCount,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> whose returns are constructions of an
+    /// external generic definition this image cannot resolve. A matching
+    /// construction stays eligible for compiler validation; a construction
+    /// whose argument count disagrees with the other side, or with the arity
+    /// its own encoded definition name declares, is structurally a different
+    /// type and needs no resolution to disprove.
+    /// </summary>
+    static byte[] BuildExternalConstructedArityImage(
+        ExternalConstructedArityShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("ExternalConstructedArity");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        AssemblyReferenceHandle external =
+            AddSyntheticAssemblyReference(metadata, "ExternalContracts");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle externalGeneric =
+            metadata.AddTypeReference(
+                external,
+                metadata.GetOrAddString("External"),
+                metadata.GetOrAddString(
+                    shape == ExternalConstructedArityShape
+                        .MismatchedEncodedCount
+                        ? "Variant`2"
+                        : "Variant`1"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                animal,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericReturnSignature(
+                    metadata,
+                    externalGeneric,
+                    animal),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                shape == ExternalConstructedArityShape
+                    .MismatchedArgumentCount
+                    ? AddSyntheticGenericReturnSignature(
+                        metadata,
+                        externalGeneric,
+                        dog,
+                        animal)
+                    : AddSyntheticGenericReturnSignature(
+                        metadata,
+                        externalGeneric,
+                        dog),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    public enum VarianceOwnerKind
+    {
+        Interface,
+        Delegate,
+        Class,
+        ImpersonatingDelegate,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> whose <c>Variant&lt;Dog&gt; Value()</c>
+    /// carries a class <c>MethodImpl</c> onto <c>Variant&lt;Animal&gt;
+    /// Value()</c>, where <c>Variant`1</c>'s single type parameter is always
+    /// marked covariant and only the owning definition's kind changes. A class
+    /// may not declare variance at all, and delegate-ness counts only when the
+    /// base resolves through an authenticated core library, so a local type
+    /// merely named <c>System.MulticastDelegate</c> does not buy it.
+    /// </summary>
+    static byte[] BuildVarianceOwnerKindImage(VarianceOwnerKind kind)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("VarianceOwnerKind");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticCoreLibraryReference(metadata);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle multicastDelegate =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("MulticastDelegate"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle impersonatingDelegate =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("MulticastDelegate"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle variant =
+            metadata.AddTypeDefinition(
+                kind == VarianceOwnerKind.Interface
+                    ? TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract
+                    : TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Variant`1"),
+                kind switch
+                {
+                    VarianceOwnerKind.Interface => default,
+                    VarianceOwnerKind.Delegate => multicastDelegate,
+                    VarianceOwnerKind.ImpersonatingDelegate =>
+                        impersonatingDelegate,
+                    _ => objectType,
+                },
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dog =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Dog"),
+                animal,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        metadata.AddGenericParameter(
+            variant,
+            GenericParameterAttributes.Covariant,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        MethodDefinitionHandle baseMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericReturnSignature(
+                    metadata,
+                    variant,
+                    animal),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedMethod =
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                AddSyntheticGenericReturnSignature(
+                    metadata,
+                    variant,
+                    dog),
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            baseMethod);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    public enum DuplicatePropertyAssociationShape
+    {
+        Unique,
+        DecoyFirst,
+        DecoyLast,
+    }
+
+    /// <summary>
+    /// Builds <c>Derived : Base</c> where <c>Base.Value</c> pairs a public
+    /// getter with a protected setter and <c>Derived</c> overrides the setter
+    /// alone. The reconstructed property is then as accessible as the base
+    /// property -- public -- but only while the overridden accessor's property
+    /// association is unique. The decoy shapes add a second <c>Base</c>
+    /// property claiming that same setter, in either metadata row order. That
+    /// decoy is public in its own right, so taking the first matching row
+    /// answers <c>public</c> in both orders while a unique association is
+    /// genuinely absent.
+    /// </summary>
+    static byte[] BuildDuplicatePropertyAssociationImage(
+        DuplicatePropertyAssociationShape shape)
+    {
+        MetadataBuilder metadata =
+            CreateSyntheticMetadata("DuplicatePropertyAssociation");
+        AssemblyReferenceHandle runtime =
+            AddSyntheticAssemblyReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle animal =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Animal"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Base"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle derivedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("Derived"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(4));
+
+        BlobHandle getterSignature =
+            AddSyntheticMethodSignature(metadata, animal);
+        BlobHandle setterSignature =
+            AddSyntheticMethodSignature(
+                metadata,
+                default,
+                animal,
+                parameterCount: 1);
+        const MethodAttributes accessorFlags =
+            MethodAttributes.Virtual
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+        MethodDefinitionHandle baseGetter =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.NewSlot
+                    | accessorFlags,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("get_Value"),
+                getterSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle baseSetter =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Family
+                    | MethodAttributes.NewSlot
+                    | accessorFlags,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("set_Value"),
+                setterSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+
+        // Declared in every shape so the three images differ only in their
+        // property rows: the decoy pairs this public getter with the very
+        // setter Derived overrides, which is what makes first-row-wins visible.
+        MethodDefinitionHandle shadowGetter =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | accessorFlags,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("get_Shadow"),
+                getterSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle derivedSetter =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Family | accessorFlags,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("set_Value"),
+                setterSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+
+        BlobHandle propertySignature =
+            AddSyntheticClassPropertySignature(metadata, animal);
+        var decoyProperties = new List<PropertyDefinitionHandle>();
+        PropertyDefinitionHandle firstBaseProperty = default;
+        if (shape == DuplicatePropertyAssociationShape.DecoyFirst)
+        {
+            firstBaseProperty =
+                metadata.AddProperty(
+                    PropertyAttributes.None,
+                    metadata.GetOrAddString("Shadow"),
+                    propertySignature);
+            decoyProperties.Add(firstBaseProperty);
+        }
+
+        PropertyDefinitionHandle baseProperty =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                propertySignature);
+        if (firstBaseProperty.IsNil)
+            firstBaseProperty = baseProperty;
+        if (shape == DuplicatePropertyAssociationShape.DecoyLast)
+        {
+            decoyProperties.Add(
+                metadata.AddProperty(
+                    PropertyAttributes.None,
+                    metadata.GetOrAddString("Shadow"),
+                    propertySignature));
+        }
+
+        PropertyDefinitionHandle derivedProperty =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                propertySignature);
+        metadata.AddPropertyMap(baseType, firstBaseProperty);
+        metadata.AddPropertyMap(derivedType, derivedProperty);
+
+        // The decoy claims the very accessor Derived overrides, so the base
+        // property the walk would adopt is no longer uniquely determined. Its
+        // semantics rows are emitted in property-row order so the shapes differ
+        // only in which row the reader reaches first.
+        void AddBaseSemantics()
+        {
+            metadata.AddMethodSemantics(
+                baseProperty,
+                MethodSemanticsAttributes.Getter,
+                baseGetter);
+            metadata.AddMethodSemantics(
+                baseProperty,
+                MethodSemanticsAttributes.Setter,
+                baseSetter);
+        }
+
+        void AddDecoySemantics()
+        {
+            foreach (PropertyDefinitionHandle decoy in decoyProperties)
+            {
+                metadata.AddMethodSemantics(
+                    decoy,
+                    MethodSemanticsAttributes.Getter,
+                    shadowGetter);
+                metadata.AddMethodSemantics(
+                    decoy,
+                    MethodSemanticsAttributes.Setter,
+                    baseSetter);
+            }
+        }
+
+        if (shape == DuplicatePropertyAssociationShape.DecoyFirst)
+        {
+            AddDecoySemantics();
+            AddBaseSemantics();
+        }
+        else
+        {
+            AddBaseSemantics();
+            AddDecoySemantics();
+        }
+
+        metadata.AddMethodSemantics(
+            derivedProperty,
+            MethodSemanticsAttributes.Setter,
+            derivedSetter);
+        return SerializeSyntheticMetadata(metadata);
+    }
+
+    static AssemblyReferenceHandle AddSyntheticCoreLibraryReference(
+        MetadataBuilder metadata)
+        => metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(1, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a,
+                }),
+            default,
+            default);
+
+    /// <summary>
+    /// A parameterless instance method signature returning
+    /// <c>ELEMENT_TYPE_OBJECT</c>, optionally as an SZ array. Encoding the
+    /// primitive element type is what makes the return a plain <c>object</c>
+    /// rather than a named reference to <c>System.Object</c>.
+    /// </summary>
+    static BlobHandle AddSyntheticObjectReturnSignature(
+        MetadataBuilder metadata,
+        bool wrapInArray)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        if (wrapInArray)
+            signature.WriteByte(0x1d);
+        signature.WriteByte(0x1c);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticModifiedReturnSignature(
+        MetadataBuilder metadata,
+        EntityHandle modifierType,
+        EntityHandle returnType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x20);
+        WriteTypeDefOrRefEncoded(signature, modifierType);
+        WriteReferenceTypeSignature(signature, returnType);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    /// <summary>
+    /// A parameterless method signature whose calling-convention header byte is
+    /// written verbatim, so a test can encode the vararg, explicit-<c>this</c>,
+    /// and missing-<c>HASTHIS</c> headers no C# compiler emits for an override.
+    /// </summary>
+    static BlobHandle AddSyntheticRawHeaderReturnSignature(
+        MetadataBuilder metadata,
+        byte header,
+        EntityHandle returnType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(header);
+        signature.WriteCompressedInteger(0);
+        WriteReferenceTypeSignature(signature, returnType);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticRawHeaderStringReturnSignature(
+        MetadataBuilder metadata,
+        byte header)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(header);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x0e);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSyntheticClassPropertySignature(
+        MetadataBuilder metadata,
+        EntityHandle type)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x28);
+        signature.WriteCompressedInteger(0);
+        WriteReferenceTypeSignature(signature, type);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    /// <summary>
+    /// A <c>TypeSpec</c> for <c>Definition&lt;Pair&lt;!0, !0&gt;&gt;</c>, which
+    /// as a base row makes every ancestry step square the size of the previous
+    /// instantiation rather than merely producing a new one.
+    /// </summary>
+    static TypeSpecificationHandle
+        AddSyntheticBranchingSelfInstantiationTypeSpec(
+            MetadataBuilder metadata,
+            EntityHandle definition,
+            EntityHandle pair)
+    {
+        var blob = new BlobBuilder();
+        GenericTypeArgumentsEncoder pairArguments =
+            new BlobEncoder(blob)
+                .TypeSpecificationSignature()
+                .GenericInstantiation(
+                    definition,
+                    genericArgumentCount: 1,
+                    isValueType: false)
+                .AddArgument()
+                .GenericInstantiation(
+                    pair,
+                    genericArgumentCount: 2,
+                    isValueType: false);
+        pairArguments.AddArgument().GenericTypeParameter(0);
+        pairArguments.AddArgument().GenericTypeParameter(0);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(blob));
+    }
+
     static MetadataBuilder CreateSyntheticMetadata(
         string assemblyName)
     {
@@ -4573,6 +6240,49 @@ public class MetadataDeclarationQueryFixtures
     public class ObjectCovariantReturnDerived : ObjectCovariantReturnBase
     {
         public override string Value() => "";
+    }
+
+    /// <summary>
+    /// A compiler-produced covariant return whose implementation type is an
+    /// unwrapped current-image definition, which is the shape the
+    /// return-to-object conversion has to keep accepting.
+    /// </summary>
+    public class LocalReferenceObjectCovariantReturnDerived
+        : ObjectCovariantReturnBase
+    {
+        public override CovariantDog Value() => new();
+    }
+
+    public interface IExplicitOnlyContract
+    {
+        void Run();
+    }
+
+    /// <summary>
+    /// An explicit interface implementation is a private newslot virtual final
+    /// method plus a <c>MethodImpl</c>, so it carries the row an override
+    /// carries while reusing no inherited class virtual slot.
+    /// </summary>
+    public class ExplicitInterfaceOnlyImplementation
+        : IExplicitOnlyContract
+    {
+        void IExplicitOnlyContract.Run()
+        {
+        }
+    }
+
+    public class PlainVirtualBase
+    {
+        public virtual void Run()
+        {
+        }
+    }
+
+    public class PlainOverrideDerived : PlainVirtualBase
+    {
+        public override void Run()
+        {
+        }
     }
 
     public class ConstructedGenericCovariantReturnBase<TItem>
