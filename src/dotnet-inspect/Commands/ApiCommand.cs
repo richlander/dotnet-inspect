@@ -539,34 +539,78 @@ public class ApiCommand
         MemberOptions options,
         SectionPipeline<ApiType> pipeline)
     {
+        var discoveredCallerSections =
+            ResolveDiscoveredCallerScopeSections(options, pipeline);
         if (!options.HasCallerScope
             || options.Tree
             || IsStandaloneMermaid(options)
             || IsWholeDocumentJson(options)
             || HasAuthoredMemberSectionRequest(options)
-            || !pipeline.SelectableSectionNames.Contains(
-                SectionNames.Callers,
-                StringComparer.OrdinalIgnoreCase))
+                && discoveredCallerSections.Count == 0)
             return options;
-        if (options.IncludeSections?.Contains(SectionNames.Callers) == true)
+
+        if (discoveredCallerSections.Count == 0)
+        {
+            if (!pipeline.SelectableSectionNames.Contains(
+                    SectionNames.Callers,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                return options;
+            }
+
+            discoveredCallerSections.Add(SectionNames.Callers);
+        }
+
+        if (discoveredCallerSections.All(
+                section => options.IncludeSections?.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase) == true))
+        {
             return options;
+        }
 
         var includeSections = options.IncludeSections is { Count: > 0 } existing
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        includeSections.Add(SectionNames.Callers);
+        includeSections.UnionWith(discoveredCallerSections);
         return options with
         {
             IncludeSections = includeSections,
-            CallerScopeSectionImplicitlySelected = true
+            CallerScopeSectionImplicitlySelected =
+                discoveredCallerSections.Contains(SectionNames.Callers)
         };
+    }
+
+    private static HashSet<string> ResolveDiscoveredCallerScopeSections(
+        MemberOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        if (options.Discover is not { Length: > 0 } discover)
+            return [];
+
+        var resolved = SelectResolver.ResolveSelectAsSections(
+            discover,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap());
+        if (resolved.HasError || resolved.Sections is not { } sections)
+            return [];
+
+        return sections
+            .Where(section =>
+                section.Equals(
+                    SectionNames.Callers,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.CallGraph,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool HasAuthoredMemberSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
-           || options.Columns is { Length: > 0 }
-           || options.Fields is { Length: > 0 }
+           || options.Discover is { Length: > 0 }
            || options.BodyKindQuery.HasFilter;
 
     internal static bool RequiresCallerScopeResolution(MemberOptions options, ApiType type)
