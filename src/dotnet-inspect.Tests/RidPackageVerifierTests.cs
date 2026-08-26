@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using DotnetInspector.Core;
@@ -11,17 +13,21 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class RidPackageVerifierTests
 {
+    public RidPackageVerifierTests()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+    }
+
     [Fact]
     public async Task VerifyAsync_UsesConfiguredV3Source()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
             """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         handler.Add(
             "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
-            """<?xml version="1.0"?><package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>""");
+            """<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>""");
         using var client = new HttpClient(handler);
         var result = new InspectionResult
         {
@@ -321,6 +327,64 @@ public class RidPackageVerifierTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifyAsync_NonHttpSourceDoesNotPoisonHttpAbsence(
+        bool localSourceFirst)
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        string localSource = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-rid-source-").FullName;
+        string packageId =
+            $"MixedSourcePackage.{Guid.NewGuid():N}.linux-x64";
+        string normalizedPackageId = packageId.ToLowerInvariant();
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            $"content.example.test/flat/{normalizedPackageId}/index.json",
+            """{"versions":[]}""");
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = packageId,
+                },
+            ],
+        };
+        string[] sources = localSourceFirst
+            ? [localSource, "https://feed.example.test/v3/index.json"]
+            : ["https://feed.example.test/v3/index.json", localSource];
+
+        try
+        {
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(handler),
+                result,
+                "1.0.0",
+                localDir: null,
+                logger: new VerboseLogger(enabled: false),
+                sourceOptions: new NuGetSourceOptions { Sources = sources });
+
+            Assert.False(
+                Assert.Single(result.RuntimeIdentifierPackages).Exists);
+            Assert.Contains(
+                handler.Requests,
+                request => request.AbsolutePath.EndsWith(
+                    $"/{normalizedPackageId}/index.json",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(localSource);
+        }
+    }
+
     [Fact]
     public async Task VerifyAsync_UnmappedRidPackagePropagatesMappingFailure()
     {
@@ -365,7 +429,7 @@ public class RidPackageVerifierTests
                         sourceOptions: new NuGetSourceOptions { ConfigFile = configPath }));
 
             Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
-            Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+            Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
         }
         finally
         {
@@ -373,13 +437,1142 @@ public class RidPackageVerifierTests
         }
     }
 
+    [Fact]
+    public async Task VerifyAsync_NotFoundSetsAvailabilityFalse()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        using var client = new HttpClient(handler);
+        var result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.False(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifyAsync_MalformedCriticalResourcePreventsFalseAbsence(
+        bool matchingNuspecExists)
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """
+            {
+              "resources": [
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "https://content.example.test/flat/"
+                },
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "not a URL"
+                }
+              ]
+            }
+            """);
+        if (matchingNuspecExists)
+        {
+            handler.Add(
+                "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+                """
+                <package><metadata>
+                <id>TestPackage.linux-x64</id>
+                <version>1.0.0</version>
+                </metadata></package>
+                """);
+        }
+
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"],
+            });
+
+        bool? availability =
+            Assert.Single(result.RuntimeIdentifierPackages!).Exists;
+        if (matchingNuspecExists)
+            Assert.True(availability);
+        else
+            Assert.Null(availability);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_MalformedCriticalResourcePreservesVersionIndexPresence()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """
+            {
+              "resources": [
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "https://content.example.test/flat/"
+                },
+                {
+                  "@type": "PackageBaseAddress/3.0.0",
+                  "@id": "not a URL"
+                }
+              ]
+            }
+            """);
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/index.json",
+            """{"versions":["1.0.0"]}""");
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"],
+            });
+
+        Assert.True(
+            Assert.Single(result.RuntimeIdentifierPackages!).Exists,
+            string.Join(Environment.NewLine, handler.Requests));
+        Assert.Contains(
+            handler.Requests,
+            request => request.AbsolutePath.EndsWith(
+                "/testpackage.linux-x64/index.json",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task VerifyAsync_DuplicatePackageIdsShareOneRemoteProbe()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            """<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>""");
+        using var client = new HttpClient(handler);
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = "TestPackage.linux-x64",
+                },
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-musl-x64",
+                    PackageId = "testpackage.LINUX-x64",
+                },
+            ],
+        };
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"],
+            });
+
+        Assert.All(
+            result.RuntimeIdentifierPackages,
+            package => Assert.True(package.Exists));
+        Assert.Single(
+            handler.Requests,
+            request => request.AbsolutePath.EndsWith(
+                ".nuspec",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task VerifyAsync_DistinctPackageProbeCountIsBounded()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        using var client = new HttpClient(handler);
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages = Enumerable
+                .Range(0, RidPackageVerifier.MaxDistinctPackageProbes + 1)
+                .Select(index => new RidPackageReference
+                {
+                    RuntimeIdentifier = $"rid-{index}",
+                    PackageId = $"TestPackage.rid{index}",
+                })
+                .ToList(),
+        };
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"],
+            });
+
+        Assert.Equal(
+            RidPackageVerifier.MaxDistinctPackageProbes,
+            handler.Requests.Count(request =>
+                request.AbsolutePath.EndsWith(
+                    ".nuspec",
+                    StringComparison.Ordinal)));
+        Assert.Null(result.RuntimeIdentifierPackages[^1].Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_OfflineLeavesAvailabilityUnknown()
+    {
+        using var client = new HttpClient(new OfflineHandler());
+        var result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://api.nuget.org/v3/index.json"]
+            });
+
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Theory]
+    [InlineData("<html>sign in</html>")]
+    [InlineData("<not-package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></not-package>")]
+    [InlineData("<package xmlns=\"urn:a\"><metadata xmlns=\"urn:b\"><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>Other.Package</id><version>1.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>2.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><id>Other.Package</id><version>1.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version><version>2.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>")]
+    [InlineData("<package xmlns=\"urn:a\"><metadata><id>TestPackage.linux-x64</id><id xmlns=\"urn:b\">Other.Package</id><version>1.0.0</version></metadata></package>")]
+    public async Task VerifyAsync_InvalidNuspecLeavesAvailabilityUnknown(
+        string nuspec)
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            nuspec);
+        using var client = new HttpClient(handler);
+        var result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Weird:Id")]
+    [InlineData("../escape")]
+    [InlineData("Bad Id")]
+    [InlineData("Victim.Package@junk")]
+    [InlineData("Bad|yes")]
+    public async Task VerifyAsync_InvalidPackageIdLeavesAvailabilityUnknown(
+        string packageId)
+    {
+        var handler = new StubHandler();
+        using var client = new HttpClient(handler);
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = packageId,
+                }
+            ]
+        };
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+        Assert.Empty(handler.Requests);
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: Path.GetTempPath(),
+            logger: new VerboseLogger(enabled: false));
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("../escape")]
+    [InlineData("1.0.0/escape")]
+    public async Task VerifyAsync_InvalidVersionLeavesAvailabilityUnknown(
+        string version)
+    {
+        var handler = new StubHandler();
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            version,
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        Assert.Empty(handler.Requests);
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            version,
+            localDir: Path.GetTempPath(),
+            logger: new VerboseLogger(enabled: false));
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_LocalPrereleaseSiblingPreservesVersionCasing()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            WritePackageArchive(
+                Path.Combine(
+                    directory,
+                    "TestPackage.linux-x64.1.0.0-Preview.1.nupkg"),
+                "TestPackage.linux-x64",
+                "1.0.0-Preview.1");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0-Preview.1",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_LocalSiblingPreservesShortVersionSpelling()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            WritePackageArchive(
+                Path.Combine(
+                    directory,
+                    "TestPackage.linux-x64.1.0.nupkg"),
+                "TestPackage.linux-x64",
+                "1.0");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_LocalSiblingUsesNuGetCaseInsensitiveIdentity()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            WritePackageArchive(
+                Path.Combine(
+                    directory,
+                    "testpackage.linux-x64.1.0.0.nupkg"),
+                "testpackage.linux-x64",
+                "1.0.0");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_ValidCaseVariantOverridesInvalidExactSibling()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string exactPath = Path.Combine(
+                directory,
+                "TestPackage.linux-x64.1.0.0.nupkg");
+            string caseVariantPath = Path.Combine(
+                directory,
+                "testpackage.linux-x64.1.0.0.nupkg");
+            File.WriteAllBytes(
+                exactPath,
+                []);
+            if (File.Exists(caseVariantPath))
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
+            WritePackageArchive(
+                caseVariantPath,
+                "testpackage.linux-x64",
+                "1.0.0");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    public async Task VerifyAsync_ExactArchiveDoesNotConsumeCaseVariantBudget(
+        int validVariant)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string exactPath = Path.Combine(
+                directory,
+                "TestPackage.linux-x64.1.0.0.nupkg");
+            File.WriteAllBytes(exactPath, []);
+            string[] variants =
+            [
+                "testPackage.linux-x64.1.0.0.nupkg",
+                "tEstPackage.linux-x64.1.0.0.nupkg",
+                "teStPackage.linux-x64.1.0.0.nupkg",
+                "tesTPackage.linux-x64.1.0.0.nupkg",
+                "testPAckage.linux-x64.1.0.0.nupkg",
+                "testPaCkage.linux-x64.1.0.0.nupkg",
+                "testPacKage.linux-x64.1.0.0.nupkg",
+                "testPackAge.linux-x64.1.0.0.nupkg",
+            ];
+            if (File.Exists(Path.Combine(
+                    directory,
+                    variants[0])))
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
+            for (int index = 0; index < variants.Length; index++)
+            {
+                string path = Path.Combine(
+                    directory,
+                    variants[index]);
+                if (index == validVariant)
+                {
+                    WritePackageArchive(
+                        path,
+                        "testpackage.linux-x64",
+                        "1.0.0");
+                }
+                else
+                {
+                    File.WriteAllBytes(path, []);
+                }
+            }
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_DisappearingCaseVariantSiblingIsUnknown()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string candidatePath = Path.Combine(
+            directory,
+            "testpackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            WritePackageArchive(
+                candidatePath,
+                "TestPackage.linux-x64",
+                "1.0.0");
+            var snapshot =
+                new RidPackageVerifier.LocalPackageDirectorySnapshot(
+                    directory,
+                    log: null);
+            snapshot.Capture();
+            File.Delete(candidatePath);
+
+            NuspecProbeResult probe =
+                await RidPackageVerifier.ProbeLocalPackageArchiveAsync(
+                    snapshot,
+                    "TestPackage.linux-x64.1.0.0.nupkg",
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    log: null);
+
+            Assert.Equal(
+                NuspecProbeStatus.Indeterminate,
+                probe.Status);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_CaseVariantDirectorySiblingIsUnknown()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Directory.CreateDirectory(
+                Path.Combine(
+                    directory,
+                    "testpackage.linux-x64.1.0.0.nupkg"));
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_FifoSiblingDoesNotBlockAndIsUnknown()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            await CreateFifoAsync(packagePath);
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                    new HttpClient(),
+                    result,
+                    "1.0.0",
+                    directory,
+                    new VerboseLogger(enabled: false))
+                .WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            File.Delete(packagePath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_SymlinkToFifoSiblingDoesNotBlockAndIsUnknown()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string fifoPath = Path.Combine(directory, "package.pipe");
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            await CreateFifoAsync(fifoPath);
+            File.CreateSymbolicLink(packagePath, fifoPath);
+            InspectionResult result = CreateResult();
+
+            await Task.Run(
+                    () => RidPackageVerifier.VerifyAsync(
+                        new HttpClient(),
+                        result,
+                        "1.0.0",
+                        directory,
+                        new VerboseLogger(enabled: false)),
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            File.Delete(packagePath);
+            File.Delete(fifoPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_MissingLocalSiblingSetsAvailabilityFalse()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(new OfflineHandler()),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.False(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifyAsync_LocalArchiveReadBudgetIsShared(
+        bool budgetIncludesMatchingArchive)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string invalidPath = Path.Combine(
+                directory,
+                "TestPackage.first.1.0.0.nupkg");
+            string matchingPath = Path.Combine(
+                directory,
+                "TestPackage.second.1.0.0.nupkg");
+            File.WriteAllBytes(invalidPath, new byte[1024]);
+            WritePackageArchive(
+                matchingPath,
+                "TestPackage.second",
+                "1.0.0");
+            long budget = new FileInfo(invalidPath).Length;
+            if (budgetIncludesMatchingArchive)
+                budget += new FileInfo(matchingPath).Length;
+            var result = new InspectionResult
+            {
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "first",
+                        PackageId = "TestPackage.first",
+                    },
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "second",
+                        PackageId = "TestPackage.second",
+                    },
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "missing",
+                        PackageId = "TestPackage.missing",
+                    },
+                ],
+            };
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(new OfflineHandler()),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false),
+                sourceOptions: null,
+                acquiredEvidence: null,
+                new PackageArchiveReadBudget(budget));
+
+            Assert.Null(result.RuntimeIdentifierPackages[0].Exists);
+            if (budgetIncludesMatchingArchive)
+                Assert.True(result.RuntimeIdentifierPackages[1].Exists);
+            else
+                Assert.Null(result.RuntimeIdentifierPackages[1].Exists);
+            Assert.False(result.RuntimeIdentifierPackages[2].Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeLocalPackageArchiveAsync_MissingThenCreatedArchiveConsumesBudgetWhenOpened()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            WritePackageArchive(
+                packagePath,
+                "TestPackage.linux-x64",
+                "1.0.0");
+            long archiveLength = new FileInfo(packagePath).Length;
+            File.Delete(packagePath);
+            var budget = new PackageArchiveReadBudget(archiveLength);
+
+            NuspecProbeResult missing =
+                await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    archiveReadBudget: budget);
+
+            WritePackageArchive(
+                packagePath,
+                "TestPackage.linux-x64",
+                "1.0.0");
+            NuspecProbeResult present =
+                await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    archiveReadBudget: budget);
+            NuspecProbeResult exhausted =
+                await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "1.0.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    archiveReadBudget: budget);
+
+            Assert.Equal(NuspecProbeStatus.Absent, missing.Status);
+            Assert.Equal(NuspecProbeStatus.Present, present.Status);
+            Assert.Equal(
+                NuspecProbeStatus.Indeterminate,
+                exhausted.Status);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("empty-file")]
+    [InlineData("malformed-archive")]
+    [InlineData("empty-archive")]
+    [InlineData("missing-nuspec")]
+    [InlineData("malformed-nuspec")]
+    [InlineData("wrong-id")]
+    [InlineData("wrong-version")]
+    [InlineData("invalid-utf8")]
+    [InlineData("not-a-file")]
+    public async Task VerifyAsync_UnusableLocalSiblingLeavesAvailabilityUnknown(
+        string scenario)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            WriteUnusablePackageArchive(packagePath, scenario);
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(new OfflineHandler()),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_NormalizedVersionIdentityIgnoresBuildMetadata()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            """<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0+feed</version></metadata></package>""");
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0+wrapper",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.True(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_InvalidUtf8NuspecLeavesAvailabilityUnknown()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            [
+                .. """<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version><!--"""u8,
+                0xFF,
+                .. """--></metadata></package>"""u8
+            ]);
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_BomPrefixedNuspecSetsAvailabilityTrue()
+    {
+        const string nuspec =
+            "\uFEFF<package><metadata><id>TestPackage.linux-x64</id>"
+            + "<version>1.0.0</version></metadata></package>";
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            nuspec);
+        using var client = new HttpClient(handler);
+        var result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.True(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        Assert.StartsWith(
+            "\uFEFF",
+            await PackageExtractor.TryGetNuspecXmlAsync(
+                client,
+                "TestPackage.linux-x64",
+                "1.0.0",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = ["https://feed.example.test/v3/index.json"]
+                }));
+    }
+
+    private static InspectionResult CreateResult() => new()
+    {
+        RuntimeIdentifierPackages =
+        [
+            new RidPackageReference
+            {
+                RuntimeIdentifier = "linux-x64",
+                PackageId = "TestPackage.linux-x64"
+            }
+        ]
+    };
+
+    private static void WriteUnusablePackageArchive(
+        string packagePath,
+        string scenario)
+    {
+        switch (scenario)
+        {
+            case "empty-file":
+                File.WriteAllBytes(packagePath, []);
+                break;
+            case "malformed-archive":
+                File.WriteAllBytes(packagePath, "not a zip archive"u8.ToArray());
+                break;
+            case "empty-archive":
+                using (ZipFile.Open(packagePath, ZipArchiveMode.Create))
+                {
+                }
+                break;
+            case "missing-nuspec":
+                WriteArchiveEntry(
+                    packagePath,
+                    "README.md",
+                    "no manifest"u8);
+                break;
+            case "malformed-nuspec":
+                WriteArchiveEntry(
+                    packagePath,
+                    "TestPackage.linux-x64.nuspec",
+                    "<package>"u8);
+                break;
+            case "wrong-id":
+                WritePackageArchive(
+                    packagePath,
+                    "Other.Package",
+                    "1.0.0");
+                break;
+            case "wrong-version":
+                WritePackageArchive(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "2.0.0");
+                break;
+            case "invalid-utf8":
+                WriteArchiveEntry(
+                    packagePath,
+                    "TestPackage.linux-x64.nuspec",
+                    [
+                        .. "<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version><!--"u8,
+                        0xFF,
+                        .. "--></metadata></package>"u8
+                    ]);
+                break;
+            case "not-a-file":
+                Directory.CreateDirectory(packagePath);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(scenario),
+                    scenario,
+                    "Unknown local package scenario.");
+        }
+    }
+
+    private static void WritePackageArchive(
+        string packagePath,
+        string packageId,
+        string version) =>
+        WriteArchiveEntry(
+            packagePath,
+            $"{packageId}.nuspec",
+            Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{packageId}</id>"
+                + $"<version>{version}</version></metadata></package>"));
+
+    private static void WriteArchiveEntry(
+        string packagePath,
+        string entryName,
+        ReadOnlySpan<byte> content)
+    {
+        using ZipArchive archive = ZipFile.Open(
+            packagePath,
+            ZipArchiveMode.Create);
+        using Stream stream = archive.CreateEntry(entryName).Open();
+        stream.Write(content);
+    }
+
     sealed class StubHandler : HttpMessageHandler
     {
-        readonly List<(string Match, string Body)> _routes = [];
+        readonly List<(string Match, byte[] Body)> _routes = [];
 
         public List<Uri> Requests { get; } = [];
 
-        public void Add(string match, string body) => _routes.Add((match, body));
+        public void Add(string match, string body) =>
+            Add(match, Encoding.UTF8.GetBytes(body));
+
+        public void Add(string match, byte[] body) =>
+            _routes.Add((match, body));
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -392,8 +1585,33 @@ public class RidPackageVerifierTests
                 ? new HttpResponseMessage(HttpStatusCode.NotFound)
                 : new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(route.Body, Encoding.UTF8, "application/xml")
+                    Content = new ByteArrayContent(route.Body)
                 });
         }
+    }
+
+    sealed class OfflineHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new OfflineException("Network access is disabled for this test.");
+    }
+
+    private static async Task CreateFifoAsync(string path)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "mkfifo",
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("-m");
+        startInfo.ArgumentList.Add("600");
+        startInfo.ArgumentList.Add(path);
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start mkfifo.");
+        await process.WaitForExitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, process.ExitCode);
     }
 }

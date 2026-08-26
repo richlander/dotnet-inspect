@@ -61,6 +61,31 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void OutputDestination_NormalizesBufferedLineEndings()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("output-destination-lf-");
+        try
+        {
+            var path = Path.Combine(tempDirectory.FullName, "output.txt");
+            OutputDestination.Write(
+                path,
+                rowWindow: null,
+                writer => writer.Write("first\r\nsecond\rthird\n"));
+            Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
+
+            var sink = new StringWriter { NewLine = "\r\n" };
+            var normalized = new LfTextWriter(sink);
+            normalized.WriteLine("first\r\nsecond".AsSpan());
+            normalized.Flush();
+            Assert.Equal("first\nsecond\n", sink.ToString());
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void LibraryInspectionTypedRows_CarryConcernProvenance()
     {
         const string hostile = "value\u202E\nINJECTED";
@@ -2020,59 +2045,102 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void CountMarkdownTableRows_CountsDataRowsOnly()
+    public void CountProjection_CapturesTableRowsBySection()
     {
-        const string markdown = """
-        # Title
+        var projection = CountProjectionFormatter.Capture(writer =>
+        {
+            writer.WriteHeading(1, "Title");
+            writer.WriteHeading(2, "Methods");
+            writer.WriteTable(
+                ["Name"],
+                ["name"],
+                [new[] { "Read" }, new[] { "Write" }]);
+            writer.WriteHeading(2, "Fields");
+            writer.WriteTable(
+                ["Name"],
+                ["name"],
+                [new[] { "Value" }]);
+        }, new MarkoutWriterOptions());
 
-        ## Methods
-
-        | Name | Signature |
-        | ---- | --------- |
-        | Read | void Read() |
-        | Write | void Write() |
-
-        ## Notes
-
-        Not a table.
-        """;
-
-        Assert.Equal(2, CountOutput.CountMarkdownTableRows(markdown));
+        Assert.Equal(3, projection.Total);
+        Assert.Equal(2, projection.SectionCounts["Methods"]);
+        Assert.Equal(1, projection.SectionCounts["Fields"]);
     }
 
     [Fact]
-    public void CountMarkdownTableRows_SumsMultipleTables()
+    public void CountProjection_AppliesRowWindowBeforeReduction()
     {
-        const string markdown = """
-        | Field | Value |
-        | ----- | ----- |
-        | Name | Example |
+        var projection = CountProjectionFormatter.Capture(writer =>
+        {
+            writer.WriteHeading(2, "Methods");
+            writer.WriteTable(
+                ["Name"],
+                ["name"],
+                [
+                    new[] { "One" },
+                    new[] { "Two" },
+                    new[] { "Three" }
+                ]);
+        }, OutputFormatter.CreateWindowedOptions(RowWindow.Head(2)));
 
-        | Name |
-        | ---- |
-        | One |
-        | Two |
-        """;
-
-        Assert.Equal(3, CountOutput.CountMarkdownTableRows(markdown));
+        Assert.Equal(2, projection.Total);
+        Assert.Equal(2, projection.SectionCounts["Methods"]);
     }
 
     [Fact]
-    public void CountMarkdownTableRows_IgnoresCodeFences()
+    public void CountProjection_DoesNotCountNonTableContent()
     {
-        const string markdown = """
-        ```md
-        | Not | Data |
-        | --- | ---- |
-        | One | Two |
-        ```
+        var projection = CountProjectionFormatter.Capture(writer =>
+        {
+            writer.WriteHeading(2, "Notes");
+            writer.WriteParagraph("Not a row.");
+            writer.WriteCodeStart("md");
+            writer.WriteCodeEnd();
+        }, new MarkoutWriterOptions());
 
-        | Name |
-        | ---- |
-        | Real |
-        """;
+        Assert.Equal(0, projection.Total);
+        Assert.True(projection.WroteAnyContent);
+    }
 
-        Assert.Equal(1, CountOutput.CountMarkdownTableRows(markdown));
+    [Theory]
+    [InlineData(OutputFormat.Markdown)]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.PlainText)]
+    public void CountProjection_SectionRowsRenderThroughEveryCompatibleFormat(
+        OutputFormat format)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Methods"] = 17,
+            ["Fields"] = 23
+        };
+
+        var output = CountOutput.RenderSectionCounts(
+            counts, ["Methods", "Fields"], format);
+
+        Assert.Contains("Methods", output, StringComparison.Ordinal);
+        Assert.Contains("17", output, StringComparison.Ordinal);
+        Assert.Contains("Fields", output, StringComparison.Ordinal);
+        Assert.Contains("23", output, StringComparison.Ordinal);
+
+        if (format == OutputFormat.Json)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(17, document.RootElement[0].GetProperty("count").GetInt32());
+            Assert.Equal(23, document.RootElement[1].GetProperty("count").GetInt32());
+        }
+        else if (format == OutputFormat.Jsonl)
+        {
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+            using var first = JsonDocument.Parse(lines[0]);
+            using var second = JsonDocument.Parse(lines[1]);
+            Assert.Equal(17, first.RootElement.GetProperty("count").GetInt32());
+            Assert.Equal(23, second.RootElement.GetProperty("count").GetInt32());
+        }
     }
 
     [Fact]

@@ -88,6 +88,22 @@ public class OperatorNamesTests
     public void Unknown_op_prefix_passes_through()
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
 
+    [Fact]
+    public void Untreated_display_preserves_input_for_typed_presentation_boundary()
+    {
+        const string Hostile = "Name\u202E\nINJECTED";
+
+        Assert.Equal(
+            "operator +",
+            OperatorNames.FormatDisplayNameUntreated("op_Addition"));
+        Assert.Equal(
+            Hostile,
+            OperatorNames.FormatDisplayNameUntreated(Hostile));
+        Assert.NotEqual(
+            Hostile,
+            OperatorNames.FormatDisplayName(Hostile));
+    }
+
     [Theory]
     // C# operator names.
     [InlineData("op_Addition")]
