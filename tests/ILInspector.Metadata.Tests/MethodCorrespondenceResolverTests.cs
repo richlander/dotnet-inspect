@@ -718,6 +718,7 @@ public sealed class MethodCorrespondenceResolverTests
     [InlineData(ForwarderTargetKind.ForgedCoreLibrary)]
     [InlineData(ForwarderTargetKind.File)]
     [InlineData(ForwarderTargetKind.MissingForwarderFlag)]
+    [InlineData(ForwarderTargetKind.NestedVisibility)]
     public void ResolveApiMember_UntrustedTargetForwarderDoesNotAuthorizeCurrentTypeDef(
         ForwarderTargetKind targetKind)
     {
@@ -732,6 +733,24 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
         Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false,
+                typeNamespace: ""),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                includeNestedForwarderRow: true,
+                typeNamespace: ""));
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
     }
 
     [Fact]
@@ -823,6 +842,59 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure()
+    {
+        byte[] source =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 100,
+                publicKeyBytes: 512 * 1024,
+                typeNameLength: 16 * 1024);
+        byte[] target =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 1,
+                publicKeyBytes: 8,
+                typeNameLength: 4);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("budget", result.Failure);
+        Assert.InRange(allocated, 0, 8 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget()
+    {
+        byte[] source =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 5,
+                publicKeyBytes: 900 * 1024,
+                typeNameLength: 4,
+                distinctAssemblyReferences: true);
+        byte[] target =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 1,
+                publicKeyBytes: 8,
+                typeNameLength: 4);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("budget", result.Failure);
         Assert.InRange(allocated, 0, 4 * 1024 * 1024);
     }
 
@@ -2445,6 +2517,7 @@ public sealed class MethodCorrespondenceResolverTests
         ForgedCoreLibrary,
         File,
         MissingForwarderFlag,
+        NestedVisibility,
     }
 
     static byte[] BuildCurrentToCoreLibraryForwarderImage(
@@ -2457,6 +2530,7 @@ public sealed class MethodCorrespondenceResolverTests
         bool includeMalformedForwarder = false,
         bool malformedForwarderMatchesRoot = false,
         bool includeConflictingForwarder = false,
+        bool includeNestedForwarderRow = false,
         ForwarderTargetKind forwarderTargetKind =
             ForwarderTargetKind.PlatformCoreLibrary,
         int noisePublicKeyBytes = 0,
@@ -2536,6 +2610,11 @@ public sealed class MethodCorrespondenceResolverTests
             case ForwarderTargetKind.MissingForwarderFlag:
                 forwarderAttributes = TypeAttributes.Public;
                 break;
+            case ForwarderTargetKind.NestedVisibility:
+                forwarderAttributes =
+                    TypeAttributes.NestedPublic
+                    | (TypeAttributes)0x00200000;
+                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(forwarderTargetKind));
@@ -2590,6 +2669,23 @@ public sealed class MethodCorrespondenceResolverTests
                 metadata.GetOrAddString(typeNamespace),
                 metadata.GetOrAddString(forwardedRootName),
                 forwarderTarget,
+                typeDefinitionId: 0);
+        }
+        if (includeNestedForwarderRow)
+        {
+            ExportedTypeHandle owner =
+                metadata.AddExportedType(
+                    TypeAttributes.NotPublic
+                        | (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Container"),
+                    coreLibrary,
+                    typeDefinitionId: 0);
+            metadata.AddExportedType(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString(forwardedRootName),
+                owner,
                 typeDefinitionId: 0);
         }
         if (includeConflictingForwarder)
@@ -2813,7 +2909,7 @@ public sealed class MethodCorrespondenceResolverTests
         {
             parent =
                 metadata.AddExportedType(
-                    TypeAttributes.NestedPublic,
+                    TypeAttributes.NotPublic,
                     default,
                     metadata.GetOrAddString($"P{i}"),
                     parent,
@@ -2822,7 +2918,7 @@ public sealed class MethodCorrespondenceResolverTests
         for (int i = 0; i < leafCount; i++)
         {
             metadata.AddExportedType(
-                TypeAttributes.NestedPublic,
+                TypeAttributes.NotPublic,
                 default,
                 metadata.GetOrAddString($"L{i}"),
                 parent,
@@ -2844,6 +2940,74 @@ public sealed class MethodCorrespondenceResolverTests
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
         return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedGenericAssemblyScopeImage(
+        int parameterCount,
+        int publicKeyBytes,
+        int typeNameLength,
+        bool distinctAssemblyReferences = false)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("RepeatedGenericAssemblyScope");
+        AssemblyReferenceHandle sharedAssembly = default;
+        if (!distinctAssemblyReferences)
+            sharedAssembly = AddAssemblyReference(0);
+        StringHandle typeNamespace =
+            metadata.GetOrAddString("N");
+        StringHandle typeName =
+            metadata.GetOrAddString(
+                new string('a', typeNameLength - 3) + "G`1");
+        var types =
+            new TypeReferenceHandle[parameterCount];
+        for (int i = 0; i < types.Length; i++)
+        {
+            AssemblyReferenceHandle assembly =
+                distinctAssemblyReferences
+                    ? AddAssemblyReference(i)
+                    : sharedAssembly;
+            types[i] =
+                metadata.AddTypeReference(
+                    assembly,
+                    typeNamespace,
+                    typeName);
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        foreach (TypeReferenceHandle type in types)
+        {
+            signature.WriteByte(0x15);
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(type) << 2) | 1);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x08);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+
+        AssemblyReferenceHandle AddAssemblyReference(int index)
+        {
+            var publicKey = new byte[publicKeyBytes];
+            publicKey[0] = 1;
+            publicKey[^1] = (byte)index;
+            return metadata.AddAssemblyReference(
+                metadata.GetOrAddString($"Dependency{index}"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(publicKey),
+                AssemblyFlags.PublicKey,
+                default);
+        }
     }
 
     static byte[] BuildMethodComparisonNameImage(

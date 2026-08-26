@@ -100,13 +100,15 @@ permitting name-alone correspondence. The authorizing root must be unique:
 competing or malformed evidence for that same namespace and root fails the
 correspondence operation, while unrelated rejected rows provide no
 authorization. The projection classifies a row from its direct implementation:
-nested rows are skipped without repeatedly walking their parent chains, while
-root-looking rows with nested implementations remain rejected evidence.
-Forwarder names, assembly-reference identity, target type and method names, and
-public-key material draw from the operation budget; budget exhaustion fails the
-operation. One assembly reference is projected at most once during the reader's
-forwarder scan, each target method name is compared at most once, and each
-target type name is compared at most once per expected source segment.
+nested rows have an `ExportedType` implementation and are skipped without
+repeatedly walking their parent chains. A row whose visibility claims it is
+nested but whose implementation is an assembly or file remains rejected root
+evidence. Forwarder names, assembly-reference identity, target type and method
+names, and public-key material draw from the operation budget; budget exhaustion
+fails the operation. One assembly reference is charged and projected at most
+once per reader across signature and forwarder projection, each target method
+name is compared at most once, and each target type name is compared at most
+once per expected source segment.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -125,6 +127,9 @@ identity.
 `ResolveApiMember_ForwarderBudgetExhaustionFailsWithoutSelectingPartialEvidence`,
 `ResolveApiMember_UnrelatedMalformedForwarderDoesNotAuthorizeOrFail`,
 `ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains`,
+`ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence`,
+`ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
+`ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,
 `ResolveApiMember_ClassAndValueTypeSignaturesAreAbsentInEitherDirection`,
 `ResolveApiMember_OutOfRangeGenericParameterIndexFails`,

@@ -81,11 +81,13 @@ fail correspondence rather than selecting from a partial projection. Unrelated
 rejected rows remain non-authorizing evidence. Forwarder and assembly-reference
 projection is operation-budgeted, projects repeated key material once, and
 classifies nested rows from their direct implementation rather than repeatedly
-walking parent chains. Neither case grants either reader core-library
-entitlement. Every distinct target method name and target type-name comparison,
-extension classification, forwarder projection, and identity materialization
-draws from one operation-wide work budget; repeated target-name comparisons
-reuse their charged result.
+walking parent chains. A nested visibility on an assembly- or file-implemented
+row is rejected rather than authorizing a root. Neither case grants either
+reader core-library entitlement. Every distinct target method name and
+target type-name comparison, extension classification, forwarder projection,
+and identity materialization draws from one operation-wide work budget;
+repeated target-name and assembly-reference projections reuse their charged
+result.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

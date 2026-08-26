@@ -89,6 +89,14 @@ public static class ApiMemberIdentity
             MetadataReader,
             IntrinsicCoreLibraryForwardedRootProjection>
             _intrinsicCoreLibraryForwardedRoots = [];
+        readonly Dictionary<
+            MetadataReader,
+            AssemblyReferenceProjectionCache>
+            _assemblyReferenceProjections = [];
+        readonly Dictionary<
+            MetadataReader,
+            HashSet<AssemblyReferenceHandle>>
+            _chargedAssemblyReferences = [];
 
         internal IntrinsicCoreLibraryForwardedRootProjection
             GetOrAddIntrinsicCoreLibraryForwardedRoots(
@@ -103,6 +111,63 @@ public static class ApiMemberIdentity
                 _intrinsicCoreLibraryForwardedRoots.Add(reader, roots);
             }
             return roots;
+        }
+
+        internal AssemblyReferenceIdentity ProjectAssemblyReference(
+            MetadataReader reader,
+            AssemblyReferenceHandle handle,
+            Action<int> charge)
+        {
+            if (!_assemblyReferenceProjections.TryGetValue(
+                    reader,
+                    out AssemblyReferenceProjectionCache? projection))
+            {
+                projection = new AssemblyReferenceProjectionCache(reader);
+                _assemblyReferenceProjections.Add(reader, projection);
+            }
+            if (!_chargedAssemblyReferences.TryGetValue(
+                    reader,
+                    out HashSet<AssemblyReferenceHandle>? charged))
+            {
+                charged = [];
+                _chargedAssemblyReferences.Add(reader, charged);
+            }
+
+            bool added = charged.Add(handle);
+            bool succeeded = false;
+            try
+            {
+                if (added)
+                {
+                    System.Reflection.Metadata.AssemblyReference reference =
+                        reader.GetAssemblyReference(handle);
+                    charge(reader.GetBlobReader(reference.Name).Length);
+                    if (!reference.Culture.IsNil)
+                    {
+                        charge(
+                            reader.GetBlobReader(
+                                reference.Culture).Length);
+                    }
+                    if (!reference.PublicKeyOrToken.IsNil)
+                    {
+                        charge(
+                            reader.GetBlobReader(
+                                reference.PublicKeyOrToken).Length);
+                    }
+                }
+
+                AssemblyReferenceIdentity identity =
+                    AssemblyReferenceIdentity.From(
+                        handle,
+                        projection);
+                succeeded = true;
+                return identity;
+            }
+            finally
+            {
+                if (added && !succeeded)
+                    charged.Remove(handle);
+            }
         }
     }
 
@@ -1874,9 +1939,14 @@ public static class ApiMemberIdentity
             switch (terminal.Kind)
             {
                 case HandleKind.AssemblyReference:
-                    assembly = AssemblyReferenceIdentity.From(
+                    MethodCorrespondenceContext context =
+                        _correspondenceContext
+                        ?? throw new InvalidOperationException(
+                            "Correspondence construction requires an operation context.");
+                    assembly = context.ProjectAssemblyReference(
                         reader,
-                        (AssemblyReferenceHandle)terminal);
+                        (AssemblyReferenceHandle)terminal,
+                        _workBudget.Charge);
                     if (PlatformKeys.IsCoreLibraryFacadeReference(
                             assembly))
                     {
@@ -1962,10 +2032,6 @@ public static class ApiMemberIdentity
             {
                 var forwardedRoots =
                     new IntrinsicCoreLibraryForwardedRootProjection();
-                var assemblyReferences =
-                    new AssemblyReferenceProjectionCache(reader);
-                var chargedAssemblyReferences =
-                    new HashSet<AssemblyReferenceHandle>();
                 foreach (ExportedTypeHandle handle in reader.ExportedTypes)
                 {
                     _workBudget.Charge(LeafNodeWorkUnits);
@@ -1980,14 +2046,10 @@ public static class ApiMemberIdentity
                     }
 
                     EntityHandle terminal = root.Implementation;
-                    bool malformedRoot =
-                        terminal.Kind == HandleKind.ExportedType
-                        && !HasNestedVisibility(root.Attributes);
-                    if (terminal.Kind == HandleKind.ExportedType
-                        && !malformedRoot)
-                    {
+                    if (terminal.Kind == HandleKind.ExportedType)
                         continue;
-                    }
+                    bool nestedVisibility =
+                        HasNestedVisibility(root.Attributes);
 
                     (string Namespace, string Name) rootIdentity;
                     try
@@ -2011,18 +2073,18 @@ public static class ApiMemberIdentity
                     bool authorized = false;
                     try
                     {
-                        if (!malformedRoot
+                        if (!nestedVisibility
                             && terminal.Kind
                                 == HandleKind.AssemblyReference
                             && root.IsForwarder)
                         {
                             var targetHandle =
                                 (AssemblyReferenceHandle)terminal;
-                            ChargeAssemblyReference(targetHandle);
                             AssemblyReferenceIdentity target =
-                                AssemblyReferenceIdentity.From(
+                                context.ProjectAssemblyReference(
+                                    reader,
                                     targetHandle,
-                                    assemblyReferences);
+                                    _workBudget.Charge);
                             authorized =
                                 PlatformKeys
                                     .IsCoreLibraryFacadeReference(target);
@@ -2035,29 +2097,6 @@ public static class ApiMemberIdentity
                     forwardedRoots.Record(rootIdentity, authorized);
                 }
                 return forwardedRoots;
-
-                void ChargeAssemblyReference(
-                    AssemblyReferenceHandle handle)
-                {
-                    if (!chargedAssemblyReferences.Add(handle))
-                        return;
-
-                    System.Reflection.Metadata.AssemblyReference reference =
-                        reader.GetAssemblyReference(handle);
-                    _workBudget.Charge(
-                        reader.GetBlobReader(reference.Name).Length);
-                    if (!reference.Culture.IsNil)
-                    {
-                        _workBudget.Charge(
-                            reader.GetBlobReader(reference.Culture).Length);
-                    }
-                    if (!reference.PublicKeyOrToken.IsNil)
-                    {
-                        _workBudget.Charge(
-                            reader.GetBlobReader(
-                                reference.PublicKeyOrToken).Length);
-                    }
-                }
 
                 bool CanIgnoreMalformedRow(Exception ex) =>
                     _workBudget.Remaining > 0
