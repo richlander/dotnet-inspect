@@ -183,6 +183,41 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void ReferenceCorrespondence_UsesPackageIdentityAndCaseInsensitiveName()
+    {
+        byte[] firstImage =
+            File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
+        byte[] secondImage =
+            File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
+        PackageAssemblyContextSelection first = Selection(
+            "First.Reference.Package",
+            ("ref/net11.0/COMMON.dll", firstImage),
+            ("lib/net11.0/common.dll", firstImage));
+        PackageAssemblyContextSelection second = Selection(
+            "Second.Reference.Package",
+            ("ref/net11.0/COMMON.dll", secondImage),
+            ("lib/net11.0/common.dll", secondImage));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [first, second],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.All(
+            realization.SurfaceParticipants,
+            surface =>
+            {
+                PackageAssemblyRoleParticipant implementation =
+                    Assert.IsType<PackageAssemblyRoleParticipant>(
+                        realization.ImplementationParticipant(surface));
+                Assert.Same(surface.Package, implementation.Package);
+                Assert.Equal(
+                    "lib/net11.0/common.dll",
+                    implementation.Asset.Path);
+            });
+    }
+
+    [Fact]
     public void MalformedSelectedAsset_RemainsARejectedParticipant()
     {
         PackageAssemblyContextSelection package = Selection(

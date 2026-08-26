@@ -404,24 +404,58 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<RoleAssembly> surfaces,
         ImmutableArray<RoleAssembly> implementations)
     {
+        var implementationsByAsset = new Dictionary<RoleAsset, RoleAssembly>(
+            implementations.Length,
+            RoleAssetIdentityComparer.Instance);
+        var implementationsByName =
+            new Dictionary<ImplementationNameKey, RoleAsset>(
+                implementations.Length,
+                ImplementationNameKeyComparer.Instance);
+        foreach (RoleAssembly implementation in implementations)
+        {
+            var roleAsset = new RoleAsset(
+                implementation.Package,
+                implementation.Asset);
+            if (!implementationsByAsset.TryAdd(roleAsset, implementation))
+            {
+                throw new InvalidOperationException(
+                    "Package asset selection produced duplicate implementation role assets.");
+            }
+            implementationsByName.TryAdd(
+                new ImplementationNameKey(
+                    implementation.Package,
+                    implementation.Asset.AssemblyName),
+                roleAsset);
+        }
+
         var pairs =
             ImmutableArray.CreateBuilder<PackageAssemblyRoleCorrespondence>();
         foreach (RoleAssembly surface in surfaces)
         {
-            PackageCompileAsset? implementationAsset =
-                surface.Package.AssetSelection.FindImplementationAsset(
+            RoleAsset implementationAsset;
+            if (surface.Asset.Kind == PackageCompileAssetKind.Library)
+            {
+                implementationAsset = new RoleAsset(
+                    surface.Package,
                     surface.Asset);
-            if (implementationAsset is null)
+            }
+            else if (!implementationsByName.TryGetValue(
+                new ImplementationNameKey(
+                    surface.Package,
+                    surface.Asset.AssemblyName),
+                out implementationAsset!))
+            {
                 continue;
+            }
 
-            RoleAssembly implementation = implementations.FirstOrDefault(candidate =>
-                    ReferenceEquals(candidate.Package, surface.Package)
-                    && candidate.Asset.Path.Equals(
-                        implementationAsset.Path,
-                        StringComparison.Ordinal))
-                ?? throw new InvalidOperationException(
+            if (!implementationsByAsset.TryGetValue(
+                implementationAsset,
+                out RoleAssembly? implementation))
+            {
+                throw new InvalidOperationException(
                     "A selected implementation asset is not part of the "
                     + "implementation package role.");
+            }
             bool identitiesDecoded =
                 surface.IdentityDecoded
                 && implementation.IdentityDecoded;
@@ -497,6 +531,10 @@ public sealed partial class InspectionWorkspace
         PackageAssemblyContextSelection Package,
         PackageCompileAsset Asset);
 
+    sealed record ImplementationNameKey(
+        PackageAssemblyContextSelection Package,
+        string AssemblyName);
+
     sealed class RoleAssetIdentityComparer : IEqualityComparer<RoleAsset>
     {
         internal static RoleAssetIdentityComparer Instance { get; } = new();
@@ -514,6 +552,28 @@ public sealed partial class InspectionWorkspace
             HashCode.Combine(
                 RuntimeHelpers.GetHashCode(asset.Package),
                 StringComparer.Ordinal.GetHashCode(asset.Asset.Path));
+    }
+
+    sealed class ImplementationNameKeyComparer :
+        IEqualityComparer<ImplementationNameKey>
+    {
+        internal static ImplementationNameKeyComparer Instance { get; } = new();
+
+        public bool Equals(
+            ImplementationNameKey? left,
+            ImplementationNameKey? right) =>
+            ReferenceEquals(left, right)
+            || (left is not null
+                && right is not null
+                && ReferenceEquals(left.Package, right.Package)
+                && left.AssemblyName.Equals(
+                    right.AssemblyName,
+                    StringComparison.OrdinalIgnoreCase));
+
+        public int GetHashCode(ImplementationNameKey key) =>
+            HashCode.Combine(
+                RuntimeHelpers.GetHashCode(key.Package),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(key.AssemblyName));
     }
 
     sealed record RoleAssembly(
