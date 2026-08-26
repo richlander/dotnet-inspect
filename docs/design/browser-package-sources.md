@@ -744,8 +744,11 @@ host transport: the process-wide shared client selects
 retaining producer-scoped authentication plugins, offline behavior, telemetry,
 and the configured-origin destination policy. Credential-free connections
 remain reusable across producers on one origin, while an explicitly injected
-test client remains authoritative. The typed client borrows that host transport
-and does not dispose it. Package-layer aggregation still owns source order,
+test client remains authoritative. Concurrent first access publishes one
+process-wide client and disposes losing construction candidates; transport
+selection tests that identity without lazily creating it. The typed client
+borrows that host transport and does not dispose it. Package-layer aggregation
+still owns source order,
 reporting feeds, NuGet.org listing enrichment, complete-source requirements,
 the cache-first authorized-producer pass, payload admission, and source
 failover. NuGet.org-specific listing and symbol decisions use the stable
@@ -762,8 +765,11 @@ redacted before diagnostic projection.
 `PackageSourceClientTests.OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient`,
 and
 `HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`,
+`HttpClientFactoryTests.Shared_ConcurrentFirstAccessPublishesOneClient`,
+`HttpClientFactoryTests.PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient`,
 `PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`,
 `HttpClientFactoryTests.StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+`HttpClientFactoryTests.StandaloneNuspecLookup_SharedClientSkipsLocalSource`,
 and
 `PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources`
 gate

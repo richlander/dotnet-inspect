@@ -54,7 +54,7 @@ internal static class PackageSourceClientProvider
     internal static HttpClient SelectTransport(
         PackageSource source,
         HttpClient client) =>
-        ReferenceEquals(client, HttpClientFactory.Shared)
+        HttpClientFactory.IsSharedClient(client)
             ? HttpClientFactory.GetPackageSourceTransport(
                 source.Url,
                 ProducerIdentity(source.Url)?.Value ?? source.Url)

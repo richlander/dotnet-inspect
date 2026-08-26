@@ -81,7 +81,9 @@ HTTP version enumeration and exact package payload requests use
 `IPackageSourceClient`. The desktop adapter chooses the application-owned
 producer-scoped authentication transport for production over a credential-free
 connection pipeline shared by origin, and preserves an injected transport for
-tests. Multi-source semantic-version selection, NuGet.org registration
+tests. Concurrent first access uniquely publishes the process-wide production
+client, while compatibility consumers test that identity without creating it.
+Multi-source semantic-version selection, NuGet.org registration
 enrichment, cache authority, and source failover remain package-layer policy.
 Candidate metadata is keyed by the complete ordered transport route, distinct
 from producer-scoped payload authorization. The Browser workspace supplies its
@@ -166,10 +168,15 @@ standalone nuspec documents. A version-list failure is reported as unknown,
 not as evidence that the companion package is absent. Cached companion
 identities are reverified without repeating filesystem inspection. RID
 availability is not persisted because it depends on the current source policy.
+Standalone nuspec authentication is scoped only for HTTP transports; a
+local-folder source remains a non-HTTP miss and cannot prevent a later HTTP
+source from answering.
 The
 `VerifyAsync_VersionIndexFailureIsUnknown` and
 `InspectAsync_ReverifiesIndeterminateCachedRidAvailability` and
-`RidAvailability_IsNotPersisted` tests gate these properties.
+`RidAvailability_IsNotPersisted` and
+`HttpClientFactoryTests.StandaloneNuspecLookup_SharedClientSkipsLocalSource`
+tests gate these properties.
 
 This describes the current gate. The target
 [package source model](package-source-model.md#enrichment-is-a-separate-capability)

@@ -812,7 +812,8 @@ public static class PackageExtractor
             foreach (NuGetSource transport in NuGetSourceResolver.Transports(source))
             {
                 HttpClient sourceClient =
-                    ReferenceEquals(client, HttpClientFactory.Shared)
+                    IsHttpSource(transport)
+                        && HttpClientFactory.IsSharedClient(client)
                         ? HttpClientFactory.GetPackageSourceClient(transport.Url)
                         : client;
                 var url = await GetNuspecUrlAsync(

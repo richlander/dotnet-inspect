@@ -167,7 +167,7 @@ public static class PackageMetadataService
                 }
 
                 HttpClient sourceClient =
-                    ReferenceEquals(client, HttpClientFactory.Shared)
+                    HttpClientFactory.IsSharedClient(client)
                         ? HttpClientFactory.GetPackageSourceClient(transport.Url)
                         : client;
                 SourceMetadataResult transportResult =

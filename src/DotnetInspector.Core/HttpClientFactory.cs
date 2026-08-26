@@ -149,7 +149,36 @@ public static class HttpClientFactory
     /// Gets the shared HttpClient instance for the application.
     /// This instance should be used throughout the app lifetime and not disposed.
     /// </summary>
-    public static HttpClient Shared => _shared ??= CreateClient();
+    public static HttpClient Shared
+    {
+        get
+        {
+            HttpClient? shared = Volatile.Read(ref _shared);
+            if (shared is not null)
+                return shared;
+
+            HttpClient candidate = CreateClient();
+            shared = Interlocked.CompareExchange(
+                ref _shared,
+                candidate,
+                null);
+            if (shared is null)
+                return candidate;
+
+            candidate.Dispose();
+            return shared;
+        }
+    }
+
+    /// <summary>
+    /// Reports whether a client is the uniquely published shared instance
+    /// without creating that instance as a side effect.
+    /// </summary>
+    public static bool IsSharedClient(HttpClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        return ReferenceEquals(client, Volatile.Read(ref _shared));
+    }
 
     /// <summary>
     /// Shared, process-lifetime SSRF-hardened client for fetching content from URLs that originate

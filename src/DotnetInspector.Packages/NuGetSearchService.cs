@@ -116,7 +116,7 @@ public static class NuGetSearchService
         int searched = 0;
         bool operationTimedOut = false;
         bool useFactoryClients =
-            ReferenceEquals(client, HttpClientFactory.Shared);
+            HttpClientFactory.IsSharedClient(client);
         _ = NuGetFetchOptions.RequestTimeoutForClient(
             fetchOptions,
             client.Timeout);

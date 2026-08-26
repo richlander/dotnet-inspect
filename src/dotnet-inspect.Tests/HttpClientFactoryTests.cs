@@ -44,6 +44,37 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task Shared_ConcurrentFirstAccessPublishesOneClient()
+    {
+        using var probe = new SharedPublicationProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        HttpClient[] clients = [];
+        try
+        {
+            clients = await Task.WhenAll(
+                Task.Run(() => HttpClientFactory.Shared),
+                Task.Run(() => HttpClientFactory.Shared));
+
+            Assert.Same(clients[0], clients[1]);
+            Assert.Equal(1, probe.DisposedHandlerCount);
+        }
+        finally
+        {
+            if (clients is [HttpClient first, HttpClient second]
+                && !ReferenceEquals(first, second))
+            {
+                first.Dispose();
+                second.Dispose();
+            }
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
     public void Shared_IsNotNull()
     {
         var client = HttpClientFactory.Shared;
@@ -226,6 +257,38 @@ public class HttpClientFactoryTests : IDisposable
             PackageSourceClientProvider.SelectTransport(
                 source,
                 injected));
+    }
+
+    [Fact]
+    public void PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient()
+    {
+        var source = new NuGetFetch.PackageSource(
+            "private",
+            "https://private.example/v3/index.json");
+        using var injected = new HttpClient();
+        var sharedClientCreations = 0;
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            inner =>
+            {
+                Interlocked.Increment(ref sharedClientCreations);
+                return inner;
+            });
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            Assert.Same(
+                injected,
+                PackageSourceClientProvider.SelectTransport(
+                    source,
+                    injected));
+            Assert.Equal(0, sharedClientCreations);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
     }
 
     [Fact]
@@ -441,6 +504,46 @@ public class HttpClientFactoryTests : IDisposable
                 "dXNlcjpwYXNzd29yZA==",
                 probe.Requests[1].Authorization);
             Assert.Null(probe.Requests[2].Authorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task StandaloneNuspecLookup_SharedClientSkipsLocalSource()
+    {
+        var probe = new NuspecRouteProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            string localSource = Path.Combine(_cacheDir, "local-source");
+            Directory.CreateDirectory(localSource);
+            string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                HttpClientFactory.Shared,
+                "Example",
+                "1.0.0",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        localSource,
+                        "https://feed.example/feed/v3/index.json",
+                    ],
+                });
+
+            Assert.Contains("<id>Example</id>", nuspec);
+            Assert.Equal(
+                [
+                    "/feed/v3/index.json",
+                    "/flat/example/1.0.0/example.nuspec",
+                ],
+                probe.RequestPaths);
         }
         finally
         {
@@ -985,6 +1088,94 @@ public class HttpClientFactoryTests : IDisposable
                 CancellationToken cancellationToken) =>
                 Task.FromResult<NuGetFetch.PackageSourceCredential?>(
                     new("user", "password"));
+        }
+    }
+
+    private sealed class NuspecRouteProbe
+    {
+        internal List<string> RequestPaths { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner) =>
+            new ProbeHandler(this, inner);
+
+        private sealed class ProbeHandler(
+            NuspecRouteProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                string path = request.RequestUri!.AbsolutePath;
+                owner.RequestPaths.Add(path);
+                string content = path switch
+                {
+                    "/feed/v3/index.json" => """
+                        {
+                          "resources": [
+                            {
+                              "@type": "PackageBaseAddress/3.0.0",
+                              "@id": "https://feed.example/flat/"
+                            }
+                          ]
+                        }
+                        """,
+                    "/flat/example/1.0.0/example.nuspec" => """
+                        <?xml version="1.0"?>
+                        <package>
+                          <metadata>
+                            <id>Example</id>
+                            <version>1.0.0</version>
+                          </metadata>
+                        </package>
+                        """,
+                    _ => throw new InvalidOperationException(
+                        $"Unexpected nuspec request: {path}"),
+                };
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        RequestMessage = request,
+                        Content = new StringContent(content),
+                    });
+            }
+        }
+    }
+
+    private sealed class SharedPublicationProbe : IDisposable
+    {
+        private readonly Barrier _barrier = new(2);
+        private int _disposedHandlerCount;
+
+        internal int DisposedHandlerCount =>
+            Volatile.Read(ref _disposedHandlerCount);
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner)
+        {
+            if (!_barrier.SignalAndWait(TimeSpan.FromSeconds(30)))
+            {
+                throw new TimeoutException(
+                    "Concurrent shared-client construction did not overlap.");
+            }
+
+            return new DisposeTrackingHandler(this, inner);
+        }
+
+        public void Dispose() => _barrier.Dispose();
+
+        private sealed class DisposeTrackingHandler(
+            SharedPublicationProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    Interlocked.Increment(
+                        ref owner._disposedHandlerCount);
+                }
+                base.Dispose(disposing);
+            }
         }
     }
 

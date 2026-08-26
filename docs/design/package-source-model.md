@@ -82,10 +82,14 @@ accepting a shared client or opaque caller handler. The desktop compatibility
 adapter may borrow a host-selected transport without transferring ownership.
 Desktop hosts share the credential-free connection pool by origin, but place
 each stateful plugin-authentication handler in a producer-scoped client above
-that pool. Legacy standalone nuspec requests select that scoped client when
-the caller supplied the process-wide shared client; an explicitly injected
-client remains authoritative. Their default handler disables cookies, default
-credentials, and preauthentication on desktop.
+that pool. The process-wide client is uniquely published under concurrent
+first access; compatibility consumers identify it without creating it as a
+side effect, and dispose a losing construction candidate. Legacy standalone
+nuspec requests select a scoped client only for HTTP transports when the caller
+supplied that shared client; local-folder transports retain their non-HTTP
+handling, and an explicitly injected client remains authoritative. Their
+default handler disables cookies, default credentials, and preauthentication
+on desktop.
 Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
@@ -100,7 +104,10 @@ This is gated by
 `PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers`,
 `PackageSourceClientProvider_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
 `PackageSourceClientProvider_ReusesConnectionsAcrossPathDistinctProducers`,
+`Shared_ConcurrentFirstAccessPublishesOneClient`,
+`PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient`,
 `StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+`StandaloneNuspecLookup_SharedClientSkipsLocalSource`,
 `PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect`,
 `PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
