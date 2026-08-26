@@ -158,6 +158,13 @@ SSRF-hardened source clients. The registry supports deterministic synchronous
 and asynchronous execution and passes each query's maximum transitive cost
 into the host execution scope.
 
+`DotnetInspector.Artifacts` now provides the source-neutral floor below these
+layers: generation-scoped identity and registration, adapter-owned typed
+provenance and diagnostics, acquisition outcomes, and owner-issued guarded
+admission/query access. It references no project. No current workspace behavior
+has moved onto that floor yet; `ArtifactSetSession`, local acquisition, and
+Metadata consumption remain later migration steps.
+
 ### L1 — `DotnetInspector.Queries`
 
 Owns typed inspection requests and their typed results, over the `ILInspector.*`

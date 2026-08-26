@@ -1,11 +1,25 @@
-type LensDefinition = readonly [id: string, label: string];
+import {
+  isMemberSection,
+  isPackageLens,
+  isTypeLens,
+  isWorkspaceScope,
+  type MemberSection,
+  type PackageLens,
+  type TypeLens,
+  type WorkspaceScope,
+} from "./data.ts";
 
-type Scope = "package" | "type" | "member";
+type LensDefinition<TId extends string = string> = readonly [id: TId, label: string];
 
-export interface RenderScopeBarOptions {
-  scope: Scope;
-  strip: readonly LensDefinition[];
-  activeStripId: string | null;
+// `TId` is inferred from the strip catalog, so the active id has to be a member of the
+// strip being rendered. A `string` there let a caller pass an id no button carries, which
+// renders a strip with nothing active and no failure anywhere. `NoInfer` keeps the strip
+// as the sole inference site; without it TypeScript infers the union of both and a
+// mismatched pair type-checks.
+export interface RenderScopeBarOptions<TId extends string = string> {
+  scope: WorkspaceScope;
+  strip: readonly LensDefinition<TId>[];
+  activeStripId: NoInfer<TId> | null;
   stripAttribute: string;
   showMemberScope?: boolean;
   emptyStripLabel?: string;
@@ -13,10 +27,10 @@ export interface RenderScopeBarOptions {
 }
 
 export interface ScopeBarBindingActions {
-  onMemberSectionSelect: (section: string | undefined) => void;
-  onPackageLensSelect: (lens: string) => void;
-  onScopeSelect: (scope: string | undefined) => void;
-  onTypeLensSelect: (lens: string) => void;
+  onMemberSectionSelect: (section: MemberSection) => void;
+  onPackageLensSelect: (lens: PackageLens) => void;
+  onScopeSelect: (scope: WorkspaceScope) => void;
+  onTypeLensSelect: (lens: TypeLens) => void;
 }
 
 export function bindScopeBar(
@@ -24,22 +38,25 @@ export function bindScopeBar(
   actions: ScopeBarBindingActions,
 ) {
   root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onScopeSelect(button.dataset.scope)));
+    button.addEventListener("click", () => {
+      const scope = button.dataset.scope;
+      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
+    }));
   root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onPackageLensSelect(
-        button.dataset.packageLens ?? "overview")));
+    button.addEventListener("click", () => {
+      const lens = button.dataset.packageLens;
+      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
+    }));
   root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onTypeLensSelect(button.dataset.lens ?? "api")));
+    button.addEventListener("click", () => {
+      const lens = button.dataset.lens;
+      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
+    }));
   root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onMemberSectionSelect(button.dataset.memberSection)));
+    button.addEventListener("click", () => {
+      const section = button.dataset.memberSection;
+      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
+    }));
 }
 
 function lensButton(
@@ -63,7 +80,9 @@ function scopeSegment(id: string, label: string, active: boolean): string {
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
-export function renderScopeBar(options: RenderScopeBarOptions): string {
+export function renderScopeBar<TId extends string>(
+  options: RenderScopeBarOptions<TId>,
+): string {
   const {
     scope,
     strip,

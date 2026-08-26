@@ -134,6 +134,7 @@ public static partial class InspectionEngine
                 projected.Accessibility,
                 projected.TotalMembers,
                 [.. coordinate.Package.Documents()],
+                projected.InspectionErrors,
                 projected.InspectionError),
             surfaces);
     }

@@ -685,7 +685,8 @@ peer records and requires a `ProductDemoSections` binding. Home demos are closed
 presets over the open query/section product: the registry fixes inputs and names
 **existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
 Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
-table/tsv/jsonl keep Callers alone so caller-scope re-add stays one section;
+table/tsv/jsonl keep Callers when the demo has caller scope so the re-add stays
+one section, otherwise Call Graph so package-local entry points still emit rows;
 mermaid keeps Call Graph; document JSON fails closed until graph projection
 lands); the CLI host runs them through the normal type/member section pipelines
 (`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those

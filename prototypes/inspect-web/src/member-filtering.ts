@@ -1,3 +1,4 @@
+import type { MemberSection, TypeLens } from "./data.ts";
 import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
 
 export const MEMBER_TRAITS = [
@@ -68,7 +69,7 @@ export function filterMemberGroups(
 
 export interface MemberScopeState {
   atPackageRoot: boolean;
-  lens: string;
+  lens: TypeLens;
   selectedMemberKey: string;
   memberBrowseTypeId: string;
 }
@@ -218,7 +219,7 @@ export interface MemberHistoryView {
   memberTraitFilter?: string;
   memberTextFilter?: string;
   selectedOverloadIndex?: number | null;
-  memberSection?: string;
+  memberSection?: MemberSection;
   bodyTarget?: BodyTarget | null;
 }
 
@@ -239,7 +240,7 @@ export interface RestoredMemberHistoryState {
   memberTraitFilter: string;
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
-  memberSection: string;
+  memberSection: MemberSection;
   selectedBodyTarget: BodyTarget | null;
 }
 
@@ -247,7 +248,7 @@ export function restoreMemberHistoryState(
   view: MemberHistoryView,
   type: MemberHistoryType | null | undefined,
   member: MemberHistoryMember | null | undefined,
-  memberSectionIds: readonly string[] = [],
+  memberSectionIds: readonly MemberSection[] = [],
 ): RestoredMemberHistoryState {
   const restoreMemberScope = Boolean(type)
     && view.memberBrowseTypeId === type!.id
