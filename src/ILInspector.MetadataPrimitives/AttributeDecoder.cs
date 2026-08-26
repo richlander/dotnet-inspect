@@ -112,6 +112,57 @@ public static class AttributeDecoder
         return null;
     }
 
+    internal static bool TryGetAttributeTypeAssemblyReference(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        string fullTypeName,
+        out AssemblyReferenceHandle assemblyReference,
+        Action<int>? beforeMaterialize = null)
+    {
+        assemblyReference = default;
+        if (GetAttributeTypeName(
+                reader,
+                constructorHandle,
+                beforeMaterialize)
+            != fullTypeName)
+        {
+            return false;
+        }
+
+        EntityHandle declaringType = constructorHandle.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructorHandle).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructorHandle)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.IsNil)
+            return false;
+
+        if (declaringType.Kind != HandleKind.TypeReference)
+            return false;
+
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        bool resolved = MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    (TypeReferenceHandle)declaringType,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _)
+            && terminal.Kind == HandleKind.AssemblyReference;
+        if (resolved)
+            assemblyReference = (AssemblyReferenceHandle)terminal;
+        return resolved;
+    }
+
     /// <summary>
     /// Decodes an attribute's fixed and named arguments to typed values, or null
     /// when the blob cannot be decoded. Argument <c>Type</c> strings are C#
@@ -158,6 +209,19 @@ public static class AttributeDecoder
             beforeMaterialize,
             enumUnderlyingType);
 
+    internal static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize,
+        IReadOnlyDictionary<string, PrimitiveTypeCode>
+            trustedExternalEnumUnderlyingTypes)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize,
+            TrustedResolver(trustedExternalEnumUnderlyingTypes));
+
     /// <summary>
     /// Decodes an attribute while preserving the complete serialized names of
     /// <see cref="Type"/> fixed arguments, including nesting and assembly syntax.
@@ -165,12 +229,35 @@ public static class AttributeDecoder
     public static CustomAttributeValue<string>? TryDecodePreservingSerializedTypeNames(
         MetadataReader reader,
         CustomAttribute attribute)
+        => TryDecodePreservingSerializedTypeNames(
+            reader,
+            attribute,
+            beforeMaterialize: null);
+
+    public static CustomAttributeValue<string>? TryDecodePreservingSerializedTypeNames(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize)
         => TryDecode(
             reader,
             attribute,
             preserveSerializedTypeNames: true,
-            beforeMaterialize: null,
+            beforeMaterialize,
             enumUnderlyingType: null);
+
+    internal static CustomAttributeValue<string>?
+        TryDecodePreservingSerializedTypeNames(
+            MetadataReader reader,
+            CustomAttribute attribute,
+            Action<int>? beforeMaterialize,
+            IReadOnlyDictionary<string, PrimitiveTypeCode>
+                trustedExternalEnumUnderlyingTypes)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: true,
+            beforeMaterialize,
+            TrustedResolver(trustedExternalEnumUnderlyingTypes));
 
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -218,6 +305,19 @@ public static class AttributeDecoder
             return null;
         }
     }
+
+    /// <summary>
+    /// Adapts a trusted, closed set of external enum widths to the resolver
+    /// shape. Names outside the set resolve to
+    /// <see cref="PrimitiveTypeCode.Int32"/>, the same default an absent
+    /// resolver produces, so an unrecognized cross-assembly enum is never
+    /// given an attacker-chosen width.
+    /// </summary>
+    static Func<string, PrimitiveTypeCode> TrustedResolver(
+        IReadOnlyDictionary<string, PrimitiveTypeCode> trusted)
+        => name => trusted.TryGetValue(name, out PrimitiveTypeCode width)
+            ? width
+            : PrimitiveTypeCode.Int32;
 
     /// <summary>
     /// Binds a caller enum-width resolver to the same local-TypeDef-first,
