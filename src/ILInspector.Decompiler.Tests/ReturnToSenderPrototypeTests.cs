@@ -1454,10 +1454,10 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
-    // The closure member surface classifies operators without a relationship resolver, so an
-    // operator whose signature names a type outside the assembly is unclassifiable. Both the
-    // unclassifiable and the proven-negative case emit a raw method, but only the proven one
-    // may claim the member is not representable.
+    // The closure member surface classifies operators through a cross-assembly relationship
+    // resolver, so classification is unavailable exactly when a signature type cannot be
+    // resolved at all. Both the unclassifiable and the proven-negative case emit a raw
+    // method, but only the proven one may claim the member is not representable.
     [Fact]
     public void CompileBackTargets_UnknownOperatorClassificationUsesUnknownReason()
     {
@@ -1490,26 +1490,40 @@ public class ReturnToSenderPrototypeTests
             assemblyName: "local");
         try
         {
-            // `All` reconstructs Wallet as a closure root with its member surface, which is
-            // where the surface's operator classification is consumed.
-            var external = Assert.Single(ReturnToSender.CompileBackTargets(
+            // Close negative: the conversion target resolves, so the operator is classified,
+            // representable, and reports nothing. `All` reconstructs Wallet as a closure root
+            // with its member surface, which is where the classification is consumed.
+            var resolved = Assert.Single(ReturnToSender.CompileBackTargets(
+                externalPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.DoesNotContain(
+                resolved.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-representability-unknown"
+                    or "operator-not-representable");
+
+            File.Delete(contractsPath);
+
+            var unavailable = Assert.Single(ReturnToSender.CompileBackTargets(
                 externalPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
             Assert.Contains(
-                external.Plan.Diagnostics,
+                unavailable.Plan.Diagnostics,
                 diagnostic => diagnostic.Reason == "operator-representability-unknown"
                     && diagnostic.Layer == "member surface"
                     && diagnostic.Detail.Contains("op_Implicit", StringComparison.Ordinal));
             Assert.DoesNotContain(
-                external.Plan.Diagnostics,
+                unavailable.Plan.Diagnostics,
                 diagnostic => diagnostic.Reason == "operator-not-representable"
                     && diagnostic.Detail.Contains("op_Implicit", StringComparison.Ordinal));
 
             // Close negative: the same operator with an in-assembly conversion target is
-            // classified, representable, and reports nothing.
+            // classified without consulting any reference, and reports nothing.
             var local = Assert.Single(ReturnToSender.CompileBackTargets(
                 localPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],

@@ -7694,10 +7694,10 @@ public static class CompileBackSourceComposer
                 if (methodHasOperatorIdentity && !methodIsOperator)
                 {
                     // A null classification is unavailable evidence, not a proven negative:
-                    // the surface classifies without a relationship resolver, so an operator
-                    // whose signature names a type outside this assembly is unclassifiable.
-                    // Both cases still emit the raw method, but reporting the unproven one as
-                    // "not representable" claims a fact nothing established.
+                    // the surface classifies through a cross-assembly relationship resolver,
+                    // so an operator whose signature names a type that cannot be resolved is
+                    // unclassifiable. Both cases still emit the raw method, but reporting the
+                    // unproven one as "not representable" claims a fact nothing established.
                     bool classificationUnavailable =
                         surfaceMethod.CSharpOperatorDeclaration is null;
                     diagnostics.Add(new CompileBackPlanningDiagnostic(
