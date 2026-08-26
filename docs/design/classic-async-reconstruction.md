@@ -21,15 +21,18 @@ substrate tracked by
 [#4669](https://github.com/richlander/dotnet-inspect/issues/4669), not on
 Implementation Diff. This document owns only classic-async classification,
 reconstruction, projection, and honesty. Implementation Diff is an independent
-downstream integration and optional measurement consumer; its participant,
-correspondence, population, work-item, budget, query-lifetime, completion, and
-result currencies never enter ordinary reconstruction.
+downstream integration; a separately owned correctness measurement may
+optionally integrate with it. Its participant, correspondence, population,
+work-item, budget, query-lifetime, completion, and result currencies never
+enter ordinary reconstruction.
 
-Reconstruction and Implementation Diff share a lower substrate rather than a
-dependency edge: exact body addressing through Decompiler
-`MetadataBodyProjector` over canonical Metadata resolution, the Metadata
-state-machine relationship index, and the Decompiler stage-result contracts.
-Each consumer sits above that substrate independently.
+Reconstruction and Implementation Diff share lower physical primitives rather
+than a dependency edge: `MetadataMethodAddress` and physical MethodDef import
+facts. Declared-source reconstruction alone enters `MetadataBodyProjector`,
+consumes the Metadata state-machine relationship index, and produces Decompiler
+stage results. Implementation Diff independently selects exact addresses and
+enters the seam-free physical `CSharpBodyDiff` path; it does not traverse the
+projector or consume reconstructed stage results.
 
 Not implemented. `ClassicAsyncReconstructionPass` remains the current
 fixture-shaped raise.
@@ -158,8 +161,15 @@ MetadataBodyProjector.Prepare(MetadataSource, MetadataBodyRequest)
 
 MetadataBodyRequest
   Exact(MetadataMethodAddress)
-  Carried(MemberBodyTarget)
+  Carried(MetadataBodyTarget)
   Selector(TypeFullName, MetadataBodySelector, Visibility)
+
+MetadataBodyTarget
+  Version                target schema version
+  StrictKey              MetadataBodyKey
+  RelationshipRole       Method | Getter | Setter | Adder | Remover
+  PreferredAddress?      same-source MetadataMethodAddress hint
+  PresentationAnchor?    label only; never resolution evidence
 
 MetadataBodySelector
   Name                   metadata MethodDef name
@@ -313,8 +323,20 @@ Exact, carried, and selector resolution are prerequisites to async projection.
 `MetadataBodyProjector` resolves its `MetadataBodyRequest` once through the
 canonical Metadata owner and consumes only a successfully validated
 `MetadataMethodAddress`; [member target resolution](member-target-resolution.md)
-owns the user-facing selector and body-target boundary. An address failure
-remains a typed visible failure and stops before async classification.
+owns the user-facing selector boundary.
+
+`MetadataBodyTarget` is the single-source carried-target currency owned by
+Metadata. `MetadataBodyKey` retains declaring type, method kind/name, calling
+convention, generic arity and constraints, parameter and return shapes, by-ref
+shape, function pointers, custom modifiers, relationship role, and exact named
+type assembly scope. Carried resolution revalidates a preferred address only
+within its MVID, then resolves by current-version strict key plus relationship
+role in that one `MetadataSource`. An unknown key version is unavailable; an
+invalid role or cross-reader hint is rejected; duplicate keys are ambiguous;
+malformed or budget-exhausted metadata fails visibly. No outcome falls back to
+name, ordinal, presentation anchor, or raw token equality. The projector maps
+each failure into `AddressFailed(Diagnostics)` and stops before async
+classification.
 
 Ordinary async projection does not realize comparison endpoints, mint
 participants or work items, perform cross-version correspondence, or consume
@@ -723,7 +745,7 @@ projection:
   `MemberBodyProductionResult` and internal whole-type
   `DecompiledBodyProjection` carry classification, body text/shape
   facts, and `ClassicAsyncOutcome`. API members and accessors use
-  `Carried(MemberBodyTarget)` with a persisted structural key, typed
+  `Carried(MetadataBodyTarget)` with a persisted structural key, typed
   role, and optional MVID-scoped hint; stale-token and cross-reader paths
   never fall back to name/ordinal. Every existing
   accessor is projected before compact property/event syntax is chosen.
@@ -1165,12 +1187,13 @@ Intended contract: compile the raised method with Roslyn, Release,
 `runtime-async=off`, and compare the regenerated `MoveNext` (or
 behavioral execution covering result, exception, suspension, and
 side effects). That separately owned measurement should use the lowest
-suitable typed IL comparison API and may optionally consume Implementation
-Diff's direct-comparison operation when available. Neither the measurement nor
-ordinary reconstruction depends on the higher-level comparison lifecycle.
-Until that harness exists, slices after 0 are blocked. Slice 0 owes A/B for
-honesty markers and physical preservation of every exact support MethodDef
-(library + corpus).
+suitable typed IL comparison API directly, so its base contract is independently
+satisfiable. A separate optional adapter may instead execute that comparison
+through Implementation Diff's direct operation when available; no accepted
+raise and no ordinary reconstruction path may require the adapter or the
+higher-level comparison lifecycle. Until that harness exists, slices after 0
+are blocked. Slice 0 owes A/B for honesty markers and physical preservation of
+every exact support MethodDef (library + corpus).
 
 ## Slices
 
@@ -1284,7 +1307,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Fact | Owner |
 | --- | --- |
-| Exact/carried/selector source-body addressing | Decompiler `MetadataBodyProjector` over Metadata resolution; [member target resolution](member-target-resolution.md) owns user-facing selection |
+| Exact/carried/selector source-body addressing | Metadata `MetadataMethodAddress`, `MetadataBodyTarget`, strict-key builder, and resolver; [member target resolution](member-target-resolution.md) owns user-facing selection |
 | Disjoint runtime/classic/iterator evidence scan | Metadata, with collapsed `StateMachineAsync` retained only as compatibility inventory |
 | Kickoff/state-machine/support-method relationships and reverse lookup | Metadata `StateMachineRelationshipIndex`, tracked by #4669 |
 | Complete async classification transport | Guarded Metadata classifier to every exact top-level and foreign import |
@@ -1314,6 +1337,7 @@ gate ordinary reconstruction.
 | Gate | Surface | Fails if |
 | --- | --- | --- |
 | Ordinary-path independence | Decompiler + Research + Queries source-architecture tests | Async projection mints or consumes an Implementation Diff participant, correspondence receipt, work item, mechanism, budget, query lifetime, completion, or result; or body projection bypasses exact address resolution |
+| Carried target resolution | Metadata + Decompiler projector | A carried target omits key version or relationship role; strict keys omit signature/modifier/scope evidence; a stale or cross-reader hint bypasses key/role validation; unknown, duplicate, malformed, or budget-exhausted input guesses; or resolution uses name, ordinal, presentation anchor, or raw token equality |
 | Exact async population matrix | Metadata + Decompiler top-level and foreign imports | Runtime, classic, and iterator evidence collapse; contradictory positives do not fail before body/import; or custom classic builders escape visible decline |
 | Exact state-machine relationship index | `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations` over Metadata fixtures | Explicit/implicit interface implementation, signature, custom modifiers, `MethodImpl`, claim kind, named decoys, or metadata order select the wrong MethodDef |
 | State-machine relationship totality | `StateMachineRelationshipIndex_PropagatesTypedFailures` over Metadata fixtures | Missing, duplicate, cross-kind, unresolved, malformed, foreign-module, budget, or ambiguous evidence becomes empty success, throws an expected decode failure, or loses its candidates and reason |
