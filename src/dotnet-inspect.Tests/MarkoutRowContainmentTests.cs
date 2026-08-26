@@ -58,8 +58,8 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 269 members
-/// across 59 types after the library-inspection boundary moved to typed inert text.</para>
+/// are the residual tracked by issue #3463 -- which this measures at 240 members
+/// across 54 types after the API presentation boundary moved to typed inert text.</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
 /// column cannot leave the self-containing set without failing here, which is
@@ -126,25 +126,7 @@ public class MarkoutRowContainmentTests
         "AllocationFactRow.ILOffset",
         "AllocationFactRow.InLoop",
         "AllocationFactRow.Member",
-        "ApiInfoSection.Assembly",
-        "ApiInfoSection.Source",
-        "ApiInfoSection.Tfm",
-        "ApiInfoSection.Version",
-        "ApiInspectionFailureRow.Assembly",
-        "ApiInspectionFailureRow.DependencyAssembly",
-        "ApiInspectionFailureRow.Detail",
-        "ApiInspectionFailureRow.Kind",
-        "ApiInspectionFailureRow.Mechanism",
-        "ApiInspectionFailureRow.Operation",
-        "ApiInspectionFailureRow.Subject",
         "ApiSurfaceTableRow.Description",
-        "ApiSurfaceTableRow.Kind",
-        "ApiSurfaceTableRow.Members",
-        "ApiSurfaceTableRow.Type",
-        "ApiTableRow.Detail",
-        "ApiTableRow.Kind",
-        "ApiTableRow.Name",
-        "ApiTableRow.ReturnType",
         "AppliedTasteRow.Detail",
         "AppliedTasteRow.Fidelity",
         "AppliedTasteRow.Rule",
@@ -171,12 +153,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.OperandToken",
         "CallerSiteRow.ReturnAddress",
         "CallerSiteRow.Source",
-        "CliApiSurface.Description",
-        "CliApiSurface.Library",
-        "CliApiSurface.Name",
-        "CliApiSurface.Source",
-        "CliApiSurface.Tfm",
-        "CliApiSurface.Version",
         "CliSchemaView.Description",
         "CliSchemaView.Name",
         "CliSchemaView.Title",
@@ -358,9 +334,6 @@ public class MarkoutRowContainmentTests
         "TypeShapeView.Package",
         "TypeShapeView.Version",
         "TypeSummaryRow.Description",
-        "TypeSummaryRow.Kind",
-        "TypeSummaryRow.Members",
-        "TypeSummaryRow.Type",
         "TypeView.Assembly",
         "TypeView.BaseType",
         "TypeView.Description",
@@ -387,11 +360,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt267MembersAcross58Types()
+    public void ResidualCensus_IsPinnedAt240MembersAcross54Types()
     {
-        Assert.Equal(267, NotSelfContaining.Length);
+        Assert.Equal(240, NotSelfContaining.Length);
         Assert.Equal(
-            58,
+            54,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
