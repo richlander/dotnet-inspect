@@ -9489,15 +9489,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_DottedOverloadInventory_MultiSectionGlobFailsActualCardinality()
+    public async Task Member_DottedOverloadInventory_MultiSectionGlobUsesActualPipeline()
     {
-        var (exit, output, error) = await RunAppAsync(
+        var dotted = await RunAppAsync(
             "member", "System.String.Clone", "--platform", "System.Runtime",
             "-S", "Call*", "--count", "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-m", "Clone", "-S", "Call*", "--count", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Equal(string.Empty, output.Trim());
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, error, StringComparison.Ordinal);
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Equal(explicitMember.Error, dotted.Error);
+        Assert.Contains(SectionNames.CallGraph, dotted.Output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.Callers, dotted.Output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.Calls, dotted.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -9676,7 +9683,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Equal(string.Empty, output.Trim());
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, error, StringComparison.Ordinal);
+        Assert.Contains(CountOutput.SectionRequiredMessage, error, StringComparison.Ordinal);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
