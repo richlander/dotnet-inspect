@@ -2,6 +2,11 @@
 
 Findings from observing LLM sessions using dotnet-inspect to migrate a project from System.CommandLine v1 (beta) to v2. Two separate sessions were recorded, both attempting the same task. The tool was effective but several friction points caused unnecessary round-trips and reasoning spirals.
 
+> [!NOTE]
+> This document records the compatibility assumptions of that investigation.
+> [Item and line limits](item-and-line-limits.md) supersedes them specifically
+> for count-bearing options and the short `-m`/`-t` selector aliases.
+
 ## Context
 
 People are building skills on top of dotnet-inspect (e.g., [davidfowl/dotnet-skillz](https://github.com/davidfowl/dotnet-skillz), [richlander/dotnet-skills](https://github.com/richlander/dotnet-skills)). Changes must be backward-compatible — existing skill docs and invocation patterns should continue to work. Where new behavior is added, it should be additive (new options, new defaults for omitted arguments) rather than changing the meaning of existing flags.

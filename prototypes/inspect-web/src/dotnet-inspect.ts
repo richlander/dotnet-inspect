@@ -111,6 +111,7 @@ import {
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
+  resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
@@ -2897,12 +2898,10 @@ const packageInspection = createPackageInspectionCoordinator({
       platformVersion,
       assemblyFileName,
       pack),
-  queryPackagePerformance: async packageModel =>
-    parseEngineJson<PackagePerformance>(
-      await inspectPackagePerformance(
-        packageModel.id,
-        packageModel.version,
-        packageModel.activeFramework)),
+  queryPackagePerformance: packageModel => inspectPackagePerformance(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework),
   queryPlatformPerformance: async (
     framework,
     platformVersion,
@@ -3154,7 +3153,7 @@ function renderPackagePerformance() {
     : "";
 
   if (!members.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${scanScope}${nonPublicNote}. Open a member's Facts lens to inspect its body directly.</p></section>`;
+    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${scanScope}${nonPublicNote}.</p></section>`;
   }
 
   const rows = members.map(member => {
@@ -3162,7 +3161,7 @@ function renderPackagePerformance() {
     const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
     const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
     return `
-      <button class="perf-row" data-perf-token="${member.metadataToken}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+      <button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open member">
         <span class="perf-count">${member.opportunityCount}</span>
         <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
         <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
@@ -3172,7 +3171,7 @@ function renderPackagePerformance() {
   const summary = `
     <section class="document-section">
       <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${scanScope}</span></div>
-      <p class="lens-note">Ranked by in-loop opportunities, then count. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its Facts lens.</p>
+      <p class="lens-note">Ranked by product triage policy. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its API details.</p>
     </section>`;
 
   return `${picker}${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;
@@ -3560,18 +3559,21 @@ function ensureExplorerResizeListener() {
 }
 
 
-// is joined against the same public API surface the nav pane renders, so the member,
-// its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token: string, assembly: string, typeId: string) {
+// Stable product identities bridge implementation-body evidence to the
+// reference-preferred surface the navigation pane renders.
+function drillToPerfMember(
+  stableSelector: string,
+  assembly: string,
+  typeId: string,
+) {
   const pkg = currentPackage();
-  const numeric = Number(token);
-  const targetType = pkg.types.find(type =>
-    type.id === typeId
-    && type.assembly === assembly
-    && (type.api || []).some(member => member.metadataToken === numeric));
-  if (!targetType) return;
-  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
-  if (!member) return;
+  const target = resolvePackagePerformanceMember(pkg, {
+    assembly,
+    typeId,
+    stableSelector,
+  });
+  if (!target) return;
+  const { type: targetType, member } = target;
 
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
@@ -3583,13 +3585,15 @@ function drillToPerfMember(token: string, assembly: string, typeId: string) {
   state.selectedMemberKey = key;
   const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
+    ? group.overloads.findIndex(
+      overload => overload.stableSelector === stableSelector)
     : -1;
   state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
   resetMemberSectionState();
-  state.memberSection = "facts";
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
-  observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  observeAsync(
+    loadSelectedMemberDocumentation(),
+    "Loading member documentation");
 }
 
 function renderPackageOverview() {
@@ -4263,7 +4267,7 @@ const packageViewActions: PackageViewBindingActions = {
   },
   onPerformanceMemberSelect: target => {
     drillToPerfMember(
-      target.metadataToken,
+      target.stableSelector,
       target.assembly,
       target.typeId);
   },
