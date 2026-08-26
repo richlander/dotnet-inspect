@@ -1091,7 +1091,6 @@ public static class ApiSurfaceExtractor
                         jsExportEvidence);
                     continue;
                 }
-                }
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<") && !includeCompilerGenerated)
