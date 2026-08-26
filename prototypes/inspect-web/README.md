@@ -614,6 +614,11 @@ either preserve sequencing or surface unexpected rejection visibly. The exact
 `node:test` `test` call is the only configured safe promise-returning call
 because the test runner owns and observes that returned promise.
 
+Closed workspace scopes, type and package lenses, member sections, and
+Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
+tokens are decoded before they reach typed state or actions; the scope-bar and
+workspace-navigation tests gate rejection of unknown values.
+
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
@@ -656,6 +661,35 @@ at their use sites, with malformed decoded coordinates ignored and missing
 decoded assembly descriptors reported through the existing visible failure
 paths. Close-negative tests cover those boundaries rather than relying on
 non-null assertions.
+
+The scope, lens, and member-section vocabularies are closed union types derived
+from the catalogs that render them. `data.ts` and `spotlight.ts` own those
+catalogs; narrower typed subsets such as the platform library picker may repeat
+only the values that surface exposes, with assignment back to catalog-derived
+state checked by TypeScript. Values arriving from `dataset` attributes, URL
+query parameters, hashes, and share packets are admitted through `isTypeLens`,
+`isPackageLens`, `isMemberSection`, `isWorkspaceScope`, and `availableScope`;
+an unrecognized value is rejected at that boundary rather than cast into typed
+state.
+
+Because those catalogs also render the choices a user can pick, adding an entry
+widens the union *and* immediately offers the new value. Every dispatch named by
+the exhaustiveness gate therefore ends in `assertNever`, so adding a catalog
+entry fails compilation until each such dispatch says what the new value does.
+The gate derives its vocabulary roster from every exported type alias in
+`data.ts` and `spotlight.ts` that queries a catalog; it is not tied to one
+formatting or indexing shape.
+
+Nothing at runtime can observe that property — an unhandled value would simply
+take whichever branch the consumer fell through to — so the gate is the compiler, and
+`widening a UI vocabulary catalog fails compilation until every consumer handles it`
+in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
+in a throwaway copy of the real TypeScript source graph and asserts `tsc`
+reports the expected `assertNever` location in every named dispatch, with no
+unrelated diagnostic. Deleting any one exhaustive dispatch turns it red.
+`packageLensBody` is exhaustive too: an unwired package lens used to render a
+placeholder that was indistinguishable from an empty lens, but now fails
+compilation until its behavior is explicit.
 
 ## Test
 
