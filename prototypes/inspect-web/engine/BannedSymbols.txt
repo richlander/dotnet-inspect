@@ -16,6 +16,7 @@ T:ILInspector.Metadata.AssemblyInspectionSession;Inspect through a public produc
 T:ILInspector.Metadata.AssemblyImage;Raw assembly images belong to product queries; the browser host must not open one from a descriptor or path.
 T:ILInspector.Metadata.AssemblyImageSnapshot;A group's immutable image belongs to the query layer; hand the group to a query instead.
 T:ILInspector.Metadata.PdbContext;PDB and metadata inspection belong to product queries, not transitive descriptor openers in the browser host.
+T:DotnetInspector.Queries.UnsafeEvidencePresenceQuery;The presence probe consumes a borrowed PdbContext and raw path directly; product realization that already owns metadata inspection may call it, not the browser host.
 T:ILInspector.Metadata.AssemblyTypeDeclarationInventoryReader;Assembly inventory projection belongs to product queries, not transitive descriptor openers in the browser host.
 T:ILInspector.Metadata.AssemblySurfaceClassifier;Assembly surface classification belongs to product queries, not transitive path or descriptor openers in the browser host.
 T:ILInspector.Metadata.AssemblyInspector;Assembly metadata extraction belongs to product queries, not transitive path or descriptor openers in the browser host.
