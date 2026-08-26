@@ -481,12 +481,6 @@ export interface BrowserVocabularySection {
   values: unknown[];
 }
 
-export interface BrowserWorkspacePackage {
-  package: string;
-  version: string;
-  framework: string;
-}
-
 export interface BrowserWorkspaceShareContext {
   id: string;
   tabIds: string[];
