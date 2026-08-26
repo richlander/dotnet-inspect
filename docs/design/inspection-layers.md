@@ -495,7 +495,7 @@ contract is described as implemented:
 - `ComparisonPopulation_MintsFreshParentedIdentitiesPerExecute`
 - `ComparisonPopulation_SealsEverySubmittedOccurrenceWithDeclaredSide`
 - `ResearchPopulationProjection_IsTotalAndBijective`
-- `ResearchPopulationProjection_MapsEachFactoryResultToItsExactSealedAntecedent`
+- `ResearchPopulationProjection_MapsEachReturnedIdentityToItsExactSealedAntecedent`
 - `ResearchPopulationProjection_RejectsMissingExtraSubstitutedAndWrongSideMappings`
 - `QueryPopulationIdentities_AreOwnerIssuedAndNonConvertible`
 - `PopulationReceipt_DoesNotRetainBorrowedInputs`
