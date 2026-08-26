@@ -91,7 +91,11 @@ internal static class MemberCodeProvider
         // stages) read through one MetadataSource that owns its own readers.
         // A malformed-metadata failure opening it degrades those sections to
         // empty — the IL/attribute sections still render — instead of throwing.
-        using var pipelineSource = OpenPipelineSource(request, dllPath, pdbPath);
+        using var pipelineSource = OpenPipelineSource(
+            request,
+            assembly,
+            dllPath,
+            pdbPath);
 
         foreach (var method in methods)
         {
@@ -409,13 +413,14 @@ internal static class MemberCodeProvider
     /// IL and attribute sections, which use the already-open reader, still
     /// render.
     /// </summary>
-    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
+    static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(
+        Request request,
+        ResolvedAssemblyReference assembly,
+        string dllPath,
+        string? pdbPath)
     {
         if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses && !request.AppliedTaste && !request.SourceDocument)
             return null;
-        var assembly = request.AssemblyReference
-            ?? throw new InvalidOperationException(
-                "Decompiler-backed member sections require the acquired assembly descriptor.");
         try
         {
             var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(dllPath)

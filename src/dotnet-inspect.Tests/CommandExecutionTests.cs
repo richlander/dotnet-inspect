@@ -15222,8 +15222,6 @@ public partial class CommandExecutionTests
         MemberOptions Options(Verbosity verbosity) => new()
         {
             AssemblyPath = TestAssemblyPath,
-            AssemblyReference =
-                TestAssemblyReferences.Designated(TestAssemblyPath),
             DllPath = TestAssemblyPath,
             TypeName = type.FullName,
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
