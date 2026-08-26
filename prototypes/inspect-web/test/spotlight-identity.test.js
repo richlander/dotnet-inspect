@@ -2968,7 +2968,13 @@ test("moving between members keeps the active section sticky, falling back to Ov
   assert.doesNotMatch(openMemberGroupBody, /resetMemberSectionState\(\)/);
   assert.match(
     openMemberGroupBody,
-    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+    /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview"/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
 
   const openOverloadBody =

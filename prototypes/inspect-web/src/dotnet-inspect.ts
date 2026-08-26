@@ -2028,17 +2028,31 @@ function loadMemberSectionContent(id: MemberSection) {
 }
 
 function openMemberGroup(key: string) {
-  const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
+  const type = selectedType();
+  const preserveSection =
+    state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
+  const group = memberGroups(type).find(candidate => candidate.key === key);
   const graphOnlyTarget =
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
-  state.memberBrowseTypeId = selectedType()?.id ?? "";
+  state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
   clearMemberContentCache();
   state.selectedBodyTarget = graphOnlyTarget;
-  retainMemberSectionIfSupported(group);
+  if (!preserveSection) {
+    state.memberSection = "overview";
+  } else {
+    if (state.memberSection !== "overview"
+      && group
+      && group.overloads.length > 1
+      && state.selectedOverloadIndex == null) {
+      state.selectedOverloadIndex = 0;
+      state.selectedBodyTarget = graphOnlyBodyTarget(group.overloads[0]);
+    }
+    retainMemberSectionIfSupported(group);
+  }
   loadMemberSectionContent(state.memberSection);
 }
 
