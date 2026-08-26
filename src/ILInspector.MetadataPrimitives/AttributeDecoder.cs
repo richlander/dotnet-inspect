@@ -125,7 +125,8 @@ public static class AttributeDecoder
             reader,
             attribute,
             preserveSerializedTypeNames: false,
-            beforeMaterialize: null);
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
 
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -135,7 +136,27 @@ public static class AttributeDecoder
             reader,
             attribute,
             preserveSerializedTypeNames: false,
-            beforeMaterialize);
+            beforeMaterialize,
+            enumUnderlyingType: null);
+
+    /// <summary>
+    /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
+    /// for serialized enum names that are not TypeDefs in
+    /// <paramref name="reader"/>. The resolver receives the blob name with
+    /// the assembly suffix stripped and nested <c>+</c> rewritten to <c>.</c>,
+    /// matching the string SRM later passes to <c>GetUnderlyingEnumType</c>.
+    /// </summary>
+    public static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize,
+            enumUnderlyingType);
 
     /// <summary>
     /// Decodes an attribute while preserving the complete serialized names of
@@ -148,18 +169,21 @@ public static class AttributeDecoder
             reader,
             attribute,
             preserveSerializedTypeNames: true,
-            beforeMaterialize: null);
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
 
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
         CustomAttribute attribute,
         bool preserveSerializedTypeNames,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
         var provider = new ArgTypeProvider(
             reader,
             preserveSerializedTypeNames,
-            beforeMaterialize);
+            beforeMaterialize,
+            enumUnderlyingType);
         try
         {
             if (!CustomAttributeValueGuard.IsSafeToDecode(
@@ -195,11 +219,31 @@ public static class AttributeDecoder
         }
     }
 
+    /// <summary>
+    /// Binds a caller enum-width resolver to the same local-TypeDef-first,
+    /// <see cref="EnumUnderlyingPrimitive.Normalize"/> oracle
+    /// <see cref="ArgTypeProvider.GetUnderlyingEnumType"/> uses so a direct
+    /// <c>IsSafeToDecode(..., resolver)</c> skip cannot diverge from
+    /// <c>DecodeValue</c>.
+    /// </summary>
+    internal static Func<string, PrimitiveTypeCode> BindEnumWidthResolver(
+        MetadataReader reader,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode> enumUnderlyingType)
+        => enumUnderlyingType.Target is ArgTypeProvider
+            ? enumUnderlyingType
+            : new ArgTypeProvider(
+                reader,
+                preserveSerializedTypeNames: false,
+                beforeMaterialize,
+                enumUnderlyingType).GetUnderlyingEnumType;
+
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
     sealed class ArgTypeProvider(
         MetadataReader reader,
         bool preserveSerializedTypeNames,
-        Action<int>? beforeMaterialize) : ICustomAttributeTypeProvider<string>
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType) : ICustomAttributeTypeProvider<string>
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
         readonly MaterializationContext? _materializationContext =
@@ -243,11 +287,15 @@ public static class AttributeDecoder
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
-            => TypeDefinitionsByName.TryGetValue(
-                    EnumUnderlyingPrimitive.NormalizeSerializedName(type),
-                    out var handle)
-                ? EnumUnderlyingPrimitive.FromDefinition(reader, handle)
+        {
+            string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
+            if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))
+                return EnumUnderlyingPrimitive.FromDefinition(reader, handle);
+
+            return enumUnderlyingType is not null
+                ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(normalized))
                 : PrimitiveTypeCode.Int32;
+        }
 
         Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
             _materializationContext?.GetOrCreateTypeDefinitionsByName(
@@ -296,7 +344,7 @@ public static class AttributeDecoder
         }
     }
 
-    sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
+    internal sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
         : BadImageFormatException(failure.Detail)
     {
         public MetadataTypeNameFailure Failure { get; } = failure;
