@@ -143,10 +143,11 @@ public class FindCommand
             || options.Projects.Length > 0
             || options.BinPaths.Length > 0
             || options.Members
+            || options.IncludeAll
             || options.Tfm is not null)
         {
             CommandError.Write(
-                "Patternless --package-prefix cannot be combined with API search scopes or --tfm.");
+                "Patternless --package-prefix cannot be combined with API search scopes, --all, or --tfm.");
             return 1;
         }
 

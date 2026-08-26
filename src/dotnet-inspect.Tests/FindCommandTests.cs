@@ -918,6 +918,26 @@ public class FindCommandIntegrationTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PackageProfileAllFlag_FailsBeforeNetwork()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Azure.",
+                "--all",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot be combined with API search scopes, --all, or --tfm",
+            error);
+        Assert.DoesNotContain("Attempted:", error);
+    }
+
     [Theory]
     [InlineData("not-a-number")]
     [InlineData("2147483648")]

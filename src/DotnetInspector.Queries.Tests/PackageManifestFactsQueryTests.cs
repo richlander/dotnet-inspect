@@ -87,6 +87,91 @@ public sealed class PackageManifestFactsQueryTests
     }
 
     [Fact]
+    public void Execute_AcceptsLegacyMetadataNamespacePlacement()
+    {
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.Execute(
+                Encoding.UTF8.GetBytes(
+                    """
+                    <package xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                      <metadata xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+                        <id>Example.Package</id>
+                        <version>1.0.0</version>
+                        <authors>Legacy Author</authors>
+                        <dependencies>
+                          <dependency id="Example.Dependency" version="2.0.0" />
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("2010/07", facts.ManifestVersion);
+        Assert.Equal("Legacy Author", facts.Authors);
+        Assert.Equal(
+            "Example.Dependency",
+            Assert.Single(
+                Assert.Single(facts.DependencyGroups).Dependencies).Id);
+    }
+
+    [Fact]
+    public void Execute_RejectsNonNuspecDocumentRoot()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <notpackage>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                          </metadata>
+                        </notpackage>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Contains(
+            "invalid document root",
+            failure.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_DoesNotDiscoverNestedMetadata()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <package>
+                          <container>
+                            <metadata>
+                              <id>Example.Package</id>
+                              <version>1.0.0</version>
+                            </metadata>
+                          </container>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Contains(
+            "identity does not match",
+            failure.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Execute_RejectsInvalidDependencyContract()
     {
         PackageManifestFactsResult.Failed failure = Assert.IsType<

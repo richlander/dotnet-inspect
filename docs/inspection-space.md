@@ -58,7 +58,10 @@ package-profile and package-content dependency queries consume. In addition to
 the 1 MiB transport and 512 KiB decoded-document bounds, that projection admits
 at most 32,768 UTF-16 code units per scalar value, 128 package types, 1,024
 dependency groups, and 4,096 dependencies; a violation is an invalid-manifest
-failure rather than a partial fact set. The query-bound `Packages` section owns
+failure rather than a partial fact set. Root and metadata elements accept the
+known nuspec namespaces whether the default namespace is declared on
+`package` or, for legacy manifests, directly on `metadata`; other document
+roots and namespaces are rejected. The query-bound `Packages` section owns
 package/dependency row
 expansion, schema, projection, and visible failure or truncation rows. It
 applies an explicit row window before constructing rows and shares contained
