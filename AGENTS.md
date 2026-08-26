@@ -50,10 +50,11 @@ Each window must identify its PR, current state, and any decision it needs.
 ### Name the window for identity
 
 ```sh
-tmux rename-window -t "$TMUX_PANE" pr<number>
+tmux rename-window -t "${TMUX_PANE:?}" pr<number>
 ```
 
-Always target `"$TMUX_PANE"`; a bare command can rename another window. Rename
+Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
+empty variable silently targets the current one. Rename
 the window, never the shared session. Use `pr<number>`, or `i<number>` before a
 PR exists. Keep the name stable except for these temporary suffixes:
 
@@ -85,17 +86,28 @@ not the record.
 Update both window-scoped options whenever state changes:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
-tmux set -w -t "$TMUX_PANE" @agent_state \
-  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
-tmux show -w -t "$TMUX_PANE" @agent_state
+tmux set -w -t "${TMUX_PANE:?}" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
 
 # Clear when this window no longer owns the PR.
-tmux set -w -t "$TMUX_PANE" -u @agent
-tmux set -w -t "$TMUX_PANE" -u @agent_state
+tmux set -w -t "${TMUX_PANE:?}" -u @agent
+tmux set -w -t "${TMUX_PANE:?}" -u @agent_state
 ```
 
-Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
+**Publish state as single, separate commands.** Never wrap them in `if`, `&&`,
+or a `for` loop. Publishing is the one thing that must never stop to ask
+permission: an approval prompt on it blocks the agent on the very act of
+reporting that it is blocked, and semi-autonomous work stops dead. A bare
+`tmux …` matches an approval rule for `tmux`; `if [ … ]; then tmux … && tmux …;
+fi` does not match it, because the command being judged is now the compound.
+That difference has stalled real work.
+
+`${TMUX_PANE:?}` is what keeps the target safe without a guard clause. If the
+variable is empty the shell fails the command outright and nothing is written —
+which matters, because `tmux set -w -t ""` does not error: it silently applies
+to whichever window is *current*, which is somebody else's.
+
+Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
 is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
@@ -123,8 +135,8 @@ When blocked on a human decision, set a persistent `HELP` state and send one
 best-effort nudge:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
-tmux display-message -d 10000 -t "$TMUX_PANE" \
+tmux set -w -t "${TMUX_PANE:?}" @agent "HELP: integrate main into pr4405, or close it?"
+tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
   "HELP pr4405 in w#{window_index}: integrate main, or close it?"
 ```
 
