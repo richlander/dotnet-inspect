@@ -596,8 +596,10 @@ without changing selection. The aggregate `cost.callee` relationship remains a
 non-interactive chip until it has an honest evidence presentation. For
 `semantics.callee`, Research retains the resolved callee identity
 and exception-construction offsets; for `safety.callee`, it retains the resolved
-callee and every physical `localloc`/`calli` coordinate. The group-scoped query
-projects that callee's source and maps those coordinates only to its
+callee and every physical `localloc`/`calli` coordinate. `localloc` is exposed
+as stack-allocation evidence without implying that the recovered C# requires an
+`unsafe` context; `calli` remains unsafe indirect-call evidence. The
+group-scoped query projects that callee's source and maps those coordinates only to its
 product-issued `ThrowStatement`, `StackAllocationExpression`, or
 `IndirectInvocationExpression` nodes. The peek therefore names the Finding and
 fully-qualified member, provides copy and in-tool navigation actions, and

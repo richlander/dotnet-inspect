@@ -75,7 +75,11 @@ settle:
 
 - **Cost Overlay** — inter-method cost facts over the decompiled body.
 - **Semantics Overlay** — inter-method behavior/safety facts, such as callees
-  with known exception paths or unsafe implementation evidence.
+  with known exception paths, stack allocation, or unsafe indirect-call
+  evidence. A `localloc` coordinate is reported as `stackalloc`; it does not by
+  itself claim that the recovered C# requires an `unsafe` context.
+  `ResearchFactRegistryTests.SemanticsOverlay_DescribesSafeStackallocWithoutUnsafeClaim`
+  gates that distinction with compiler-produced `Span<T>` source.
 
 ### Two gestures: side and caret
 

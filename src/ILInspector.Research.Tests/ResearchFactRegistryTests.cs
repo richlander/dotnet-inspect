@@ -630,7 +630,7 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
-    public void SemanticsOverlay_AnnotatesUnsafeCalleeAtCallSite()
+    public void SemanticsOverlay_DescribesSafeStackallocWithoutUnsafeClaim()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
@@ -639,8 +639,22 @@ public class ResearchFactRegistryTests
 
         Assert.Contains("StackallocCallee", overlay);
         Assert.Contains("safety.callee", overlay);
-        Assert.Contains("unsafe", overlay);
         Assert.Contains("stackalloc", overlay);
+        Assert.DoesNotContain("unsafe", overlay);
+    }
+
+    [Fact]
+    public void SemanticsOverlay_DescribesCalliAsUnsafeIndirectCall()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var overlay = RenderSemanticsOverlay(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsFunctionPointerCallee)).Output;
+
+        Assert.Contains("FunctionPointerCallee", overlay);
+        Assert.Contains("safety.callee", overlay);
+        Assert.Contains("unsafe calli", overlay);
+        Assert.DoesNotContain("stackalloc", overlay);
     }
 
     static DecompilerResult RenderAnnotatedSource(
@@ -792,6 +806,14 @@ public static class ResearchFixture
         Span<int> values = stackalloc int[1];
         values[0] = value;
         return values[0];
+    }
+
+    public static int CallsFunctionPointerCallee(int value) => FunctionPointerCallee(value);
+
+    public static unsafe int FunctionPointerCallee(int value)
+    {
+        delegate*<int, int> function = &LowSignalCallee;
+        return function(value);
     }
 
     public static int SharedLeverageCallee(int value) => value + 1;

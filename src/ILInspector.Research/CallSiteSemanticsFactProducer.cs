@@ -103,15 +103,15 @@ public sealed record CallSiteSafetyEvidence(
     MethodIdentity Callee,
     ImmutableArray<CallSiteEvidenceCoordinate> Coordinates)
 {
-    public string Detail => $"unsafe; {string.Join("; ", Coordinates
+    public string Detail => string.Join("; ", Coordinates
         .Select(static coordinate => coordinate.Kind switch
         {
             CallSiteEvidenceKind.Localloc => "stackalloc",
-            CallSiteEvidenceKind.Calli => "calli",
+            CallSiteEvidenceKind.Calli => "unsafe calli",
             _ => throw new InvalidOperationException(
                 $"Unsupported callee safety evidence kind '{coordinate.Kind}'."),
         })
-        .Distinct(StringComparer.Ordinal))}";
+        .Distinct(StringComparer.Ordinal));
 
     public static bool TryCreate(
         DirectCall call,
@@ -173,7 +173,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
     static readonly AnnotationDescriptor CalleeSemantics =
         new("semantics.callee", AnnotationCategory.Semantics, "callee carries notable behavior semantics");
     static readonly AnnotationDescriptor CalleeSafety =
-        new("safety.callee", AnnotationCategory.Semantics, "callee carries unsafe implementation evidence");
+        new("safety.callee", AnnotationCategory.Semantics, "callee carries stack-allocation or unsafe indirect-call evidence");
 
     public string Name => "call-site-semantics";
     public IReadOnlyList<string> Produces { get; } = ["semantics.callee", "safety.callee"];
