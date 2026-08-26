@@ -362,11 +362,20 @@ Async execution sources and owner chains reject malformed generated-like names
 while ordinary compiler-generated owners, including async owners, retain
 established attribution. Rejected identities and incomplete lifted-owner
 chains cannot expand scoped acquisition.
+Canonical generated bodies without an authenticated claimant remain
+owner-unresolved in every scope. Authored bodies retain intrinsic findings when
+malformed or ambiguous state-machine metadata prevents ownership resolution.
+Allocation fanout classifies calls into owner-excluded bodies as opaque before
+transitive composition.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
 and
 `OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
 gate fail-closed allocation-fanout and async-state-machine generic-box
 projection while retaining body-intrinsic opportunities, and
+`OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes`,
+`OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`,
+and `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gate the
+orphan-generated, authored-intrinsic, and transitive-fanout close negatives.
 `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
 gates that boundary for generated generic-box recommendations,
 while

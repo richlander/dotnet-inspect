@@ -422,14 +422,28 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (asyncResolution == AsyncSourceResolution.Unresolved)
         {
             ultimateOwner = null;
-            return DeclaredOwnerResolution.Unresolved;
+            return DeclaredOwnerResolution.Rejected;
         }
         if (asyncResolution == AsyncSourceResolution.None
             || asyncSource is null
             || asyncSource == method)
         {
             ultimateOwner = null;
-            return DeclaredOwnerResolution.None;
+            if (!CompilerGeneratedNames.RequiresDeclaredOwner(
+                    method))
+            {
+                return DeclaredOwnerResolution.None;
+            }
+            bool canonicalOwnerRequiredBody =
+                CompilerGeneratedNames
+                    .IsLocalFunctionOrLambda(method.Name)
+                || _asyncSourceResolver
+                    .IsAsyncStateMachineExecutionMethod(
+                        methodHandle,
+                        methodDefinition);
+            return canonicalOwnerRequiredBody
+                ? DeclaredOwnerResolution.Unresolved
+                : DeclaredOwnerResolution.None;
         }
 
         if (CompilerGeneratedNames

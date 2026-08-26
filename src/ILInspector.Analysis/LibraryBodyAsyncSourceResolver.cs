@@ -353,11 +353,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 physicalMethod.MetadataToken);
         if (physicalHandle.Kind
                 != HandleKind.MethodDefinition
-            || !ImplementsAsyncStateMachine(
-                _reader.GetTypeDefinition(
-                    methodDefinition.GetDeclaringType()))
-            || !IsMoveNextBody(
-                (MethodDefinitionHandle)physicalHandle))
+            || !IsAsyncStateMachineExecutionMethod(
+                (MethodDefinitionHandle)physicalHandle,
+                methodDefinition))
         {
             return null;
         }
@@ -527,6 +525,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
             ? AsyncSourceResolution.Unresolved
             : AsyncSourceResolution.None;
     }
+
+    internal bool IsAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition) =>
+        ImplementsAsyncStateMachine(
+            _reader.GetTypeDefinition(
+                methodDefinition.GetDeclaringType()))
+        && IsMoveNextBody(methodHandle);
 
     /// <summary>
     /// MoveNext token → authenticated immediate execution source. The source

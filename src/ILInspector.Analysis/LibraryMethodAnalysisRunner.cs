@@ -116,6 +116,7 @@ internal enum DeclaredOwnerResolution
     None,
     Resolved,
     Unresolved,
+    Rejected,
 }
 
 // Method-local output is merged by LibraryBodyAnalysisAccumulator in metadata
@@ -632,7 +633,12 @@ internal sealed class LibraryMethodAnalysisRunner(
             MethodIdentity? unresolvedOpportunityOwner = null;
             AuthenticatedSourceOwner? immediateOwnerEvidence = null;
             AuthenticatedSourceOwner? ultimateOwnerEvidence = null;
+            bool requiresDeclaredOwner =
+                CompilerGeneratedNames.RequiresDeclaredOwner(
+                    caller);
             bool opportunityOwnershipResolved = true;
+            DeclaredOwnerResolution ownerResolution =
+                DeclaredOwnerResolution.None;
             try
             {
                 bool directlySelectedBody =
@@ -653,7 +659,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.DeclaredMethod = declaredMethod;
                 MethodIdentity? ultimateOwner =
                     declaredMethod;
-                DeclaredOwnerResolution ownerResolution =
+                ownerResolution =
                     declaredMethod is null
                         ? DeclaredOwnerResolution.None
                         : DeclaredOwnerResolution.Resolved;
@@ -681,15 +687,20 @@ internal sealed class LibraryMethodAnalysisRunner(
                     == DeclaredOwnerResolution.Resolved)
                     result.DeclaredSource = ultimateOwner;
                 else if (ownerResolution
-                    == DeclaredOwnerResolution.Unresolved)
+                    is DeclaredOwnerResolution.Unresolved
+                        or DeclaredOwnerResolution.Rejected)
                 {
                     unresolvedOpportunityOwner =
-                        immediateOwnerEvidence?.Method;
+                        ownerResolution
+                            == DeclaredOwnerResolution.Unresolved
+                            ? immediateOwnerEvidence?.Method
+                            : null;
                     result.DeclaredMethod = null;
                 }
                 opportunityOwnershipResolved =
                     ownerResolution
-                        != DeclaredOwnerResolution.Unresolved;
+                        is DeclaredOwnerResolution.None
+                            or DeclaredOwnerResolution.Resolved;
                 if (bodyTypeScope is not null)
                 {
                     // Evidence admission follows the selected type, but a
@@ -821,6 +832,11 @@ internal sealed class LibraryMethodAnalysisRunner(
             bool collectBodyIntrinsicOpportunities =
                 includeOpportunities
                 && (bodyTypeScope is null
+                    || (directlySelectedType
+                        && (!requiresDeclaredOwner
+                            || ownerResolution
+                                    == DeclaredOwnerResolution
+                                        .Unresolved))
                     || collectOwnershipDerivedOpportunities
                     || unresolvedOpportunityOwner is { } unresolvedOwner
                         && bodyTypeScope(
@@ -901,7 +917,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         OptimizationOpportunityAnalysis.Collect(
                             allocationFacts,
                             methodAnalysisResolver);
-                    if (!collectOwnershipDerivedOpportunities)
+                    if (!collectOwnershipDerivedOpportunities
+                        && requiresDeclaredOwner)
                     {
                         result.Opportunities =
                         [

@@ -873,6 +873,10 @@ Research overlay bridge, and the application layer:
   Ownership-derived recommendations require an authenticated ultimate owner
   in full, method, and type scopes; unresolved ownership retains physical
   evidence and body-intrinsic opportunities but fails closed for attribution.
+  Canonical generated bodies with no authenticated claimant are unresolved,
+  while malformed ownership metadata on an authored body cannot suppress that
+  body's intrinsic evidence. Allocation fanout turns calls into excluded
+  bodies into opaque paths before composing caller summaries.
   Generated-owner suppression applies to ownership-derived recommendations,
   not body-intrinsic opportunities, and authenticated top-level entry points
   retain their established exception.
@@ -908,6 +912,12 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
   gates generic-box suppression for unresolved async ownership in full,
   method, and type scopes.
+  `OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes` and
+  `OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`
+  distinguish owner-required generated bodies from authored intrinsic
+  evidence, while
+  `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gates
+  pre-composition fanout exclusion.
   `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
   gates generated generic-box projection on an authenticated ultimate owner in
   full, method, and type scopes.

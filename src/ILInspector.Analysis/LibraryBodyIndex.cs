@@ -273,7 +273,8 @@ public sealed class LibraryBodyIndex
                                 Path,
                                 _physicalDirectCalls,
                                 Methods),
-                            _allocationOccurrences)
+                            _allocationOccurrences,
+                            _scopeExcludedOpportunityTokens)
                         .Where(summary =>
                             !_scopeExcludedOpportunityTokens
                                 .Contains(
