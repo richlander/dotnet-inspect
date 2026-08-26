@@ -235,36 +235,37 @@ viewer browser
   -> build-host loopback static server
 ```
 
-The gateway route is a standing, tailnet-only slot. Keep its Serve
-configuration in place between web-development demos so its URL and certificate
-remain stable, but attach the reverse tunnel and origin only while a demo is
-active. The slot can present only one demo at a time. Inspect its current owner
-before taking it over, and never reset or replace an unknown route.
+One Serve session can contain multiple path mappings and can be reconfigured
+after it starts. This runbook deliberately treats the user-provided mapping as
+fixed: one tailnet HTTPS URL and path proxies to one assigned gateway loopback
+port. Keep that mapping configured between web-development demos, but attach
+the reverse tunnel and origin only while a demo is active.
 
-An existing gateway operator must own Tailscale Serve changes. Do not grant an
-agent account Tailscale operator access merely to publish or test one demo; that
-permission controls more than Serve. When no authorized operator is available,
-the Serve pattern is unavailable and the viewer-side SSH pattern remains the
-safe default.
+The agent does not inspect or change the Serve session and needs no Tailscale
+operator access. Never reset, replace, or add mappings to the session. When the
+user has not indicated that a session is available, use viewer-side SSH
+forwarding instead.
 
 On the build host, set the environment-specific gateway values:
 
 ```bash
 export DEMO_GATEWAY_HOST="<gateway SSH host>"
 export DEMO_PUBLIC_HOST="<gateway tailnet DNS name>"
-export DEMO_HTTPS_PORT=8443
-export DEMO_GATEWAY_ORIGIN_PORT=5199
+export DEMO_HTTPS_PORT="<assigned HTTPS port>"
+export DEMO_GATEWAY_ORIGIN_PORT="<assigned gateway loopback port>"
 export DEMO_BUILD_ORIGIN_PORT=5198
 ```
 
-Do not infer a gateway from an arbitrary machine name or commit private network
-configuration to the repository.
+Use the values supplied with the available session. Do not discover alternative
+gateways or routes, and do not commit private network configuration to the
+repository.
 
-Before replacing the shared demo, inspect the gateway:
+Before attaching the tunnel, confirm that no process already owns the assigned
+gateway loopback port:
 
 ```bash
 ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
-  "tailscale serve status; ss -ltn | grep ':${DEMO_GATEWAY_ORIGIN_PORT} ' || true"
+  "ss -ltn | grep ':${DEMO_GATEWAY_ORIGIN_PORT} ' || true"
 ```
 
 An occupied gateway origin may belong to another demo. Coordinate its teardown;
@@ -289,21 +290,9 @@ ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
   "curl -fsSI http://127.0.0.1:${DEMO_GATEWAY_ORIGIN_PORT}/"
 ```
 
-The gateway operator configures the private Serve route once:
+Confirm the existing HTTPS mapping from the gateway without changing it:
 
 ```bash
-tailscale serve --bg \
-  --https="$DEMO_HTTPS_PORT" \
-  "http://127.0.0.1:$DEMO_GATEWAY_ORIGIN_PORT"
-```
-
-Normal demo publication must reuse the existing matching route, not rewrite it.
-Confirm it from the gateway:
-
-```bash
-ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
-  "tailscale serve status"
-
 ssh -o BatchMode=yes "$DEMO_GATEWAY_HOST" \
   "curl -fsSI https://${DEMO_PUBLIC_HOST}:${DEMO_HTTPS_PORT}/"
 ```
