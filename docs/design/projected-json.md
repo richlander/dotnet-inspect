@@ -186,8 +186,24 @@ section contributes exactly one JSON value:
 | Table | Array of row objects |
 | Unlabeled list or intrinsic vector | Array of strings |
 | One or more labeled arrays | Object whose properties are label keys and whose values are arrays of strings |
-| Typed tree | Array of node objects with `text`, optional `badge`, and optional `children` |
+| Typed tree | Array of node objects with `text`, optional `badge`, optional structural `state`, and optional `children` |
 | Code/text blob or scalar | JSON string, when the formatter receives the payload through a value-bearing callback |
+
+Typed-tree nodes preserve Markout's structural node state. `state` is omitted
+for `Normal`; a non-normal state uses its stable lower_snake_case machine name,
+currently `"revisit"`. State is not a badge and is not gated by badge
+selection. Node properties emit in `text`, `badge`, `state`, `children` order,
+omitting inapplicable optional properties. A revisit node with no children must
+therefore remain distinguishable from a normal leaf:
+
+```json
+[
+  {
+    "text": "Shared dependency",
+    "state": "revisit"
+  }
+]
+```
 
 Markout supplies each labeled array as a label plus its values. Lowered JSON
 must retain both:
@@ -278,11 +294,12 @@ Collision checks cover:
 ### Display values
 
 Every lowered leaf value is a string. Inline value slots, including field
-values, table cells, list items, and tree text or badges, can arrive with
-Markout semantic inline markup. Before JSON encoding, the formatter must apply
-the same `FormatHelper.RenderInlinePlainText` semantics that JSONL uses: remove
-the semantic tags and decode their escaped text. This is Markout-owned inline
-rendering, not parsing rendered Markdown, TSV, or JSONL.
+values, table cells, unlabeled or labeled-array items, and tree text or badges,
+can arrive with Markout semantic inline markup. Before JSON encoding, the
+formatter must apply the same `FormatHelper.RenderInlinePlainText` semantics
+that JSONL uses: remove the semantic tags and decode their escaped text. This
+is Markout-owned inline rendering, not parsing rendered Markdown, TSV, or
+JSONL.
 
 Literal blob or code payload callbacks are not inline slots and retain their
 payload unchanged. After the slot-specific rendering step, the JSON writer
@@ -595,6 +612,8 @@ implemented:
 | `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
 | `ProjectedJsonLabeledArrayTests` | Labeled-array keys, empty applicable labels, section object type, and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
+| `ProjectedJsonTreeTests` | Typed-tree hierarchy, authored order, badges, and non-normal structural state survive; a normal leaf and a childless `revisit` node remain distinguishable. |
+| `ProjectedJsonInlineValueTests` | Markout semantic inline markup is rendered to plain text in fields, table cells, unlabeled and labeled-array items, and tree text/badges; literal blob/code payloads remain unchanged, and primitive-looking strings remain strings. |
 | `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections honor each section's `Project`/`PassThrough`/`Incompatible` disposition, including graph-plus-table omission, graph-only failure, and simultaneous field/column composition without discarding either family, and preserve requested ordering. |
 | `ProjectedJsonGraphFieldTests` | Requested graph/tree cue fields change lowered `text`/`badge` content exactly as in the display view; unrequested cues stay absent and unsupported graph lowerings fail visibly. |
 | `ProjectedJsonLegacyAliasTests` | Shipped `vocabulary --fields` and equivalent `--columns` requests retain decoded row and diagnostic parity without enabling that alias for other table commands. |
