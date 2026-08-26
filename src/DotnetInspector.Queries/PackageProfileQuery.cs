@@ -49,7 +49,8 @@ public sealed record PackageProfileFailure(
     string? Version,
     PackageSourceIdentity Producer,
     PackageProfileFailureKind Kind,
-    string Message);
+    string Message,
+    PackageManifestFailureReason? ManifestFailureReason = null);
 
 /// <summary>
 /// Terminal accounting for a completed package-profile stream.
@@ -283,7 +284,8 @@ public static class PackageProfileQuery
                 yield return Failure(
                     candidate,
                     PackageProfileFailureKind.InvalidManifest,
-                    manifestFailureResult.Error.Message);
+                    manifestFailureResult.Failure.Message,
+                    manifestFailureResult.Failure.Reason);
                 continue;
             }
 
@@ -317,14 +319,16 @@ public static class PackageProfileQuery
     private static PackageProfileEvent.Failure Failure(
         PackageSearchMatch candidate,
         PackageProfileFailureKind kind,
-        string message) =>
+        string message,
+        PackageManifestFailureReason? manifestFailureReason = null) =>
         new(
             new PackageProfileFailure(
                 candidate.Metadata.Id,
                 candidate.Metadata.Version,
                 candidate.Candidate.Producer,
                 kind,
-                message));
+                message,
+                manifestFailureReason));
 
     private static void Validate(PackagePrefixProfileRequest request)
     {
