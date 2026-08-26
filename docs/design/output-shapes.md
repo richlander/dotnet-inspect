@@ -10,6 +10,7 @@ do.
 Related docs:
 
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
+- [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [Command model](command-model.md) — command surface and shared options
@@ -460,7 +461,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) selects **lowered** vocabulary — computed table columns such as `Return Type` have no counterpart in the typed object model — so naming one opts into the lowered display view instead of the pre-lowered typed document (#3494). On `find`, that combination renders the projected sections as JSON, using the same machine key names `--jsonl` and the pre-lowered `--json` use (`type`, not the `Type` heading Markdown shows) so the flag keeps one vocabulary whether or not a projection was requested, and honoring `--rows`/`--compact` like every other format. Elsewhere the lowered JSON view is not wired yet, so the combination is still rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Plain `--json` keeps the pre-lowered typed document. After any accepted payload projection has claimed its source, a remaining non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with `--rows`/`--compact` preserved. Lowered JSON rejects `-n`/`--tail`; use `--rows`. `find` and `vocabulary` currently wire the lowered path; other commands reject the combination rather than silently dropping it. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
