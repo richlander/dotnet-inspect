@@ -1,15 +1,19 @@
 import {
   graphMemberShareTarget,
   graphMemberTargetFromPacket,
-  lenses,
+  isMemberSection,
+  isPackageLens,
+  isTypeLens,
   normalizeShareTabs,
-  packageLenses,
   platformPackToken,
   replaceCurrentNavigationEntry,
   shareStateLengthError,
+  type MemberSection,
+  type PackageLens,
   type PlatformPack,
   type GraphMemberShareIdentity,
   type GraphMemberShareTarget,
+  type TypeLens,
   type WorkspaceTab,
 } from "./data.ts";
 import {
@@ -24,7 +28,7 @@ import {
 export interface WorkspaceView {
   package: string;
   packageKey: string;
-  lens: string;
+  lens: TypeLens;
   selectedTypeId: string;
   selectedMemberKey: string;
   memberBrowseTypeId: string;
@@ -34,9 +38,9 @@ export interface WorkspaceView {
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
   bodyTarget: BodyTarget | null;
-  memberSection: string;
+  memberSection: MemberSection;
   atPackageRoot: boolean;
-  packageLens: string;
+  packageLens: PackageLens;
   libraryScope: string[] | null;
 }
 
@@ -253,7 +257,7 @@ export interface WorkspaceDeepLink {
   type?: string | null;
   member?: string | null;
   overload?: string | null;
-  section?: string | null;
+  section?: MemberSection | null;
   bodyTarget?: BodyTarget | null;
   memberBrowse?: boolean;
   memberTextFilter?: string;
@@ -267,15 +271,15 @@ export interface WorkspaceUrlState {
   package: string;
   tabs: WorkspaceTab[];
   active: number;
-  lens: string;
+  lens: TypeLens;
   atPackageRoot: boolean;
-  packageLens: string;
+  packageLens: PackageLens;
   library: string | null;
   libraryPack: PlatformPack | null;
   selectedTypeId: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
-  memberSection: string;
+  memberSection: MemberSection;
   selectedBodyTarget: BodyTarget | null;
   graphTarget: GraphMemberShareIdentity | null;
   memberBrowse: boolean;
@@ -312,7 +316,7 @@ interface DecodedShareState {
   type: string | null;
   member: string | null;
   overload: string | null;
-  section: string | null;
+  section: MemberSection | null;
   bodyTarget: BodyTarget | null;
   library: string | null;
   libraryPack: PlatformPack | null;
@@ -467,7 +471,9 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
         overload: typeof raw.o === "string" || typeof raw.o === "number"
           ? String(raw.o)
           : null,
-        section: typeof raw.c === "string" ? raw.c : null,
+        section: typeof raw.c === "string" && isMemberSection(raw.c)
+          ? raw.c
+          : null,
         bodyTarget: decodeBodyTarget(raw.d),
         library: typeof raw.l === "string" ? raw.l : null,
         libraryPack: platformPackToken(raw.p),
@@ -485,14 +491,19 @@ function decodeWorkspaceShareState(value: string | null): ShareStateResult {
   }
 }
 
-function resolveView(token: string) {
+function resolveView(token: string): {
+  lens: TypeLens | null;
+  atPackageRoot: boolean;
+  packageLens: PackageLens | null;
+} {
   const atPackageRoot = token === "pkg" || token.startsWith("pkg:");
+  const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
   return {
-    lens: lenses.some(([id]) => id === token) ? token : null,
+    lens: isTypeLens(token) ? token : null,
     atPackageRoot,
     packageLens: atPackageRoot
-      ? (packageLenses.some(([id]) => id === token.split(":")[1])
-        ? token.split(":")[1]
+      ? (isPackageLens(packageLensToken)
+        ? packageLensToken
         : "overview")
       : null,
   };
@@ -521,7 +532,10 @@ export function parseWorkspaceLocation(location: WorkspaceLocationSnapshot) {
   let type = params.get("type");
   let member = params.get("member");
   let overload = params.get("overload");
-  let section = params.get("section");
+  const sectionToken = params.get("section");
+  let section: MemberSection | null = isMemberSection(sectionToken)
+    ? sectionToken
+    : null;
   let bodyTarget: BodyTarget | null = null;
   let viewToken = location.hash.slice(1);
   let tabs: WorkspaceTab[] = [];
