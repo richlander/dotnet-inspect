@@ -124,7 +124,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.Summary;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
     }
 
@@ -134,7 +133,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
     }
 
@@ -148,7 +146,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.FilesReadme;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.PackageReadmeFile != null
                || model.PackageFiles?.Any(file => file.IsReadme) == true;
@@ -163,7 +160,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static SectionCost Cost => SectionCost.Moderated;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
     }
 
@@ -179,7 +175,6 @@ public static class PackageSectionDescriptors
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => new PackageInspectionText(model).ConcernCases.Count > 0;
     }
@@ -196,7 +191,6 @@ public static class PackageSectionDescriptors
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.PackageContentAudit?.Findings.Count > 0;
     }
@@ -209,7 +203,6 @@ public static class PackageSectionDescriptors
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         // Alternate-package IDs require bounded registry metadata acquisition.
         public static SectionCost Cost => SectionCost.Moderated;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => IdentifierConfusionAudit.InspectPackage(model).Count > 0;
     }
@@ -224,7 +217,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static SectionCost Cost => SectionCost.Moderated;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.TotalDownloads != null;
     }
@@ -234,7 +226,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.TargetFrameworks;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.TargetFrameworks is { Count: > 0 };
     }
@@ -244,7 +235,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.FilesSkills;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesSkills);
     }
@@ -255,7 +245,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         // Exactly one row for every package that has a manifest.
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesNuspec);
     }
@@ -269,7 +258,6 @@ public static class PackageSectionDescriptors
         // PDB acquisition plus a per-document listing: never auto-run. Matches the library
         // declaration of the same section; the @SourceLink door keeps it discoverable.
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.SourceFiles is { Count: > 0 }
                || model.LibraryFiles is { Count: > 0 }
@@ -282,7 +270,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.SourceAvailability != null;
     }
@@ -293,7 +280,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.SourceIntegrity != null;
     }
@@ -304,7 +290,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.SourceAvailability is { } availability
                && (availability.MissingFiles is { Count: > 0 }
@@ -317,7 +302,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.Signature;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.SignatureResult != null;
     }
@@ -328,7 +312,6 @@ public static class PackageSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static SectionCost Cost => SectionCost.Moderated;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.Vulnerabilities is { Count: > 0 };
     }
@@ -340,7 +323,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.Dependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.DependencyGroups is { Count: > 0 };
     }
@@ -350,7 +332,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.Manifest;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => !string.IsNullOrWhiteSpace(model.PackageName)
                || !string.IsNullOrWhiteSpace(model.Version)
@@ -364,7 +345,6 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.RuntimeDependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.RuntimeDependencies is { Count: > 0 };
     }
@@ -386,7 +366,6 @@ public static class PackageSectionDescriptors
         public static bool Noisy => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.Files is { Count: > 0 };
     }

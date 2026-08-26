@@ -39,10 +39,8 @@ internal static class LibraryMetadataService
         string? packageVersion,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        HashSet<string>? scanners = null,
-        ScannerRegistry? scannerRegistry = null,
         HashSet<InspectionQueryDefinition>? queries = null,
-        InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
+        InspectionQueryRegistry<InspectionQueryContext>? queryRegistry = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
         AssemblyIntegrationOpportunitiesEntry?
@@ -54,29 +52,17 @@ internal static class LibraryMetadataService
 
         try
         {
-            // Expand declared scanner prerequisites before narrowing body-analysis features, so a
-            // prerequisite that needs the body index is not missed by the narrowing.
-            var requiredScanners =
-                scannerRegistry is not null
-                    && scanners is not null
-                    ? scannerRegistry.ExpandRequired(scanners)
-                    : scanners;
-            if (requiredScanners is not null)
-                trace?.RecordClosure(requiredScanners);
             var requiredQueries = queryRegistry is not null && queries is not null
                 ? queryRegistry.ExpandRequired(queries)
                 : queries;
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
-            var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
-                requiredScanners,
-                requiredQueries);
+            var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(requiredQueries);
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
-                || requiredScanners?.Contains(
-                    Sections.LibrarySections.ScannerBodyShapes) == true;
+                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
@@ -151,7 +137,7 @@ internal static class LibraryMetadataService
 
                 if (queryRegistry is not null && requiredQueries is not null)
                 {
-                    using var queryContext = new Sections.ScannerContext
+                    using var queryContext = new Sections.InspectionQueryContext
                     {
                         AssemblyPath = path,
                         AssemblyReference = assemblyReference,
@@ -271,7 +257,7 @@ internal static class LibraryMetadataService
             inspection.PdbPath = pdbContext.CodeViewPdbPath;
             ApplySourceLinkAudit(service, inspection);
 
-            // Run legacy scanners and typed queries against one shared assembly context.
+            // Run typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
             var referencesWillRun =
                 queryRegistry is not null
@@ -286,10 +272,9 @@ internal static class LibraryMetadataService
                     AssemblyReferencesQuery.Execute(session));
             }
 
-            if ((scannerRegistry is not null && requiredScanners is not null)
-                || (queryRegistry is not null && requiredQueries is not null))
+            if (queryRegistry is not null && requiredQueries is not null)
             {
-                using var scannerContext = new Sections.ScannerContext
+                using var queryContext = new Sections.InspectionQueryContext
                 {
                     AssemblyPath = path,
                     AssemblyReference = assemblyReference,
@@ -302,20 +287,15 @@ internal static class LibraryMetadataService
                     Trace = trace,
                 };
 
-                if (queryRegistry is not null && requiredQueries is not null)
-                {
-                    await RunTypedQueriesAsync(
-                        path,
-                        inspection,
-                        logger,
-                        queryRegistry,
-                        requiredQueries,
-                        scannerContext,
-                        projectOptimizationOpportunities,
-                        trace).ConfigureAwait(false);
-                }
-
-                scannerRegistry?.RunScanners(requiredScanners ?? [], scannerContext);
+                await RunTypedQueriesAsync(
+                    path,
+                    inspection,
+                    logger,
+                    queryRegistry,
+                    requiredQueries,
+                    queryContext,
+                    projectOptimizationOpportunities,
+                    trace).ConfigureAwait(false);
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {
@@ -524,7 +504,6 @@ internal static class LibraryMetadataService
     }
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
-        IReadOnlySet<string>? scanners,
         IReadOnlySet<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
@@ -540,7 +519,7 @@ internal static class LibraryMetadataService
         }
         if (queries?.Contains(ResourceTriageQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
-        if (scanners?.Contains(Sections.LibrarySections.ScannerBodyShapes) == true)
+        if (queries?.Contains(BodyShapesQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;
     }
@@ -2128,7 +2107,7 @@ internal static class LibraryMetadataService
         LibraryInspection inspection,
         VerboseLogger logger,
         InspectionQueryResults results,
-        ScannerContext scannerContext,
+        InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities)
     {
         if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
@@ -2172,7 +2151,7 @@ internal static class LibraryMetadataService
             ApplyResourceTriageResult(
                 inspection,
                 resourceTriage,
-                scannerContext.DrillMap);
+                queryContext.DrillMap);
         }
 
         if (results.TryGet(
@@ -2188,6 +2167,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                BodyShapesQuery.Definition,
+                out BodyShapesResult? bodyShapes))
+        {
+            ApplyBodyShapesResult(inspection, logger, bodyShapes);
+        }
+
+        if (results.TryGet(
                 TopLeverageQuery.Definition,
                 out TopLeverageResult? topLeverage))
         {
@@ -2196,7 +2182,7 @@ internal static class LibraryMetadataService
                 inspection,
                 logger,
                 topLeverage,
-                scannerContext.DrillMap);
+                queryContext.DrillMap);
         }
 
         if (results.TryGet(
@@ -2372,15 +2358,9 @@ internal static class LibraryMetadataService
             case OptimizationOpportunitiesResult.Available available:
                 ReportOptimizationDiagnostics(available.Diagnostics);
                 ImmutableArray<Analysis.OptimizationOpportunity> opportunities =
-                [
-                    .. FilterAndOrderTriageOpportunities(
-                        available.Opportunities
-                            .Concat(available.AllocationFanoutOpportunities)
-                            .Where(opportunity => IncludePerformanceOpportunity(
-                                opportunity,
-                                available.GeneratedFrameworkTypes)),
-                        inspection.PerformanceTriageOptions),
-                ];
+                    SelectPerformanceTriageOpportunities(
+                        available,
+                        inspection.PerformanceTriageOptions);
                 inspection.PerformanceTriageOpportunities = opportunities;
                 if (projectCompatibilityRows)
                 {
@@ -2405,6 +2385,67 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     "Unknown optimization opportunities result "
                     + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static ImmutableArray<Analysis.OptimizationOpportunity>
+        SelectPerformanceTriageOpportunities(
+            OptimizationOpportunitiesResult.Available available,
+            PerformanceTriageOptions options)
+        =>
+        [
+            .. FilterAndOrderTriageOpportunities(
+                available.Opportunities
+                    .Concat(available.AllocationFanoutOpportunities)
+                    .Where(opportunity => IncludePerformanceOpportunity(
+                        opportunity,
+                        available.GeneratedFrameworkTypes)),
+                options),
+        ];
+
+    internal static void ApplyBodyShapesResult(
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        BodyShapesResult result)
+    {
+        inspection.BodyShapesQueryResult = result;
+        inspection.BodyShapeSearchResult = null;
+
+        switch (result)
+        {
+            case BodyShapesResult.Available available:
+                inspection.BodyShapeSearchResult = available.Search;
+                if (available.Search.Failures.Count == 0)
+                    break;
+
+                if (logger.Enabled)
+                {
+                    foreach (var failure in available.Search.Failures)
+                    {
+                        logger.LogWarning(
+                            $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
+                    }
+                }
+                else
+                {
+                    CommandError.WriteWarning(
+                        $"Body Shapes skipped {available.Search.Failures.Count} candidates; "
+                        + "rerun with --verbose for details.");
+                }
+                break;
+
+            case BodyShapesResult.NoMetadata:
+            case BodyShapesResult.DependencyUnavailable:
+                break;
+
+            case BodyShapesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error searching body shapes: {failed.Error.Message}");
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown Body Shapes result '{result.GetType().Name}'.");
         }
     }
 
@@ -2864,9 +2905,9 @@ internal static class LibraryMetadataService
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        InspectionQueryRegistry<ScannerContext> queryRegistry,
+        InspectionQueryRegistry<InspectionQueryContext> queryRegistry,
         HashSet<InspectionQueryDefinition> requiredQueries,
-        ScannerContext scannerContext,
+        InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities,
         Sections.InspectionTrace? trace)
     {
@@ -2878,7 +2919,7 @@ internal static class LibraryMetadataService
         {
             results = await queryRegistry.RunAsync(
                 requiredQueries,
-                scannerContext,
+                queryContext,
                 recordQuery).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -2903,7 +2944,7 @@ internal static class LibraryMetadataService
             inspection,
             logger,
             results,
-            scannerContext,
+            queryContext,
             projectOptimizationOpportunities);
     }
 

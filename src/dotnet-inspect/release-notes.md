@@ -35,6 +35,12 @@
   an enclosing type to a nested target; rediscover them on the exact target
   type (#4233).
 
+### Library inspection safety
+
+- Library-inspection references, classified methods, resources, performance,
+  source-integrity summaries, failures, and union rows now carry their remaining
+  presentation text through typed inert-text boundaries (#3463).
+
 ### Source and implementation evidence
 
 - Renames `Original Source` to `PDB Source` and the Implementation Diff
