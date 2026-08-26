@@ -24,7 +24,7 @@ implement this interaction model.
 Annotated Source has three surfaces with increasing disclosure:
 
 1. **Embedded reader** — the default member experience. It shows the
-   member-surface C# declaration, C# source, and the default anchored
+   product-issued body-aware C# declaration, C# source, and the default anchored
    annotations without the explorer's persistent controls and inspector
    chrome. Finding annotation chips and their transient Finding detail remain
    available. A prominent **Explore** action opens the full experience.
@@ -149,14 +149,18 @@ it never acquires an implicit navigation destination.
 The initial presentation is deliberately useful without configuration:
 
 - C# is visible.
-- The member-surface C# declaration precedes the body.
-- Every anchored product Finding in the document is visible, including
-  Allocation, Unsafety, Lifetime, and Semantics Findings.
+- The product-issued body-aware C# declaration precedes the body.
+- Every default-visible anchored product Finding with a target on a visible
+  medium is visible. The current default catalog includes Allocation,
+  Unsafety, Cost, Semantics, and Lifetime Findings.
 - Allocation annotations are therefore a first-class part of the experience.
-  A document known to contain allocation Findings but showing none is a
-  projection or presentation defect, not an intentional default.
+  A default-visible allocation Finding with a C# target but no annotation in
+  the initial C# presentation is a projection or presentation defect.
 - In the full explorer, invocation-like targets remain selectable. In both
   surfaces they receive no persistent underline.
+- A default-visible Finding whose targets are all on hidden media remains
+  active but receives no source annotation until one of its target media is
+  visible.
 - Unanchored Findings remain discoverable in the full inspector but cannot be
   drawn against invented source coordinates.
 
@@ -186,7 +190,8 @@ Both Annotated Source surfaces keep these concepts separate:
 - **Primary selection** — at most one node or Finding owns inspector detail and
   destination actions.
 - **Active annotations** — zero or more Finding, structure, or capture
-  annotations may remain visible.
+  annotations are selected for rendering; presentation may hide an instance
+  that has no target on a visible medium.
 - **Finding detail** — at most one transient Finding detail surface is open.
 - **Presentation** — visible media and offset visibility.
 - **Reported annotation state** — Default, All, Clear, or Custom, derived from
@@ -207,9 +212,10 @@ order.
 Embedded and full mode have separate local interaction state within one
 workspace entry:
 
-- The embedded reader always renders the default annotation-instance set, C#,
-  and no offsets. It may retain one default-visible anchored Finding as primary
-  and may show that Finding's transient detail.
+- The embedded reader always uses the default annotation-instance set, C#, and
+  no offsets. It renders that set through the visible-medium rule below. It may
+  retain one default-visible anchored Finding as primary and may show that
+  Finding's transient detail.
 - The full explorer retains its annotation-instance set, primary selection,
   Finding detail, media, and coordinate preferences while the workspace entry
   remains alive, including while that entry is in embedded mode.
@@ -217,10 +223,13 @@ workspace entry:
   default annotation-instance set, C# visible, IL and offsets hidden, and no
   node selection. An embedded primary Finding and its open detail carry into
   that initial full state.
-- **Exit**, or Escape when no transient layer is open, closes transient detail
-  and switches to the embedded state. A default-visible anchored Finding may
-  remain primary; a node, unanchored Finding, or non-default Finding does not.
-  Full-only state remains retained for a later **Explore**.
+- **Exit**, or Escape when no transient layer is open, leaves retained full
+  state unchanged and derives a new embedded primary from the full primary. A
+  default-visible anchored Finding with a C# target transfers as primary; a
+  node, unanchored Finding, non-default Finding, or Finding without a C# target
+  clears the embedded primary. Previously retained embedded primary state is
+  not restored. Embedded Finding detail always closes, and focus returns to
+  **Explore**. Full-only state remains retained for a later **Explore**.
 - A direct full-mode link has no retained state to restore. It starts with the
   default annotation-instance set, C# visible, IL and offsets hidden, and no
   primary selection or transient detail.
@@ -228,7 +237,7 @@ workspace entry:
 ### Default, All, and Clear
 
 The available annotation universe contains the product-issued instances that
-can be drawn in the current document:
+can be drawn in at least one supported medium of the current document:
 
 - anchored body Finding ids with at least one
   `AnnotatedSourceTarget`;
@@ -239,8 +248,14 @@ Unanchored and member-header Findings remain available as inspector detail but
 are not annotation instances and never participate in Default, All, Clear, or
 Custom. A layer contributes its available instances; the layer name is not
 itself a member of the universe. The default annotation set is the
-catalog-selected subset of that universe. The active, or effective, annotation
-set is the current subset selected for display.
+catalog-selected subset of that universe. Its current default Finding families
+are Allocation, Unsafety, Cost, Semantics, and Lifetime. The active, or
+effective, annotation set is the current subset selected for display.
+
+The rendered annotation set is the active instances that have at least one
+target on a currently visible medium. Changing C#/IL presentation can therefore
+reveal or hide an annotation without adding or removing its active instance or
+changing the reported annotation state.
 
 The full explorer exposes three annotation-set commands:
 
@@ -257,9 +272,10 @@ last command. **Default** wins when the active set equals the default set.
 Otherwise, **All** applies when it equals the available universe, **Clear**
 applies when it is empty, and **Custom** applies to every other set. Toggling
 one default Finding off therefore produces **Custom** even though the Finding
-layer remains available. This precedence handles documents whose Default, All,
-or empty sets overlap. C#/IL and offset controls remain orthogonal to these
-commands and states.
+layer remains available, provided another active instance remains. If it was
+the only active default instance, the resulting empty set reports **Clear**.
+This precedence handles documents whose Default, All, or empty sets overlap.
+C#/IL and offset controls remain orthogonal to these commands and states.
 
 ## Navigation and durable state
 
@@ -332,12 +348,18 @@ reveals them together wherever node or Finding coordinates are shown. The
 control's label names the coordinate system; unexplained hexadecimal values do
 not appear in the default reader.
 
-The member-surface C# declaration, `ApiMember.Signature`, precedes the annotated
-body in both surfaces. The browser consumes it through
-`BrowserMemberSurface.Signature`. This display spelling is distinct from
-`MemberAnchor.CanonicalSignature`, which remains identity and copy data rather
-than a declaration. The browser uses the display field verbatim and never
-re-derives it by parsing rendered source.
+The CSharp-owned body-aware declaration produced from the same
+`CSharpMemberBody` as the annotated body precedes that body in both surfaces.
+The declaration writer used by the `CSharpFormatter.FormatMemberWithBody` path
+owns its modifiers, escaping, finalizer spelling, and body-dependent
+`async`/`unsafe` decisions. The Research annotated-member projection carries
+that declaration in a dedicated field and the browser transports it with the
+annotated document.
+
+`ApiMember.Signature` and `BrowserMemberSurface.Signature` remain API-list
+skeleton spellings; `MemberAnchor.CanonicalSignature` remains identity and copy
+data. Neither is the Annotated Source declaration, and the browser never
+re-derives that declaration by parsing source or another display string.
 
 ## Facts and allocations
 
@@ -352,13 +374,18 @@ typed identities:
 
 `AnnotatedSourceFact.Id` is local to one annotated document, and the current
 annotated projection does not carry a cross-projection instance key. Before
-Facts integration, the product must add a producer-issued typed
-`FindingInstanceKey` that is injective within each emitted Finding census and
-carry it unchanged into both projections. `FindingSubject.Key` identifies the
-subject and `FindingKey.IdentityKey` identifies a correspondence candidate;
-neither, alone or together, identifies one Finding instance. Document-local
-ids, descriptors, offsets, ordinals, and rendered-field tuples are likewise
-not cross-projection identity.
+Facts integration, the product must seal the immutable Finding census and issue
+an opaque typed `FindingCensusReceipt` plus a producer-issued
+`FindingInstanceKey` that is injective within that receipt. Both projections
+carry the same receipt and instance key unchanged; only the pair identifies an
+instance. Independently executed projections may link only when their receipts
+match.
+
+`FindingSubject.Key` identifies the subject and `FindingKey.IdentityKey`
+identifies a correspondence candidate; neither, alone or together, identifies
+one Finding instance. Document-local ids, descriptors, offsets, ordinals,
+rendered-field tuples, and equal instance keys from different census receipts
+are likewise not cross-projection identity.
 
 When that identity and Facts become available in the browser, selecting a Fact
 can open Annotated Source with that Finding primary and active, and an
@@ -368,10 +395,11 @@ table.
 
 Allocation Findings use the same path as every other Finding. They are not a
 special browser heuristic and are not inferred from `new`, `box`, or rendered
-C#. A compiled fixture with known allocation Findings gates their presence in
-the initial embedded reader and the full explorer. A close-negative fixture
-with allocation-like syntax but no product-issued allocation Finding gates
-their absence.
+C#. A compiled fixture with a known C#-targeted allocation Finding gates its
+presence in the initial embedded reader and the full explorer. A separate
+IL-only fixture gates active-but-hidden behavior while C# alone is visible and
+appearance when IL is shown. A close-negative fixture with allocation-like
+syntax but no product-issued allocation Finding gates its absence.
 
 ## Current implementation gaps
 
@@ -385,15 +413,15 @@ accepted as a named follow-up.
 | Chip vocabulary | Some pill-shaped labels are inert; actions use several unrelated verbs | Every chip is actionable and every action follows the click matrix |
 | Invocation navigation | Explicit **Member**/**Source** exists only after selection | Research and workspace resolution emit the closed, acquisition-qualified selection result |
 | Finding primary state | Evidence and annotation arrays can imply selection indirectly | Finding activation establishes one explicit primary Finding and useful detail; toggles do not |
-| Initial presentation | C# and all anchored facts start active; structural CodeLens also starts on | Findings start on; structure, captures, IL, and coordinates start off |
+| Initial presentation | C# and all anchored facts start active; structural CodeLens also starts on | Default Findings are active; only visible-medium targets render; structure, captures, IL, and coordinates start off |
 | Annotation commands | One **clear** action combines several state changes | Separate **Default**, **All**, and **Clear** commands with derived-state precedence |
 | History | Full mode is local modal state outside `WorkspaceView` | Explore/Exit/Escape replace the current entry, preserve the defined surface-local state, and destinations round-trip the originating full view |
 | Escape | Browser popovers and the explorer can compete with workspace Escape | Topmost transient surface closes first; Exit follows the same mode transition |
 | Source decoration | Invocation and other states use persistent underlines | Availability is ordinary; active states use distinct non-underline treatments |
 | Coordinates | Node chips always show ranges and IL offsets | Coordinates are explicit and off by default |
-| Facts | The browser Facts query is visibly unsupported and annotated facts carry only document-local ids | Add a product-issued shared Finding instance key before bidirectional projection |
+| Facts | The browser Facts query is visibly unsupported and annotated facts carry only document-local ids | Add one sealed census receipt and shared Finding instance key before bidirectional projection |
 | Allocations | Presence and provenance in the experience are not proven | Product-issued presence and syntax-only absence are compiler-fixture gated |
-| Signature | Annotated Source begins at the body | Reuse `BrowserMemberSurface.Signature` as the display declaration |
+| Declaration | Annotated Source begins at the body | Carry the CSharp-owned body-aware declaration with the annotated-member projection |
 | Real-browser conformance | Tests use Node and a fake DOM; no CI-integrated browser runner exists | Add a CI-integrated real-browser harness for pointer, keyboard, history, focus, and drag-selection gates |
 
 ## Validation contract
@@ -416,21 +444,28 @@ The interaction model requires:
 - primary-state tests with multiple active annotations proving Finding and node
   selection transitions are explicit and toggles are independent;
 - Default, All, Clear, and Custom derived-state tests, including overlapping
-  effective-set precedence and a one-Finding-off **Custom** case;
-- close negative cases proving opt-in layers are absent by default;
+  effective-set precedence, a one-Finding-off **Custom** case with a non-empty
+  residual set, and a singleton-default **Clear** case;
+- close negative cases proving opt-in layers and anchored opt-in Findings are
+  absent by default;
 - browser history and workspace-packet round trips for embedded and full mode,
   including Explore/Exit/Escape replacement from the first history entry,
-  retained Clear and Custom full state, and direct-full default state;
+  retained Clear and Custom full state, direct-full default state, and
+  deterministic Exit transfer with a different retained embedded primary;
 - a real-browser back/forward test after **Member** and **Source** navigation;
 - layered Escape and focus-restoration tests;
 - a real-browser drag-selection negative proving pointer movement selects text
   without activating its source span;
 - a style gate rejecting persistent source-text underlines;
 - offset-off and offset-on rendering tests;
-- a compiler-produced allocation Finding fixture in both surfaces and an
-  allocation-like-syntax fixture with no Finding in either surface;
-- signature parity with `BrowserMemberSurface.Signature`; and
-- identity-preserving Facts integration tests when that capability is enabled.
+- a compiler-produced allocation Finding with a C# target in both surfaces, an
+  IL-only anchored Finding that remains active while hidden in C# and appears
+  when IL is shown, and allocation-like syntax with no Finding in either
+  surface;
+- declaration parity with the CSharp body-aware formatter for escaped names,
+  finalizers, and body-dependent modifiers; and
+- identity-preserving Facts integration tests, including wrong-census receipt
+  negatives, when that capability is enabled.
 
 JavaScript `.click()` alone is insufficient for source affordances. At least one
 real-browser gate must use pointer hit testing and keyboard activation for each
