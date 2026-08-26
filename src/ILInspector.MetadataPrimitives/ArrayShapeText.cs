@@ -9,9 +9,16 @@ namespace ILInspector.Metadata;
 /// to it: <c>ELEMENT_TYPE_ARRAY</c> followed by four bytes of compressed rank encodes 536,870,911
 /// dimensions, and the natural spelling materializes a separator string that long. Every
 /// byte-oriented structural check passes such a blob, and <see cref="SignatureBlobGuard"/>
-/// deliberately does not charge rank, because the budgeted providers
-/// (<c>TypeNodeProvider.GetArrayType</c> and <see cref="SignatureDecoder"/>) charge it themselves
-/// and report the overrun as a visible decode failure rather than silently dropping the member.
+/// deliberately does not charge rank, because <c>TypeNodeProvider.GetArrayType</c> charges it
+/// against a real budget and reports the overrun as a visible decode failure rather than silently
+/// dropping the member.
+/// <para>
+/// <see cref="SignatureDecoder"/> also calls <c>ObserveMaterialization</c> with the rank, but that
+/// only bounds callers that supply a <c>beforeMaterialize</c> budget. The shared decoder instance
+/// — which <c>GuardedSignatureDecoder</c> selects for the default, no-callback path — leaves that
+/// callback null, so the charge is a no-op there. It renders through this type for that reason; do
+/// not read the <c>ObserveMaterialization</c> call as proof that the allocation is bounded.
+/// </para>
 /// <para>
 /// Providers that render straight to a string have nowhere to report an overrun, so they bound
 /// the rendering instead. ECMA-335 II.23.2.13 permits any positive rank, but the CLI cannot load
@@ -62,6 +69,15 @@ public static class ArrayShapeText
     /// ILAsm spells a rank-1 multi-dimensional array <c>int32[...]</c>, distinct from the vector
     /// <c>int32[]</c> that <c>GetSZArrayType</c> renders; <c>ildasm</c> is the oracle for that
     /// spelling. Collapsing the two would emit IL that round-trips to a different signature.
+    /// <c>ILDisassemblerComparisonTests.CanonicalIL_ArraySpellings_ReassembleToTheSameSignature</c>
+    /// gates that by reassembling what this spells and requiring a byte-identical signature blob.
+    /// <para>
+    /// Known gap, deliberately not asserted: this renders rank only, so an <c>ArrayShape</c>
+    /// carrying explicit sizes or lower bounds loses them — <c>int32[0...,0...]</c> renders as
+    /// <c>int32[,]</c>, which ILAsm reassembles to a different signature. That conflation is
+    /// pre-existing and unrelated to bounding rank; it is tracked separately rather than
+    /// silently implied to be handled here.
+    /// </para>
     /// </remarks>
     public static string Format(string elementType, int rank)
         => rank == 1

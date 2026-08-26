@@ -144,6 +144,37 @@ public class ArrayShapeTextTests
             $"expected a bounded rendering, got {rendered.Length} chars");
     }
 
+    /// <summary>
+    /// The same canary for the guarded decoder. <c>GuardedSignatureDecoder.DecodeTypeSpecification</c>
+    /// selects the shared <see cref="SignatureDecoder.Instance"/> on its default, no-callback path,
+    /// and that instance carries no materialization budget — its <c>ObserveMaterialization</c> call
+    /// invokes a null delegate. Before this was bounded, the guarded entry point returned a
+    /// successfully-decoded 536,870,915-character string and allocated about 2 GB.
+    /// </summary>
+    [Fact]
+    public void GuardedSignatureDecoder_DoesNotMaterializeAHostileRank()
+    {
+        // ELEMENT_TYPE_ARRAY, I4, rank 0xDFFFFFFF (~536M), 0 sizes, 0 lower bounds.
+        var (reader, handle) = BuildTypeSpec(
+            [0x14, 0x08, 0xdf, 0xff, 0xff, 0xff, 0x00, 0x00]);
+
+        long before = GC.GetTotalAllocatedBytes(precise: true);
+        var result = GuardedSignatureDecoder.DecodeTypeSpecification(reader, handle);
+        long allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+
+        string rendered = Assert.IsType<SignatureDecodeResult<string>.Decoded>(result).Value;
+        Assert.Contains("invalid rank", rendered, StringComparison.Ordinal);
+        Assert.True(
+            rendered.Length < 64,
+            $"expected a bounded rendering, got {rendered.Length} chars");
+
+        // The allocation is the actual defect; the rendering length alone would not catch a
+        // provider that built the separator and then truncated it.
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"expected a bounded allocation, got {allocated / 1024 / 1024} MB");
+    }
+
     static (MetadataReader Reader, TypeSpecificationHandle Handle) BuildTypeSpec(
         byte[] typeBlob)
     {
