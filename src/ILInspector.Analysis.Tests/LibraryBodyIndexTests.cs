@@ -13,6 +13,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
+using ILInspector.Analysis.MalformedOwnershipFixtures;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 
