@@ -11,11 +11,13 @@ column projection under `--json`. New command families adopt this contract
 individually rather than treating the existing formatter as evidence that every
 section is representable.
 
-The pilots do not yet satisfy the full contract. In particular, the global line
-limiter can truncate their lowered JSON under `-n`, section and field keys are
-still derived from display headings, and section-scoped projection has not been
-proven over broad multi-section documents. These are hardening work, not
-accepted compatibility behavior.
+The pilots do not yet satisfy the full contract. In particular, the current
+global rendered-line limiter can truncate their lowered JSON, section and field
+keys are still derived from display headings, and section-scoped projection has
+not been proven over broad multi-section documents. Issue #4677 owns the
+in-progress redesign of semantic item limits versus explicit rendered-line
+limits; this contract does not pre-empt that decision. These are hardening work,
+not accepted compatibility behavior.
 
 Related docs:
 
@@ -70,7 +72,7 @@ display columns from JSON property names.
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
 | Lowered JSON plus `--rows` | Lowered | Window data rows before JSON serialization. |
 | Lowered JSON plus `--compact` | Lowered | Change whitespace only. |
-| Lowered JSON plus `-n`/`--tail` | Error | Reject before rendering and direct the caller to `--rows`. |
+| JSON plus `-n`/bare `-N`, `--tail`, or a future `--lines` | Unchanged | Follow the final #4677 limit contract without truncating serialized JSON. |
 
 `-S`, `--rows`, and `--compact` do not opt into lowering. They modify whichever
 dialect the request already selected. Every adopted lowered path must honor or
@@ -85,10 +87,17 @@ payload projection claims the request before the JSON dialect is chosen.
 `--fields`/`--columns` may then select which source feeds that payload; they do
 not opt the enclosing request into lowered document JSON.
 
-`-n` remains a rendered-line window and is not a projected-JSON row selector.
-Lowered JSON rejects `-n` and `--tail` before serialization and directs the
-caller to `--rows`. It must not cut a serialized JSON document mid-token. This
-work does not reinterpret a line window as a row window.
+Issue #4677 decides the item domain, pipeline order, migration, and exact
+relationship among `-n`/bare `-N`, `--tail`, `--rows`, and a future explicit
+rendered-line mode. Projected JSON imposes only two format requirements:
+
+- those flags do not choose the typed or lowered dialect; and
+- a semantic item/row window is applied before JSON encoding, while any
+  rendered-line mode must preserve one complete JSON value or reject the
+  combination before stdout.
+
+This work neither aliases `-n` to `--rows` nor mandates a rejection that would
+pre-empt #4677.
 
 ## Ownership and pipeline
 
@@ -110,7 +119,7 @@ The normal lowered path is:
 parse request
   -> resolve selected sections
   -> resolve projection separately for each selected section
-  -> apply row windows and lower display values
+  -> apply the resolved shape/window plan and lower display values
   -> validate/buffer the complete JSON document
   -> commit the document to stdout once
 ```
@@ -390,9 +399,9 @@ Adopt one coherent command family at a time.
 
 1. **Harden the shared path.** Add dialect routing, section-scoped projection,
    declared machine-key plans, representability preflight, transactional
-   stdout, and lowered-JSON line-window rejection around the existing
-   `find`/`vocabulary` formatter. Move or expose projection decisions at the L2
-   boundary.
+   stdout, and integration with the final #4677 limit contract around the
+   existing `find`/`vocabulary` formatter. Move or expose projection decisions
+   at the L2 boundary.
 2. **Adopt single-document table and field views.** Start with `type` and
    `member`, using their existing section manifests and projection diagnostics.
 3. **Adopt multi-section library/package documents.** Partition projection per
@@ -434,7 +443,7 @@ implemented:
 | `ProjectedJsonMachineKeyTests` | Every adopted root field, section, field, and column has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
-| `ProjectedJsonLineWindowTests` | Lowered JSON rejects `-n`/`--tail` with empty stdout and points to `--rows`; no line limiter can truncate the document. |
+| `ProjectedJsonWindowingTests` | Under the final #4677 contract, semantic item/row windows happen before encoding and any rendered-line mode emits one complete JSON value or rejects with empty stdout. |
 | `ProjectedJsonFormatParityTests` | Every adopted table section has decoded key/order/value parity with JSONL from the same `-S <section>` shape. |
 | `ProjectedJsonNativeAotSmoke` | A published NativeAOT CLI executes both dialects without reflection fallback or trim/AOT warnings on the emit path. |
 
@@ -450,6 +459,8 @@ JSON.
 - No requirement to migrate every typed JSON command in one change.
 - No retroactive promise that every typed JSON command already supports `-S`
   or `--rows`; silently dropped typed modifiers remain separate defects.
+- No decision about the `-n` item domain, `--rows` interaction, `--lines`
+  grammar, or migration; issue #4677 owns those contracts.
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
 - No reconstruction of sections, rows, or trees from rendered Markdown.
 - No assumption that a future typed Markout seam may change the shipped lowered
