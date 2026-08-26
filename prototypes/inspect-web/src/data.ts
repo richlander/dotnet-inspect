@@ -138,10 +138,26 @@ export function mergeInspectionErrors(
   current: string | null | undefined,
   next: string | null | undefined,
 ): string {
-  const messages = [current, next]
-    .map(value => (value ?? "").trim())
+  return renderInspectionErrors(mergeInspectionErrorEntries(
+    current ? [current] : [],
+    next ? [next] : [],
+  ));
+}
+
+export function mergeInspectionErrorEntries(
+  current: readonly string[] | null | undefined,
+  next: readonly string[] | null | undefined,
+): string[] {
+  const messages = [...(current ?? []), ...(next ?? [])]
+    .map(value => value.trim())
     .filter(Boolean);
-  return [...new Set(messages)].join("; ");
+  return [...new Set(messages)];
+}
+
+export function renderInspectionErrors(
+  entries: readonly string[] | null | undefined,
+): string {
+  return (entries ?? []).join("; ");
 }
 
 export type PlatformPack = "netcore.app" | "aspnetcore.app";
