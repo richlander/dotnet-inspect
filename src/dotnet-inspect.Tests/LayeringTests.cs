@@ -17,17 +17,19 @@ namespace DotnetInspector.Tests;
 public sealed class LayeringTests
 {
     [Fact]
-    public void AssemblyOnlyHost_InspectsCallerSuppliedLocalAssembly()
+    public async Task LocalOnlyHost_InspectsCallerSuppliedLocalAssembly()
     {
         string assemblyPath = typeof(AssemblyOnlyInspector).Assembly.Location;
 
         Assert.Equal(
             "DotnetInspector.AssemblyOnlyHost.Fixture",
-            AssemblyOnlyInspector.ReadAssemblyName(assemblyPath));
+            await AssemblyOnlyInspector.ReadAssemblyNameAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public void AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations()
+    public void LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations()
     {
         string root = CommandErrorOwnershipTests.RepositoryRoot();
         string project = Path.Combine(
@@ -42,6 +44,15 @@ public sealed class LayeringTests
         Assert.Contains(
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.Metadata");
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts");
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts.Local");
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts.Workspaces");
         Assert.Contains(
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "CSharpText");
@@ -88,6 +99,76 @@ public sealed class LayeringTests
         Assert.Equal(
             [Path.GetFullPath(project)],
             closure.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Microsoft.CodeAnalysis.BannedApiAnalyzers",
+                "Microsoft.NET.ILLink.Tasks",
+            ],
+            CommandErrorOwnershipTests.ProjectPackageDependencies(project)
+                .Order(StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ArtifactWorkspaceClosure_ExcludesMetadataPackagesAndStorageImplementations()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "src",
+            "DotnetInspector.Artifacts.Workspaces",
+            "DotnetInspector.Artifacts.Workspaces.csproj");
+        HashSet<string> closure =
+            CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
+
+        Assert.Equal(
+            [
+                Path.GetFullPath(project),
+                Path.Combine(
+                    root,
+                    "src",
+                    "DotnetInspector.Artifacts",
+                    "DotnetInspector.Artifacts.csproj"),
+            ],
+            closure.Order(StringComparer.Ordinal));
+        AssertNoForbiddenImplementations(
+            root,
+            closure,
+            PackageOrStorageImplementationProjects);
+        Assert.Equal(
+            [
+                "Microsoft.CodeAnalysis.BannedApiAnalyzers",
+                "Microsoft.NET.ILLink.Tasks",
+            ],
+            CommandErrorOwnershipTests.ProjectPackageDependencies(project)
+                .Order(StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void LocalArtifactAdapterClosure_ExcludesMetadataPackagesAndStorageImplementations()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "src",
+            "DotnetInspector.Artifacts.Local",
+            "DotnetInspector.Artifacts.Local.csproj");
+        HashSet<string> closure =
+            CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
+
+        Assert.Equal(
+            [
+                Path.GetFullPath(project),
+                Path.Combine(
+                    root,
+                    "src",
+                    "DotnetInspector.Artifacts",
+                    "DotnetInspector.Artifacts.csproj"),
+            ],
+            closure.Order(StringComparer.Ordinal));
+        AssertNoForbiddenImplementations(
+            root,
+            closure,
+            PackageOrStorageImplementationProjects);
         Assert.Equal(
             [
                 "Microsoft.CodeAnalysis.BannedApiAnalyzers",
