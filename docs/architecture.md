@@ -860,7 +860,9 @@ Research overlay bridge, and the application layer:
   generated-like lifted names while preserving ordinary compiler-generated
   owners, including async owners, that already own valid generated bodies.
   Rejected execution sources and owners cannot expand a scoped acquisition to
-  descendant physical bodies. Scoped indexes retain neither fallback.
+  descendant physical bodies; async scope expansion validates the complete
+  lifted-owner chain before admitting a state-machine body. Scoped indexes
+  retain neither fallback.
   Lifted-owner groups authenticate state-machine claims across the complete
   owner candidate set in every scope without acquiring unselected owner bodies.
   Authenticated lifted-owner evidence carries the owner identity together with
@@ -871,6 +873,9 @@ Research overlay bridge, and the application layer:
   Ownership-derived recommendations require an authenticated ultimate owner
   in full, method, and type scopes; unresolved ownership retains physical
   evidence and body-intrinsic opportunities but fails closed for attribution.
+  Generated-owner suppression applies to ownership-derived recommendations,
+  not body-intrinsic opportunities, and authenticated top-level entry points
+  retain their established exception.
   A recoverable ownership failure cannot abort final publication or discard
   physical calls collected before opportunity projection.
   `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
@@ -917,6 +922,12 @@ Research overlay bridge, and the application layer:
   `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
   compatibility, method- and type-level generated provenance, async scope
   admission, and terminal-hop authentication.
+  `OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant`,
+  `OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes`,
+  and
+  `ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
+  body-intrinsic scope parity, ordinary async-source suppression, and the
+  top-level exception.
   `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
   gates ultimate-owner recommendation attribution with a resolvable two-hop
   compiled relationship in full, method, and type scopes.

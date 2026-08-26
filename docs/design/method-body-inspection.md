@@ -360,7 +360,8 @@ source when ultimate lifted-owner resolution fails; scoped publication and
 ownership-derived recommendations remain fail-closed.
 Async execution sources and owner chains reject malformed generated-like names
 while ordinary compiler-generated owners, including async owners, retain
-established attribution. Rejected identities cannot expand scoped acquisition.
+established attribution. Rejected identities and incomplete lifted-owner
+chains cannot expand scoped acquisition.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
 and
 `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
@@ -380,6 +381,12 @@ gate canonical generated-name admission at immediate and intermediate hops.
 `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
 compatibility, generated provenance, async scope admission, and terminal-hop
 authentication.
+`OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant`,
+`OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes`,
+and
+`ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
+body-intrinsic scope parity, ordinary async-source suppression, and the
+authenticated top-level exception.
 `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
 gates ultimate-owner recommendation attribution across full, method, and type
 scopes.

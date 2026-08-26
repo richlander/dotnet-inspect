@@ -89,7 +89,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
     }
 
     internal LibraryBodyAnalysisPlan ExpandEvidenceScope(
-        LibraryBodyAnalysisPlan plan)
+        LibraryBodyAnalysisPlan plan,
+        Func<MethodIdentity, bool> sourceAdmitted)
     {
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Dictionary<int, ImmutableArray<TypeRef>>?
@@ -123,7 +124,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     in ExecutionSourceMethodsByMoveNextToken())
                 {
                     if (HasMalformedCompilerGeneratedLiftedName(
-                            source))
+                            source)
+                        || !sourceAdmitted(source))
                     {
                         continue;
                     }
@@ -439,16 +441,12 @@ internal sealed class LibraryBodyAsyncSourceResolver
         }
 
         return CreateAuthenticatedSourceOwner(
-            source).IsCompilerGenerated;
+            source).HasMalformedGeneratedLiftedName;
     }
 
     internal bool HasMalformedCompilerGeneratedLiftedName(
         AuthenticatedSourceOwner source) =>
-        CompilerGeneratedNames
-            .HasLiftedMethodMarker(source.Method.Name)
-        && !CompilerGeneratedNames
-            .IsLocalFunctionOrLambda(source.Method.Name)
-        && source.IsCompilerGenerated;
+        source.HasMalformedGeneratedLiftedName;
 
     internal AuthenticatedSourceOwner
         CreateAuthenticatedSourceOwner(

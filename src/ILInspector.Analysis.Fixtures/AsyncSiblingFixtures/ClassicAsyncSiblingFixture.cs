@@ -16,6 +16,21 @@ public static class ClassicAsyncSiblingFixture
         return Task.FromResult(value);
     }
 
+    [CompilerGenerated]
+    public static class CompilerGeneratedAsyncOwnerContainer
+    {
+        public static int Read(int value) => value;
+
+        public static Task<int> ReadAsync(int value) =>
+            Task.FromResult(value);
+
+        public static async Task<int> AnalyzeAsync(int value)
+        {
+            await Task.Yield();
+            return Read(value);
+        }
+    }
+
     public static async Task<int> CallsSyncSiblingFromAsync(
         int value)
     {
@@ -28,7 +43,8 @@ public static class ClassicAsyncSiblingFixture
         int value)
     {
         await Task.Yield();
-        return ReadValue(value);
+        Func<int> capture = () => value;
+        return ReadValue(capture());
     }
 
     [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]

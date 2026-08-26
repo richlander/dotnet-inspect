@@ -280,9 +280,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 .IsLocalFunctionOrLambda(asyncSource.Name))
         {
             AuthenticatedSourceOwner sourceOwner =
-                _asyncSourceResolver
-                    .CreateAuthenticatedSourceOwner(
-                        asyncSource);
+                CreateAuthenticatedSourceOwner(asyncSource);
             if (!TryResolveUltimateLiftedOwner(
                     sourceOwner,
                     out AuthenticatedSourceOwner
@@ -291,6 +289,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             {
                 return [];
             }
+        }
+        else if (CreateAuthenticatedSourceOwner(
+                asyncSource).SuppressesOpportunities)
+        {
+            return [];
         }
         return CollectAsyncSiblingOpportunities(
             context,
@@ -378,9 +381,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
 
         return TryResolveUltimateLiftedOwner(
-            _asyncSourceResolver
-                .CreateAuthenticatedSourceOwner(
-                    asyncSource),
+            CreateAuthenticatedSourceOwner(
+                asyncSource),
             out sourceOwner)
             ? sourceOwner.Method
             : null;
@@ -436,9 +438,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 .IsLocalFunctionOrLambda(asyncSource.Name))
         {
             return TryResolveUltimateLiftedOwner(
-                _asyncSourceResolver
-                    .CreateAuthenticatedSourceOwner(
-                        asyncSource),
+                CreateAuthenticatedSourceOwner(
+                    asyncSource),
                 out AuthenticatedSourceOwner resolvedOwner)
                 ? SetResolvedOwner(
                     resolvedOwner,
@@ -448,9 +449,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
 
         ultimateOwner =
-            _asyncSourceResolver
-                .CreateAuthenticatedSourceOwner(
-                    asyncSource);
+            CreateAuthenticatedSourceOwner(
+                asyncSource);
         return DeclaredOwnerResolution.Resolved;
     }
 
@@ -540,6 +540,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _asyncSourceResolver
             .HasMalformedCompilerGeneratedLiftedName(source);
 
+    AuthenticatedSourceOwner CreateAuthenticatedSourceOwner(
+        MethodIdentity source)
+    {
+        AuthenticatedSourceOwner owner =
+            _asyncSourceResolver
+                .CreateAuthenticatedSourceOwner(source);
+        return owner with
+        {
+            IsAuthenticatedTopLevelEntryPoint =
+                _liftedSourceOwnerResolver
+                    .IsAuthenticatedTopLevelEntryPoint(source),
+        };
+    }
+
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method) =>
@@ -611,9 +625,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     {
         // A lifted source method can itself be async, so expand source owners
         // before asking the async resolver for the resulting state-machine body.
-        plan = _asyncSourceResolver.ExpandEvidenceScope(plan);
+        plan = _asyncSourceResolver.ExpandEvidenceScope(
+            plan,
+            IsAsyncScopeSourceAdmissible);
         plan = ExpandLiftedEvidenceScope(plan);
-        plan = _asyncSourceResolver.ExpandEvidenceScope(plan);
+        plan = _asyncSourceResolver.ExpandEvidenceScope(
+            plan,
+            IsAsyncScopeSourceAdmissible);
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
         bool includeOpportunities = plan.Includes(
@@ -723,9 +741,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 if (!declaredSources.ContainsKey(token))
                 {
                     AuthenticatedSourceOwner sourceOwner =
-                        _asyncSourceResolver
-                            .CreateAuthenticatedSourceOwner(
-                                source);
+                        CreateAuthenticatedSourceOwner(
+                            source);
                     if (TryResolveUltimateLiftedOwner(
                             sourceOwner,
                             out AuthenticatedSourceOwner
@@ -776,6 +793,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 DeclaredSources = declaredSources,
             },
         };
+    }
+
+    bool IsAsyncScopeSourceAdmissible(
+        MethodIdentity source)
+    {
+        AuthenticatedSourceOwner sourceOwner =
+            CreateAuthenticatedSourceOwner(source);
+        if (IsMalformedGeneratedLiftedOwner(sourceOwner))
+            return false;
+
+        return !_liftedSourceOwnerResolver
+            .HasMalformedPotentialOwnerChain(source);
     }
 
     LibraryBodyAnalysisPlan ExpandLiftedEvidenceScope(

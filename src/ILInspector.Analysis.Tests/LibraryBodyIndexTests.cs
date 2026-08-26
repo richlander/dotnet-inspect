@@ -5182,6 +5182,201 @@ public class LibraryBodyIndexTests
             intermediateScoped.DirectCalls,
             call => call.EvidenceMethod.Name == "MoveNext"
                 && call.Callee.Name == "Read");
+
+        MethodIdentity immediateSource = Assert.Single(
+            intermediateFull.Methods,
+            method => method.Name
+                == "<Noise>b__0_0>b__0_1");
+        LibraryBodyIndex intermediateTypeScoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedIntermediateTypeScope.dll",
+                [.. intermediateImage],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        immediateSource.DeclaringType));
+        Assert.DoesNotContain(
+            intermediateTypeScoped.DirectCalls,
+            call => call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "Read");
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex identities = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            identities.Methods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .CompilerGeneratedAsyncOwner));
+        MethodIdentity moveNext = Assert.Single(
+            identities.Methods,
+            method => method.Name == "MoveNext"
+                && identities.ResolveDeclaredMethod(method)
+                    == owner);
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    owner.MetadataToken,
+                }),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        owner.DeclaringType)),
+        })
+        {
+            Assert.Contains(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "capturing-delegate"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.MetadataToken
+                        == owner.MetadataToken);
+        }
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes()
+    {
+        string path =
+            typeof(
+                ClassicAsyncSiblingFixture
+                    .CompilerGeneratedAsyncOwnerContainer)
+                .Assembly.Location;
+        LibraryBodyIndex identities = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            identities.Methods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .CompilerGeneratedAsyncOwnerContainer
+                        .AnalyzeAsync)
+                && method.DeclaringType.Name.Contains(
+                    nameof(
+                        ClassicAsyncSiblingFixture
+                            .CompilerGeneratedAsyncOwnerContainer),
+                    StringComparison.Ordinal));
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    owner.MetadataToken,
+                }),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        owner.DeclaringType)),
+        })
+        {
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.MetadataToken
+                        == owner.MetadataToken);
+        }
+    }
+
+    [Fact]
+    public void
+        ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint()
+    {
+        string path =
+            FixtureCatalog.AnalysisTopLevelClassicAsync
+                .AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle moveNextHandle =
+            reader.MethodDefinitions.Single(handle =>
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(handle);
+                return reader.StringComparer.Equals(
+                        method.Name,
+                        "MoveNext")
+                    && reader.GetString(
+                        reader.GetTypeDefinition(
+                            method.GetDeclaringType()).Name)
+                        .Contains(
+                            "<Main>$",
+                            StringComparison.Ordinal);
+            });
+        MethodDefinition moveNext =
+            reader.GetMethodDefinition(moveNextHandle);
+        TypeDefinitionHandle typeHandle =
+            moveNext.GetDeclaringType();
+        TypeDefinition type =
+            reader.GetTypeDefinition(typeHandle);
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader);
+        ILibraryMethodAnalysisInfrastructure infrastructure =
+            builder;
+        GenericScope scope = infrastructure.CreateScope(
+            type,
+            moveNext);
+        MethodIdentity identity =
+            infrastructure.CreateMethodIdentity(
+                typeHandle,
+                moveNextHandle,
+                moveNext,
+                scope);
+
+        DeclaredOwnerResolution resolution =
+            infrastructure.ResolveUltimateDeclaredMethod(
+                moveNextHandle,
+                moveNext,
+                identity,
+                typeSourceGenerated: true,
+                out AuthenticatedSourceOwner? owner);
+
+        Assert.Equal(
+            DeclaredOwnerResolution.Resolved,
+            resolution);
+        Assert.True(
+            owner?.IsAuthenticatedTopLevelEntryPoint);
     }
 
     [Fact]

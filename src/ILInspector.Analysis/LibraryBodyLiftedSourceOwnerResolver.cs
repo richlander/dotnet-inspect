@@ -26,6 +26,13 @@ internal readonly record struct AuthenticatedSourceOwner(
         HasGeneratedCode
         || IsCompilerGenerated
             && !IsAuthenticatedTopLevelEntryPoint;
+
+    internal bool HasMalformedGeneratedLiftedName =>
+        CompilerGeneratedNames.HasLiftedMethodMarker(
+            Method.Name)
+        && !CompilerGeneratedNames.IsLocalFunctionOrLambda(
+            Method.Name)
+        && IsCompilerGenerated;
 }
 
 /// <summary>
@@ -167,6 +174,95 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ownerType),
             ownerIsTopLevelEntryPoint);
         return true;
+    }
+
+    internal bool IsAuthenticatedTopLevelEntryPoint(
+        MethodIdentity method)
+    {
+        if (method.Name != "<Main>$")
+            return false;
+
+        EntityHandle handle = MetadataTokens.EntityHandle(
+            method.MetadataToken);
+        return handle.Kind == HandleKind.MethodDefinition
+            && TryGetTopLevelExecutionMethod(
+                (MethodDefinitionHandle)handle,
+                out _);
+    }
+
+    internal bool HasMalformedPotentialOwnerChain(
+        MethodIdentity source)
+    {
+        EntityHandle sourceHandle = MetadataTokens.EntityHandle(
+            source.MetadataToken);
+        if (sourceHandle.Kind != HandleKind.MethodDefinition)
+            return false;
+
+        var pending = new Queue<MethodDefinitionHandle>();
+        var visited = new HashSet<MethodDefinitionHandle>();
+        pending.Enqueue((MethodDefinitionHandle)sourceHandle);
+        while (pending.TryDequeue(
+            out MethodDefinitionHandle currentHandle))
+        {
+            if (!visited.Add(currentHandle))
+                continue;
+            if (visited.Count
+                > MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                return true;
+            }
+
+            MethodDefinition current =
+                _reader.GetMethodDefinition(currentHandle);
+            if (!TryGetLiftedOwnerGroup(
+                    current,
+                    out LiftedOwnerGroupKey group)
+                || !MethodsByName(group.OwnerType).TryGetValue(
+                    group.OwnerName,
+                    out ImmutableArray<MethodDefinitionHandle>
+                        candidates))
+            {
+                continue;
+            }
+
+            foreach (MethodDefinitionHandle candidate
+                in candidates)
+            {
+                MethodDefinition definition =
+                    _reader.GetMethodDefinition(candidate);
+                CustomAttributeHandleCollection attributes =
+                    definition.GetCustomAttributes();
+                var owner = new AuthenticatedSourceOwner(
+                    _primaryMetadataResolver
+                        .CreateMethodIdentity(
+                            group.OwnerType,
+                            candidate,
+                            definition,
+                            _primaryMetadataResolver.CreateScope(
+                                _reader.GetTypeDefinition(
+                                    group.OwnerType),
+                                definition)),
+                    _primaryMetadataResolver
+                        .HasGeneratedCodeAttribute(attributes),
+                    _primaryMetadataResolver
+                        .HasCompilerGeneratedAttribute(
+                            attributes)
+                        || _primaryMetadataResolver
+                            .IsCompilerGeneratedTypeOrEnclosing(
+                                group.OwnerType),
+                    IsAuthenticatedTopLevelEntryPoint: false);
+                if (owner.HasMalformedGeneratedLiftedName)
+                    return true;
+                if (CompilerGeneratedNames
+                    .IsLocalFunctionOrLambda(
+                        owner.Method.Name))
+                {
+                    pending.Enqueue(candidate);
+                }
+            }
+        }
+
+        return false;
     }
 
     LiftedOwnerGroupEvidence LiftedOwnerGroup(

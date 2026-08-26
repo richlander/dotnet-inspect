@@ -521,8 +521,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodAttributes)
                     || hasSourceOwner
                         && sourceOwner
-                            .SuppressesOpportunities
-                    || ultimateOwnerEvidence
+                            .SuppressesOpportunities;
+                bool ultimateSourceSuppressesOpportunities =
+                    ultimateOwnerEvidence
                         ?.SuppressesOpportunities == true;
                 bool compilerGenerated =
                     _infrastructure.HasCompilerGeneratedAttribute(
@@ -551,6 +552,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     && !typeSourceGenerated
                     && compilerGenerated
                     && hasSourceOwner
+                    && !ultimateSourceSuppressesOpportunities
                     && !IsBlazorRenderMethod(caller)
                     && !IsBlazorRenderMethod(
                         sourceOwner.Method)
