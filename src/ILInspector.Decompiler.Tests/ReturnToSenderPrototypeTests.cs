@@ -1061,6 +1061,74 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ValueTypeImplicitInterfaceMethodsAndAccessorsDeclineWhenOmitted()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System;
+
+            public interface IProbe
+            {
+                int Read();
+                int Value { get; }
+                event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            using System;
+
+            public struct Probe : IProbe
+            {
+                public int Read() => 42;
+                public int Value => 42;
+                public event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Probe", "Read", 0),
+                    new ReturnToSender.RequestedTarget("Probe", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Probe", "add_Changed", 0),
+                ],
+                applyCompileBackFloor: false);
+
+            Assert.Collection(
+                results,
+                method =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, method.Status);
+                    Assert.Contains("implicit-interface-not-reconstructed", method.Detail, StringComparison.Ordinal);
+                },
+                property =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, property.Status);
+                    Assert.Contains("implicit-interface-not-reconstructed", property.Detail, StringComparison.Ordinal);
+                },
+                @event =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, @event.Status);
+                    Assert.Contains("implicit-interface-not-reconstructed", @event.Detail, StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_SameAssemblyImplicitInterfaceWithoutReconstructedMemberDeclines()
     {
         var assemblyPath = CompileFixture("""
@@ -1095,6 +1163,102 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullRoundTripsSameAssemblyImplicitInterfaceEdge()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ILocal
+            {
+                int Read();
+            }
+
+            public sealed class Probe : ILocal
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "public sealed class Probe : ILocal",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var probe = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name) == "Probe");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(probe).GetInterfaceImplementations(),
+                handle => donorReader.GetInterfaceImplementation(handle).Interface.Kind
+                    == HandleKind.TypeDefinition);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsInheritedSameAssemblyInterfacePath()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IBase
+            {
+                int Read();
+            }
+
+            public interface IDerived : IBase
+            {
+            }
+
+            public sealed class Probe : IDerived
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public sealed class Probe : IDerived", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public interface IDerived : IBase", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var derived = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name) == "IDerived");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(derived).GetInterfaceImplementations(),
+                handle => donorReader.GetInterfaceImplementation(handle).Interface.Kind
+                    == HandleKind.TypeDefinition);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullRoundTripsReconstructedGenericImplicitInterfaceMethod()
     {
         var assemblyPath = CompileFixture("""
@@ -1117,9 +1281,93 @@ public class ReturnToSenderPrototypeTests
                 RoundTripBodyPolicy.Full));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "public sealed class Probe : IProbe<int>",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.NotNull(result.DonorPe);
+            using (var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!)))
+            {
+                var donorReader = donorPe.GetMetadataReader();
+                var probe = Assert.Single(
+                    donorReader.TypeDefinitions,
+                    handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name) == "Probe");
+                Assert.Contains(
+                    donorReader.GetTypeDefinition(probe).GetInterfaceImplementations(),
+                    handle => donorReader.GetInterfaceImplementation(handle).Interface.Kind
+                        == HandleKind.TypeSpecification);
+            }
             Assert.DoesNotContain(
                 result.Plan.Diagnostics,
                 diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsImplicitStaticAbstractInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IParseable
+            {
+                static abstract int Parse(string text);
+            }
+
+            public sealed class ImplicitStaticFixture : IParseable
+            {
+                public static int Parse(string text) => text.Length;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ImplicitStaticFixture",
+                    "Parse",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "public sealed class ImplicitStaticFixture : IParseable",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "public static int Parse(string text)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Plan.Diagnostics.All(diagnostic => diagnostic.Reason != "implicit-interface-not-reconstructed"),
+                $"{result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var targetType = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name)
+                    == "ImplicitStaticFixture");
+            var targetMethod = Assert.Single(
+                donorReader.GetTypeDefinition(targetType).GetMethods(),
+                handle => donorReader.GetString(donorReader.GetMethodDefinition(handle).Name)
+                    == "Parse");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(targetType).GetMethodImplementations(),
+                handle =>
+                {
+                    var implementation = donorReader.GetMethodImplementation(handle);
+                    return implementation.MethodBody == targetMethod
+                        && implementation.MethodDeclaration.Kind == HandleKind.MethodDefinition
+                        && donorReader.GetString(
+                            donorReader.GetTypeDefinition(
+                                donorReader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)implementation.MethodDeclaration)
+                                    .GetDeclaringType()).Name) == "IParseable";
+                });
         }
         finally
         {
@@ -6098,6 +6346,30 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains("static int IParseable.Parse(string text)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("IParseable_Parse", result.Source, StringComparison.Ordinal);
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var targetType = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name)
+                    == "ExplicitStaticFixture");
+            var targetMethod = Assert.Single(
+                donorReader.GetTypeDefinition(targetType).GetMethods(),
+                handle => donorReader.GetString(donorReader.GetMethodDefinition(handle).Name)
+                    == "IParseable.Parse");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(targetType).GetMethodImplementations(),
+                handle =>
+                {
+                    var implementation = donorReader.GetMethodImplementation(handle);
+                    return implementation.MethodBody == targetMethod
+                        && implementation.MethodDeclaration.Kind == HandleKind.MethodDefinition
+                        && donorReader.GetString(
+                            donorReader.GetTypeDefinition(
+                                donorReader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)implementation.MethodDeclaration)
+                                    .GetDeclaringType()).Name) == "IParseable";
+                });
         }
         finally
         {
@@ -12453,8 +12725,14 @@ public class ReturnToSenderPrototypeTests
                 },
                 typedEquals =>
                 {
-                    Assert.True(
-                        typedEquals.Status == FidelityCheck.CompileBackStatus.OperandDiff,
+                    Assert.Equal(
+                        FidelityCheck.CompileBackStatus.ContextFail,
+                        typedEquals.Status);
+                    Assert.Contains(
+                        typedEquals.Plan.Diagnostics,
+                        diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+                    Assert.False(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
                         $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
                     Assert.Contains("public bool Equals(Row other)", typedEquals.Source);
                     Assert.Contains("public string Name;", typedEquals.Source);
