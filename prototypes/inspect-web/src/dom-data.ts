@@ -13,7 +13,6 @@ export const numericDomAttributes = {
   mdeRow: ["parseExplorerCoordinates"],
   navOverload: ["parseNonNegativeInteger"],
   overload: ["parseNonNegativeInteger"],
-  perfToken: ["parseMetadataToken"],
   slIndex: ["parseNonNegativeInteger"],
 } as const;
 
@@ -23,22 +22,6 @@ export function parseNonNegativeInteger(
   if (!value || !/^(?:0|[1-9]\d*)$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-export function parseMetadataToken(
-  value: string | undefined,
-): number | null {
-  // Decimal only. The single producer of a metadata token payload interpolates
-  // `member.metadataToken`, a number, so it always renders decimal; the hexadecimal branch
-  // this parser used to carry had no producer and only the tests exercised it. It also
-  // could not share the decimal branch's canonicality rule, since `"0x06000001"` is the
-  // conventional zero-padded spelling of a token while `"0100663297"` is malformed. An
-  // unreachable notation with its own rule is surface, not tolerance.
-  if (!value || !/^(?:0|[1-9]\d*)$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed <= 0xffff_ffff
-    ? parsed
-    : null;
 }
 
 // The parser's rejection value is `null`, and `null` is also how the caller spells "no group

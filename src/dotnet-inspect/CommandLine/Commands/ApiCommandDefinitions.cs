@@ -129,7 +129,7 @@ public static class ApiCommandDefinitions
                         markdown: typeFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: ProjectionAudit.Requested(parseResult));
+                        projection: ProjectionAudit.Requested(parseResult, opts));
 
                 case TypeOptionsParser.ShowHelp:
                     CommandError.Write("Type name, pattern, or source required.");
@@ -289,7 +289,7 @@ public static class ApiCommandDefinitions
                         markdown: memberFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: memberPipeline.GetCategoryMap(),
-                        projection: ProjectionAudit.Requested(parseResult));
+                        projection: ProjectionAudit.Requested(parseResult, opts));
 
                 case MemberOptionsParser.ShowHelp:
                     CommandError.Write("Type name or source required.");

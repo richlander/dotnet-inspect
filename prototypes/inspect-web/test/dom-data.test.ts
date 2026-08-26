@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   isSelectedGroupChip,
   parseExplorerCoordinates,
-  parseMetadataToken,
   parseNonNegativeInteger,
 } from "../src/dom-data.ts";
 
@@ -34,32 +33,6 @@ test("DOM integer parsing rejects missing and malformed values", () => {
     "9007199254740992",
   ]) {
     assert.equal(parseNonNegativeInteger(value), null, String(value));
-  }
-});
-
-test("metadata-token parsing accepts canonical decimal tokens within UInt32", () => {
-  assert.equal(parseMetadataToken("100663297"), 0x06000001);
-  // Hexadecimal has no producer and is rejected: the only emitter interpolates a number.
-  assert.equal(parseMetadataToken("0x06000001"), null);
-  assert.equal(parseMetadataToken("0x1"), null);
-  assert.equal(parseMetadataToken("0XFFFFFFFF"), null);
-  assert.equal(parseMetadataToken("4294967295"), 0xffff_ffff);
-});
-
-test("metadata-token parsing rejects malformed and out-of-range values", () => {
-  for (const value of [
-    undefined,
-    "",
-    "-1",
-    "00",
-    "0100663297",
-    "1.5",
-    "0x",
-    "0x100000000",
-    "4294967296",
-    "9007199254740992",
-  ]) {
-    assert.equal(parseMetadataToken(value), null, String(value));
   }
 });
 

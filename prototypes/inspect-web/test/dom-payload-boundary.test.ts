@@ -769,7 +769,6 @@ function approvedDecoders(files: readonly SourceFile[]): Set<string> {
     [
       "isSelectedGroupChip",
       "parseExplorerCoordinates",
-      "parseMetadataToken",
       "parseNonNegativeInteger",
     ],
     "src/dom-data.ts exports are the canonical DOM decoder roster");

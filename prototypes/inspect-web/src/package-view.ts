@@ -1,6 +1,5 @@
 import {
   isSelectedGroupChip,
-  parseMetadataToken,
   parseNonNegativeInteger,
 } from "./dom-data.ts";
 
@@ -13,7 +12,7 @@ export interface PackageDependencyBindingActions {
 }
 
 export interface PackagePerformanceTarget {
-  metadataToken: number;
+  stableSelector: string;
   assembly: string;
   typeId: string;
 }
@@ -87,16 +86,10 @@ export function bindPackageView(
     button.addEventListener(
       "click",
       () => actions.onGraphTypeSelect(button.dataset.graphType ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button =>
-    button.addEventListener("click", () => {
-      const metadataToken = parseMetadataToken(button.dataset.perfToken);
-      const assembly = button.dataset.perfAssembly;
-      const typeId = button.dataset.perfType;
-      if (metadataToken === null || !assembly || !typeId) return;
-      actions.onPerformanceMemberSelect({
-        metadataToken,
-        assembly,
-        typeId,
-      });
-    }));
+  root.querySelectorAll<HTMLElement>("[data-perf-selector]").forEach(button =>
+    button.addEventListener("click", () => actions.onPerformanceMemberSelect({
+      stableSelector: button.dataset.perfSelector ?? "",
+      assembly: button.dataset.perfAssembly ?? "",
+      typeId: button.dataset.perfType ?? "",
+    })));
 }

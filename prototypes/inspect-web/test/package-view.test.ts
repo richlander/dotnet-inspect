@@ -70,7 +70,7 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onNamespaceJump: value => calls.push(`namespace:${value}`),
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
-        `performance:${target.metadataToken}:${target.assembly}:${target.typeId}`),
+        `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
   };
 }
 
@@ -124,33 +124,12 @@ test("package view bindings decode navigation controls without eager work", () =
   const defaultLibrary = new FakeElement();
   const graphType = new FakeElement({ graphType: "System.String" });
   const defaultGraphType = new FakeElement();
-  // The producer interpolates `member.metadataToken`, a number, so a rendered payload is
-  // always decimal. The hexadecimal spelling these fixtures used to carry had no producer.
   const performance = new FakeElement({
-    perfToken: "100663297",
+    perfSelector: "M:Example.Type.Run",
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
   });
-  const invalidPerformanceToken = new FakeElement({
-    perfToken: "0100663297",
-    perfAssembly: "Example.dll",
-    perfType: "Example.Type",
-  });
-  const hexPerformanceToken = new FakeElement({
-    perfToken: "0x06000001",
-    perfAssembly: "Example.dll",
-    perfType: "Example.Type",
-  });
-  const invalidPerformanceAssembly = new FakeElement({
-    perfToken: "100663298",
-    perfAssembly: "",
-    perfType: "Example.Type",
-  });
-  const invalidPerformanceType = new FakeElement({
-    perfToken: "100663299",
-    perfAssembly: "Example.dll",
-    perfType: "",
-  });
+  const defaultPerformance = new FakeElement();
   root.addAll("[data-dep-group]", group, ...invalidGroups);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
   root.addAll("[data-dep-load]", load, defaultVersion, emptyLoad);
@@ -158,13 +137,7 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-namespace-jump]", namespace, defaultNamespace);
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
-  root.addAll(
-    "[data-perf-token]",
-    performance,
-    hexPerformanceToken,
-    invalidPerformanceToken,
-    invalidPerformanceAssembly,
-    invalidPerformanceType);
+  root.addAll("[data-perf-selector]", performance, defaultPerformance);
   const calls: string[] = [];
 
   bindPackageView(
@@ -189,9 +162,7 @@ test("package view bindings decode navigation controls without eager work", () =
   graphType.dispatch("click");
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
-  invalidPerformanceToken.dispatch("click");
-  invalidPerformanceAssembly.dispatch("click");
-  invalidPerformanceType.dispatch("click");
+  defaultPerformance.dispatch("click");
 
   assert.deepEqual(calls, [
     "dependency-group:2",
@@ -207,7 +178,8 @@ test("package view bindings decode navigation controls without eager work", () =
     "library:undefined:",
     "graph-type:System.String",
     "graph-type:",
-    "performance:100663297:Example.dll:Example.Type",
+    "performance:M:Example.Type.Run:Example.dll:Example.Type",
+    "performance:::",
   ]);
 });
 
