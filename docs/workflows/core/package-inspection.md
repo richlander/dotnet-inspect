@@ -85,7 +85,7 @@ What does Microsoft.Extensions.AI depend on?
 ```
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI@9.9.1 --dependencies
+dotnet-inspect package Microsoft.Extensions.AI@9.9.1 -S Dependencies --tree
 ```
 
 ```expect
@@ -98,7 +98,7 @@ Microsoft.Extensions.Logging.Abstractions
 ### 2b. Package with no dependencies
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --dependencies
+dotnet-inspect package System.CommandLine@2.0.3 -S Dependencies --tree
 ```
 
 ```expect

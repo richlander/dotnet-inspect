@@ -72,7 +72,7 @@ public class IrImporterHandleAddressingTests
 
         // Each Marker() overload returns a distinct literal, so the rendered body
         // identifies which method was resolved. Import each by its own handle; the
-        // three bodies must all be present and distinct — proving handle-direct
+        // four bodies must all be present and distinct — proving handle-direct
         // addressing reaches the private overload interleaved between the public
         // ones, which a publicOnly index would skip or misplace.
         var bodies = new List<string>();
@@ -87,8 +87,8 @@ public class IrImporterHandleAddressingTests
             bodies.Add(body!);
         }
 
-        Assert.Equal(3, bodies.Count);
-        Assert.Equal(3, new HashSet<string>(bodies).Count);
+        Assert.Equal(4, bodies.Count);
+        Assert.Equal(4, new HashSet<string>(bodies).Count);
     }
 
     [Fact]
@@ -206,5 +206,27 @@ public class InterleavedVisibilityOverloads
 {
     public int Marker() => 10;
     private int Marker(int a) => 20 + a;
+    internal int Marker(long a) => 25 + (int)a;
     public int Marker(int a, int b) => 30 + a + b;
+}
+
+public class Dragon4PreviewSixOverloads
+{
+    public static uint Dragon4(ulong value) => (uint)value;
+
+    private static uint Dragon4(
+        ulong mantissa,
+        int exponent,
+        uint mantissaHighBit,
+        bool hasUnequalMargins,
+        int cutoffNumber,
+        bool isSignificantDigits,
+        Span<byte> buffer,
+        ref int decimalExponent)
+    {
+        decimalExponent = exponent;
+        return (uint)(mantissa + mantissaHighBit + (hasUnequalMargins ? 1u : 0u)
+            + (uint)cutoffNumber + (isSignificantDigits ? 1u : 0u)
+            + (uint)buffer.Length);
+    }
 }

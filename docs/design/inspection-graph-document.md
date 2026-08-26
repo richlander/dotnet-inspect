@@ -388,6 +388,20 @@ gates the effective/physical target distinction; and
 `InspectionGraphPackageBoundaryTests.PackageGroupsLens_DoesNotCollapseMatchingAssemblyMetadata`
 gates the close acquisition-identity case.
 
+This describes the current implementation. Under the target
+[artifact acquisition design](artifact-acquisition-and-workspaces.md), the
+package adapter validates the coordinate, physical asset, producer, and content
+before minting its realization and correspondence proof. Package graph
+projection moves to an optional package-query companion and consumes that
+proof; core assembly Queries no longer parse package versions or pattern match
+Metadata-owned package provenance. The serialized `package` subject kind
+remains part of the full host's graph contract, while a package-free host does
+not reference the package projection implementation.
+
+The platform adapter performs the equivalent validation and mints the platform
+correspondence proof. Platform graph projection consumes that proof without
+depending on the package companion or Metadata-owned platform provenance.
+
 ## Relationships and occurrences
 
 ### Relationship descriptors
@@ -529,8 +543,9 @@ Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
 assigning deterministic document-local occurrence ids. For `call`, the key is
 the physical body and call-site storage identity: artifact or acquisition
-identity as appropriate to the document lifetime, caller token, IL offset, and
-operand token. Observing that call site from caller and callee walks cannot
+identity as appropriate to the document lifetime, evidence-method token, IL
+offset, and operand token. `DirectCall.Caller` separately retains declared
+source attribution. Observing that call site from caller and callee walks cannot
 create two occurrences. Two distinct IL offsets remain two occurrences even
 when every other field and the logical edge are equal.
 
@@ -554,8 +569,10 @@ caller acquisition when catalog evidence is complete, so two acquired artifacts
 with identical MVIDs and call coordinates remain distinct occurrences while
 both producer deduplication and document validation use the same currency.
 `AnnotatedCallGraphOccurrence` remains the source-overlay seam for focus-member
-facts; it maps those same physical coordinates to stable edge rows and source
-facts.
+facts; it maps physical coordinates from the selected member's own evidence
+body to stable edge rows and source facts. Receipts from async or lifted
+evidence bodies remain graph occurrences, but do not borrow the declared
+kickoff body's source anchors.
 
 ## Characteristics
 

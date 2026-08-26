@@ -77,9 +77,10 @@ public sealed record MemberCallGraphView(
     public int FocusMethodToken { get; init; }
 
     /// <summary>
-    /// Every physical call site originating in the selected member, retained
-    /// from the same index that produced the graph roots. The annotated-member
-    /// integration test gates this reuse boundary.
+    /// Every physical call site in the selected member's own IL body, retained
+    /// from the same index that produced the graph roots. Calls attributed from
+    /// generated evidence bodies remain graph receipts, but cannot be anchored
+    /// to the selected body's source document.
     /// </summary>
     public ImmutableArray<Analysis.DirectCall> FocusCallSites { get; init; } =
         [];
@@ -407,7 +408,8 @@ public sealed class MemberCallGraphSession : IDisposable
             [
                 .. index.DirectCalls
                     .Where(call =>
-                        call.Caller.MetadataToken == _memberToken)
+                        call.EvidenceMethod.MetadataToken
+                            == _memberToken)
                     .OrderBy(call => call.ILOffset)
                     .ThenBy(call => call.OperandToken),
             ],

@@ -17,13 +17,13 @@ static class TestAssemblyReferenceResolvers
     public static IAssemblyReferenceResolver TrustedPlatformAssemblies()
         => new DelegateResolver((identity, scope) =>
             scope == AssemblyResolutionScope.Platform && s_runtimeAssemblies.Value.TryGetValue(identity.Name, out var path)
-                ? FromPath(identity, path, "TrustedPlatformAssemblies")
+                ? FromPlatform(path, "TrustedPlatformAssemblies")
                 : null);
 
     public static IAssemblyReferenceResolver RuntimeAssemblies()
         => new DelegateResolver((identity, _) =>
             s_runtimeAssemblies.Value.TryGetValue(identity.Name, out var path)
-                ? FromPath(identity, path, "TrustedPlatformAssemblies")
+                ? FromPlatform(path, "TrustedPlatformAssemblies")
                 : null);
 
     public static IAssemblyReferenceResolver SingleAssembly(string assemblyPath)
@@ -34,6 +34,21 @@ static class TestAssemblyReferenceResolvers
                 ? FromPath(identity, assemblyPath, "TestAssembly")
                 : null);
     }
+
+    /// <summary>
+    /// These resolvers hand back files taken from the host's
+    /// TRUSTED_PLATFORM_ASSEMBLIES list, so the acquisition being modelled is a
+    /// platform one. Reporting it as <see cref="AssemblyResolutionProvenance.Local"/>
+    /// understated it, which matters now that core-library identity is granted
+    /// on acquisition rather than on what an assembly claims about itself.
+    /// </summary>
+    static ResolvedAssemblyReference FromPlatform(string path, string resolverSource)
+        => ResolvedAssemblyReference.CreateFromPath(
+            path,
+            AssemblyResolutionProvenance.Platform(
+                "Platform",
+                frameworkVersion: null,
+                resolverSource));
 
     static ResolvedAssemblyReference FromPath(AssemblyReferenceIdentity identity, string path, string provenance)
         => ResolvedAssemblyReference.CreateFromPath(

@@ -89,6 +89,25 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 
 ## What does it integrate with? (ecosystem)
 
+`graph integrations` compares an explicit package set inside one
+binding-consistent target. Repeat `--package name[@version]`, provide the shared
+`--tfm`, and add `--relationship <id>` only when the default Integration family
+should be narrowed. This is an induced set, not a traversal: it has no direction
+or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
+`--jsonl`, `--count`, and `--rows` project the same logical relationships.
+Binding failures usually mean a package that owns the missing endpoint was not
+included; they remain visible and produce a nonzero exit.
+
+```bash
+dnx dotnet-inspect -y -- graph integrations \
+  --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
+  --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+  --package Microsoft.Extensions.Logging@10.0.0 \
+  --package Microsoft.Extensions.Http@10.0.0 \
+  --tfm net10.0 \
+  --relationship integration.observed
+```
+
 `-S @Integrations` on `library` or `package --library` rolls up the ecosystem
 frameworks a library plugs into — DI, hosting, ASP.NET Core, AI, OpenTelemetry,
 configuration, logging, and more — plus `Integration Opportunities` and

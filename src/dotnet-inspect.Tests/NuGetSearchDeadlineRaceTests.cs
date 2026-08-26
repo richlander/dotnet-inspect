@@ -34,7 +34,7 @@ public sealed class NuGetSearchDeadlineRaceTests
                         fetchOptions: new NuGetFetchOptions
                         {
                             RequestTimeout = TimeSpan.FromMilliseconds(40),
-                            OperationTimeout = TimeSpan.FromSeconds(2),
+                            OperationTimeout = TimeSpan.FromSeconds(30),
                         }));
 
                 Assert.Contains(

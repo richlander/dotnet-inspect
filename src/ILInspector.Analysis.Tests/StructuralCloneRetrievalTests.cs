@@ -4,12 +4,52 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis.StructuralCloneFixtures;
 
 namespace ILInspector.Analysis.Tests;
 
 public class StructuralCloneRetrievalTests
 {
+    [Fact]
+    public void RetrieveSimilar_NullImageNamesPublicParameter()
+    {
+        ArgumentNullException exception =
+            Assert.Throws<ArgumentNullException>(() =>
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    null!,
+                    default,
+                    []));
+
+        Assert.Equal("image", exception.ParamName);
+    }
+
+    [Fact]
+    public void RetrieveSimilar_MetadataFreeImagesNameCrossImageParameters()
+    {
+        using var metadataFree = new PEReader(
+            new MemoryStream(BuildMetadataFreeImage()));
+        using PEReader managed = OpenFixture();
+
+        ArgumentException seedException =
+            Assert.Throws<ArgumentException>(() =>
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    metadataFree,
+                    default,
+                    managed,
+                    []));
+        Assert.Equal("seedImage", seedException.ParamName);
+
+        ArgumentException candidateException =
+            Assert.Throws<ArgumentException>(() =>
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    managed,
+                    Method(nameof(StructuralCloneFixture.ExactPositiveA)),
+                    metadataFree,
+                    []));
+        Assert.Equal("candidateImage", candidateException.ParamName);
+    }
+
     [Fact]
     public void RetrieveSimilar_RanksExactAndNearPeersAboveHardNegative()
     {
@@ -214,6 +254,215 @@ public class StructuralCloneRetrievalTests
     }
 
     [Fact]
+    public void RetrieveSimilar_CrossAssemblyScopesCandidateIdentity()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "Stable");
+        MethodDefinitionHandle expected = DiffMethod(
+            candidateReader,
+            "Stable");
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                DiffPopulation(candidateReader));
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Completed,
+            result.Disposition);
+        Assert.NotEqual(
+            result.Seed.Method.ModuleVersionId,
+            candidateReader.GetGuid(
+                candidateReader.GetModuleDefinition().Mvid));
+        StructuralCloneRetrievalCandidate candidate =
+            Assert.Single(
+                result.Candidates,
+                item => item.Method.Handle == expected);
+        Assert.Equal(
+            candidateReader.GetGuid(
+                candidateReader.GetModuleDefinition().Mvid),
+            candidate.Method.ModuleVersionId);
+        Assert.Equal(10_000, candidate.Similarity.Score);
+    }
+
+    [Fact]
+    public void RetrieveSimilar_CrossAssemblyInputOrderIsDeterministic()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "MultipleHunks");
+        ImmutableArray<MethodDefinitionHandle> population =
+            DiffPopulation(candidateReader);
+
+        StructuralCloneRetrievalResult forward =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                population);
+        StructuralCloneRetrievalResult reverse =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                [.. population.Reverse()]);
+
+        Assert.Equal(
+            forward.Candidates.Select(CandidateKey),
+            reverse.Candidates.Select(CandidateKey));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_CrossAssemblyCandidateFailurePreservesSeed()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using var candidateImage = new PEReader(
+            new MemoryStream([1, 2, 3, 4]));
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "Stable");
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                [MetadataTokens.MethodDefinitionHandle(1)]);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Failed,
+            result.Disposition);
+        Assert.Equal(
+            StructuralCloneDisposition.Completed,
+            result.Seed.Disposition);
+        Assert.Equal(
+            seedReader.GetGuid(
+                seedReader.GetModuleDefinition().Mvid),
+            result.Seed.Method.ModuleVersionId);
+        Assert.Equal(1, result.Receipt.BodyProductions);
+        Assert.Contains(
+            result.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneRetrievalBlockerKind
+                        .MetadataReadFailure
+                && blocker.Detail.StartsWith(
+                    "The candidate ",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_InvalidCrossAssemblyPopulationPrecedesUnsupportedSeed()
+    {
+        using PEReader seedImage = OpenFixture();
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle invalidCandidate =
+            MetadataTokens.MethodDefinitionHandle(
+                candidateReader.GetTableRowCount(TableIndex.MethodDef) + 1);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                Method(nameof(StructuralCloneFixture.ExceptionHandlingA)),
+                candidateImage,
+                [invalidCandidate]));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_InvalidPopulationPrecedesMalformedCandidateMvid()
+    {
+        using PEReader seedImage = OpenFixture();
+        using var candidateImage = new PEReader(
+            new MemoryStream(
+                BuildZeroScoreAssembly(malformedModuleIdentity: true)));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                Method(nameof(StructuralCloneFixture.ExceptionHandlingA)),
+                candidateImage,
+                [MetadataTokens.MethodDefinitionHandle(3)]));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_InvalidPopulationPrecedesMalformedSeedMvid()
+    {
+        using var seedImage = new PEReader(
+            new MemoryStream(
+                BuildZeroScoreAssembly(malformedModuleIdentity: true)));
+        MethodDefinitionHandle invalid =
+            MetadataTokens.MethodDefinitionHandle(3);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                [invalid]));
+
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                candidateImage,
+                [MetadataTokens.MethodDefinitionHandle(
+                    candidateImage.GetMetadataReader()
+                        .GetTableRowCount(TableIndex.MethodDef)
+                        + 1)]));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_ByteDistinctSameMvidImagesRetainCandidate()
+    {
+        byte[] seedBytes =
+            BuildZeroScoreAssembly(assemblyName: "MvidCollisionLeft");
+        byte[] candidateBytes =
+            BuildZeroScoreAssembly(assemblyName: "MvidCollisionRight");
+        Assert.False(seedBytes.SequenceEqual(candidateBytes));
+        using var seedImage = new PEReader(new MemoryStream(seedBytes));
+        using var candidateImage =
+            new PEReader(new MemoryStream(candidateBytes));
+        MethodDefinitionHandle seed =
+            MetadataTokens.MethodDefinitionHandle(1);
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                [seed]);
+
+        StructuralCloneRetrievalCandidate candidate =
+            Assert.Single(result.Candidates);
+        Assert.Equal(seed, candidate.Method.Handle);
+        Assert.Equal(10_000, candidate.Similarity.Score);
+        Assert.Equal(1, result.Receipt.ProcessedMethods);
+    }
+
+    [Fact]
     public void RetrieveSimilar_RejectsDuplicatePopulationHandles()
     {
         using PEReader image = OpenFixture();
@@ -307,6 +556,31 @@ public class StructuralCloneRetrievalTests
         => new(File.OpenRead(
             typeof(StructuralCloneFixture).Assembly.Location));
 
+    static PEReader OpenDiffFixture(FixtureDefinition fixture)
+        => new(File.OpenRead(fixture.AssemblyPath()));
+
+    static ImmutableArray<MethodDefinitionHandle> DiffPopulation(
+        MetadataReader reader)
+    {
+        TypeDefinition type = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+            {
+                TypeDefinition candidate =
+                    reader.GetTypeDefinition(handle);
+                return reader.GetString(candidate.Namespace)
+                        == "DiffFixtureSample"
+                    && reader.GetString(candidate.Name) == "DiffSample";
+            }));
+        return [.. type.GetMethods()];
+    }
+
+    static MethodDefinitionHandle DiffMethod(
+        MetadataReader reader,
+        string name)
+        => DiffPopulation(reader).Single(handle =>
+            reader.GetString(
+                reader.GetMethodDefinition(handle).Name) == name);
+
     static ImmutableArray<MethodDefinitionHandle> Population()
         =>
         [
@@ -348,12 +622,13 @@ public class StructuralCloneRetrievalTests
             + $"{candidate.Similarity.Score}";
 
     static byte[] BuildZeroScoreAssembly(
-        bool malformedModuleIdentity = false)
+        bool malformedModuleIdentity = false,
+        string assemblyName = "ZeroScore")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
-            metadata.GetOrAddString("ZeroScore.dll"),
+            metadata.GetOrAddString($"{assemblyName}.dll"),
             malformedModuleIdentity
                 ? MetadataTokens.GuidHandle(999)
                 : metadata.GetOrAddGuid(
@@ -362,7 +637,7 @@ public class StructuralCloneRetrievalTests
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("ZeroScore"),
+            metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             culture: default,
             publicKey: default,
@@ -410,6 +685,19 @@ public class StructuralCloneRetrievalTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildMetadataFreeImage()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(StructuralCloneFixture).Assembly.Location);
+        using var image = new PEReader(new MemoryStream(bytes));
+        PEHeader header = image.PEHeaders.PEHeader!;
+        int directoryBase =
+            image.PEHeaders.PEHeaderStartOffset
+            + (header.Magic == PEMagic.PE32Plus ? 112 : 96);
+        Array.Clear(bytes, directoryBase + (14 * 8), 8);
+        return bytes;
     }
 
     static void AddSyntheticMethod(

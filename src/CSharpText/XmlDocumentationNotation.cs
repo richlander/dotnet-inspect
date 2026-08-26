@@ -152,12 +152,24 @@ public static class XmlDocumentationNotation
         {
             var genericStart = IndexOfAny(type, '<', '{');
             if (genericStart >= 0
-                && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
+                && TryGetGenericParts(
+                    type,
+                    genericStart,
+                    out var genericType,
+                    out var genericArgs,
+                    out var remainder))
             {
                 var normalizedType = PrimitiveTypeNames.ToClrFullName(genericType);
                 var normalizedArgs = SplitParameters(genericArgs)
                     .Select(argument => NormalizeParameterType(argument, typeParameterMap, methodParameterMap));
                 normalized = $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
+                if (remainder.StartsWith('.') || remainder.StartsWith('+'))
+                {
+                    normalized += "." + NormalizeParameterType(
+                        remainder[1..],
+                        typeParameterMap,
+                        methodParameterMap);
+                }
             }
             else
             {
@@ -287,7 +299,7 @@ public static class XmlDocumentationNotation
         if (genericStart < 0)
             return new Dictionary<string, int>(StringComparer.Ordinal);
 
-        if (!TryGetGenericParts(memberSegment, genericStart, out _, out var parameters))
+        if (!TryGetGenericParts(memberSegment, genericStart, out _, out var parameters, out _))
             return new Dictionary<string, int>(StringComparer.Ordinal);
 
         return SplitParameters(parameters)
@@ -334,10 +346,12 @@ public static class XmlDocumentationNotation
         string type,
         int genericStart,
         out string genericType,
-        out string genericArguments)
+        out string genericArguments,
+        out string remainder)
     {
         genericType = type[..genericStart];
         genericArguments = "";
+        remainder = "";
 
         var open = type[genericStart];
         var close = open == '<' ? '>' : '}';
@@ -353,6 +367,7 @@ public static class XmlDocumentationNotation
                 if (depth == 0)
                 {
                     genericArguments = type[(genericStart + 1)..i];
+                    remainder = type[(i + 1)..];
                     return true;
                 }
             }

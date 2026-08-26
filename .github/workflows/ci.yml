@@ -139,17 +139,56 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
+      - name: Install .NET 10 runtime (inspect-web test target)
+        # The inspect-web test projects target stable net10.0 while this job
+        # uses the pinned net11.0 preview SDK. WorkflowContract.ValidateInspectWebSdk
+        # requires exactly one setup-dotnet step in this job, so install the
+        # extra runtime with dotnetup instead of a second setup-dotnet@v5 step.
+        # dotnetup is itself in preview; fall back to dotnet-install.sh on any
+        # failure, mirroring dotnet/sdk's own acquisition fallback.
+        run: |
+          set -e
+          if curl -fsSL --retry 3 https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh -o /tmp/get-dotnetup.sh \
+            && bash /tmp/get-dotnetup.sh --install-dir /tmp/dotnetup \
+            && /tmp/dotnetup/dotnetup runtime install aspnetcore@10.0 --install-path "$DOTNET_ROOT" --untracked --no-progress; then
+            echo "Installed aspnetcore@10.0 via dotnetup."
+          else
+            echo "dotnetup acquisition/install failed; falling back to dotnet-install.sh." >&2
+            curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+            chmod +x /tmp/dotnet-install.sh
+            /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir "$DOTNET_ROOT"
+          fi
+
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
       - name: Build platform-index generator
         run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs
+
+      - name: Build browser frontend
+        working-directory: prototypes/inspect-web
+        run: |
+          npm ci
+          npm run analyze
+          npm run build
+          grep -q '<script type="importmap"></script>' dist/index.html
+          grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
+
+      - name: Check generated inspect-web-engine surface for drift
+        run: eng/generate-inspect-web-engine-dts.sh --check
 
       - name: Publish browser app
         run: >
@@ -158,10 +197,58 @@ jobs:
           -c Release
           --output artifacts/inspect-web-publish
 
+      - name: Publish MSDL managed API
+        run: >
+          dotnet publish
+          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-publish/api
+
+      - name: Verify browser site artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          site=artifacts/inspect-web-publish/wwwroot
+          api=artifacts/inspect-web-publish/api
+          index="$site/index.html"
+          test -f "$index"
+          test -f "$site/staticwebapp.config.json"
+          test -f "$api/host.json"
+          test -f "$api/functions.metadata"
+          test -f "$api/worker.config.json"
+          test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
+          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
+          manifest="$site/manifest.json"
+          test -f "$manifest"
+          jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
+          vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
+          while IFS= read -r asset; do
+            [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
+            test -f "$site/$asset"
+          done <<< "$vite_assets"
+          vite_entry=$(jq -er '.["index.html"].file' "$manifest")
+          grep -Fq "src=\"/$vite_entry\"" "$index"
+          vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
+          while IFS= read -r stylesheet; do
+            grep -Fq "href=\"/$stylesheet\"" "$index"
+          done <<< "$vite_stylesheets"
+          dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+          test -n "$dotnet_module"
+          test -f "$site/_framework/$dotnet_module"
+          import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+          module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+          test "$import_map_line" -lt "$module_line"
+
       - name: Test browser engine
         run: >
           dotnet run
           --project prototypes/inspect-web/engine.Tests
+          -c Release
+
+      - name: Test MSDL managed API
+        run: >
+          dotnet run
+          --project prototypes/inspect-web/msdl-proxy.Tests
           -c Release
 
       - name: Test inspect-web
@@ -229,6 +316,9 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -314,8 +404,33 @@ jobs:
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
 
+      - name: Run GitHub Packages fixture test
+        id: package_fixture
+        continue-on-error: true
+        shell: bash
+        env:
+          DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}
+          DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
+            -method '*Package_Manifest_RendersToolManifestRows*' \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Package fixture test filter selected no tests." >&2
+            exit 1
+          fi
+          if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
+            echo "::error::Package fixture test skipped authenticated execution." >&2
+            exit 1
+          fi
+
       - name: Run CSharpText tests
         run: dotnet run --project tests/CSharpText.Tests -c Release
+
+      - name: Run artifact contract tests
+        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
@@ -375,14 +490,21 @@ jobs:
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
 
-      # Deliberately last: the suites above still report their results when
-      # acquisition fails, but the lane must not go green having silently traded
-      # its oracle comparisons for skips.
+      # Terminal checks: the suites above still report their results when
+      # acquisition fails, but the lane must not go green having silently
+      # traded external evidence for skips.
       - name: Check ilasm/ildasm/mdv result
         if: steps.iltools.outcome == 'failure'
         run: |
           echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
           echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          exit 1
+
+      - name: Check GitHub Packages fixture result
+        if: steps.package_fixture.outcome == 'failure'
+        run: |
+          echo "::error::The authenticated GitHub Packages fixture test failed." >&2
+          echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
 
   # Reduced Windows leg (#3542).
@@ -480,6 +602,10 @@ jobs:
       - name: Run CSharpText tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/CSharpText.Tests -c Release
+
+      - name: Run artifact contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
       # Covers #3496 and #3509. Both classes involved (StringSwitchRaisingTests,
       # CorpusSensorComparisonTests) are in the fast subset, so the slow gates

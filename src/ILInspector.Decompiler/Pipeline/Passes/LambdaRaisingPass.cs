@@ -367,10 +367,12 @@ public sealed class LambdaRaisingPass : IIrPass
             return null;
         bool hasByRefParameter =
             body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
+        var host = RootFunction(creation);
         if (hasByRefParameter
             && (creation.Method.HasRefReadOnlyParameters
                 || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
-                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length))
+                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length
+                || !CanSpellExplicitParameterTypes(body, creation, host)))
         {
             return null;
         }
@@ -411,6 +413,33 @@ public sealed class LambdaRaisingPass : IIrPass
         };
         lambda.InheritSourceOffset(provenance);
         return new RaisedLambda(lambda, body);
+    }
+
+    static bool CanSpellExplicitParameterTypes(
+        IrFunction body,
+        DelegateCreation creation,
+        IrFunction host)
+    {
+        var parameterTypes = new TypeRef[body.Signature.Parameters.Length];
+        var isDynamic = new bool[body.Signature.Parameters.Length];
+        for (int i = 0; i < body.Signature.Parameters.Length; i++)
+        {
+            parameterTypes[i] = body.Signature.Parameters[i].Type;
+            isDynamic[i] = body.Signature.Parameters[i].IsDynamic;
+            if (!CSharpSpellability.CanSpellExplicitParameterType(
+                    parameterTypes[i],
+                    host,
+                    creation.Method.ParameterRefKinds[i],
+                    isDynamic[i]))
+            {
+                return false;
+            }
+        }
+
+        return !CSharpSpellability.AnyLeadingSegmentShadowedByKnownTypes(parameterTypes, host)
+            && !CSharpSpellability.AnyPrintedAliasShadowedByKnownTypes(parameterTypes, isDynamic, host)
+            && !CSharpSpellability.AnyBareNameShadowedByKnownTypes(parameterTypes, host)
+            && !CSharpSpellability.AnyPrintedNameIdentityCollision(parameterTypes, isDynamic, host);
     }
 
     static IEnumerable<IrNode> Self(IrNode node)

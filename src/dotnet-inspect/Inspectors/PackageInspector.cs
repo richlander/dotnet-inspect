@@ -54,6 +54,17 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
+                if (PackageIndexCache.RequiresRidReverification(cached))
+                {
+                    await RidPackageVerifier.VerifyAsync(
+                        httpClient,
+                        cached,
+                        cached.Version,
+                        localDir: null,
+                        logger: logger,
+                        sourceOptions: sourceOptions);
+                }
+
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
@@ -336,6 +347,7 @@ internal static class PackageInspector
         result.VersionCount = metadata.VersionCount;
         result.PackageSize = metadata.PackageSize;
         result.IsVerified = metadata.IsVerified;
+        result.Listed = metadata.Listed;
         result.Owners = metadata.Owners;
         result.Deprecation = metadata.Deprecation;
         result.Vulnerabilities = metadata.Vulnerabilities;

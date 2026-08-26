@@ -11,7 +11,7 @@ namespace ILInspector.Decompiler;
 /// One exact rendered-syntax occurrence in a decompiled method body.
 /// </summary>
 /// <param name="AssemblyName">Simple name of the inspected assembly.</param>
-/// <param name="Member">Stable qualified selector for the source-facing member that owns the body.</param>
+/// <param name="Member">Round-tripping qualified selector for the source-facing member body.</param>
 /// <param name="TypeName">Full metadata name of the declaring type.</param>
 /// <param name="MethodName">Metadata name of the containing method.</param>
 /// <param name="MethodToken">MethodDef token of the containing method.</param>
@@ -99,6 +99,60 @@ public static class BodyShapeSearch
         int? limit = null,
         CancellationToken cancellationToken = default,
         PrinterOptions? printerOptions = null)
+        => SearchCore(
+            source,
+            kind,
+            includeAll,
+            limit,
+            cancellationToken,
+            printerOptions,
+            methodTokens: null);
+
+    /// <summary>
+    /// Searches the selected MethodDef bodies for exact rendered-syntax node kinds.
+    /// </summary>
+    /// <param name="source">The metadata and PE source to inspect.</param>
+    /// <param name="kind">An exact stable kind from <see cref="SupportedKinds"/>.</param>
+    /// <param name="methodTokens">
+    /// MethodDef tokens that define the search scope. An empty set searches no bodies.
+    /// </param>
+    /// <param name="includeAll">
+    /// Whether non-public API-surface members may participate in the token scope. An explicitly
+    /// token-selected accessor of a public property or event remains eligible.
+    /// </param>
+    /// <param name="limit">Optional maximum number of matches.</param>
+    /// <param name="cancellationToken">Cancellation token checked between bodies.</param>
+    /// <param name="printerOptions">
+    /// Optional explicit rendering options. The library default preserves stable slot names.
+    /// </param>
+    public static BodyShapeSearchResult Search(
+        MetadataSource source,
+        string kind,
+        IReadOnlySet<int> methodTokens,
+        bool includeAll = false,
+        int? limit = null,
+        CancellationToken cancellationToken = default,
+        PrinterOptions? printerOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(methodTokens);
+        return SearchCore(
+            source,
+            kind,
+            includeAll,
+            limit,
+            cancellationToken,
+            printerOptions,
+            methodTokens);
+    }
+
+    static BodyShapeSearchResult SearchCore(
+        MetadataSource source,
+        string kind,
+        bool includeAll,
+        int? limit,
+        CancellationToken cancellationToken,
+        PrinterOptions? printerOptions,
+        IReadOnlySet<int>? methodTokens)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -113,7 +167,12 @@ public static class BodyShapeSearch
                 $"{failure.Operation} at 0x{failure.SubjectToken:X8}",
                 failure.Detail))
             .ToList();
-        var methods = SurfaceMethods(source.Reader, surface, includeAll, failures);
+        var methods = SurfaceMethods(
+            source.Reader,
+            surface,
+            includeAll,
+            methodTokens,
+            failures);
         var matches = new List<BodyShapeMatch>();
         int methodsInspected = 0;
 
@@ -122,7 +181,9 @@ public static class BodyShapeSearch
             cancellationToken.ThrowIfCancellationRequested();
             int methodToken = candidate.MethodToken;
             var anchor = ApiMemberIdentity.GetMemberAnchor(candidate.Type, candidate.Member);
-            string member = anchor.Format(MemberAnchorFormat.Qualified);
+            string member = candidate.AccessorOrdinal is { } accessorOrdinal
+                ? $"{anchor.TypeFullName}.{anchor.StableSelector}:{accessorOrdinal}"
+                : anchor.Format(MemberAnchorFormat.Qualified);
             string subject = $"{member} (0x{methodToken:X8})";
             var handle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(methodToken);
             var method = source.Reader.GetMethodDefinition(handle);
@@ -244,6 +305,7 @@ public static class BodyShapeSearch
         MetadataReader reader,
         ApiSurface surface,
         bool includeAll,
+        IReadOnlySet<int>? methodTokens,
         List<BodyShapeSearchFailure> failures)
     {
         var methods = new SortedDictionary<int, SurfaceMethod>();
@@ -261,18 +323,30 @@ public static class BodyShapeSearch
         {
             foreach (var member in type.Members)
             {
-                Add(type, member, member.MetadataToken, accessor: false);
-                Add(type, member, member.GetterToken, accessor: true);
-                Add(type, member, member.SetterToken, accessor: true);
-                Add(type, member, member.AdderToken, accessor: true);
-                Add(type, member, member.RemoverToken, accessor: true);
+                Add(type, member, member.MetadataToken, accessorOrdinal: null);
+                int accessorOrdinal = 0;
+                if (member.GetterToken.HasValue)
+                    Add(type, member, member.GetterToken, ++accessorOrdinal);
+                if (member.SetterToken.HasValue)
+                    Add(type, member, member.SetterToken, ++accessorOrdinal);
+                accessorOrdinal = 0;
+                if (member.AdderToken.HasValue)
+                    Add(type, member, member.AdderToken, ++accessorOrdinal);
+                if (member.RemoverToken.HasValue)
+                    Add(type, member, member.RemoverToken, ++accessorOrdinal);
             }
         }
         return [.. methods.Values];
 
-        void Add(ApiType type, ApiMember member, int? token, bool accessor)
+        void Add(
+            ApiType type,
+            ApiMember member,
+            int? token,
+            int? accessorOrdinal)
         {
             if (token is not { } value)
+                return;
+            if (methodTokens is not null && !methodTokens.Contains(value))
                 return;
             var entity = MetadataTokens.EntityHandle(value);
             if (entity.Kind != HandleKind.MethodDefinition)
@@ -284,13 +358,17 @@ public static class BodyShapeSearch
             {
                 return;
             }
-            if (accessor && !includeAll)
+            if (accessorOrdinal.HasValue && !includeAll && methodTokens is null)
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
                     return;
             }
-            var candidate = new SurfaceMethod(value, type, member);
+            var candidate = new SurfaceMethod(
+                value,
+                type,
+                member,
+                accessorOrdinal);
             if (!methods.TryGetValue(value, out var existing)
                 || Prefer(candidate, existing))
             {
@@ -331,7 +409,11 @@ public static class BodyShapeSearch
                 or "extension-method";
     }
 
-    private sealed record SurfaceMethod(int MethodToken, ApiType Type, ApiMember Member);
+    private sealed record SurfaceMethod(
+        int MethodToken,
+        ApiType Type,
+        ApiMember Member,
+        int? AccessorOrdinal);
 
     static string SelectText(IReadOnlyList<string> lines, PrintedExtent extent)
     {

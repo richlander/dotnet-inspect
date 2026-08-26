@@ -33,7 +33,7 @@ internal readonly record struct IlTracePoint(int Offset, ImmutableArray<TypeRef?
 /// </summary>
 public readonly record struct OverloadInfo(
     int Index, TypeRef ReturnType, ImmutableArray<TypeRef> ParameterTypes,
-    bool HasThis, bool HasBody, bool IsPublic)
+    bool HasThis, bool HasBody, bool IsPublic, bool IsPrivate)
 {
     public string Describe()
         => $"({string.Join(", ", ParameterTypes.Select(p => p.ToDisplayString()))})";
@@ -56,12 +56,36 @@ public static class IrImporter
     /// definition, so that one proven shape resolves through
     /// <see cref="TypeRef.ElementType"/>. Other generic cross-method consumers
     /// remain declined until their own reconstruction contracts admit the shape.
-    /// <see cref="TypeRef.Name"/> spells nesting with <c>+</c>, while the importer
-    /// matches the <c>.</c> form. Synthesized companion methods have unique names,
-    /// so overload index 0 is exact.
+    /// Exact decoded definition names remain structured through lookup so a
+    /// literal <c>+</c> in one metadata segment cannot bind to a nested type.
+    /// Legacy references without retained structure use the historical flat
+    /// name lookup. Synthesized companion methods have unique names, so overload
+    /// index 0 is exact.
     /// </summary>
     public static IrFunction? Import(MetadataSource source, MethodRef method)
-        => Import(source, ImporterTypeName(method), method.Name);
+    {
+        TypeRef type = ImporterType(method);
+        if (type.DefinitionName is not { } exactName)
+            return Import(source, ImporterTypeName(type), method.Name);
+
+        try
+        {
+            MethodDefinitionHandle? methodHandle = ResolveMethodHandle(
+                source.Reader,
+                exactName,
+                method.Name);
+            return methodHandle is { } resolved
+                ? Import(source, resolved)
+                : null;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return CrashFunction(
+                method.Name,
+                exactName.ToEscapedFullName(),
+                ex);
+        }
+    }
 
     /// <summary>
     /// Typed evidence for the interfaces a type declares in its own assembly: the
@@ -91,7 +115,7 @@ public static class IrImporter
         return builder.ToImmutable();
     }
 
-    static string ImporterTypeName(MethodRef method)
+    static TypeRef ImporterType(MethodRef method)
     {
         var type = method.DeclaringType;
         if (type.Kind == TypeRefKind.GenericInstance
@@ -99,6 +123,11 @@ public static class IrImporter
         {
             type = type.ElementType!;
         }
+        return type;
+    }
+
+    static string ImporterTypeName(TypeRef type)
+    {
         string name = type.Name.Replace('+', '.');
         return type.Namespace.Length == 0 ? name : $"{type.Namespace}.{name}";
     }
@@ -166,6 +195,45 @@ public static class IrImporter
                 publicOnly);
         }
         return null;
+    }
+
+    internal static MethodDefinitionHandle? ResolveMethodHandle(
+        MetadataReader reader,
+        MetadataTypeDefinitionName typeName,
+        string methodName,
+        int overloadIndex = 0,
+        bool publicOnly = false)
+    {
+        TypeDeclarationResult result =
+            MetadataTypeDeclarationProbe.ProbeDefinition(reader, typeName);
+        if (result is TypeDeclarationResult.Missing)
+            return null;
+        if (result is TypeDeclarationResult.Rejected rejected)
+            throw new BadImageFormatException(rejected.Rejection.Detail);
+        if (result is TypeDeclarationResult.Ambiguous)
+        {
+            throw new BadImageFormatException(
+                $"The exact type name '{typeName.ToEscapedFullName()}' is ambiguous.");
+        }
+        if (result is not TypeDeclarationResult.Defined defined)
+        {
+            throw new BadImageFormatException(
+                "The exact TypeDef lookup returned an invalid result.");
+        }
+
+        EntityHandle definition =
+            MetadataTokens.EntityHandle(defined.Definition.Value);
+        if (definition.Kind != HandleKind.TypeDefinition)
+        {
+            throw new BadImageFormatException(
+                "The exact TypeDef lookup returned an invalid token.");
+        }
+        return ResolveMethodHandle(
+            reader,
+            (TypeDefinitionHandle)definition,
+            methodName,
+            overloadIndex,
+            publicOnly);
     }
 
     /// <summary>
@@ -286,9 +354,12 @@ public static class IrImporter
                 var signature = GuardedDecode.MethodSignature(reader, method, CallerScope(reader, typeDef, method));
                 bool isPublic = (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
                     == System.Reflection.MethodAttributes.Public;
+                bool isPrivate = (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
+                    == System.Reflection.MethodAttributes.Private;
                 result.Add(new OverloadInfo(
                     index++, signature.ReturnType, [.. signature.ParameterTypes],
-                    signature.Header.IsInstance, method.RelativeVirtualAddress != 0, isPublic));
+                    signature.Header.IsInstance, method.RelativeVirtualAddress != 0,
+                    isPublic, isPrivate));
             }
             break;
         }
@@ -535,6 +606,10 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            DeclaringTypeGenericParameterNames =
+                method.DeclaringTypeGenericParameterNames.IsDefault
+                    ? []
+                    : method.DeclaringTypeGenericParameterNames,
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,
@@ -1593,7 +1668,10 @@ public static class IrImporter
                     int target = reader.ReadBranchDestination(opcode);
                     if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
                         return false;
-                    body.Add(new ConditionalBranch(condition, target));
+                    body.Add(new ConditionalBranch(
+                        condition,
+                        target,
+                        ConditionalBranchOrigin.Imported));
                     break;
                 }
 
@@ -1605,7 +1683,10 @@ public static class IrImporter
                     var (kind, isUnsigned) = ComparisonOf(opcode);
                     if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
                         return false;
-                    body.Add(new ConditionalBranch(new Comparison(kind, isUnsigned, left, right), target));
+                    body.Add(new ConditionalBranch(
+                        new Comparison(kind, isUnsigned, left, right),
+                        target,
+                        ConditionalBranchOrigin.Imported));
                     break;
                 }
 

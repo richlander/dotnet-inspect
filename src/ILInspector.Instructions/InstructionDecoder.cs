@@ -16,6 +16,93 @@ namespace ILInspector.Instructions;
 /// </summary>
 public static class InstructionDecoder
 {
+    /// <summary>
+    /// Visits one method body without copying its IL or materializing decoded
+    /// instructions. The visitor receives the encoded instruction length and
+    /// a metadata token only for method operand opcodes, then returns whether
+    /// scanning should continue.
+    /// </summary>
+    /// <remarks>
+    /// Structural tiling and dangling-prefix validation match
+    /// <see cref="Decode(ReadOnlySpan{byte})"/> when the visitor consumes the
+    /// complete stream. An early visitor stop deliberately leaves the suffix
+    /// unvalidated because the consumer has already found its result.
+    /// </remarks>
+    public static bool Visit(
+        MethodBodyBlock body,
+        Func<ILOpCode, int, int, bool> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(visitor);
+
+        BlobReader reader = body.GetILReader();
+        ILOpCode previous = default;
+        bool hasPrevious = false;
+        while (reader.RemainingBytes > 0)
+        {
+            int offset = reader.Offset;
+            int opcodeStart = reader.Offset;
+            byte first = reader.ReadByte();
+            ILOpCode opcode = first == 0xFE
+                ? (ILOpCode)(0xFE00 | reader.ReadByte())
+                : (ILOpCode)first;
+            if (!opcode.IsValid())
+            {
+                throw new BadImageFormatException(
+                    $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+            }
+
+            int operandToken = 0;
+            if (opcode == ILOpCode.Switch)
+            {
+                int count = reader.ReadInt32();
+                if (count < 0
+                    || count > reader.RemainingBytes / sizeof(int))
+                {
+                    throw new BadImageFormatException(
+                        $"Malformed switch at IL_{offset:X4}");
+                }
+                reader.Offset += count * sizeof(int);
+            }
+            else
+            {
+                int instructionSize =
+                    opcode.GetInstructionSize();
+                int operandSize = instructionSize
+                    - (reader.Offset - opcodeStart);
+                if (instructionSize < 0
+                    || operandSize < 0
+                    || operandSize > reader.RemainingBytes)
+                {
+                    throw new BadImageFormatException(
+                        $"Truncated operand at IL_{offset:X4}");
+                }
+
+                if (IsMethodOperand(opcode))
+                    operandToken = reader.ReadInt32();
+                else
+                    reader.Offset += operandSize;
+            }
+
+            previous = opcode;
+            hasPrevious = true;
+            int encodedLength =
+                reader.Offset - opcodeStart;
+            if (!visitor(
+                    opcode,
+                    operandToken,
+                    encodedLength))
+                return false;
+        }
+
+        if (hasPrevious && previous.IsPrefix())
+        {
+            throw new BadImageFormatException(
+                $"IL ends with a dangling prefix at IL_{reader.Offset:X4}");
+        }
+        return true;
+    }
+
     public static ImmutableArray<DecodedInstruction> Decode(byte[] il)
     {
         ArgumentNullException.ThrowIfNull(il);
@@ -200,4 +287,13 @@ public static class InstructionDecoder
 
         _ => OperandKind.None,
     };
+
+    static bool IsMethodOperand(ILOpCode opcode)
+        => opcode is
+            ILOpCode.Call
+            or ILOpCode.Callvirt
+            or ILOpCode.Newobj
+            or ILOpCode.Jmp
+            or ILOpCode.Ldftn
+            or ILOpCode.Ldvirtftn;
 }

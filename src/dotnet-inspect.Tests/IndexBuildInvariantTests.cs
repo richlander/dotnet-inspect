@@ -4,6 +4,11 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Findings;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Text;
+using System.Text;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
@@ -24,6 +29,73 @@ public class IndexBuildGuardCollection;
 public class IndexBuildInvariantTests
 {
     static string FixtureAssembly => typeof(IndexBuildGuardFixture).Assembly.Location;
+
+    static (string AssemblyPath, string Directory)
+        CreateEmbeddedPdbAssembly()
+    {
+        const string source =
+            """
+            namespace EmbeddedPdbFixture;
+
+            public static class Sample
+            {
+                public static int Value() => 42;
+            }
+            """;
+        string directory = Path.Combine(
+            AppContext.BaseDirectory,
+            $"embedded-pdb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string assemblyPath =
+                Path.Combine(directory, "EmbeddedPdbFixture.dll");
+            var references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "EmbeddedPdbFixture",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview),
+                        path: "/_/EmbeddedPdbFixture.cs")
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+            using var assembly = File.Create(assemblyPath);
+            using var sourceLink = new MemoryStream(
+                Encoding.UTF8.GetBytes(
+                    """{"documents":{"/_/*":"https://example.test/*"}}"""));
+            EmitResult result = compilation.Emit(
+                assembly,
+                sourceLinkStream: sourceLink,
+                options: new EmitOptions(
+                    debugInformationFormat:
+                        DebugInformationFormat.Embedded,
+                    pdbFilePath: "EmbeddedPdbFixture.pdb"));
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+            return (assemblyPath, directory);
+        }
+        catch
+        {
+            Directory.Delete(
+                directory,
+                recursive: true);
+            throw;
+        }
+    }
 
     [Fact]
     public async Task MemberCommand_MultipleIndexSections_BuildsIndexOnce()
@@ -212,6 +284,112 @@ public class IndexBuildInvariantTests
         using var reader =
             new System.Reflection.PortableExecutable.PEReader(image);
         Assert.True(reader.HasMetadata);
+    }
+
+    [Fact]
+    public void PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb()
+    {
+        var limits = new ILInspector.SourceLink.SourceLinkReadLimits(
+            LibraryMetadataService.DiscoveryMaxEmbeddedPdbBytes,
+            maxMapBytes: 4 * 1024 * 1024,
+            maxMappings: 16 * 1024);
+        Assert.True(
+            File.Exists(
+                Path.ChangeExtension(
+                    FixtureAssembly,
+                    ".pdb")),
+            "The fixture must have an adjacent PDB for this gate to prove it stays unloaded.");
+
+        using var prefetched =
+            ILInspector.SourceLink.SourceLinkService
+                .OpenEmbeddedPdbOnlyPrefetched(
+                    FixtureAssembly,
+                    limits);
+        var image =
+            prefetched.Context.GetPrefetchedImage();
+
+        Assert.False(image.IsDefaultOrEmpty);
+        Assert.False(prefetched.HasPdb);
+        using var reader =
+            new System.Reflection.PortableExecutable.PEReader(
+                image);
+        Assert.True(reader.HasMetadata);
+
+        var descriptor =
+            ILInspector.Metadata.ResolvedAssemblyReference
+                .CreateFromPath(
+                    FixtureAssembly,
+                    ILInspector.Metadata
+                        .AssemblyResolutionProvenance
+                        .Local("embedded-only prefetch gate"));
+        using var descriptorPrefetched =
+            ILInspector.SourceLink.SourceLinkService
+                .OpenEmbeddedPdbOnlyPrefetched(
+                    descriptor,
+                    limits);
+        Assert.False(
+            descriptorPrefetched.Context
+                .GetPrefetchedImage()
+                .IsDefaultOrEmpty);
+        Assert.False(descriptorPrefetched.HasPdb);
+
+        var (embeddedAssembly, embeddedDirectory) =
+            CreateEmbeddedPdbAssembly();
+        try
+        {
+            using (var embedded =
+                ILInspector.SourceLink.SourceLinkService.Open(
+                    embeddedAssembly))
+            {
+                Assert.True(
+                    embedded.Context.HasEmbeddedPdb);
+                Assert.True(embedded.HasPdb);
+                Assert.True(embedded.HasSourceLink);
+            }
+
+            using var embeddedPrefetched =
+                ILInspector.SourceLink.SourceLinkService
+                    .OpenEmbeddedPdbOnlyPrefetched(
+                        embeddedAssembly,
+                        limits);
+            Assert.True(
+                embeddedPrefetched.Context.HasEmbeddedPdb);
+            Assert.True(embeddedPrefetched.HasPdb);
+            Assert.True(embeddedPrefetched.HasSourceLink);
+        }
+        finally
+        {
+            Directory.Delete(
+                embeddedDirectory,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext()
+    {
+        using var context =
+            ILInspector.Metadata.PdbContext
+                .OpenEmbeddedPdbOnly(
+                    FixtureAssembly,
+                    maxEmbeddedPdbBytes: 8 * 1024 * 1024);
+        Assert.Throws<InvalidOperationException>(
+            () => context.GetPrefetchedImage());
+
+        DotnetInspector.Queries.UnsafeEvidencePresenceResult
+            result =
+                DotnetInspector.Queries
+                    .UnsafeEvidencePresenceQuery.Execute(
+                        FixtureAssembly,
+                        context);
+
+        Assert.IsType<
+            DotnetInspector.Queries
+                .UnsafeEvidencePresenceResult.Available>(
+                    result);
+        Assert.Throws<InvalidOperationException>(
+            () => context.GetPrefetchedImage());
     }
 }
 

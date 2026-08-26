@@ -24,6 +24,9 @@ mono_crash.*
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+# Repository-maintainer skills are source, not build output.
+!.github/skills/release/
+!.github/skills/release/SKILL.md
 x64/
 x86/
 [Ww][Ii][Nn]32/
@@ -292,6 +295,7 @@ FakesAssemblies/
 # Node.js Tools for Visual Studio
 .ntvs_analysis.dat
 node_modules/
+prototypes/inspect-web/dist/
 
 # Visual Studio 6 build log
 *.plg

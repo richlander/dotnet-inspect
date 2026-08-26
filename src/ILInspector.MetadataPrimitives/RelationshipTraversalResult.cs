@@ -8,19 +8,19 @@ namespace ILInspector.Metadata;
 public enum RelationshipTraversalRejectionKind
 {
     /// <summary>A metadata handle repeated in the active relationship chain.</summary>
-    Cycle,
+    Cycle = 0,
 
     /// <summary>The relationship chain exceeded the fixed node ceiling.</summary>
-    NodeBudget,
+    NodeBudget = 1,
 
     /// <summary>SRM rejected a row or relationship handle.</summary>
-    MalformedMetadata,
+    MalformedMetadata = 2,
 
     /// <summary>
     /// The namespace and root-to-leaf segments exceed
     /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
     /// </summary>
-    NameBudget,
+    NameBudget = 3,
 }
 
 /// <summary>Inspectable evidence for a rejected metadata relationship walk.</summary>

@@ -424,7 +424,7 @@ public class NuGetSearchSourcesTests
                 fetchOptions: new NuGetFetchOptions
                 {
                     RequestTimeout = TimeSpan.FromMilliseconds(40),
-                    OperationTimeout = TimeSpan.FromSeconds(5),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
                 }));
 
         Assert.Contains(

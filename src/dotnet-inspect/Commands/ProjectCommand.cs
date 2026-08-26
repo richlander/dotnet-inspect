@@ -16,6 +16,14 @@ namespace DotnetInspector.Commands;
 
 public class ProjectCommand
 {
+    private enum ProjectSkillReadFailure
+    {
+        None,
+        MissingFile,
+        InvalidName,
+        InvalidDescription,
+    }
+
     public const string Name = "project";
     private const string ProjectSkillsSection = "Skills";
     private static readonly string[] ProjectSectionNames = [ProjectSkillsSection];
@@ -328,15 +336,31 @@ public class ProjectCommand
 
     private static int WriteSkills(string assetsPath, ProjectOptions options, Action<string>? log)
     {
-        var rows = ProjectAssetsParser.ParsePackageFileEntries(
-                assetsPath,
-                options.Tfm,
-                ["skills/SKILL.md", "skills/**/SKILL.md"],
-                log)
-            .Select(CreateSkillRow)
-            .Where(row => row is not null)
-            .Cast<ProjectSkillRow>()
-            .ToList();
+        var rows = new List<ProjectSkillRow>();
+        foreach (var file in ProjectAssetsParser.ParsePackageFileEntries(
+                     assetsPath,
+                     options.Tfm,
+                     ["skills/SKILL.md", "skills/**/SKILL.md"],
+                     log))
+        {
+            var failure = CreateSkillRow(file, out var row);
+            if (failure != ProjectSkillReadFailure.None)
+            {
+                CommandError.Write(failure switch
+                {
+                    ProjectSkillReadFailure.MissingFile =>
+                        "A restored package skill listed in project.assets.json is missing from the package cache.",
+                    ProjectSkillReadFailure.InvalidName =>
+                        "A restored package skill must declare an Agent Skills-compliant name that matches its containing directory.",
+                    _ =>
+                        "A restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters.",
+                });
+                return 1;
+            }
+
+            if (row is not null)
+                rows.Add(row);
+        }
 
         if (options.Value || options.Urls || options.Paths)
             return WriteSkillShapeProjection(rows, options);
@@ -361,24 +385,97 @@ public class ProjectCommand
         return 0;
     }
 
-    private static ProjectSkillRow? CreateSkillRow(ProjectPackageFileEntry file)
+    private static ProjectSkillReadFailure CreateSkillRow(
+        ProjectPackageFileEntry file,
+        out ProjectSkillRow? row)
     {
+        row = null;
         if (string.IsNullOrWhiteSpace(file.FullPath) || !File.Exists(file.FullPath))
-            return null;
+            return ProjectSkillReadFailure.MissingFile;
 
         var content = File.ReadAllText(file.FullPath);
         var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
-        frontmatter.TryGetValue("name", out var name);
-        frontmatter.TryGetValue("description", out var description);
+        if (!TryGetSkillName(file.Path, frontmatter, out var name))
+            return ProjectSkillReadFailure.InvalidName;
 
-        return new ProjectSkillRow(
+        frontmatter.TryGetValue("description", out var description);
+        if (!IsAgentSkillDescription(description))
+            return ProjectSkillReadFailure.InvalidDescription;
+
+        row = new ProjectSkillRow(
             file.PackageName,
             file.Version,
             file.Path,
             new FileInfo(file.FullPath).Length,
-            name ?? "",
+            name,
             description ?? "",
             file.FullPath);
+        return ProjectSkillReadFailure.None;
+    }
+
+    private static bool TryGetSkillName(
+        string packagePath,
+        IReadOnlyDictionary<string, string> frontmatter,
+        out string name)
+    {
+        var normalizedPath = packagePath.Replace('\\', '/');
+        var fileSeparator = normalizedPath.LastIndexOf('/');
+        if (fileSeparator <= 0)
+        {
+            name = "";
+            return false;
+        }
+
+        var parentPath = normalizedPath[..fileSeparator].TrimEnd('/');
+        var parentSeparator = parentPath.LastIndexOf('/');
+        var directoryName = parentPath[(parentSeparator + 1)..];
+        if (!frontmatter.TryGetValue("name", out name!))
+            return false;
+
+        return string.Equals(name, directoryName, StringComparison.Ordinal)
+            && IsAgentSkillName(name);
+    }
+
+    private static bool IsAgentSkillName(string name)
+    {
+        if (name.Length is < 1 or > 64
+            || name[0] == '-'
+            || name[^1] == '-')
+        {
+            return false;
+        }
+
+        var previousWasHyphen = false;
+        foreach (var character in name)
+        {
+            var isHyphen = character == '-';
+            if (!(character is >= 'a' and <= 'z'
+                  || character is >= '0' and <= '9'
+                  || isHyphen)
+                || isHyphen && previousWasHyphen)
+            {
+                return false;
+            }
+
+            previousWasHyphen = isHyphen;
+        }
+
+        return true;
+    }
+
+    private static bool IsAgentSkillDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+            return false;
+
+        var length = 0;
+        foreach (var _ in description.EnumerateRunes())
+        {
+            if (++length > 1024)
+                return false;
+        }
+
+        return true;
     }
 
     private static string RenderSkillJsonl(IEnumerable<ProjectSkillRow> rows)

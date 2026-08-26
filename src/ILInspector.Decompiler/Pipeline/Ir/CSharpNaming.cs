@@ -1,5 +1,6 @@
 using CSharpText;
 using ILInspector.CSharp;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -92,7 +93,7 @@ internal static class CSharpNaming
     /// <summary>The property name an auto-property backing field <c>&lt;Prop&gt;k__BackingField</c> backs, or null for an ordinary field.</summary>
     public static string? BackingFieldProperty(string fieldName)
     {
-        const string suffix = ">k__BackingField";
+        const string suffix = GeneratedNameGrammar.BackingFieldSuffix;
         return fieldName.Length > suffix.Length + 1 && fieldName[0] == '<' && fieldName.EndsWith(suffix, StringComparison.Ordinal)
             ? fieldName[1..^suffix.Length]
             : null;
@@ -126,17 +127,14 @@ internal static class CSharpNaming
     {
         if (!name.StartsWith('<'))
             return name;
-        int marker = name.IndexOf(">g__", StringComparison.Ordinal);
+        int marker = name.IndexOf(GeneratedNameGrammar.LocalFunctionInfix, StringComparison.Ordinal);
         if (marker < 0)
             return name;
-        int start = marker + 4;
+        int start = marker + GeneratedNameGrammar.LocalFunctionInfix.Length;
         int bar = name.IndexOf('|', start);
         return bar > start ? name[start..bar] : name[start..];
     }
 
     static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromSegment(name);
 }

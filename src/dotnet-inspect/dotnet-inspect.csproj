@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
@@ -19,7 +20,7 @@
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.20.0</VersionPrefix>
+    <VersionPrefix>0.22.0</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -60,6 +61,7 @@
     <EmbeddedResource Include="release-notes.md" />
     <EmbeddedResource Include="../../skills/dotnet-inspect/SKILL.md" LogicalName="dotnet-inspect.SKILL.md" />
     <EmbeddedResource Include="../../skills/query/SKILL.md" LogicalName="dotnet-inspect.skills.query.md" />
+    <EmbeddedResource Include="../../skills/package-skills/SKILL.md" LogicalName="dotnet-inspect.skills.package-skills.md" />
     <EmbeddedResource Include="../../skills/private-feeds/SKILL.md" LogicalName="dotnet-inspect.skills.private-feeds.md" />
     <EmbeddedResource Include="../../skills/compatibility/SKILL.md" LogicalName="dotnet-inspect.skills.compatibility.md" />
     <EmbeddedResource Include="../../skills/correctness/SKILL.md" LogicalName="dotnet-inspect.skills.correctness.md" />

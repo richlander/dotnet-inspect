@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.CallGraph;
 
@@ -56,6 +57,18 @@ public enum CallGraphNodeKind
 /// Distinct physical evidence carried by the projected tree occurrences that
 /// collapsed onto this logical node.
 /// </param>
+/// <param name="DefinitionAssemblyIdentity">
+/// Exact assembly identity of the unambiguous resolved definition site, when catalog evidence
+/// supplied one. <c>CalleeTreeCarriesResolvedDefinitionAssemblyIdentity</c> and
+/// <c>ConflictingDefinitionAndResolutionAssembliesAreWithheld</c> gate preservation and
+/// ambiguity.
+/// </param>
+/// <param name="ResolutionAssemblyIdentity">
+/// Exact terminal assembly identity observed while resolving the declaring
+/// type. An unresolved value is an acquisition hint, not a definition claim.
+/// <c>ConflictingDefinitionAndResolutionAssembliesAreWithheld</c> gates
+/// conflict withholding.
+/// </param>
 public sealed record CallGraphNode(
     int Id,
     GraphNodeIdentity Identity,
@@ -63,7 +76,9 @@ public sealed record CallGraphNode(
     string Label,
     CallGraphNodeKind Kind,
     CallTreePerf? Perf = null,
-    ImmutableArray<GraphNodeEvidence> GraphEvidence = default);
+    ImmutableArray<GraphNodeEvidence> GraphEvidence = default,
+    AssemblyReferenceIdentity? DefinitionAssemblyIdentity = null,
+    AssemblyReferenceIdentity? ResolutionAssemblyIdentity = null);
 
 /// <summary>The traversal half that first contributed one logical edge.</summary>
 public enum CallGraphEdgeOrigin
@@ -122,17 +137,22 @@ public readonly record struct CallGraphEdge(
 /// <summary>
 /// Opaque identity for one physical call receipt. Catalog identities retain
 /// acquisition registration; synthetic identities retain structural caller
-/// identity.
+/// identity. Both retain the evidence method's MVID and metadata token because
+/// multiple synthesized bodies can share one declared caller and IL offset.
 /// </summary>
 public sealed class CallGraphCallSiteIdentity
     : IEquatable<CallGraphCallSiteIdentity>
 {
     readonly GraphNodeStorageKey? _callerStorage;
     readonly GraphNodeIdentity? _structuralCaller;
+    readonly Guid _evidenceModuleVersionId;
+    readonly int _evidenceMethodToken;
 
     internal CallGraphCallSiteIdentity(
         GraphNodeStorageKey? callerStorage,
         GraphNodeIdentity? structuralCaller,
+        Guid evidenceModuleVersionId,
+        int evidenceMethodToken,
         int ilOffset,
         int operandToken)
     {
@@ -144,6 +164,8 @@ public sealed class CallGraphCallSiteIdentity
 
         _callerStorage = callerStorage;
         _structuralCaller = structuralCaller;
+        _evidenceModuleVersionId = evidenceModuleVersionId;
+        _evidenceMethodToken = evidenceMethodToken;
         ILOffset = ilOffset;
         OperandToken = operandToken;
     }
@@ -158,6 +180,10 @@ public sealed class CallGraphCallSiteIdentity
         other is not null
         && Equals(_callerStorage, other._callerStorage)
         && Equals(_structuralCaller, other._structuralCaller)
+        && _evidenceModuleVersionId
+            == other._evidenceModuleVersionId
+        && _evidenceMethodToken
+            == other._evidenceMethodToken
         && ILOffset == other.ILOffset
         && OperandToken == other.OperandToken;
 
@@ -168,6 +194,8 @@ public sealed class CallGraphCallSiteIdentity
         HashCode.Combine(
             _callerStorage,
             _structuralCaller,
+            _evidenceModuleVersionId,
+            _evidenceMethodToken,
             ILOffset,
             OperandToken);
 }
@@ -203,6 +231,19 @@ public enum CallGraphRowMatch
     NotProjected,
 
     /// <summary>More than one projected edge claims the call.</summary>
+    Ambiguous,
+}
+
+/// <summary>The outcome of locating a method definition in a projection.</summary>
+public enum CallGraphNodeMatch
+{
+    /// <summary>The method maps to exactly one projected logical node.</summary>
+    Found,
+
+    /// <summary>The bounded projection contains no node for the method.</summary>
+    NotProjected,
+
+    /// <summary>More than one projected node can represent the method.</summary>
     Ambiguous,
 }
 
@@ -304,6 +345,62 @@ public sealed partial class CallGraphProjection
         FindCalleeRow(Focus.Id, call, out row);
 
     /// <summary>
+    /// Resolves one method definition to its projected logical node. Exact
+    /// physical definition evidence wins; structural identity handles
+    /// evidence-free projections.
+    /// </summary>
+    public CallGraphNodeMatch FindNode(
+        MethodIdentity method,
+        out CallGraphNode node)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        CallGraphNode[] exact =
+        [
+            .. Nodes.Where(candidate =>
+                candidate.GraphEvidence.Any(evidence =>
+                    MatchesDefinition(evidence.Storage, method)
+                    || evidence.DefinitionStorage is { } definition
+                        && MatchesDefinition(definition, method))),
+        ];
+        if (exact.Length == 1)
+        {
+            node = exact[0];
+            return CallGraphNodeMatch.Found;
+        }
+        if (exact.Length > 1)
+        {
+            node = null!;
+            return CallGraphNodeMatch.Ambiguous;
+        }
+
+        GraphNodeIdentity identity =
+            GraphNodeIdentity.FromMethod(method);
+        CallGraphNode[] structural =
+        [
+            .. Nodes.Where(candidate =>
+                candidate.Identity == identity),
+        ];
+        if (structural.Length == 1)
+        {
+            node = structural[0];
+            return CallGraphNodeMatch.Found;
+        }
+
+        node = null!;
+        return structural.Length > 1
+            ? CallGraphNodeMatch.Ambiguous
+            : CallGraphNodeMatch.NotProjected;
+
+        static bool MatchesDefinition(
+            GraphNodeStorageKey storage,
+            MethodIdentity candidate) =>
+            storage.Kind == GraphNodeStorageKind.Definition
+            && storage.ModuleVersionId == candidate.ModuleVersionId
+            && storage.MethodToken == candidate.MetadataToken;
+    }
+
+    /// <summary>
     /// Resolves one physical call site from a projected caller node to its
     /// stable logical edge row.
     /// </summary>
@@ -362,12 +459,12 @@ public sealed partial class CallGraphProjection
     static bool SamePhysicalCallSite(
         DirectCall first,
         DirectCall second) =>
-        first.Caller.AssemblyName
-            == second.Caller.AssemblyName
-        && first.Caller.ModuleVersionId
-            == second.Caller.ModuleVersionId
-        && first.Caller.MetadataToken
-            == second.Caller.MetadataToken
+        first.EvidenceMethod.AssemblyName
+            == second.EvidenceMethod.AssemblyName
+        && first.EvidenceMethod.ModuleVersionId
+            == second.EvidenceMethod.ModuleVersionId
+        && first.EvidenceMethod.MetadataToken
+            == second.EvidenceMethod.MetadataToken
         && first.ILOffset == second.ILOffset
         && first.OperandToken == second.OperandToken;
 
@@ -426,7 +523,11 @@ public sealed partial class CallGraphProjection
             focus,
             MergePerf(calleeRoot?.Perf, callerRoot?.Perf),
             calleeRoot?.GraphEvidence,
-            callerRoot?.GraphEvidence);
+            callerRoot?.GraphEvidence,
+            calleeRoot?.DefinitionAssemblyIdentity,
+            callerRoot?.DefinitionAssemblyIdentity,
+            calleeRoot?.ResolutionAssemblyIdentity,
+            callerRoot?.ResolutionAssemblyIdentity);
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -475,6 +576,12 @@ public sealed partial class CallGraphProjection
         public CallGraphNodeKind Kind { get; set; } = kind;
         public CallTreePerf? Perf { get; set; } = perf;
         public List<GraphNodeEvidence> GraphEvidence { get; } = [];
+        public AssemblyReferenceIdentity? DefinitionAssemblyIdentity
+            { get; set; }
+        public bool HasDefinitionAssemblyConflict { get; set; }
+        public AssemblyReferenceIdentity? ResolutionAssemblyIdentity
+            { get; set; }
+        public bool HasResolutionAssemblyConflict { get; set; }
     }
 
     private sealed class Builder(
@@ -515,7 +622,11 @@ public sealed partial class CallGraphProjection
             MemberRef member,
             CallTreePerf? perf,
             GraphNodeEvidence? firstEvidence,
-            GraphNodeEvidence? secondEvidence)
+            GraphNodeEvidence? secondEvidence,
+            AssemblyReferenceIdentity? firstDefinitionAssembly,
+            AssemblyReferenceIdentity? secondDefinitionAssembly,
+            AssemblyReferenceIdentity? firstResolutionAssembly,
+            AssemblyReferenceIdentity? secondResolutionAssembly)
         {
             GraphNodeIdentity identity = useGraphEvidence
                 ? (firstEvidence ?? secondEvidence)!.Identity
@@ -525,8 +636,16 @@ public sealed partial class CallGraphProjection
                 member,
                 CallGraphNodeKind.Focus,
                 perf,
-                firstEvidence);
+                firstEvidence,
+                firstDefinitionAssembly,
+                firstResolutionAssembly);
             AddEvidence(_nodes[id], secondEvidence);
+            AddDefinitionAssembly(
+                _nodes[id],
+                secondDefinitionAssembly);
+            AddResolutionAssembly(
+                _nodes[id],
+                secondResolutionAssembly);
             return id;
         }
 
@@ -540,7 +659,9 @@ public sealed partial class CallGraphProjection
                     child.Member,
                     KindFor(child.Status),
                     child.Perf,
-                    child.GraphEvidence);
+                    child.GraphEvidence,
+                    child.DefinitionAssemblyIdentity,
+                    child.ResolutionAssemblyIdentity);
                 AddEdge(
                     childId,
                     nodeId,
@@ -563,7 +684,9 @@ public sealed partial class CallGraphProjection
                     child.Member,
                     KindFor(child.Status),
                     child.Perf,
-                    child.GraphEvidence);
+                    child.GraphEvidence,
+                    child.DefinitionAssemblyIdentity,
+                    child.ResolutionAssemblyIdentity);
                 AddEdge(
                     nodeId,
                     childId,
@@ -591,7 +714,9 @@ public sealed partial class CallGraphProjection
                         node.Label,
                         node.Kind,
                         node.Perf,
-                        [.. node.GraphEvidence]));
+                        [.. node.GraphEvidence],
+                        node.DefinitionAssemblyIdentity,
+                        node.ResolutionAssemblyIdentity));
             }
             var edges = ImmutableArray.CreateBuilder<CallGraphEdge>(
                 _edges.Count);
@@ -620,7 +745,9 @@ public sealed partial class CallGraphProjection
             MemberRef member,
             CallGraphNodeKind candidate,
             CallTreePerf? perf,
-            GraphNodeEvidence? evidence)
+            GraphNodeEvidence? evidence,
+            AssemblyReferenceIdentity? definitionAssemblyIdentity,
+            AssemblyReferenceIdentity? resolutionAssemblyIdentity = null)
         {
             if (!_ids.TryGetValue(identity, out var id))
             {
@@ -634,6 +761,12 @@ public sealed partial class CallGraphProjection
                     candidate,
                     perf);
                 AddEvidence(node, evidence);
+                AddDefinitionAssembly(
+                    node,
+                    definitionAssemblyIdentity);
+                AddResolutionAssembly(
+                    node,
+                    resolutionAssemblyIdentity);
                 _nodes.Add(node);
                 return id;
             }
@@ -648,6 +781,12 @@ public sealed partial class CallGraphProjection
             // only indexes one direction, so merge the observations field by field.
             info.Perf = MergePerf(info.Perf, perf);
             AddEvidence(info, evidence);
+            AddDefinitionAssembly(
+                info,
+                definitionAssemblyIdentity);
+            AddResolutionAssembly(
+                info,
+                resolutionAssemblyIdentity);
             return id;
         }
 
@@ -663,6 +802,51 @@ public sealed partial class CallGraphProjection
             }
 
             node.GraphEvidence.Add(evidence);
+        }
+
+        static void AddDefinitionAssembly(
+            MutableNode node,
+            AssemblyReferenceIdentity? identity)
+        {
+            if (identity is null
+                || node.HasDefinitionAssemblyConflict)
+            {
+                return;
+            }
+            if (node.DefinitionAssemblyIdentity is null)
+            {
+                node.DefinitionAssemblyIdentity = identity;
+                return;
+            }
+            if (node.DefinitionAssemblyIdentity.IsEquivalentTo(identity))
+                return;
+
+            node.DefinitionAssemblyIdentity = null;
+            node.HasDefinitionAssemblyConflict = true;
+        }
+
+        static void AddResolutionAssembly(
+            MutableNode node,
+            AssemblyReferenceIdentity? identity)
+        {
+            if (identity is null
+                || node.HasResolutionAssemblyConflict)
+            {
+                return;
+            }
+            if (node.ResolutionAssemblyIdentity is null)
+            {
+                node.ResolutionAssemblyIdentity = identity;
+                return;
+            }
+            if (node.ResolutionAssemblyIdentity
+                .IsEquivalentTo(identity))
+            {
+                return;
+            }
+
+            node.ResolutionAssemblyIdentity = null;
+            node.HasResolutionAssemblyConflict = true;
         }
 
         private void AddEdge(
@@ -702,6 +886,8 @@ public sealed partial class CallGraphProjection
                         ? null
                         : GraphNodeIdentity.FromMember(
                             _nodes[from].Member),
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
                     call.ILOffset,
                     call.OperandToken);
                 if (_callSiteIds.TryGetValue(
@@ -710,7 +896,9 @@ public sealed partial class CallGraphProjection
                 {
                     CallGraphCallSite existing =
                         _callSites[existingId];
-                    if (existing.Call != call)
+                    if (!SameCallEvidence(
+                            existing.Call,
+                            call))
                     {
                         throw new InvalidOperationException(
                             "One physical call-site identity cannot carry contradictory evidence.");
@@ -744,6 +932,15 @@ public sealed partial class CallGraphProjection
                 edge.CallSiteIds.Add(id);
             }
         }
+
+        static bool SameCallEvidence(
+            DirectCall first,
+            DirectCall second) =>
+            first == second
+            || first with
+            {
+                Caller = second.Caller,
+            } == second;
 
         static void AddLegacyFallbackEvidence(
             MutableEdge edge,

@@ -40,11 +40,18 @@ public class LibraryCommand
     /// Passed into <see cref="SectionPipeline{TModel}.GetRequiredQueries"/> rather than added to its result,
     /// so the one method that computes the requested set is also the one that records it.
     /// </summary>
-    private static readonly (string Reason, InspectionQueryDefinition Query)[] DiscoveryQueries =
+    internal static readonly (string Reason, InspectionQueryDefinition Query)[] DiscoveryQueries =
     [
         ("discovery catalog", MetadataImageQuery.Definition),
         ("References applicability", AssemblyReferencesQuery.Definition),
     ];
+
+    internal static readonly (string Reason, InspectionQueryDefinition Query)[]
+        BareDiscoveryQueries =
+        [
+            ("Unsafe Members applicability",
+                UnsafeEvidencePresenceQuery.Definition),
+        ];
 
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
@@ -107,7 +114,6 @@ public class LibraryCommand
         var assemblyPath = options.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
         var groupQueryRegistry = catalog.GroupQueryRegistry;
 
@@ -248,11 +254,11 @@ public class LibraryCommand
             bool bodyShapesSelected =
                 options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
             if (options.BodyKindQuery.HasFilter
-                && options.PerformanceTriage.HasFilters)
+                && options.PerformanceTriage.HasRanking)
             {
                 CommandError.Write(
-                    "A Body Shapes predicate cannot be combined with Performance Triage "
-                    + "filters or --order-by in one query.");
+                    "Body Shapes composition accepts Performance Triage filters, "
+                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
                 return 1;
             }
             if (options.BodyKindQuery.HasFilter
@@ -466,18 +472,16 @@ public class LibraryCommand
 
         if (trace is not null)
             trace.Verbosity = new InertString(TextPolicy.Field, options.Verbosity.ToString());
-        var scanners = discoveryInspection && !fullEffectiveDiscovery
-            ? pipeline.GetRequiredScanners(
-                Verbosity.Quiet, include: [], fixedOverview: false, trace: trace)
-            : pipeline.GetRequiredScanners(
-                options.Verbosity, discoveryExecutionScope, options.FixedOverview, trace);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (discoveryInspection)
+        {
             commandQueryDemand.AddRange(DiscoveryQueries);
+            if (options.Discover is { Length: 0 })
+                commandQueryDemand.AddRange(BareDiscoveryQueries);
+        }
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-
-        var queries = pipeline.GetRequiredQueries(
+        HashSet<InspectionQueryDefinition> sectionQueries = pipeline.GetRequiredQueries(
             discoveryInspection && !fullEffectiveDiscovery
                 ? Verbosity.Quiet
                 : options.Verbosity,
@@ -487,8 +491,23 @@ public class LibraryCommand
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
                 : options.FixedOverview,
-            trace,
-            commandQueryDemand);
+            trace);
+        if (sectionQueries.Contains(BodyShapesQuery.Definition)
+            && options.BodyKindQuery.HasFilter
+            && options.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
+
+        HashSet<InspectionQueryDefinition> queries = sectionQueries;
+        foreach ((string reason, InspectionQueryDefinition query) in commandQueryDemand)
+        {
+            queries.Add(query);
+            trace?.RecordCommandQueryDemand(reason, query);
+        }
+        trace?.RecordRequestedQueries(queries);
         var inspectionOptions = fullEffectiveDiscovery
             && options.IncludeSections is not { Count: > 0 }
             ? options with { IncludeSections = discoveryExecutionScope }
@@ -608,7 +627,7 @@ public class LibraryCommand
                         trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
-                    isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
+                    isPlatformAssembly: true,
                     queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
@@ -738,7 +757,7 @@ public class LibraryCommand
                 PackageInspectionCollection collection =
                     await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
+                    extractPath, context.HttpClient, signatureResult,
                     queries, queryRegistry, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace);
                 List<LibraryInspection> inspections =
@@ -891,7 +910,6 @@ public class LibraryCommand
                         trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
-                    scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries,                     queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
@@ -1411,8 +1429,27 @@ public class LibraryCommand
     // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category
     // members form the flat catalog; separate domains remain behind their category
     // doors even when a coordinate or other explicit input makes a member effective.
-    private static IReadOnlySet<string> EffectiveCatalogHidden(SectionPipeline<LibraryInspection> pipeline)
-        => pipeline.GetCatalogHiddenSections();
+    // Unsafe Members is the one standalone evidence section promoted by a bounded
+    // presence probe: it remains uncategorized and explicitly rendered.
+    private static IReadOnlySet<string> EffectiveCatalogHidden(
+        SectionPipeline<LibraryInspection> pipeline,
+        IReadOnlyCollection<string> effective)
+    {
+        IReadOnlySet<string> hidden =
+            pipeline.GetCatalogHiddenSections();
+        if (!effective.Contains(
+                SectionNames.UnsafeMembers,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return hidden;
+        }
+
+        return hidden
+            .Where(section => !section.Equals(
+                SectionNames.UnsafeMembers,
+                StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Rejects direct-library metadata-lens rows when a package resolved to more than one assembly.
@@ -1879,7 +1916,7 @@ public class LibraryCommand
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,
             result.SourceChecksumAlgorithm,
@@ -2262,7 +2299,7 @@ public class LibraryCommand
         return builder.ToString();
     }
 
-    private static int WriteEffectiveSections(
+    internal static int WriteEffectiveSections(
         string assemblyPath,
         LibraryInspection inspection,
         LibraryOptions options,
@@ -2279,6 +2316,14 @@ public class LibraryCommand
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
         // inspection already established from an embedded or adjacent PDB).
         inspection.HasSourceLink |= sourceLinkAvailable;
+
+        if (inspection.UnsafeEvidencePresenceError is { } presenceError)
+        {
+            CommandError.Write(
+                $"Could not determine {SectionNames.UnsafeMembers} applicability for " +
+                $"{assemblyPath}: {presenceError.Message}");
+            return 1;
+        }
 
         List<string> allEffective;
         if (fullEffectiveness)
@@ -2320,11 +2365,38 @@ public class LibraryCommand
             ? FilterSchemaToEffectiveFields(
                 inspection, allEffective, schemaMap, pipeline, allEffective.ToArray())
             : schemaMap;
+        var failureOptions = options.IncludeSections is not { Count: > 0 }
+            && effectivenessScope is { Count: > 0 }
+                ? options with { IncludeSections = effectivenessScope }
+                : options;
+        int inspectionFailureExitCode = SelectedInspectionFailureExitCode(
+            failureOptions,
+            pipeline,
+            inspection);
         bool hasIntegrityFailure =
             inspection.SourceIntegrityMismatches is { Count: > 0 }
             || inspection.IdentifierConfusionFailure is not null;
-        if (cache && !hasIntegrityFailure)
+        if (cache && !hasIntegrityFailure && inspectionFailureExitCode == 0)
             CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
+
+        if (inspectionFailureExitCode != 0)
+        {
+            if (RejectEmptyExactSection(inspection, failureOptions, pipeline))
+            {
+                return Math.Max(
+                    inspectionFailureExitCode,
+                    IntegrityExitCode(
+                        0,
+                        reportIdentifierFailures,
+                        inspection));
+            }
+
+            WarnEmptySections(
+                [inspection],
+                failureOptions,
+                pipeline,
+                writeEmptyNote: false);
+        }
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -2335,11 +2407,11 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options);
         return Math.Max(
-            discoveryExitCode,
+            Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
                 0,
                 reportIdentifierFailures,
@@ -2348,8 +2420,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v23: failed effective inspections are no longer cached as successful catalogs.
-    private const string EffectiveCategory = "effective-v23";
+    // Bumped to v28: deterministic, non-prefetched unsafe presence changes applicability.
+    private const string EffectiveCategory = "effective-v28";
 
     static LibraryCommand()
     {
@@ -2497,7 +2569,7 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options);
     }
@@ -2658,6 +2730,15 @@ public class LibraryCommand
                    || section.Equals("Async Methods", StringComparison.OrdinalIgnoreCase);
         }
 
+        if (failureSection.Equals(
+                SectionNames.PerformanceTriage,
+                StringComparison.Ordinal))
+        {
+            return PerformanceKinds.Sections.Contains(
+                section,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
             return failureSection is "Extension Methods"
@@ -2713,9 +2794,8 @@ public class LibraryCommand
         List<string> assemblyPaths, LibraryOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
-        HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
         HashSet<InspectionQueryDefinition>? queries = null,
-        InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
+        InspectionQueryRegistry<InspectionQueryContext>? queryRegistry = null,
         AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
@@ -2743,8 +2823,6 @@ public class LibraryCommand
                     packageName,
                     version,
                     httpClient,
-                    scanners: scanners,
-                    scannerRegistry: scannerRegistry,
                     queries: queries,
                     queryRegistry: queryRegistry,
                     assemblyReference:

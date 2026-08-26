@@ -6,7 +6,9 @@ public class MemberTargetResolverTests
     [InlineData("Name", "Name", null, null, null, null)]
     [InlineData("Name:2", "Name", 2, null, null, null)]
     [InlineData("Name~abc123", "Name", null, "abc123", null, null)]
+    [InlineData("Name~abc123:2", "Name", 2, "abc123", null, null)]
     [InlineData("M<T>", "M", null, null, null, 1)]
+    [InlineData("M`1", "M", null, null, null, 1)]
     [InlineData("M<TKey,TValue>:3", "M", 3, null, null, 2)]
     [InlineData(".ctor", ".ctor", null, null, null, null)]
     [InlineData(".cctor", ".cctor", null, null, null, null)]
@@ -28,6 +30,18 @@ public class MemberTargetResolverTests
         Assert.Equal(digest, selector.DigestPrefix);
         Assert.Equal(kind, selector.Kind);
         Assert.Equal(genericArity, selector.GenericArity);
+    }
+
+    [Theory]
+    [InlineData("Map<T><>")]
+    [InlineData("Map<<T>>")]
+    public void Parse_MalformedGenericSelectorDoesNotBroaden(
+        string malformed)
+    {
+        var selector = MemberTargetSelector.Parse(malformed);
+
+        Assert.Equal(malformed, selector.Name);
+        Assert.Null(selector.GenericArity);
     }
 
     [Fact]
@@ -205,6 +219,44 @@ public class MemberTargetResolverTests
         Assert.Equal(2, result.Target.Body!.DeclaringOverloadIndex);
         // The body token names the setter accessor, not the getter (issue #3265).
         Assert.Equal(0x06000102, result.Target.Body.MetadataToken);
+    }
+
+    [Fact]
+    public void Resolve_DigestQualifiedPropertyAccessorRoundTrips()
+    {
+        var type = CreateAccessorSurface();
+        var property = type.Members.Single(member => member.Name == "Value");
+        var digest = ApiMemberIdentity
+            .GetMemberAnchor(type, property)
+            .Fingerprint;
+        var selector = MemberTargetSelector.Parse($"Value~{digest}:2");
+
+        var result = MemberTargetResolver.Resolve(type, selector);
+
+        Assert.True(result.Found);
+        Assert.Equal($"Value~{digest}:2", selector.NormalizedSelector);
+        Assert.Equal(2, result.Target!.Body!.DeclaringOverloadIndex);
+        Assert.Equal(0x06000102, result.Target.Body.MetadataToken);
+    }
+
+    [Fact]
+    public void Resolve_DigestQualifiedMethodStillRejectsOverloadIndex()
+    {
+        var type = CreateSurface().Types[0];
+        var method = type.Members.Single(member =>
+            member.Signature == "void Run(string value)");
+        var digest = ApiMemberIdentity
+            .GetMemberAnchor(type, method)
+            .Fingerprint;
+
+        var result = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse($"Run~{digest}:1"));
+
+        Assert.False(result.Found);
+        Assert.Equal(
+            MemberTargetDiagnosticKind.ConflictingSelectors,
+            result.Diagnostic!.Kind);
     }
 
     [Fact]

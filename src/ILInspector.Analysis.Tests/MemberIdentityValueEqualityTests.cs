@@ -47,10 +47,10 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(left, right);
         Assert.Equal(left.GetHashCode(), right.GetHashCode());
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypesMatch(left, right));
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypeIdentity(left)
                 .Length < 10_000);
     }
@@ -86,6 +86,287 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(
             0,
             MeasureHashAllocations(leftGeneric));
+    }
+
+    [Fact]
+    public void TypeRefExactAndLegacySimpleNames_AgreeWithoutDelimiterInference()
+    {
+        static TypeRef Exact(params string[] segments)
+        {
+            MetadataTypeDefinitionName name =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Sample",
+                        [.. segments]))
+                .Name;
+            return TypeRef.Definition(
+                "Sample",
+                "Sample",
+                string.Join('+', segments),
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    name));
+        }
+
+        TypeRef legacy =
+            TypeRef.Definition("Sample", "Sample", "Widget");
+        TypeRef exact = Exact("Widget");
+
+        Assert.Equal(legacy, exact);
+        Assert.Equal(legacy.GetHashCode(), exact.GetHashCode());
+        Assert.Equal(
+            GenericMemberIdentity.KeyFragment(legacy),
+            GenericMemberIdentity.KeyFragment(exact));
+        Assert.Equal(
+            0,
+            MeasureEqualityAllocations(legacy, exact));
+        Assert.Equal(
+            0,
+            MeasureHashAllocations(exact));
+        Assert.NotEqual(
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Outer+Inner"),
+            Exact("Outer+Inner"));
+        Assert.NotEqual(
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Outer+Inner"),
+            Exact("Outer", "Inner"));
+
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Owner");
+        var method = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [exact],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var call = new DirectCall(
+            method,
+            new MemberRef(
+                owner,
+                "M",
+                [legacy],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0x06000001,
+            MethodDefinitionMap.Create([method]).Resolve(call));
+    }
+
+    [Fact]
+    public void MethodDefinitionMap_ConversionFallbackUsesReturnType()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        TypeRef libraryAResult =
+            TypeRef.Definition("LibraryA", "Shared", "Result");
+        TypeRef libraryBResult =
+            TypeRef.Definition("LibraryB", "Shared", "Result");
+        var toLibraryA = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Explicit",
+            [owner],
+            libraryAResult,
+            0x06000001,
+            true);
+        var toLibraryB = toLibraryA with
+        {
+            ReturnType = libraryBResult,
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var libraryACall = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "op_Explicit",
+                [owner],
+                libraryAResult,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+        var libraryBCall = libraryACall with
+        {
+            Callee = libraryACall.Callee with
+            {
+                ReturnType = libraryBResult,
+            },
+            ILOffset = 1,
+            OperandToken = 0x0A000002,
+            CalleeDefinitionToken = 0x0A000002,
+        };
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create(
+                [toLibraryA, toLibraryB, caller]);
+
+        Assert.Equal(
+            toLibraryA.MetadataToken,
+            map.Resolve(libraryACall));
+        Assert.Equal(
+            toLibraryB.MetadataToken,
+            map.Resolve(libraryBCall));
+    }
+
+    [Fact]
+    public void MethodDefinitionMap_ConstructedGenericFallbackPreservesReturnAssembly()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Box`1");
+        TypeRef closedOwner =
+            TypeRef.GenericInstance(
+                owner,
+                [TypeRef.CoreLib("System", "Int32")]);
+        TypeRef libraryAResult =
+            TypeRef.Definition("LibraryA", "Shared", "Result");
+        TypeRef libraryBResult =
+            TypeRef.Definition("LibraryB", "Shared", "Result");
+        var getA = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Get",
+            [],
+            libraryAResult,
+            0x06000001,
+            true);
+        var getB = getA with
+        {
+            ReturnType = libraryBResult,
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                closedOwner,
+                "Get",
+                [],
+                libraryBResult,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            getB.MetadataToken,
+            MethodDefinitionMap.Create([getA, getB, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void MemberPattern_ConversionReturnUsesExactRetainedIdentity()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef modifierA =
+            TypeRef.Definition("LibraryA", "Shared", "Marker");
+        TypeRef modifierB =
+            TypeRef.Definition("LibraryB", "Shared", "Marker");
+        TypeRef returnA =
+            TypeRef.UnsupportedModified(
+                modifierA,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [6], [0])),
+                isRequired: true);
+        TypeRef differentModifier =
+            TypeRef.UnsupportedModified(
+                modifierB,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [6], [0])),
+                isRequired: true);
+        TypeRef differentArrayShape =
+            TypeRef.UnsupportedModified(
+                modifierA,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [7], [0])),
+                isRequired: true);
+        var conversion = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Explicit",
+            [owner],
+            returnA,
+            0x06000001,
+            true);
+        MemberPattern pattern = MemberPattern.Method(conversion);
+        MemberRef member = new(
+            owner,
+            conversion.Name,
+            conversion.ParameterTypes,
+            returnA,
+            MemberKind.Method);
+
+        Assert.True(pattern.Matches(member));
+        Assert.False(
+            pattern.Matches(
+                member with { ReturnType = differentModifier }));
+        Assert.False(
+            pattern.Matches(
+                member with { ReturnType = differentArrayShape }));
+    }
+
+    [Fact]
+    public void GenericMemberKey_DistinguishesLiteralArraySyntaxFromArrayShape()
+    {
+        static TypeRef Exact(string name)
+        {
+            MetadataTypeDefinitionName exactName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        [name]))
+                .Name;
+            return TypeRef.Definition(
+                "Sample",
+                "",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    exactName));
+        }
+
+        Assert.NotEqual(
+            GenericMemberIdentity.KeyFragment(Exact("X[]")),
+            GenericMemberIdentity.KeyFragment(
+                TypeRef.SzArray(Exact("X"))));
     }
 
     [Fact]
@@ -131,9 +412,9 @@ public class MemberIdentityValueEqualityTests
 
         Assert.Equal(versionOne, versionTwo);
         Assert.NotEqual(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypeIdentity(shared),
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .AsyncSiblingTypeIdentity(mixed));
     }
 
@@ -147,7 +428,7 @@ public class MemberIdentityValueEqualityTests
             value = TypeRef.GenericInstance(pair, [value, value]);
 
         var exception = Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(value));
         Assert.Contains(
             "output limit",
@@ -165,7 +446,7 @@ public class MemberIdentityValueEqualityTests
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
 
-        LibraryBodyAnalysisBuilder
+        LibraryBodyAsyncSiblingSignatureMatcher
             .EnsureAsyncSiblingDisplayIsBounded(member);
     }
 
@@ -181,7 +462,7 @@ public class MemberIdentityValueEqualityTests
             MemberKind.Method);
 
         Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(member));
     }
 
@@ -209,22 +490,22 @@ public class MemberIdentityValueEqualityTests
                 [1]));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypesMatch(
                 baseline,
                 differentSize));
         Assert.False(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypesMatch(
                 baseline,
                 differentLowerBound));
         Assert.NotEqual(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 baseline),
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 differentSize));
         Assert.NotEqual(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 baseline),
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypeIdentity(
                 differentLowerBound));
     }
 
@@ -236,7 +517,7 @@ public class MemberIdentityValueEqualityTests
             rank: 1_000_000);
 
         Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(array));
     }
 
@@ -248,7 +529,7 @@ public class MemberIdentityValueEqualityTests
             array = TypeRef.MdArray(array, rank: 60_000);
 
         Assert.Throws<BadImageFormatException>(
-            () => LibraryBodyAnalysisBuilder
+            () => LibraryBodyAsyncSiblingSignatureMatcher
                 .EnsureAsyncSiblingDisplayIsBounded(array));
     }
 
@@ -262,7 +543,7 @@ public class MemberIdentityValueEqualityTests
             value = TypeRef.GenericInstance(pair, [value, value]);
 
         Assert.True(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyAsyncSiblingSignatureMatcher
                 .IsSupportedAsyncSiblingType(value));
     }
 
@@ -299,7 +580,7 @@ public class MemberIdentityValueEqualityTests
                     name));
 
         Assert.False(
-            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+            LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingTypesMatch(
                 Create(assembly, literal),
                 Create(assembly, nested)));
     }

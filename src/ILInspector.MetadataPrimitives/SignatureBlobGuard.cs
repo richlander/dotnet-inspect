@@ -252,6 +252,7 @@ public static class SignatureBlobGuard
                     work,
                     depth: 1,
                     allowCdeclSentinel: kind == Kind.StandaloneMethod,
+                    requireMethodKind: false,
                     ref remainingTypeNodes);
 
             default:
@@ -264,9 +265,12 @@ public static class SignatureBlobGuard
         Stack<WorkItem> work,
         int depth,
         bool allowCdeclSentinel,
+        bool requireMethodKind,
         ref int remainingTypeNodes)
     {
         var header = blob.ReadSignatureHeader();
+        if (requireMethodKind && header.Kind != SignatureKind.Method)
+            return true;
         if (header.IsGeneric)
             blob.ReadCompressedInteger(); // generic parameter count
         int paramCount = blob.ReadCompressedInteger();
@@ -329,6 +333,12 @@ public static class SignatureBlobGuard
         ref int remainingTypeNodes)
     {
         byte code = blob.ReadByte();
+        // SRM reads type codes as compressed integers. Canonical codes are a
+        // single byte below 0x80; a multi-byte encoding such as 0x80 0x0F is
+        // PTR to SRM but a leaf here, which desynchronizes the walk and can
+        // hide a deep pointer chain inside a wide GENERICINST argument list.
+        if (code >= 0x80)
+            return true;
         switch (code)
         {
             case ElementTypeCmodReqd:
@@ -362,9 +372,15 @@ public static class SignatureBlobGuard
 
             case ElementTypeGenericInst:
             {
-                // GENERICINST (CLASS|VALUETYPE) TypeToken GenArgCount Type*
-                blob.ReadByte();       // CLASS / VALUETYPE
-                blob.ReadTypeHandle(); // generic type token
+                // GENERICINST (CLASS|VALUETYPE) TypeToken GenArgCount Type*.
+                // SRM decodes that first slot as a full Type. ECMA-335 II.23.2.12
+                // permits only CLASS or VALUETYPE there; anything else desynchronizes
+                // this walk from SRM and can smuggle a later FNPTR header or
+                // ARRAY-shape count past the dedicated bounds.
+                byte genericTypeCode = blob.ReadByte();
+                if (genericTypeCode is not (ElementTypeClass or ElementTypeValueType))
+                    return true;
+                blob.ReadTypeHandle();
                 int args = blob.ReadCompressedInteger();
                 return PushTypes(
                     work,
@@ -381,6 +397,7 @@ public static class SignatureBlobGuard
                     work,
                     depth + 1,
                     allowCdeclSentinel: false,
+                    requireMethodKind: true,
                     ref remainingTypeNodes);
 
             case ElementTypeClass:

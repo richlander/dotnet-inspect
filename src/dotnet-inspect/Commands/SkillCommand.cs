@@ -39,6 +39,7 @@ public class SkillCommand
     public static readonly IReadOnlyList<SkillEntry> Skills =
     [
         new SkillEntry("query", "dotnet-inspect.skills.query.md"),
+        new SkillEntry("package-skills", "dotnet-inspect.skills.package-skills.md"),
         new SkillEntry("private-feeds", "dotnet-inspect.skills.private-feeds.md"),
         new SkillEntry("compatibility", "dotnet-inspect.skills.compatibility.md"),
         new SkillEntry("correctness", "dotnet-inspect.skills.correctness.md"),
