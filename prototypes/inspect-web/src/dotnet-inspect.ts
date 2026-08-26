@@ -529,6 +529,7 @@ function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
 
 let spotlightCache: SpotlightCache | null = null;
 const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 const initialState = {
@@ -543,7 +544,7 @@ const initialState = {
   queryNoticeRetryAction: null,
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
-  requestedFramework: "net10.0",
+  requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -8572,7 +8573,7 @@ async function restoreInitialWorkspace() {
     ...loc,
     package: packageId,
     version: loc.version || "latest",
-    framework: loc.framework || state.requestedFramework
+    framework: loc.framework || DEFAULT_REQUESTED_FRAMEWORK
   };
   state.requestedPackage = resolvedLocation.package;
   state.requestedVersion = resolvedLocation.version;
