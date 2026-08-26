@@ -109,7 +109,11 @@ implementation methods. Constructor authentication is cached per metadata
 handle. Untrusted constructor parents are rejected before method signatures are
 decoded, and each distinct terminal assembly reference is projected once with
 its public-key blob charged once, so a type reference shared by many
-constructors cannot re-copy and re-hash an unbounded key. A separate cumulative
+constructors cannot re-copy and re-hash an unbounded key. This image's own
+assembly identity is projected once for the whole index, with its public-key
+blob charged the same way, so an assembly-qualified claim repeated across many
+kickoffs cannot re-copy and re-hash the assembly-definition key either. A
+separate cumulative
 signature-work budget charges every
 constructor, method, and TypeSpec blob that is decoded or compared. A cumulative
 name-work budget bounds both metadata names materialized while classifying
@@ -144,7 +148,13 @@ cumulative constructor-name work and reuse; and
 remaining cumulative decode and materialization paths.
 `StateMachineRelationshipIndex_ChargesUntrustedAssemblyKeyOnce` gates that an
 untrusted public key is charged, and charged once rather than once per
-constructor;
+constructor; its fixture gives several assembly-reference rows one shared key
+blob, so the blob-keyed charge set — not handle-keyed memoization — is what
+makes it pass.
+`StateMachineRelationshipIndex_ChargesOwnAssemblyKeyOnce` gates the same
+property for this image's own assembly key across repeated qualified claims:
+one arm fails if the charge is removed, the other if the projection stops being
+cached.
 `StateMachineRelationshipIndex_RejectsNamedArgumentsBeforeDecode` gates the
 value-blob preflight; and
 `StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce` gates that

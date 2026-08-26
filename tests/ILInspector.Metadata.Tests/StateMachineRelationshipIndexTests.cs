@@ -854,7 +854,10 @@ public sealed class StateMachineRelationshipIndexTests
         const int constructors = 64;
         const int keyBytes = 4_096;
         using var image = new LoadedImage(
-            BuildUntrustedAssemblyKeyImage(constructors, keyBytes));
+            BuildUntrustedAssemblyKeyImage(
+                constructors,
+                keyBytes,
+                referenceRows: 3));
 
         StateMachineRelationshipIndex index =
             StateMachineRelationshipIndex.Create(
@@ -880,6 +883,71 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.IsType<StateMachineRelationshipResult.Absent>(
             index.GetByKickoff(
                 MetadataTokens.MethodDefinitionHandle(1)));
+    }
+
+    /// <summary>
+    /// Gates that this image's own assembly public key is charged against the
+    /// name-work budget and projected at most once, however many claims carry
+    /// an assembly qualifier. The <c>false</c> arm fails if the charge is
+    /// removed, because an oversized key would then go unnoticed. The
+    /// <c>true</c> arm fails if the projection stops being cached, because
+    /// four kickoffs would then charge the key four times and exhaust a budget
+    /// that admits it twice.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void
+        StateMachineRelationshipIndex_ChargesOwnAssemblyKeyOnce(
+            bool chargedOnce)
+    {
+        const int keyBytes = 4_096;
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName:
+                    "Fixtures.Owner+Machine, StateMachineClaims",
+                additionalKickoffClaims:
+                [
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                ],
+                assemblyPublicKey: new byte[keyBytes]));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                nameWorkBudget: chargedOnce
+                    ? 2 * keyBytes
+                    : keyBytes - 1);
+
+        StateMachineRelationshipResult result =
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        if (!chargedOnce)
+        {
+            var rejected =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    result);
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.BudgetExceeded,
+                rejected.Failure.Kind);
+            return;
+        }
+
+        // Four kickoffs claiming one state-machine type is an ordinary
+        // `Duplicate` rejection. Naming that kind rather than merely excluding
+        // `BudgetExceeded` keeps the arm from passing on an unrelated failure.
+        var admitted =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                result);
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Duplicate,
+            admitted.Failure.Kind);
     }
 
     [Theory]
@@ -1254,7 +1322,8 @@ public sealed class StateMachineRelationshipIndexTests
     /// </summary>
     static byte[] BuildUntrustedAssemblyKeyImage(
         int constructors,
-        int keyBytes)
+        int keyBytes,
+        int referenceRows = 1)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1271,29 +1340,42 @@ public sealed class StateMachineRelationshipIndexTests
             default,
             default);
 
-        AssemblyReferenceHandle untrusted =
-            metadata.AddAssemblyReference(
-                metadata.GetOrAddString("Untrusted"),
-                new Version(1, 0, 0, 0),
-                default,
-                metadata.GetOrAddBlob(
-                    Enumerable.Range(0, keyBytes)
-                        .Select(value => (byte)value)
-                        .ToArray()),
-                AssemblyFlags.PublicKey,
-                default);
+        // Every reference row shares one key blob, so `GetOrAddBlob` hands
+        // back the same `BlobHandle`. Handle-keyed memoization alone cannot
+        // collapse these rows; only a blob-keyed charge set can.
+        byte[] key =
+            Enumerable.Range(0, keyBytes)
+                .Select(value => (byte)value)
+                .ToArray();
+        var untrustedRows = new AssemblyReferenceHandle[referenceRows];
+        for (int row = 0; row < referenceRows; row++)
+        {
+            untrustedRows[row] =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString($"Untrusted{row}"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    metadata.GetOrAddBlob(key),
+                    AssemblyFlags.PublicKey,
+                    default);
+        }
+
         TypeReferenceHandle systemType =
             metadata.AddTypeReference(
-                untrusted,
+                untrustedRows[0],
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Type"));
-        TypeReferenceHandle attributeType =
-            metadata.AddTypeReference(
-                untrusted,
-                metadata.GetOrAddString(
-                    "System.Runtime.CompilerServices"),
-                metadata.GetOrAddString(
-                    nameof(AsyncStateMachineAttribute)));
+        var attributeTypes = new TypeReferenceHandle[referenceRows];
+        for (int row = 0; row < referenceRows; row++)
+        {
+            attributeTypes[row] =
+                metadata.AddTypeReference(
+                    untrustedRows[row],
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString(
+                        nameof(AsyncStateMachineAttribute)));
+        }
         BlobHandle constructorSignature =
             metadata.GetOrAddBlob(
                 TypeConstructorSignature(systemType));
@@ -1333,7 +1415,7 @@ public sealed class StateMachineRelationshipIndexTests
                     bodyOffset: 0,
                     MetadataTokens.ParameterHandle(1)),
                 metadata.AddMemberReference(
-                    attributeType,
+                    attributeTypes[i % attributeTypes.Length],
                     metadata.GetOrAddString(".ctor"),
                     constructorSignature),
                 claimValue);

@@ -249,6 +249,7 @@ public sealed class StateMachineRelationshipIndex
             MetadataTypeDefinitionName,
             RejectionComponent> _claimedNameRejections = [];
         readonly Action? _rejectionWorkObserved;
+        AssemblyReferenceIdentity? _assemblyDefinition;
         long _remainingNameWork;
         long _remainingSignatureWork;
         int _work;
@@ -630,6 +631,30 @@ public sealed class StateMachineRelationshipIndex
             return true;
         }
 
+        /// <summary>
+        /// Projects this image's own assembly identity once, charging its
+        /// public-key blob against the name-work budget before the key is
+        /// copied and hashed. Both are required: the key blob is unbounded
+        /// attacker-controlled metadata, and every assembly-qualified claim
+        /// consults this identity, so an uncached projection re-copies and
+        /// re-hashes the same key once per claim.
+        /// </summary>
+        AssemblyReferenceIdentity AssemblyDefinitionIdentity()
+        {
+            if (_assemblyDefinition is { } projected)
+                return projected;
+
+            BlobHandle key =
+                _reader.GetAssemblyDefinition().PublicKey;
+            if (!key.IsNil)
+                ChargeNameWork(_reader.GetBlobReader(key).Length);
+
+            _assemblyDefinition =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    _reader);
+            return _assemblyDefinition;
+        }
+
         bool AssemblyQualificationMatches(
             AssemblyNameInfo qualification)
         {
@@ -637,8 +662,7 @@ public sealed class StateMachineRelationshipIndex
                 return false;
 
             AssemblyReferenceIdentity assembly =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    _reader);
+                AssemblyDefinitionIdentity();
             if (!string.Equals(
                     qualification.Name,
                     assembly.Name,
