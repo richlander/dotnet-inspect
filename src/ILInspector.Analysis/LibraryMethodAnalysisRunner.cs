@@ -515,6 +515,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        bool includeAsyncSiblingOpportunities = plan.Includes(
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
@@ -576,7 +578,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
             {
-                if (includeOpportunities
+                if (includeAsyncSiblingOpportunities
                     && (bodyScope is null
                         || bodyScope.Contains(
                             caller.MetadataToken))
@@ -659,7 +661,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
                                 declaredMethod.Name)
-                    || includeOpportunities
+                    || (includeOpportunities
+                        || includeAsyncSiblingOpportunities)
                         && bodyTypeScope is not null;
                 if (needsUltimateResolution)
                 {
@@ -797,14 +800,19 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.Signals = signals;
                 result.HasSignals = true;
             }
+            bool opportunityScopeSelected =
+                bodyTypeScope is null
+                || opportunityOwnershipResolved
+                    && (opportunityDeclaredMethod is null
+                        || bodyTypeScope(
+                            opportunityDeclaredMethod
+                                .DeclaringType));
             bool collectScopedOpportunities =
                 includeOpportunities
-                && (bodyTypeScope is null
-                    || opportunityOwnershipResolved
-                        && (opportunityDeclaredMethod is null
-                            || bodyTypeScope(
-                                opportunityDeclaredMethod
-                                    .DeclaringType)));
+                && opportunityScopeSelected;
+            bool collectScopedAsyncSiblingOpportunities =
+                includeAsyncSiblingOpportunities
+                && opportunityScopeSelected;
             result.ScopeExcluded =
                 includeOpportunities
                 && bodyTypeScope is not null
@@ -905,7 +913,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 }
             }
 
-            if (collectScopedOpportunities
+            if (collectScopedAsyncSiblingOpportunities
                 && opportunityOwnershipResolved)
             {
                 MethodIdentity? asyncSource = null;
