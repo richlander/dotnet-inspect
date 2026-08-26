@@ -398,6 +398,25 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveVersionPattern_PrereleaseSelectorAdmitsPrerelease()
+    {
+        SetListings(
+            "PreviewPatternPackage",
+            NuGetOrgSource,
+            "2.0.0\n2.1.0-preview.1");
+
+        string? result = await PackageExtractor.ResolveVersionPatternAsync(
+            FailingClient,
+            "PreviewPatternPackage",
+            "2.1.0-preview*",
+            [NuGetOrgSource],
+            log: null,
+            includePrerelease: false);
+
+        Assert.Equal("2.1.0-preview.1", result);
+    }
+
+    [Fact]
     public async Task GetVersions_WithCachedVersionList_ReturnsCachedValues()
     {
         var versions = "1.0.0\n1.1.0\n2.0.0";

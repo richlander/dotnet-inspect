@@ -574,6 +574,58 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(error);
     }
 
+    [Fact]
+    public async Task WildcardPrereleaseSelectorImpliesPrereleasePolicy()
+    {
+        string packageName = $"WildcardPreview{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["2.0.0", "2.1.0-preview.1"],
+                [
+                    "package",
+                    $"{packageName}@2.1.0-preview*",
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.1.0-preview.1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task WildcardVersionListingsApplyRowWindowBeforeCount(
+        string listingOption)
+    {
+        string packageName = $"WildcardRows{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["2.0.0", "2.1.0", "2.2.0"],
+                [
+                    "package",
+                    $"{packageName}@2.*",
+                    listingOption,
+                    "--rows",
+                    "1",
+                    "--count",
+                    "--columns",
+                    "Version",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
     [Theory]
     [InlineData("pinned")]
     [InlineData("latest")]

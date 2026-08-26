@@ -727,14 +727,13 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task V3BaseSourceIsNormalizedWithoutChangingSignedQuery()
+    public async Task V3CustomServiceIndexPreservesSignedQuery()
     {
-        const string BaseSource = "https://feed.example/nuget?sig=Ab%2f";
-        const string Normalized =
-            "https://feed.example/nuget/v3/index.json?sig=Ab%2f";
+        const string CustomIndex =
+            "https://feed.example/nuget?sig=Ab%2f";
         var handler = new RecordingHandler
         {
-            [Normalized] = $$"""
+            [CustomIndex] = $$"""
                 {
                   "version": "3.0.0",
                   "resources": [
@@ -751,7 +750,7 @@ public sealed class PackageSourceClientTests
         HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
-                new PackageSource("corporate", BaseSource),
+                new PackageSource("corporate", CustomIndex),
                 client);
 
         _ = Succeeded(
@@ -766,10 +765,10 @@ public sealed class PackageSourceClientTests
         await payload.Content.DisposeAsync();
 
         Assert.Equal(
-            [Normalized, Versions, Normalized, Package],
+            [CustomIndex, Versions, CustomIndex, Package],
             handler.Requested);
         Assert.Equal(
-            PackageSourceIdentity.ForProducerEndpoint(new Uri(BaseSource)),
+            PackageSourceIdentity.ForProducerEndpoint(new Uri(CustomIndex)),
             runtime.Identity);
     }
 
@@ -779,8 +778,8 @@ public sealed class PackageSourceClientTests
         "https://feed.example/v3/index.json/?sig=Ab%2f")]
     [InlineData(
         "https://feed.example/nuget//?sig=Ab%2f",
-        "https://feed.example/nuget//v3/index.json?sig=Ab%2f")]
-    public async Task V3SourceNormalizationRemovesAtMostOneTrailingSlash(
+        "https://feed.example/nuget//?sig=Ab%2f")]
+    public async Task V3SourceNormalizationPreservesCustomPaths(
         string source,
         string normalized)
     {
@@ -2017,6 +2016,40 @@ public sealed class PackageSourceClientTests
 
         Assert.Empty(result.Matches);
         Assert.Equal([normalizedIndex, SearchRequest], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3SearchPreservesCustomServiceIndexPath()
+    {
+        const string customIndex = "https://feed.example/custom";
+        var handler = new RecordingHandler
+        {
+            [customIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{SearchEndpoint}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [SearchRequest] = """{"data":[]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("custom-index", customIndex),
+                client);
+
+        PackageSearchResult result = Succeeded(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(result.Matches);
+        Assert.Equal([customIndex, SearchRequest], handler.Requested);
     }
 
     [Fact]

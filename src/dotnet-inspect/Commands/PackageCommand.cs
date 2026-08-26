@@ -511,6 +511,11 @@ public class PackageCommand
 
             if (versionQueryPattern is not null)
             {
+                bool includePatternPrerelease =
+                    options.IncludePrerelease
+                    || versionQueryPattern.Contains(
+                        '-',
+                        StringComparison.Ordinal);
                 bool MatchesPattern(string version) =>
                     version.StartsWith(
                         versionQueryPattern.Replace(
@@ -532,7 +537,7 @@ public class PackageCommand
                                 options.SourceOptions,
                                 normalizedName),
                             logger.Log,
-                            options.IncludePrerelease);
+                            includePatternPrerelease);
                     if (selected is null)
                     {
                         WriteVersionLookupFailure(
@@ -564,7 +569,7 @@ public class PackageCommand
                         await PackageExtractor.GetVersionListingsWithSourceAsync(
                             context.HttpClient,
                             normalizedName,
-                            options.IncludePrerelease,
+                            includePatternPrerelease,
                             options.IncludeUnlisted,
                             limit: null,
                             logger.Log,
@@ -603,17 +608,23 @@ public class PackageCommand
                         return 1;
                     }
 
+                    IReadOnlyList<PackageVersionSourceInfo>
+                        visibleMatchingRows =
+                            RowWindow.Apply(options.Rows, matchingRows);
                     if (LensProjection.TryProject(
                             options,
                             "--versions-with-feed",
-                            matchingRows.Count,
-                            out var patternFeedExit))
+                            visibleMatchingRows.Count,
+                            out var patternFeedExit,
+                            VersionFeedColumns(
+                                visibleMatchingRows,
+                                options)))
                     {
                         return patternFeedExit;
                     }
 
                     OutputFormatter.WriteVersionFeedTable(
-                        matchingRows,
+                        visibleMatchingRows,
                         options,
                         Console.Out);
                     return 0;
@@ -623,7 +634,7 @@ public class PackageCommand
                     await PackageExtractor.GetVersionListingsAsync(
                         context.HttpClient,
                         normalizedName,
-                        options.IncludePrerelease,
+                        includePatternPrerelease,
                         options.IncludeUnlisted,
                         limit: null,
                         logger.Log,
@@ -650,11 +661,14 @@ public class PackageCommand
                     return 1;
                 }
 
+                IReadOnlyList<PackageVersionInfo> visibleMatchingListings =
+                    RowWindow.Apply(options.Rows, matchingListings);
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
-                        matchingListings.Count,
-                        out var patternListingExit))
+                        visibleMatchingListings.Count,
+                        out var patternListingExit,
+                        VersionListingColumns(options)))
                 {
                     return patternListingExit;
                 }
@@ -662,14 +676,15 @@ public class PackageCommand
                 if (options.IncludeUnlisted)
                 {
                     OutputFormatter.WriteVersionListings(
-                        matchingListings,
+                        visibleMatchingListings,
                         options,
                         Console.Out);
                 }
                 else
                 {
                     OutputFormatter.WriteStringList(
-                        matchingListings.Select(listing => listing.Version),
+                        visibleMatchingListings.Select(
+                            listing => listing.Version),
                         "Version",
                         "Version",
                         options.Tsv,

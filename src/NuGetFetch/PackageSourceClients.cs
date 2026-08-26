@@ -418,6 +418,9 @@ public static class PackageSourceClientFactory
                 UriKind.Absolute);
         }
 
+        if (endpoint.AbsolutePath is not ("" or "/"))
+            return endpoint;
+
         return new Uri(
             $"{pathWithoutOptionalSlash}/v3/index.json{suffix}",
             UriKind.Absolute);

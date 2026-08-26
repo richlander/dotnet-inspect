@@ -2500,6 +2500,9 @@ public static class PackageExtractor
     {
         string normalizedName = packageName.ToLowerInvariant();
         string prefix = pattern.Replace("*", "");
+        bool admitPrerelease =
+            includePrerelease
+            || prefix.Contains('-', StringComparison.Ordinal);
 
         log?.Invoke($"Resolving version pattern: {pattern}");
 
@@ -2528,7 +2531,7 @@ public static class PackageExtractor
                     && NuGet.Versioning.NuGetVersion.TryParse(
                         normalizedVersion,
                         out var parsed)
-                    && (includePrerelease || !parsed.IsPrerelease)
+                    && (admitPrerelease || !parsed.IsPrerelease)
                     && (best == null || parsed > best))
                 {
                     best = parsed;
@@ -2553,7 +2556,7 @@ public static class PackageExtractor
                     && NuGet.Versioning.NuGetVersion.TryParse(
                         normalizedVersion,
                         out var parsed)
-                    && (includePrerelease || !parsed.IsPrerelease)
+                    && (admitPrerelease || !parsed.IsPrerelease)
                     && parsed == best))
             {
                 AddReporter(reporters, candidate.Source);
