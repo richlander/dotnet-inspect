@@ -13,21 +13,12 @@ namespace InspectWeb.Engine;
 [SupportedOSPlatform("browser")]
 internal sealed record BrowserWorkspaceParticipant(
     BrowserPackageCoordinate Coordinate,
-    PackageCompileAsset Asset,
-    AssemblyContextParticipant Participant)
+    PackageAssemblyRoleParticipant Realized)
 {
+    public PackageCompileAsset Asset => Realized.Asset;
+    public AssemblyContextParticipant Participant => Realized.Participant;
     public ResolvedAssemblyReference Assembly => Participant.Assembly;
 }
-
-/// <summary>
-/// One selected package asset and the exact descriptor passed to product-owned
-/// assembly-role realization.
-/// </summary>
-[SupportedOSPlatform("browser")]
-internal sealed record BrowserRoleAssembly(
-    BrowserPackageCoordinate Coordinate,
-    PackageCompileAsset Asset,
-    ResolvedAssemblyReference Assembly);
 
 /// <summary>
 /// The workspace every browser inspection runs inside: one <see cref="InspectionWorkspace"/> and
@@ -67,7 +58,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     internal const int MaxAssembliesPerRole = 256;
 
     readonly InspectionWorkspace _workspace = new();
-    readonly PackageAssemblyContextRoles _roles;
+    readonly PackageAssemblyContextRealization _realization;
     readonly BrowserWorkspaceRole _surface;
     readonly BrowserWorkspaceRole? _implementation;
 
@@ -76,67 +67,43 @@ internal sealed class BrowserInspectionScope : IDisposable
         ArgumentNullException.ThrowIfNull(coordinates);
         Coordinates = [.. coordinates];
 
-        (BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)[] surfaceAssets =
-        [
-            .. Coordinates.SelectMany(coordinate =>
-                coordinate.Selection.Assets.Select(asset => (coordinate, asset))),
-        ];
-        (BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)[] implementationAssets =
-        [
-            .. Coordinates.SelectMany(coordinate =>
-                coordinate.ImplementationAssets.Select(asset => (coordinate, asset))),
-        ];
-
-        bool shared = SameAssets(surfaceAssets, implementationAssets);
-        bool hasSeparateImplementation = !shared && implementationAssets.Length > 0;
-        long groupBudget = hasSeparateImplementation
-            ? MaxRetainedImageBytes / 2
-            : MaxRetainedImageBytes;
-        BrowserWorkspaceRole.ValidateAssets(surfaceAssets, groupBudget);
-        if (hasSeparateImplementation)
-            BrowserWorkspaceRole.ValidateAssets(implementationAssets, groupBudget);
-
-        BrowserRoleAssembly[] surfaceRole = CreateRole(surfaceAssets);
-        BrowserRoleAssembly[] implementationRole = shared
-            ? surfaceRole
-            : CreateRole(implementationAssets);
-        AssemblyContextGroupOptions roleOptions = new()
-        {
-            MaxRetainedImageBytes = groupBudget,
-        };
-
-        PackageAssemblyContextRoles? roles = null;
+        PackageAssemblyContextRealization? realization = null;
         try
         {
-            // Product construction is inside the cleanup boundary: a refused
-            // implementation role must not leave the surface group registered.
-            roles = _workspace.CreatePackageAssemblyContextRoles(
-                surfaceRole.Select(entry => entry.Assembly),
-                implementationRole.Length == 0
-                    ? null
-                    : implementationRole.Select(entry => entry.Assembly),
-                Correspondences(surfaceRole, implementationRole),
-                shareImplementationGroup: shared,
-                surfaceOptions: roleOptions,
-                implementationOptions: roleOptions);
-            _roles = roles;
+            realization = _workspace.RealizePackageAssemblyContextRoles(
+                Coordinates.Select(coordinate => coordinate.AssemblyContext),
+                new PackageAssemblyContextRealizationOptions
+                {
+                    MaxAssembliesPerRole = MaxAssembliesPerRole,
+                    MaxAggregateRetainedImageBytes = MaxRetainedImageBytes,
+                    MaxAssemblyEntryBytes = MaxRetainedImageBytes,
+                    RequireDeclaredEntryLengths = true,
+                });
+            _realization = realization;
             _surface = new BrowserWorkspaceRole(
-                roles.SurfaceGroup,
-                surfaceRole,
-                roles.SurfaceParticipants);
-            _implementation = roles.ImplementationGroup is null
+                realization.SurfaceGroup,
+                realization.SurfaceParticipants,
+                Coordinates);
+            _implementation = realization.ImplementationGroup is null
                 ? null
-                : roles.SharesGroup
+                : realization.SharesGroup
                     ? _surface
                     : new BrowserWorkspaceRole(
-                        roles.ImplementationGroup,
-                        implementationRole,
-                        roles.ImplementationParticipants);
+                        realization.ImplementationGroup,
+                        realization.ImplementationParticipants,
+                        Coordinates);
         }
-        catch
+        catch (Exception creationFailure)
         {
-            roles?.Dispose();
-            _workspace.Dispose();
+            List<Exception>? cleanupFailures = null;
+            TryDispose(realization, ref cleanupFailures);
+            TryDispose(_workspace, ref cleanupFailures);
+            if (cleanupFailures is not null)
+            {
+                throw new AggregateException(
+                    [creationFailure, .. cleanupFailures]);
+            }
+
             throw;
         }
     }
@@ -152,7 +119,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public ImmutableArray<BrowserWorkspaceParticipant> ReferenceOnlySurfaceParticipants =>
     [
         .. SurfaceParticipants.Where(participant =>
-            _roles.ImplementationParticipant(participant.Participant) is null),
+            _realization.ImplementationParticipant(participant.Realized) is null),
     ];
 
     /// <summary>
@@ -199,8 +166,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         return Coordinates.FirstOrDefault(
                 candidate => candidate.Key.Equals(requested.Key, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"{requested.PackageId} {requested.Version} {requested.Framework} is not part of "
-                + "this workspace.");
+                $"{requested.PackageId} {requested.Version} is not part of this workspace.");
     }
 
     /// <summary>The participant for one coordinate's assembly, or a visible failure.</summary>
@@ -225,14 +191,13 @@ internal sealed class BrowserInspectionScope : IDisposable
                 nameof(surfaceParticipant));
         }
 
-        AssemblyContextParticipant implementation =
-            _roles.ImplementationParticipant(surfaceParticipant.Participant)
+        PackageAssemblyRoleParticipant implementation =
+            _realization.ImplementationParticipant(surfaceParticipant.Realized)
             ?? throw new InvalidOperationException(
                 $"{surfaceParticipant.Coordinate.PackageId} "
-                + $"{surfaceParticipant.Coordinate.Version} ships "
-                + $"{surfaceParticipant.Asset.AssemblyName} for "
-                + $"{surfaceParticipant.Coordinate.Framework} as a reference assembly only.");
-        return Implementation.FindParticipant(implementation);
+                + $"{surfaceParticipant.Coordinate.Version} contains a reference assembly only "
+                + "for this participant.");
+        return Implementation.FindParticipant(implementation.Participant);
     }
 
     public void Dispose()
@@ -240,7 +205,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         Exception? roleFailure = null;
         try
         {
-            _roles.Dispose();
+            _realization.Dispose();
         }
         catch (Exception ex)
         {
@@ -263,85 +228,27 @@ internal sealed class BrowserInspectionScope : IDisposable
             ExceptionDispatchInfo.Capture(roleFailure).Throw();
     }
 
-    static BrowserRoleAssembly[] CreateRole(
-        IReadOnlyList<(
-            BrowserPackageCoordinate Coordinate,
-            PackageCompileAsset Asset)> assets)
-        =>
-        [
-            .. assets.Select(entry => new BrowserRoleAssembly(
-                entry.Coordinate,
-                entry.Asset,
-                entry.Coordinate.Package.CreateReference(
-                    entry.Asset.Path,
-                    AssemblyResolutionProvenance.Package(
-                        entry.Coordinate.PackageId,
-                        entry.Coordinate.Version,
-                        entry.Asset.TargetFramework,
-                        rid: null)))),
-        ];
-
-    static ImmutableArray<PackageAssemblyRoleCorrespondence> Correspondences(
-        IReadOnlyList<BrowserRoleAssembly> surfaces,
-        IReadOnlyList<BrowserRoleAssembly> implementations)
+    static void TryDispose(
+        IDisposable? resource,
+        ref List<Exception>? failures)
     {
-        var pairs =
-            ImmutableArray.CreateBuilder<PackageAssemblyRoleCorrespondence>();
-        foreach (BrowserRoleAssembly surface in surfaces)
+        if (resource is null)
+            return;
+
+        try
         {
-            PackageCompileAsset? implementationAsset =
-                surface.Coordinate.Selection.FindImplementationAsset(
-                    surface.Asset);
-            if (implementationAsset is null)
-                continue;
-
-            BrowserRoleAssembly? implementation =
-                implementations.FirstOrDefault(candidate =>
-                    candidate.Coordinate.Key.Equals(
-                        surface.Coordinate.Key,
-                        StringComparison.Ordinal)
-                    && candidate.Asset.Path.Equals(
-                        implementationAsset.Path,
-                        StringComparison.Ordinal));
-            if (implementation is null)
-            {
-                throw new InvalidOperationException(
-                    $"The selected implementation asset '{implementationAsset.Path}' "
-                    + "is not part of the implementation workspace role.");
-            }
-            if (!surface.Assembly.Identity.IsEquivalentTo(
-                    implementation.Assembly.Identity))
-            {
-                throw new InvalidOperationException(
-                    $"The selected reference and implementation assets for "
-                    + $"{surface.Asset.AssemblyName} have different assembly identities.");
-            }
-
-            pairs.Add(
-                new PackageAssemblyRoleCorrespondence(
-                    surface.Assembly,
-                    implementation.Assembly));
+            resource.Dispose();
         }
-
-        return pairs.ToImmutable();
+        catch (Exception ex)
+        {
+            (failures ??= []).Add(ex);
+        }
     }
 
     BrowserWorkspaceRole Implementation => _implementation
         ?? throw new InvalidOperationException(
             "The selected packages ship no managed implementation assembly for their selected "
             + "frameworks, so this operation has no method bodies to inspect.");
-
-    static bool SameAssets(
-        IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> left,
-        IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> right)
-        => left.Count == right.Count
-            && left.Zip(right).All(pair =>
-                pair.First.Coordinate.Key.Equals(
-                    pair.Second.Coordinate.Key,
-                    StringComparison.Ordinal)
-                && pair.First.Asset.Path.Equals(
-                    pair.Second.Asset.Path,
-                    StringComparison.Ordinal));
 }
 
 /// <summary>
@@ -355,78 +262,25 @@ internal sealed class BrowserWorkspaceRole
 
     public BrowserWorkspaceRole(
         AssemblyContextGroup group,
-        IReadOnlyList<BrowserRoleAssembly> assemblies,
-        ImmutableArray<AssemblyContextParticipant> participants)
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        ImmutableArray<BrowserPackageCoordinate> coordinates)
     {
         ArgumentNullException.ThrowIfNull(group);
-        ArgumentNullException.ThrowIfNull(assemblies);
-        if (assemblies.Count != participants.Length)
-        {
-            throw new ArgumentException(
-                "Browser role provenance must have one entry per product participant.",
-                nameof(assemblies));
-        }
 
         _group = group;
         Participants =
         [
-            .. assemblies.Zip(
-                participants,
-                (assembly, participant) =>
-                    new BrowserWorkspaceParticipant(
-                        assembly.Coordinate,
-                        assembly.Asset,
-                        participant)),
+            .. participants.Select(participant =>
+                new BrowserWorkspaceParticipant(
+                    coordinates.First(coordinate =>
+                        ReferenceEquals(
+                            coordinate.AssemblyContext,
+                            participant.Package)),
+                    participant)),
         ];
-        for (int index = 0; index < assemblies.Count; index++)
-        {
-            if (!ReferenceEquals(
-                    assemblies[index].Assembly,
-                    participants[index].Assembly))
-            {
-                throw new ArgumentException(
-                    "Browser role provenance must preserve product participant order.",
-                    nameof(assemblies));
-            }
-        }
     }
 
     public ImmutableArray<BrowserWorkspaceParticipant> Participants { get; }
-
-    internal static void ValidateAssets(
-        IReadOnlyList<(BrowserPackageCoordinate Coordinate, PackageCompileAsset Asset)> assets,
-        long maxRetainedImageBytes)
-    {
-        if (assets.Count > BrowserInspectionScope.MaxAssembliesPerRole)
-        {
-            throw new InvalidOperationException(
-                "The selected workspace role exceeds the browser assembly-count limit.");
-        }
-
-        long expandedBytes = 0;
-        foreach ((BrowserPackageCoordinate coordinate, PackageCompileAsset asset) in assets)
-        {
-            if (!coordinate.Package.Content.TryGetEntryLength(asset.Path, out long length))
-                throw new InvalidOperationException($"'{asset.Path}' disappeared from its package.");
-            try
-            {
-                expandedBytes = checked(expandedBytes + length);
-            }
-            catch (OverflowException ex)
-            {
-                throw new InvalidOperationException(
-                    "The selected workspace role exceeds the browser retained-image budget.",
-                    ex);
-            }
-        }
-
-        if (expandedBytes > maxRetainedImageBytes)
-        {
-            throw new InvalidOperationException(
-                "The selected workspace role exceeds the browser retained-image budget before "
-                + "assembly identity decoding.");
-        }
-    }
 
     public TResult Use<TResult>(Func<AssemblyContextGroup, TResult> query)
     {
@@ -460,8 +314,8 @@ internal sealed class BrowserWorkspaceRole
                 candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)
                 && candidate.Asset.Path.Equals(asset.Path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"{asset.Path} is not a participant in the {coordinate.PackageId} "
-                + $"{coordinate.Version} {coordinate.Framework} workspace role.");
+                $"The requested participant is not part of the {coordinate.PackageId} "
+                + $"{coordinate.Version} workspace role.");
     }
 
     public BrowserWorkspaceParticipant FindParticipant(

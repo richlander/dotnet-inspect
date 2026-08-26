@@ -13,15 +13,38 @@ public sealed record PackageAssemblyRoleCorrespondence
     public PackageAssemblyRoleCorrespondence(
         ResolvedAssemblyReference surface,
         ResolvedAssemblyReference implementation)
+        : this(
+            surface,
+            implementation,
+            requireEquivalentIdentity: true)
+    {
+    }
+
+    PackageAssemblyRoleCorrespondence(
+        ResolvedAssemblyReference surface,
+        ResolvedAssemblyReference implementation,
+        bool requireEquivalentIdentity)
     {
         ArgumentNullException.ThrowIfNull(surface);
         ArgumentNullException.ThrowIfNull(implementation);
         Surface = surface;
         Implementation = implementation;
+        RequireEquivalentIdentity = requireEquivalentIdentity;
     }
 
     public ResolvedAssemblyReference Surface { get; }
     public ResolvedAssemblyReference Implementation { get; }
+
+    internal bool RequireEquivalentIdentity { get; }
+
+    internal static PackageAssemblyRoleCorrespondence SelectedAssets(
+        ResolvedAssemblyReference surface,
+        ResolvedAssemblyReference implementation,
+        bool identitiesDecoded) =>
+        new(
+            surface,
+            implementation,
+            requireEquivalentIdentity: identitiesDecoded);
 }
 
 /// <summary>
@@ -289,7 +312,8 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                     "A surface assembly may have only one implementation correspondence.",
                     nameof(pairs));
             }
-            if (!pair.Surface.Identity.IsEquivalentTo(
+            if (pair.RequireEquivalentIdentity
+                && !pair.Surface.Identity.IsEquivalentTo(
                     pair.Implementation.Identity))
             {
                 throw new InvalidOperationException(
