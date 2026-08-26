@@ -1008,6 +1008,7 @@ public static class ApiSurfaceExtractor
                 reader,
                 methodImplementations,
                 observeDecodeWork);
+            bool isFinalizerOwner = IsFinalizerOwner(typeDef, apiType.Kind);
 
             // Getter/setter and adder/remover bodies are represented by their
             // property or event rows. Raiser and Other semantic methods have no
@@ -1054,8 +1055,7 @@ public static class ApiSurfaceExtractor
                     && (!isOwnedAccessor
                         || methodAccess != MethodAttributes.Public
                         || methodName.Contains('.', StringComparison.Ordinal));
-                var isFinalizer = apiType.Kind == "class"
-                    && IsFinalizerOwner(reader, typeDef)
+                var isFinalizer = isFinalizerOwner
                     && method.GetGenericParameters().Count == 0
                     && (objectFinalizeOverrides.Contains(methodHandle)
                         || IsImplicitObjectFinalizeOverride(
@@ -2009,6 +2009,7 @@ public static class ApiSurfaceExtractor
         var objectFinalizeOverrides = GetObjectFinalizeOverrides(
             reader,
             methodImplementations);
+        bool isFinalizerOwner = IsFinalizerOwner(typeDef, apiType.Kind);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -2020,8 +2021,7 @@ public static class ApiSurfaceExtractor
                 && (!accessorMethods.Contains(methodHandle)
                     || methodAccess != MethodAttributes.Public
                     || methodName.Contains('.', StringComparison.Ordinal));
-            bool isFinalizer = apiType.Kind == "class"
-                && IsFinalizerOwner(reader, typeDef)
+            bool isFinalizer = isFinalizerOwner
                 && method.GetGenericParameters().Count == 0
                 && (objectFinalizeOverrides.Contains(methodHandle)
                     || IsImplicitObjectFinalizeOverride(
@@ -3214,6 +3214,85 @@ public static class ApiSurfaceExtractor
         return true;
     }
 
+    private static int GetMethodImplSignatureTypeHashCode(
+        ExtensionSignatureType type)
+    {
+        var hash = new HashCode();
+        AddMethodImplSignatureTypeHashCode(ref hash, type);
+        return hash.ToHashCode();
+    }
+
+    private static void AddMethodImplSignatureTypeHashCode(
+        ref HashCode hash,
+        ExtensionSignatureType type)
+    {
+        switch (type)
+        {
+            case PrimitiveExtensionSignatureType primitive:
+                hash.Add(0);
+                hash.Add(primitive.TypeCode);
+                return;
+            case NamedExtensionSignatureType named:
+                hash.Add(1);
+                hash.Add(
+                    MetadataNamedTypeIdentityComparer.Instance.GetHashCode(
+                        named.Identity));
+                return;
+            case ArrayExtensionSignatureType array:
+                hash.Add(2);
+                hash.Add(array.Rank);
+                foreach (int size in array.Sizes)
+                    hash.Add(size);
+                foreach (int lowerBound in array.LowerBounds)
+                    hash.Add(lowerBound);
+                AddMethodImplSignatureTypeHashCode(ref hash, array.ElementType);
+                return;
+            case WrappedExtensionSignatureType wrapped:
+                hash.Add(3);
+                hash.Add(wrapped.Kind);
+                AddMethodImplSignatureTypeHashCode(ref hash, wrapped.ElementType);
+                return;
+            case GenericExtensionSignatureType generic:
+                hash.Add(4);
+                AddMethodImplSignatureTypeHashCode(ref hash, generic.GenericType);
+                hash.Add(generic.TypeArguments.Length);
+                foreach (ExtensionSignatureType argument in generic.TypeArguments)
+                    AddMethodImplSignatureTypeHashCode(ref hash, argument);
+                return;
+            case GenericParameterExtensionSignatureType parameter:
+                hash.Add(5);
+                hash.Add(parameter.IsMethodParameter);
+                hash.Add(parameter.Index);
+                return;
+            case FunctionPointerExtensionSignatureType functionPointer:
+                hash.Add(6);
+                hash.Add(functionPointer.CallingConvention);
+                hash.Add(functionPointer.Attributes);
+                hash.Add(functionPointer.GenericParameterCount);
+                hash.Add(functionPointer.RequiredParameterCount);
+                AddMethodImplSignatureTypeHashCode(
+                    ref hash,
+                    functionPointer.ReturnType);
+                foreach (ExtensionSignatureType parameterType
+                    in functionPointer.ParameterTypes)
+                {
+                    AddMethodImplSignatureTypeHashCode(ref hash, parameterType);
+                }
+                return;
+            case ModifiedExtensionSignatureType modified:
+                hash.Add(7);
+                hash.Add(modified.IsRequired);
+                AddMethodImplSignatureTypeHashCode(ref hash, modified.Modifier);
+                AddMethodImplSignatureTypeHashCode(
+                    ref hash,
+                    modified.UnmodifiedType);
+                return;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported MethodImpl signature type {type.GetType().Name}.");
+        }
+    }
+
     private static bool ExtensionParametersMatch(
         ImmutableArray<ExtensionSignatureType> implementation,
         ExtensionDecodedSignature property,
@@ -3658,6 +3737,7 @@ public static class ApiSurfaceExtractor
                                 reader,
                                 referencedType,
                                 memberReference,
+                                currentScope,
                                 beforeDecodeWork);
                             if (resolvedBody is { } localBody)
                             {
@@ -3757,6 +3837,7 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         TypeDefinitionHandle declaringType,
         MemberReference memberReference,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork)
     {
         MethodDefinitionHandle match = default;
@@ -3772,6 +3853,7 @@ public static class ApiSurfaceExtractor
                     reader,
                     candidate,
                     memberReference,
+                    currentScope,
                     beforeDecodeWork))
             {
                 continue;
@@ -3789,17 +3871,20 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         MethodDefinition method,
         MemberReference memberReference,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork)
     {
         MethodSignatureIdentity? methodIdentity =
             TryGetMethodSignatureIdentity(
                 reader,
                 method,
+                currentScope,
                 beforeDecodeWork);
         MethodSignatureIdentity? memberReferenceIdentity =
             TryGetMethodSignatureIdentity(
                 reader,
                 memberReference,
+                currentScope,
                 beforeDecodeWork);
         return methodIdentity is not null
             && methodIdentity.Equals(memberReferenceIdentity);
@@ -3825,6 +3910,7 @@ public static class ApiSurfaceExtractor
                 signature = TryGetMethodSignatureIdentity(
                     reader,
                     method,
+                    currentScope,
                     beforeDecodeWork);
                 break;
             case HandleKind.MemberReference:
@@ -3838,6 +3924,7 @@ public static class ApiSurfaceExtractor
                 signature = TryGetMethodSignatureIdentity(
                     reader,
                     memberReference,
+                    currentScope,
                     beforeDecodeWork);
                 break;
             default:
@@ -3852,11 +3939,12 @@ public static class ApiSurfaceExtractor
         if (typeIdentity is null || signature is null)
             return null;
 
-        string? constructedTypeIdentity = declaringType.Kind
+        ExtensionSignatureType? constructedTypeIdentity = declaringType.Kind
             == HandleKind.TypeSpecification
             ? TryGetTypeStructuralIdentity(
                 reader,
                 (TypeSpecificationHandle)declaringType,
+                currentScope,
                 beforeDecodeWork)
             : null;
         if (declaringType.Kind == HandleKind.TypeSpecification
@@ -3872,23 +3960,26 @@ public static class ApiSurfaceExtractor
             signature);
     }
 
-    private static string? TryGetTypeStructuralIdentity(
+    private static ExtensionSignatureType? TryGetTypeStructuralIdentity(
         MetadataReader reader,
         TypeSpecificationHandle type,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork)
     {
-        var node = GuardedProviderDecode.TypeSpec(
+        return GuardedProviderDecode.TypeSpec(
             reader,
             type,
-            new TypeNodeProvider(beforeMaterialize: beforeDecodeWork),
+            new ExtensionSignatureTypeProvider(
+                currentScope,
+                beforeDecodeWork),
             context: null,
-            (TypeNode)new DegradedTypeNode());
-        return node.IsDegraded ? null : node.StructuralIdentity();
+            fallback: null);
     }
 
     private static MethodSignatureIdentity? TryGetMethodSignatureIdentity(
         MetadataReader reader,
         MethodDefinition method,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork)
     {
         if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
@@ -3901,14 +3992,15 @@ public static class ApiSurfaceExtractor
 
         try
         {
-            MethodSignature<TypeNode> signature =
+            MethodSignature<ExtensionSignatureType?> signature =
                 GuardedProviderDecode.Method(
                     reader,
                     method,
-                    new TypeNodeProvider(
-                        beforeMaterialize: beforeDecodeWork),
+                    new ExtensionSignatureTypeProvider(
+                        currentScope,
+                        beforeDecodeWork),
                     context: null,
-                    (TypeNode)new DegradedTypeNode());
+                    fallbackReturn: null);
             return CreateMethodSignatureIdentity(signature);
         }
         catch (Exception ex) when (
@@ -3924,6 +4016,7 @@ public static class ApiSurfaceExtractor
     private static MethodSignatureIdentity? TryGetMethodSignatureIdentity(
         MetadataReader reader,
         MemberReference memberReference,
+        MetadataTypeScope? currentScope,
         Action<int>? beforeDecodeWork)
     {
         if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
@@ -3936,14 +4029,15 @@ public static class ApiSurfaceExtractor
 
         try
         {
-            MethodSignature<TypeNode> signature =
+            MethodSignature<ExtensionSignatureType?> signature =
                 GuardedProviderDecode.MemberRefMethod(
                     reader,
                     memberReference,
-                    new TypeNodeProvider(
-                        beforeMaterialize: beforeDecodeWork),
+                    new ExtensionSignatureTypeProvider(
+                        currentScope,
+                        beforeDecodeWork),
                     context: null,
-                    (TypeNode)new DegradedTypeNode());
+                    fallbackReturn: null);
             return CreateMethodSignatureIdentity(signature);
         }
         catch (Exception ex) when (
@@ -3957,10 +4051,10 @@ public static class ApiSurfaceExtractor
     }
 
     private static MethodSignatureIdentity? CreateMethodSignatureIdentity(
-        MethodSignature<TypeNode> signature)
+        MethodSignature<ExtensionSignatureType?> signature)
     {
-        if (signature.ReturnType.IsDegraded
-            || signature.ParameterTypes.Any(static type => type.IsDegraded))
+        if (signature.ReturnType is null
+            || signature.ParameterTypes.Any(static type => type is null))
         {
             return null;
         }
@@ -3969,9 +4063,9 @@ public static class ApiSurfaceExtractor
             signature.Header.RawValue,
             signature.GenericParameterCount,
             signature.RequiredParameterCount,
-            signature.ReturnType.StructuralIdentity(),
+            signature.ReturnType,
             [.. signature.ParameterTypes.Select(
-                static parameter => parameter.StructuralIdentity())]);
+                static parameter => parameter!)]);
     }
 
     private sealed class MethodSignatureIdentity : IEquatable<MethodSignatureIdentity>
@@ -3982,8 +4076,8 @@ public static class ApiSurfaceExtractor
             byte header,
             int genericParameterCount,
             int requiredParameterCount,
-            string returnType,
-            string[] parameterTypes)
+            ExtensionSignatureType returnType,
+            ExtensionSignatureType[] parameterTypes)
         {
             Header = header;
             GenericParameterCount = genericParameterCount;
@@ -3994,17 +4088,17 @@ public static class ApiSurfaceExtractor
             hash.Add(header);
             hash.Add(genericParameterCount);
             hash.Add(requiredParameterCount);
-            hash.Add(returnType, StringComparer.Ordinal);
-            foreach (string parameterType in parameterTypes)
-                hash.Add(parameterType, StringComparer.Ordinal);
+            hash.Add(GetMethodImplSignatureTypeHashCode(returnType));
+            foreach (ExtensionSignatureType parameterType in parameterTypes)
+                hash.Add(GetMethodImplSignatureTypeHashCode(parameterType));
             _hashCode = hash.ToHashCode();
         }
 
         internal byte Header { get; }
         internal int GenericParameterCount { get; }
         internal int RequiredParameterCount { get; }
-        internal string ReturnType { get; }
-        internal string[] ParameterTypes { get; }
+        internal ExtensionSignatureType ReturnType { get; }
+        internal ExtensionSignatureType[] ParameterTypes { get; }
 
         public bool Equals(MethodSignatureIdentity? other)
             => ReferenceEquals(this, other)
@@ -4013,13 +4107,13 @@ public static class ApiSurfaceExtractor
                     && Header == other.Header
                     && GenericParameterCount == other.GenericParameterCount
                     && RequiredParameterCount == other.RequiredParameterCount
-                    && string.Equals(
-                        ReturnType,
-                        other.ReturnType,
-                        StringComparison.Ordinal)
-                    && ParameterTypes.SequenceEqual(
+                    && MethodImplSignatureTypesEqual(ReturnType, other.ReturnType)
+                    && ParameterTypes.Length == other.ParameterTypes.Length
+                    && ParameterTypes.Zip(
                         other.ParameterTypes,
-                        StringComparer.Ordinal);
+                        static (left, right) =>
+                            MethodImplSignatureTypesEqual(left, right))
+                        .All(static equal => equal);
 
         public override bool Equals(object? obj)
             => Equals(obj as MethodSignatureIdentity);
@@ -4034,7 +4128,7 @@ public static class ApiSurfaceExtractor
 
         internal MethodImplementationDeclarationIdentity(
             MetadataNamedTypeIdentity declaringType,
-            string? constructedTypeIdentity,
+            ExtensionSignatureType? constructedTypeIdentity,
             string name,
             MethodSignatureIdentity signature)
         {
@@ -4046,14 +4140,18 @@ public static class ApiSurfaceExtractor
             hash.Add(
                 MetadataNamedTypeIdentityComparer.Instance.GetHashCode(
                     declaringType));
-            hash.Add(constructedTypeIdentity, StringComparer.Ordinal);
+            hash.Add(
+                constructedTypeIdentity is null
+                    ? 0
+                    : GetMethodImplSignatureTypeHashCode(
+                        constructedTypeIdentity));
             hash.Add(name, StringComparer.Ordinal);
             hash.Add(signature);
             _hashCode = hash.ToHashCode();
         }
 
         internal MetadataNamedTypeIdentity DeclaringType { get; }
-        internal string? ConstructedTypeIdentity { get; }
+        internal ExtensionSignatureType? ConstructedTypeIdentity { get; }
         internal string Name { get; }
         internal MethodSignatureIdentity Signature { get; }
 
@@ -4064,10 +4162,12 @@ public static class ApiSurfaceExtractor
                     && MetadataNamedTypeIdentityComparer.Instance.Equals(
                         DeclaringType,
                         other.DeclaringType)
-                    && string.Equals(
-                        ConstructedTypeIdentity,
-                        other.ConstructedTypeIdentity,
-                        StringComparison.Ordinal)
+                    && (ConstructedTypeIdentity is null
+                        ? other.ConstructedTypeIdentity is null
+                        : other.ConstructedTypeIdentity is not null
+                        && MethodImplSignatureTypesEqual(
+                            ConstructedTypeIdentity,
+                            other.ConstructedTypeIdentity))
                     && string.Equals(Name, other.Name, StringComparison.Ordinal)
                     && Signature.Equals(other.Signature);
 
@@ -4104,6 +4204,8 @@ public static class ApiSurfaceExtractor
     {
         private readonly object _gate = new();
         private readonly ApiSurface _failures = new();
+        private readonly Dictionary<TypeDefinitionHandle, bool>
+            _finalizerOwners = [];
         private Dictionary<
             MetadataNamedTypeIdentity,
             TypeDefinitionHandle?> _localTypes = [];
@@ -4113,62 +4215,112 @@ public static class ApiSurfaceExtractor
         private MetadataTypeScope? _currentScope;
         private bool _initialized;
 
-        internal IReadOnlyList<OwnedMethodImplementation> Get(
+        internal bool IsFinalizerMethod(
+            MetadataReader reader,
+            MethodDefinitionHandle methodHandle)
+        {
+            lock (_gate)
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                if (!IsFinalizerBodyShape(reader, method))
+                {
+                    return false;
+                }
+
+                TypeDefinitionHandle typeHandle = method.GetDeclaringType();
+                TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+                EnsureInitialized(reader);
+                if (!_finalizerOwners.TryGetValue(
+                        typeHandle,
+                        out bool isFinalizerOwner))
+                {
+                    isFinalizerOwner = IsFinalizerOwner(reader, type);
+                    _finalizerOwners.Add(typeHandle, isFinalizerOwner);
+                }
+                if (!isFinalizerOwner)
+                {
+                    return false;
+                }
+
+                foreach (OwnedMethodImplementation implementation
+                    in GetImplementations(reader, typeHandle, type))
+                {
+                    if (implementation.Body == methodHandle
+                        && ReferencesObjectFinalize(
+                            reader,
+                            implementation.Declaration))
+                    {
+                        return true;
+                    }
+                }
+
+                // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
+                return IsImplicitObjectFinalizeOverride(
+                    reader,
+                    typeHandle,
+                    method,
+                    _currentScope,
+                    _localTypes);
+            }
+        }
+
+        IReadOnlyList<OwnedMethodImplementation> GetImplementations(
             MetadataReader reader,
             TypeDefinitionHandle typeHandle,
             TypeDefinition type)
         {
-            lock (_gate)
+            if (_implementations.TryGetValue(
+                    typeHandle,
+                    out IReadOnlyList<OwnedMethodImplementation>? cached))
             {
-                if (_implementations.TryGetValue(
+                return cached;
+            }
+
+            IReadOnlyList<OwnedMethodImplementation> implementations =
+                _currentScope is null
+                    ? []
+                    : ReadOwnedMethodImplementations(
+                        reader,
                         typeHandle,
-                        out IReadOnlyList<OwnedMethodImplementation>? cached))
-                {
-                    return cached;
-                }
+                        type,
+                        _failures,
+                        budget: null,
+                        owningTypeDefinition: null,
+                        currentScope: _currentScope,
+                        localTypes: _localTypes,
+                        beforeDecodeWork: null);
+            _implementations.Add(typeHandle, implementations);
+            return implementations;
+        }
 
-                if (!_initialized)
-                {
-                    _initialized = true;
-                    try
-                    {
-                        _currentScope = CurrentScope(
-                            reader,
-                            beforeDecodeWork: null);
-                        if (_currentScope is not null)
-                        {
-                            _localTypes = LocalTypes(
-                                reader,
-                                _currentScope,
-                                _failures,
-                                budget: null);
-                        }
-                    }
-                    catch (Exception ex) when (
-                        ex is BadImageFormatException
-                            or ArgumentOutOfRangeException
-                            or OverflowException)
-                    {
-                        _currentScope = null;
-                        _localTypes = [];
-                    }
-                }
+        void EnsureInitialized(MetadataReader reader)
+        {
+            if (_initialized)
+                return;
 
-                IReadOnlyList<OwnedMethodImplementation> implementations =
-                    _currentScope is null
-                        ? []
-                        : ReadOwnedMethodImplementations(
-                            reader,
-                            typeHandle,
-                            type,
-                            _failures,
-                            budget: null,
-                            owningTypeDefinition: null,
-                            currentScope: _currentScope,
-                            localTypes: _localTypes,
-                            beforeDecodeWork: null);
-                _implementations.Add(typeHandle, implementations);
-                return implementations;
+            _initialized = true;
+            try
+            {
+                _currentScope = CurrentScope(
+                    reader,
+                    beforeDecodeWork: null);
+                if (_currentScope is not null)
+                {
+                    _localTypes = LocalTypes(
+                        reader,
+                        _currentScope,
+                        _failures,
+                        budget: null);
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                _currentScope = null;
+                _localTypes = [];
             }
         }
     }
@@ -5607,38 +5759,11 @@ public static class ApiSurfaceExtractor
     {
         try
         {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if (!IsFinalizerBodyShape(reader, method))
-                return false;
-
-            var typeHandle = method.GetDeclaringType();
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            if (!IsFinalizerOwner(reader, typeDef))
-                return false;
-            IReadOnlyList<OwnedMethodImplementation> implementations =
-                FinalizerMethodImplementationCaches
-                    .GetValue(
-                        reader,
-                        static _ => new FinalizerMethodImplementationCache())
-                    .Get(reader, typeHandle, typeDef);
-            foreach (var implementation in implementations)
-            {
-                if (implementation.Body == methodHandle
-                    && ReferencesObjectFinalize(
-                        reader,
-                        implementation.Declaration))
-                {
-                    return true;
-                }
-            }
-
-            // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
-            return IsImplicitObjectFinalizeOverride(
-                reader,
-                typeHandle,
-                method,
-                currentScope: null,
-                localTypes: null);
+            return FinalizerMethodImplementationCaches
+                .GetValue(
+                    reader,
+                    static _ => new FinalizerMethodImplementationCache())
+                .IsFinalizerMethod(reader, methodHandle);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -5648,6 +5773,12 @@ public static class ApiSurfaceExtractor
             return false;
         }
     }
+
+    private static bool IsFinalizerOwner(
+        TypeDefinition type,
+        string typeKind)
+        => (type.Attributes & TypeAttributes.Interface) == 0
+            && string.Equals(typeKind, "class", StringComparison.Ordinal);
 
     private static bool IsFinalizerOwner(
         MetadataReader reader,

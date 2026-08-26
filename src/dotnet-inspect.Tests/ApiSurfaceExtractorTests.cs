@@ -1,8 +1,11 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace DotnetInspector.Tests;
 
@@ -1751,6 +1754,25 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RejectsOwnedMemberReferenceMethodImplBodyWithUnauthenticatedSignatureScope()
+    {
+        using var stream = new MemoryStream(
+            EmitOwnedMemberReferenceMethodImplBody(
+                structuralSignature: true,
+                unauthenticatedStructuralSignatureScope: true));
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation == "method implementation body"
+                && failure.Detail.Contains(
+                    "does not identify one method",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Extract_ReportsDuplicateMethodImplDeclaration()
     {
         using var stream = new MemoryStream(
@@ -1782,6 +1804,34 @@ public class ApiSurfaceExtractorTests
                 && failure.Detail.Contains(
                     "appears more than once",
                     StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Extract_PreservesExternAliasMethodImplDeclarationsWithDistinctScopes()
+    {
+        byte[] firstContract = CompileAliasContract("ContractsOne");
+        byte[] secondContract = CompileAliasContract("ContractsTwo");
+        byte[] implementation = CompileExternAliasImplementation(
+            firstContract,
+            secondContract);
+        using var stream = new MemoryStream(implementation, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "Implementation");
+
+        Assert.Equal(
+            2,
+            type.Members.Count(
+                member => member.Kind == "explicit-interface-implementation"
+                    && member.Name.EndsWith(".Map", StringComparison.Ordinal)));
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            failure => failure.Operation == "method implementation declaration");
     }
 
     [Fact]
@@ -2514,7 +2564,8 @@ public class ApiSurfaceExtractorTests
 
     static byte[] EmitOwnedMemberReferenceMethodImplBody(
         bool structuralSignature = false,
-        bool mismatchedStructuralSignature = false)
+        bool mismatchedStructuralSignature = false,
+        bool unauthenticatedStructuralSignatureScope = false)
     {
         var metadata = CreateAdversarialMetadata("OwnedMemberRefMethodImpl");
         var objectRef = AddCoreLibraryReferences(metadata);
@@ -2554,11 +2605,13 @@ public class ApiSurfaceExtractorTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(3));
         var other = metadata.AddTypeReference(
-            default,
+            MetadataTokens.EntityHandle(0x00000001),
             default,
             metadata.GetOrAddString("Other"));
         var valueReference = metadata.AddTypeReference(
-            default,
+            unauthenticatedStructuralSignatureScope
+                ? default
+                : MetadataTokens.EntityHandle(0x00000001),
             default,
             metadata.GetOrAddString("Value"));
         var signature = metadata.GetOrAddBlob(
@@ -3418,6 +3471,89 @@ public class ApiSurfaceExtractorTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    static byte[] CompileAliasContract(string assemblyName)
+        => CompileRoslynFixture(
+            assemblyName,
+            """
+            namespace Contracts;
+
+            public sealed class Marker;
+
+            public interface IContract<T>
+            {
+                void Map(T value);
+            }
+            """,
+            TrustedPlatformReferences());
+
+    static byte[] CompileExternAliasImplementation(
+        byte[] firstContract,
+        byte[] secondContract)
+    {
+        ImmutableArray<MetadataReference> references =
+        [
+            .. TrustedPlatformReferences(),
+            MetadataReference.CreateFromImage(
+                ImmutableArray.Create(firstContract),
+                MetadataReferenceProperties.Assembly.WithAliases(
+                    ImmutableArray.Create("First"))),
+            MetadataReference.CreateFromImage(
+                ImmutableArray.Create(secondContract),
+                MetadataReferenceProperties.Assembly.WithAliases(
+                    ImmutableArray.Create("Second"))),
+        ];
+        return CompileRoslynFixture(
+            "ExternAliasImplementation",
+            """
+            extern alias First;
+            extern alias Second;
+
+            public sealed class Implementation :
+                First::Contracts.IContract<First::Contracts.Marker>,
+                Second::Contracts.IContract<Second::Contracts.Marker>
+            {
+                void First::Contracts.IContract<First::Contracts.Marker>.Map(
+                    First::Contracts.Marker value)
+                {
+                }
+
+                void Second::Contracts.IContract<Second::Contracts.Marker>.Map(
+                    Second::Contracts.Marker value)
+                {
+                }
+            }
+            """,
+            references);
+    }
+
+    static byte[] CompileRoslynFixture(
+        string assemblyName,
+        string source,
+        IEnumerable<MetadataReference> references)
+    {
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                deterministic: true));
+        using var stream = new MemoryStream();
+        var result = compilation.Emit(stream);
+        Assert.True(
+            result.Success,
+            string.Join(
+                Environment.NewLine,
+                result.Diagnostics.Select(static diagnostic => diagnostic.ToString())));
+        return stream.ToArray();
+    }
+
+    static IEnumerable<MetadataReference> TrustedPlatformReferences()
+        => ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator)
+            .Select(static path => MetadataReference.CreateFromFile(path));
 
     static byte[] VoidNullaryInstanceSignature() => [0x20, 0x00, 0x01];
     static byte[] Int32NullaryInstanceSignature() => [0x20, 0x00, 0x08];

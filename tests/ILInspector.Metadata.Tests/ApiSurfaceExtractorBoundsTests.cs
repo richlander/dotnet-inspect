@@ -200,6 +200,69 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod()
+    {
+        byte[] attack = BuildFinalizerOwnerMaterializationImage(
+            methodCount: 512,
+            baseTypeNameLength: 4_000);
+        byte[] control = BuildFinalizerOwnerMaterializationImage(
+            methodCount: 512,
+            baseTypeNameLength: 8);
+
+        AssertFinalizerOwnerAllocationScaling(
+            "Extract",
+            attack,
+            control,
+            static image => MeasureFinalizerOwnerExtraction(
+                image,
+                FinalizerOwnerExtractionEntryPoint.Extract));
+        AssertFinalizerOwnerAllocationScaling(
+            "ExtractSummary",
+            attack,
+            control,
+            static image => MeasureFinalizerOwnerExtraction(
+                image,
+                FinalizerOwnerExtractionEntryPoint.ExtractSummary));
+        AssertFinalizerOwnerAllocationScaling(
+            "ExtractBounded",
+            attack,
+            control,
+            static image => MeasureFinalizerOwnerExtraction(
+                image,
+                FinalizerOwnerExtractionEntryPoint.ExtractBounded));
+    }
+
+    [Fact]
+    public void PdbFinalizerClassifier_UsesIndexedModuleScopedLookup()
+    {
+        byte[] moduleScoped = BuildModuleScopedFinalizerImage(
+            typePairCount: 3_000);
+        byte[] assemblyReference = BuildModuleScopedFinalizerImage(
+            typePairCount: 3_000,
+            useModuleScopedBase: false);
+
+        // Warm both classifier paths before measuring the independent readers.
+        _ = MeasurePdbFinalizerClassification(moduleScoped);
+        _ = MeasurePdbFinalizerClassification(assemblyReference);
+
+        long moduleScopedAllocated =
+            MeasurePdbFinalizerClassification(moduleScoped);
+        long assemblyReferenceAllocated =
+            MeasurePdbFinalizerClassification(assemblyReference);
+
+        Assert.True(
+            moduleScopedAllocated < 32L * 1024 * 1024,
+            $"PDB module-scoped finalizer classification allocated "
+            + $"{moduleScopedAllocated:N0} bytes");
+        Assert.True(
+            moduleScopedAllocated < assemblyReferenceAllocated
+                + 12L * 1024 * 1024,
+            $"PDB module-scoped finalizer classification allocated "
+            + $"{moduleScopedAllocated:N0} bytes; the AssemblyRef control allocated "
+            + $"{assemblyReferenceAllocated:N0} bytes");
+    }
+
+    [Fact]
     public void MethodImplementationBaseChainClassification_IsBounded()
     {
         byte[] image = BuildMethodImplementationBaseChainImage(
@@ -1517,6 +1580,119 @@ public sealed class ApiSurfaceExtractorBoundsTests
             $"bounded extraction allocated {allocated:N0} bytes");
     }
 
+    static void AssertFinalizerOwnerAllocationScaling(
+        string entryPoint,
+        byte[] attack,
+        byte[] control,
+        Func<byte[], long> measure)
+    {
+        _ = measure(control);
+        long controlAllocated = measure(control);
+        long attackAllocated = measure(attack);
+
+        Assert.True(
+            attackAllocated < 8L * 1024 * 1024,
+            $"{entryPoint} finalizer-owner attack allocated "
+            + $"{attackAllocated:N0} bytes");
+        Assert.True(
+            attackAllocated < controlAllocated + 1L * 1024 * 1024,
+            $"{entryPoint} finalizer-owner attack allocated "
+            + $"{attackAllocated:N0} bytes; the close control allocated "
+            + $"{controlAllocated:N0} bytes");
+    }
+
+    static long MeasureFinalizerOwnerExtraction(
+        byte[] image,
+        FinalizerOwnerExtractionEntryPoint entryPoint)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        switch (entryPoint)
+        {
+            case FinalizerOwnerExtractionEntryPoint.Extract:
+                Assert.True(
+                    ApiSurfaceExtractor.Extract(peReader).PublicMethodCount == 512,
+                    $"{entryPoint} did not retain the test methods.");
+                break;
+            case FinalizerOwnerExtractionEntryPoint.ExtractSummary:
+                Assert.True(
+                    ApiSurfaceExtractor.ExtractSummary(peReader).PublicMethodCount == 512,
+                    $"{entryPoint} did not retain the test methods.");
+                break;
+            case FinalizerOwnerExtractionEntryPoint.ExtractBounded:
+                ApiSurfaceExtractionResult result =
+                    ApiSurfaceExtractor.ExtractBounded(
+                        peReader,
+                        ApiSurfaceExtractionScope.Public,
+                        new ApiSurfaceExtractionBounds(
+                            maxTypes: 8,
+                            maxMembers: 1_024,
+                            maxInspectionFailures: 8,
+                            maxTypeForwarders: 8,
+                            maxMetadataRows: 2_000,
+                            maxRetainedTextCharacters: 2 * 1024 * 1024));
+                switch (result)
+                {
+                    case ApiSurfaceExtractionResult.Extracted extracted:
+                        Assert.True(
+                            extracted.Surface.PublicMethodCount == 512,
+                            $"{entryPoint} did not retain the test methods.");
+                        break;
+                    case ApiSurfaceExtractionResult.Exceeded exceeded:
+                        Assert.Equal(
+                            ApiSurfaceExtractionBound.RetainedTextCharacters,
+                            exceeded.Bound);
+                        break;
+                    default:
+                        throw new Xunit.Sdk.XunitException(
+                            "Unknown bounded extraction result.");
+                }
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(entryPoint));
+        }
+
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
+    static long MeasurePdbFinalizerClassification(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle[] finalizers =
+        [
+            .. reader.TypeDefinitions
+                .SelectMany(
+                    type => reader.GetTypeDefinition(type).GetMethods())
+                .Where(
+                    handle => reader.StringComparer.Equals(
+                        reader.GetMethodDefinition(handle).Name,
+                        "Finalize")),
+        ];
+        Assert.Equal(3_000, finalizers.Length);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int classified = 0;
+        foreach (MethodDefinitionHandle finalizer in finalizers)
+        {
+            if (ApiSurfaceExtractor.IsFinalizerMethod(reader, finalizer))
+                classified++;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(finalizers.Length, classified);
+        return allocated;
+    }
+
+    enum FinalizerOwnerExtractionEntryPoint
+    {
+        Extract,
+        ExtractSummary,
+        ExtractBounded,
+    }
+
     static byte[] BuildSharedLongTypeDefinitionNameImage(
         int typeCount,
         int nameLength,
@@ -1547,7 +1723,63 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildModuleScopedFinalizerImage(int typePairCount)
+    static byte[] BuildFinalizerOwnerMaterializationImage(
+        int methodCount,
+        int baseTypeNameLength)
+    {
+        var metadata = Metadata("FinalizerOwnerMaterialization");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle longBaseType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('B', baseTypeNameLength)));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            longBaseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: false).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        for (int index = 0; index < methodCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Finalize"),
+                signatureHandle,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModuleScopedFinalizerImage(
+        int typePairCount,
+        bool useModuleScopedBase = true)
     {
         var metadata = Metadata("ModuleScopedFinalizers");
         AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
@@ -1576,10 +1808,12 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
         for (int index = 0; index < typePairCount; index++)
         {
-            TypeReferenceHandle baseType = metadata.AddTypeReference(
-                MetadataTokens.EntityHandle(0x00000001),
-                metadata.GetOrAddString("Samples"),
-                metadata.GetOrAddString($"Base{index}"));
+            EntityHandle baseType = useModuleScopedBase
+                ? metadata.AddTypeReference(
+                    MetadataTokens.EntityHandle(0x00000001),
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString($"Base{index}"))
+                : objectType;
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("Samples"),
