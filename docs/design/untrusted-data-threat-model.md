@@ -699,11 +699,33 @@ hostile four-byte count cannot become a gigabyte-scale argument array or a
 swallowed OOM. The same walk covers each named argument's
 `FieldOrPropType`, name, and value — a named SZArray count or a nested
 named array type is not left for `DecodeValue` to allocate or recurse
-on. Boxed and nested SZArray encodings are depth-bounded before
-decode so a chain of tags cannot overflow the native stack. Enum-typed
+on. Boxed and nested SZArray encodings are walked on a heap work-stack
+and depth-bounded before decode, so a chain of tags cannot overflow the
+native stack even if the policy cap moves. Signature-type skips reuse
+one work-stack per decode (`Clear` at entry) so a wide `int[][]` cannot
+allocate a stack per inner array. That reuse is structural; the path
+gate is `CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`. The
+small-stack gate is the 128 KiB
+`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
 fixed and named arguments use one shared underlying-width oracle, so a
-TypeRef that resolves to a local non-`int32` enum, or an over-deep
-`value__` field signature, cannot desynchronize later count reads.
+TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
+full name collides with an earlier row, an over-deep
+`value__` field signature, or a non-fixed-width `value__` primitive
+such as `string`, cannot desynchronize later count reads.
+`CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
+SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
+and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
+consumes a SerString rather than four enum bytes.
+A truncated value walk returns `Truncated` and stops remaining work,
+so leftover named-count bytes after a short SZArray cannot be charged
+as 65,535 named arguments. A boxed SZArray of `ENUM` consumes the
+enum-name SerString before the `Int32` count, matching SRM's
+`DecodeNamedArgumentType(isElementType: true)`, so an empty name
+cannot hide a gigabyte-scale builder behind a 9-byte blob and a
+legal boxed enum array is not dropped.
+Declared SZArray leftovers stop once the value blob is exhausted, so a
+jagged constructor signature cannot re-walk the element type once per
+unreadable slot.
 Serialized enum names are normalized the same way SRM's provider sees
 them (assembly suffix stripped, nested `+` matched to the metadata
 index). `CLASS`/`VALUETYPE` constructor parameters special-case only
@@ -777,11 +799,25 @@ pre-decoding rejection.
 `TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
 `OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
 `CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
+`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`,
+`CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`,
+`CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
 `CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
 `CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.DuplicateTypeDefEnumName_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsSafe`,
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
 `CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.LegalSystemTypeArgument_IsSafe`,
+`CustomAttributeValueGuardTests.StringTypedEnumValue_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsSafe`,
+`CustomAttributeValueGuardTests.LegalBoxedEnumArray_IsSafe`,
+`CustomAttributeValueGuardTests.LegalBoxedInt32Array_IsSafe`,
+`CustomAttributeValueGuardTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
 `CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
@@ -796,6 +832,9 @@ pre-decoding rejection.
 `SelfReferentialGenericVar_StopsBeforeStackOverflow`,
 `AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification`,
 `ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification`,
+`DottedSystemTypeTypeRef_StopsBeforeLargeAllocationAmplification`,
+`StringTypedEnumValue_StopsBeforeLargeAllocationAmplification`,
+`BoxedEnumArrayEmptyName_StopsBeforeLargeAllocationAmplification`,
 `LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity`,
 `LegalGenericCtorAttribute_HasBoundedUnboundedParity`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
