@@ -38,7 +38,8 @@ Related docs:
   package row must follow.
 - [Package source model](package-source-model.md) and
   [browser package sources](browser-package-sources.md) — own the source
-  clients and manifest acquisition `find --package-prefix` streams from.
+  clients and manifest acquisition `find --package-prefix`'s #4551 diff
+  streams from.
 - [Progressive disclosure](progressive-disclosure.md) — owns the
   capability-gated, explicit-cost pattern the promoted tier's IL evaluation
   must follow.
