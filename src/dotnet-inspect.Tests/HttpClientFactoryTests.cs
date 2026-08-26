@@ -175,19 +175,23 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public void GetPackageSourceClient_ReusesOneClientPerOrigin()
+    public void GetPackageSourceClient_IsolatesAuthenticationPerEndpoint()
     {
         HttpClient first =
             DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
                 "https://private.example/v3/index.json");
-        HttpClient sameOrigin =
+        HttpClient sameEndpoint =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://private.example/v3/index.json");
+        HttpClient differentEndpoint =
             DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
                 "https://PRIVATE.example/query");
         HttpClient differentPort =
             DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
                 "https://private.example:8443/v3/index.json");
 
-        Assert.Same(first, sameOrigin);
+        Assert.Same(first, sameEndpoint);
+        Assert.NotSame(first, differentEndpoint);
         Assert.NotSame(first, differentPort);
     }
 
@@ -203,11 +207,20 @@ public class HttpClientFactoryTests : IDisposable
             PackageSourceClientProvider.SelectTransport(
                 source,
                 HttpClientFactory.Shared);
+        var signedAlias = new NuGetFetch.PackageSource(
+            "private-signed",
+            $"{source.Url}?signature=rotated");
 
         Assert.Same(
-            DotnetInspector.Core.HttpClientFactory.GetPackageSourceTransport(
-                source.Url),
+            PackageSourceClientProvider.SelectTransport(
+                source,
+                HttpClientFactory.Shared),
             selected);
+        Assert.Same(
+            selected,
+            PackageSourceClientProvider.SelectTransport(
+                signedAlias,
+                HttpClientFactory.Shared));
         Assert.Same(
             injected,
             PackageSourceClientProvider.SelectTransport(
@@ -271,7 +284,7 @@ public class HttpClientFactoryTests : IDisposable
             PackageSourceClientProvider.SelectTransport(
                 second,
                 HttpClientFactory.Shared);
-        Assert.Same(firstClient, secondClient);
+        Assert.NotSame(firstClient, secondClient);
         using HttpResponseMessage firstResponse =
             await firstClient.GetAsync(
                 first.Url,
@@ -286,6 +299,117 @@ public class HttpClientFactoryTests : IDisposable
             "Cookie: source-a=secret",
             secondRequest,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task PackageSourceClientProvider_ReusesConnectionsAcrossPathDistinctProducers()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var first = new NuGetFetch.PackageSource(
+            "first",
+            $"http://127.0.0.1:{port}/feed-a/v3/index.json");
+        var second = new NuGetFetch.PackageSource(
+            "second",
+            $"http://127.0.0.1:{port}/feed-b/v3/index.json");
+        var requests = new List<string>();
+        Task server = Task.Run(
+            async () =>
+            {
+                using TcpClient connection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken);
+                NetworkStream stream = connection.GetStream();
+                for (int i = 0; i < 2; i++)
+                {
+                    requests.Add(
+                        await ReadHttpRequestAsync(
+                            stream,
+                            TestContext.Current.CancellationToken));
+                    await WriteHttpResponseAsync(
+                        stream,
+                        "200 OK",
+                        "",
+                        "{}",
+                        TestContext.Current.CancellationToken,
+                        closeConnection: i == 1);
+                }
+            },
+            TestContext.Current.CancellationToken);
+
+        HttpClient firstClient =
+            PackageSourceClientProvider.SelectTransport(
+                first,
+                HttpClientFactory.Shared);
+        HttpClient secondClient =
+            PackageSourceClientProvider.SelectTransport(
+                second,
+                HttpClientFactory.Shared);
+        Assert.NotSame(firstClient, secondClient);
+        using HttpResponseMessage firstResponse =
+            await firstClient.GetAsync(
+                first.Url,
+                TestContext.Current.CancellationToken);
+        using HttpResponseMessage secondResponse =
+            await secondClient.GetAsync(
+                second.Url,
+                TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.Contains("/feed-a/", requests[0], StringComparison.Ordinal);
+        Assert.Contains("/feed-b/", requests[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_IsolatesPluginCredentialsAcrossPathDistinctProducers()
+    {
+        var probe = new PluginCredentialLeakProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var first = new NuGetFetch.PackageSource(
+                "first",
+                "https://feed.example/feed-a/v3/index.json");
+            var second = new NuGetFetch.PackageSource(
+                "second",
+                "https://feed.example/feed-b/v3/index.json");
+            HttpClient firstClient =
+                PackageSourceClientProvider.SelectTransport(
+                    first,
+                    HttpClientFactory.Shared);
+            HttpClient secondClient =
+                PackageSourceClientProvider.SelectTransport(
+                    second,
+                    HttpClientFactory.Shared);
+
+            Assert.NotSame(firstClient, secondClient);
+            using HttpResponseMessage firstResponse =
+                await firstClient.GetAsync(
+                    first.Url,
+                    TestContext.Current.CancellationToken);
+            using HttpResponseMessage secondResponse =
+                await secondClient.GetAsync(
+                    second.Url,
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+            Assert.Equal(3, probe.Requests.Count);
+            Assert.Null(probe.Requests[0].Authorization);
+            Assert.Equal(
+                "dXNlcjpwYXNzd29yZA==",
+                probe.Requests[1].Authorization);
+            Assert.Null(probe.Requests[2].Authorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
     }
 
     [Fact]
@@ -712,13 +836,14 @@ public class HttpClientFactoryTests : IDisposable
         string status,
         string headers,
         string body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool closeConnection = true)
     {
         byte[] bytes = Encoding.ASCII.GetBytes(
             $"HTTP/1.1 {status}\r\n"
             + headers
             + $"Content-Length: {Encoding.ASCII.GetByteCount(body)}\r\n"
-            + "Connection: close\r\n\r\n"
+            + $"Connection: {(closeConnection ? "close" : "keep-alive")}\r\n\r\n"
             + body);
         return stream.WriteAsync(
             bytes,
@@ -767,6 +892,57 @@ public class HttpClientFactoryTests : IDisposable
                             RequestMessage = request,
                         });
             }
+        }
+    }
+
+    private sealed class PluginCredentialLeakProbe
+    {
+        internal List<(string Path, string? Authorization)> Requests { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner) =>
+            new NuGetFetch.Plugins.PluginAuthenticationHandler(
+                new StaticCredentialSource(),
+                new ProbeHandler(this, inner));
+
+        private sealed class ProbeHandler(
+            PluginCredentialLeakProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                string? authorization =
+                    request.Headers.Authorization?.Parameter;
+                owner.Requests.Add(
+                    (request.RequestUri!.AbsolutePath, authorization));
+                bool challenge =
+                    request.RequestUri.AbsolutePath.StartsWith(
+                        "/feed-a/",
+                        StringComparison.Ordinal)
+                    && authorization is null;
+                return Task.FromResult(
+                    new HttpResponseMessage(
+                        challenge
+                            ? HttpStatusCode.Unauthorized
+                            : HttpStatusCode.OK)
+                    {
+                        RequestMessage = request,
+                    });
+            }
+        }
+
+        private sealed class StaticCredentialSource :
+            NuGetFetch.Plugins.ICredentialSource
+        {
+            public bool HasCredentialSources => true;
+
+            public Task<NuGetFetch.PackageSourceCredential?> GetCredentialsAsync(
+                Uri uri,
+                bool isRetry,
+                CancellationToken cancellationToken) =>
+                Task.FromResult<NuGetFetch.PackageSourceCredential?>(
+                    new("user", "password"));
         }
     }
 

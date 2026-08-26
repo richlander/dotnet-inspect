@@ -202,7 +202,7 @@ internal static class BrowserPackageWorkspace
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
         string pendingKey =
-            $"{key}@{NuGetCache.GetSourceKey(source.Identity.Value)}";
+            $"{key}@{NuGetCache.GetSourceKey(source.Identity)}";
         if (!PendingAcquisitions.TryGetValue(
                 pendingKey,
                 out Task<AcquiredPackageSourcePayload>? pending))

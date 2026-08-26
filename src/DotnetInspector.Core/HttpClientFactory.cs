@@ -33,6 +33,8 @@ public static class HttpClientFactory
         _packageSourceClients = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
         _packageSourceTransports = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, Lazy<HttpMessageInvoker>>
+        _packageSourceConnections = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
     private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
 
@@ -132,6 +134,13 @@ public static class HttpClientFactory
                 client.Value.Dispose();
         }
         _packageSourceTransports.Clear();
+        foreach (Lazy<HttpMessageInvoker> connection in
+                 _packageSourceConnections.Values)
+        {
+            if (connection.IsValueCreated)
+                connection.Value.Dispose();
+        }
+        _packageSourceConnections.Clear();
         _networkTrafficLoggingSubscription?.Dispose();
         _networkTrafficLoggingSubscription = null;
     }
@@ -245,13 +254,16 @@ public static class HttpClientFactory
     /// package-source origin.
     /// </summary>
     /// <remarks>
-    /// Clients are shared by scheme, host, and port so package audits reuse DNS, TCP, and TLS
-    /// state without extending the private-address exception to another origin. Do not dispose
-    /// the returned client.
+    /// The stateful authentication layer is shared only by this exact source
+    /// endpoint. Its credential-free connection pool is shared by scheme,
+    /// host, and port so package audits reuse DNS, TCP, and TLS state without
+    /// extending the private-address exception to another origin. Do not
+    /// dispose the returned client.
     /// </remarks>
     public static HttpClient GetPackageSourceClient(string sourceUrl)
         => GetPackageSourceClient(
             sourceUrl,
+            ExactSourceScope(sourceUrl),
             _packageSourceClients,
             allowAutoRedirect: true);
 
@@ -262,27 +274,49 @@ public static class HttpClientFactory
     /// </summary>
     /// <remarks>Do not dispose the returned client.</remarks>
     public static HttpClient GetPackageSourceTransport(string sourceUrl)
+        => GetPackageSourceTransport(
+            sourceUrl,
+            ExactSourceScope(sourceUrl));
+
+    /// <summary>
+    /// Gets the process-lifetime cookie-free transport for one package
+    /// producer while sharing its credential-free connection pool with other
+    /// producers on the same origin.
+    /// </summary>
+    /// <param name="sourceUrl">The configured HTTP or HTTPS endpoint.</param>
+    /// <param name="producerIdentity">
+    /// The canonical producer identity that scopes stateful authentication.
+    /// </param>
+    /// <remarks>Do not dispose the returned client.</remarks>
+    public static HttpClient GetPackageSourceTransport(
+        string sourceUrl,
+        string producerIdentity)
         => GetPackageSourceClient(
             sourceUrl,
+            producerIdentity,
             _packageSourceTransports,
             allowAutoRedirect: false);
 
     private static HttpClient GetPackageSourceClient(
         string sourceUrl,
+        string authenticationScope,
         ConcurrentDictionary<string, Lazy<HttpClient>> clients,
         bool allowAutoRedirect)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(authenticationScope);
         Uri source = ParsePackageSource(sourceUrl);
         string originKey =
             $"{source.Scheme.ToLowerInvariant()}\n"
             + $"{source.IdnHost.ToLowerInvariant()}\n"
             + source.Port;
+        string clientKey = $"{originKey}\n{authenticationScope}";
         var candidate = new Lazy<HttpClient>(
-            () => CreatePackageSourceClient(
-                source.AbsoluteUri,
+            () => CreateSharedPackageSourceClient(
+                source,
+                originKey,
                 allowAutoRedirect),
             LazyThreadSafetyMode.ExecutionAndPublication);
-        return clients.GetOrAdd(originKey, candidate).Value;
+        return clients.GetOrAdd(clientKey, candidate).Value;
     }
 
     /// <summary>
@@ -301,7 +335,45 @@ public static class HttpClientFactory
         bool allowAutoRedirect)
     {
         Uri source = ParsePackageSource(sourceUrl);
+        HttpClientFactoryOptions options = _options;
+        HttpMessageHandler handler =
+            CreatePackageSourceHandler(
+                source,
+                allowAutoRedirect,
+                options);
+        return CreatePackageSourceClient(handler, options);
+    }
 
+    private static HttpClient CreateSharedPackageSourceClient(
+        Uri source,
+        string originKey,
+        bool allowAutoRedirect)
+    {
+        HttpClientFactoryOptions options = _options;
+        string connectionKey =
+            $"{(allowAutoRedirect ? "redirect" : "typed")}\n{originKey}";
+        var candidate = new Lazy<HttpMessageInvoker>(
+            () => new HttpMessageInvoker(
+                CreatePackageSourceHandler(
+                    source,
+                    allowAutoRedirect,
+                    options),
+                disposeHandler: true),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        HttpMessageInvoker connection =
+            _packageSourceConnections
+                .GetOrAdd(connectionKey, candidate)
+                .Value;
+        return CreatePackageSourceClient(
+            new SharedHttpMessageInvokerHandler(connection),
+            options);
+    }
+
+    private static HttpMessageHandler CreatePackageSourceHandler(
+        Uri source,
+        bool allowAutoRedirect,
+        HttpClientFactoryOptions options)
+    {
         string trustedHost = source.IdnHost;
         int trustedPort = source.Port;
         HttpMessageHandler handler = new SocketsHttpHandler
@@ -321,20 +393,26 @@ public static class HttpClientFactory
                     cancellationToken),
         };
 
-        if (_options.Offline)
+        if (options.Offline)
             handler = new OfflineHandler(handler);
 
         if (InfoTracker.Enabled)
             handler = new CountingHandler(handler);
 
         handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
+        return handler;
+    }
 
+    private static HttpClient CreatePackageSourceClient(
+        HttpMessageHandler handler,
+        HttpClientFactoryOptions options)
+    {
         if (_authenticationDecorator is not null)
             handler = _authenticationDecorator(handler);
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = _options.DefaultTimeout;
+        client.Timeout = options.DefaultTimeout;
         return client;
     }
 
@@ -351,6 +429,12 @@ public static class HttpClientFactory
         return source;
     }
 
+    private static string ExactSourceScope(string sourceUrl)
+    {
+        ArgumentNullException.ThrowIfNull(sourceUrl);
+        return sourceUrl.Trim();
+    }
+
     private static async ValueTask<Stream> SsrfGuardedConnectAsync(
         SocketsHttpConnectionContext context, CancellationToken cancellationToken)
         => await NetworkDestinationPolicy.ConnectAsync(
@@ -358,6 +442,20 @@ public static class HttpClientFactory
             trustedHost: null,
             trustedPort: null,
             cancellationToken).ConfigureAwait(false);
+
+    private sealed class SharedHttpMessageInvokerHandler(
+        HttpMessageInvoker invoker) : HttpMessageHandler
+    {
+        protected override HttpResponseMessage Send(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            invoker.Send(request, cancellationToken);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            invoker.SendAsync(request, cancellationToken);
+    }
 
     /// <summary>
     /// Returns true for destinations that are not globally reachable, including embedded

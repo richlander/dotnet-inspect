@@ -511,7 +511,7 @@ public static class NuGetCache
 
         byte[] digest = SHA256.HashData(
             Encoding.UTF8.GetBytes(normalized));
-        return $"u-{Convert.ToHexStringLower(digest.AsSpan(0, 16))}";
+        return $"~u-{Convert.ToHexStringLower(digest.AsSpan(0, 16))}";
     }
 
     internal static string GetRetainedArchiveFileName(
@@ -1018,7 +1018,26 @@ public static class NuGetCache
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return GetCanonicalSourceKey(normalized);
+    }
+
+    /// <summary>
+    /// Hashes an already canonical package-producer identity without applying
+    /// endpoint canonicalization a second time.
+    /// </summary>
+    /// <param name="sourceIdentity">Canonical producer identity.</param>
+    /// <returns>A short hex digest identifying the producer.</returns>
+    public static string GetSourceKey(
+        NuGetFetch.PackageSourceIdentity sourceIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(sourceIdentity);
+        return GetCanonicalSourceKey(sourceIdentity.Value);
+    }
+
+    private static string GetCanonicalSourceKey(string normalized)
+    {
+        byte[] digest = SHA256.HashData(
+            Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexStringLower(digest.AsSpan(0, 16));
     }
 

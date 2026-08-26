@@ -596,12 +596,14 @@ Package identifiers and versions used as cache path components pass
 `NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
 traversal (`..`), separators, volume qualifiers (`:`), null characters, and
 otherwise rooted values before any cache path is built. Non-ASCII package IDs
-use a fixed-width digest in product-owned cache paths, preventing byte-length
-overflow and filesystem-normalization aliases while preserving the typed ID in
-the commit marker. NuGet global-cache entries additionally admit only when
-their bounded, hardened nuspec declares the requested ID.
-`PackagePayloadAcquisitionTests.PackageCache_UnicodeCoordinatesCommitToDistinctSlots`
-and `GlobalPackageIdentityMismatch_IsIgnored`,
+use a fixed-width digest in a leading `~` namespace that the package-ID grammar
+cannot produce. This prevents byte-length overflow, filesystem-normalization
+aliases, and collision with literal digest-shaped package IDs while preserving
+the typed ID in the commit marker. NuGet global-cache entries additionally admit
+only when their bounded, hardened nuspec declares the requested ID.
+`PackagePayloadAcquisitionTests.PackageCache_UnicodeIdsUseDistinctFixedWidthComponents`,
+`PackageCache_UnicodeCoordinatesCommitToDistinctSlots`, and
+`GlobalPackageIdentityMismatch_IsIgnored`,
 `GlobalPackageMalformedIdentity_IsIgnored`, and
 `GlobalPackageOversizeIdentity_IsIgnored` gate these properties.
 Store keys (PDB cache keys and package entry paths) resolve through the shared

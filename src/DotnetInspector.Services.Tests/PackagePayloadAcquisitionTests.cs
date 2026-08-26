@@ -855,11 +855,19 @@ public sealed class PackagePayloadAcquisitionTests
         string longId = string.Concat(
             Enumerable.Repeat("日", 100));
 
-        Assert.StartsWith("u-", composed);
-        Assert.Equal(34, composed.Length);
+        Assert.StartsWith("~u-", composed);
+        Assert.Equal(35, composed.Length);
+        Assert.False(
+            NuGetFetch.PackageSourceCoordinate.IsValidPackageId(composed));
+        Assert.True(
+            NuGetFetch.PackageSourceCoordinate.IsValidPackageId(
+                composed[1..]));
+        Assert.NotEqual(
+            composed,
+            NuGetCache.GetPackageCacheIdComponent(composed[1..]));
         Assert.NotEqual(composed, decomposed);
         Assert.Equal(
-            34,
+            35,
             NuGetCache.GetPackageCacheIdComponent(longId).Length);
         Assert.Equal(
             "system.text.json",

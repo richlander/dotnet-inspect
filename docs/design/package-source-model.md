@@ -79,9 +79,11 @@ be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
 Runtime v3 clients own isolated credential-free transports rather than
 accepting a shared client or opaque caller handler. The desktop compatibility
-adapter may borrow a host-selected per-origin transport without transferring
-ownership. Their default handler
-disables cookies, default credentials, and preauthentication on desktop.
+adapter may borrow a host-selected transport without transferring ownership.
+Desktop hosts share the credential-free connection pool by origin, but place
+each stateful plugin-authentication handler in a producer-scoped client above
+that pool. Their default handler disables cookies, default credentials, and
+preauthentication on desktop.
 Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
@@ -94,6 +96,8 @@ This is gated by
 `OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
 `PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers`,
+`PackageSourceClientProvider_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+`PackageSourceClientProvider_ReusesConnectionsAcrossPathDistinctProducers`,
 `PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect`,
 `PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
@@ -107,6 +111,10 @@ This is gated by
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while
 retaining its query and fragment only in runtime transport configuration.
+An already canonical producer identity is hashed directly; it is not passed
+through endpoint canonicalization a second time. This preserves the distinction
+between a single optional trailing slash and repeated trailing slashes. The
+`ProducerKey_DistinguishesRepeatedTrailingSlashes` gate enforces that boundary.
 Payload authorization, alias collapse, cache admission, and
 realized-coordinate reload all compare that producer identity;
 transport-scoped version metadata continues to use the configured endpoint
@@ -264,9 +272,13 @@ to a source in that set and its bounded, hardened nuspec declares the requested
 package ID. Missing, ambiguous, or mismatched provenance or package identity is
 a cache miss. The payload is then requested from an authorized producer and
 cached under that producer's identity. Product-owned cache paths retain readable
-ASCII package IDs; non-ASCII IDs use a fixed-width digest component so valid
-Unicode coordinates cannot exceed filesystem component limits or alias through
-filesystem normalization. Retained archive filenames use the same component.
+ASCII package IDs; non-ASCII IDs use a fixed-width digest component under a
+leading `~` namespace that the package-ID grammar cannot produce. Valid Unicode
+coordinates therefore cannot exceed filesystem component limits, alias through
+filesystem normalization, or collide with a literal digest-shaped package ID.
+Retained archive filenames use the same component. These properties are gated
+by `PackageCache_UnicodeIdsUseDistinctFixedWidthComponents` and
+`PackageCache_UnicodeCoordinatesCommitToDistinctSlots`.
 
 When payload sources must be queried, configured local-folder feeds are
 considered before HTTP feeds, matching NuGet's documented source tiers. No

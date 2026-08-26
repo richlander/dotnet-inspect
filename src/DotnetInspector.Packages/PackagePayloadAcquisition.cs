@@ -180,7 +180,7 @@ public static class PackagePayloadAcquisition
         limits = ValidateLimits(limits);
         cancellationToken.ThrowIfCancellationRequested();
 
-        string producerKey = NuGetCache.GetSourceKey(source.Identity.Value);
+        string producerKey = NuGetCache.GetSourceKey(source.Identity);
         foreach (IPackageContent cached in store.EnumerateCached(
                      coordinate.PackageId,
                      coordinate.Version,
@@ -436,7 +436,7 @@ public static class PackagePayloadAcquisition
         }
 
         string producerKey =
-            NuGetCache.GetSourceKey(source.Identity.Value);
+            NuGetCache.GetSourceKey(source.Identity);
         PayloadAdmissionResult admission;
         try
         {

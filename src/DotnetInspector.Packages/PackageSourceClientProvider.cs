@@ -55,7 +55,9 @@ internal static class PackageSourceClientProvider
         PackageSource source,
         HttpClient client) =>
         ReferenceEquals(client, HttpClientFactory.Shared)
-            ? HttpClientFactory.GetPackageSourceTransport(source.Url)
+            ? HttpClientFactory.GetPackageSourceTransport(
+                source.Url,
+                ProducerIdentity(source.Url)?.Value ?? source.Url)
             : client;
 
     internal static NuGetFetchOptions FetchOptionsFor(HttpClient client)
@@ -75,15 +77,18 @@ internal static class PackageSourceClientProvider
     internal static string ProducerKey(string sourceUrl)
     {
         ArgumentNullException.ThrowIfNull(sourceUrl);
-        string identity =
-            Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? endpoint)
-                && endpoint.Scheme is "http" or "https"
-                    ? PackageSourceIdentity
-                        .ForProducerEndpoint(endpoint)
-                        .Value
-                    : sourceUrl;
-        return NuGetCache.GetSourceKey(identity);
+        PackageSourceIdentity? identity = ProducerIdentity(sourceUrl);
+        return identity is null
+            ? NuGetCache.GetSourceKey(sourceUrl)
+            : NuGetCache.GetSourceKey(identity);
     }
+
+    private static PackageSourceIdentity? ProducerIdentity(
+        string sourceUrl) =>
+        Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? endpoint)
+        && endpoint.Scheme is "http" or "https"
+            ? PackageSourceIdentity.ForProducerEndpoint(endpoint)
+            : null;
 
     internal static void RecordFailure(
         PackageSource source,

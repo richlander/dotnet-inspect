@@ -1202,6 +1202,16 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void ProducerKey_DistinguishesRepeatedTrailingSlashes()
+    {
+        Assert.NotEqual(
+            PackageSourceClientProvider.ProducerKey(
+                "https://pkgs.invalid/v3/index.json"),
+            PackageSourceClientProvider.ProducerKey(
+                "https://pkgs.invalid/v3/index.json//"));
+    }
+
+    [Fact]
     public void GetSourceKey_DerivesWebSourceIdentityFromTheSharedCanonicalizer()
     {
         // The cache identity and the credential-scope comparison must agree

@@ -1279,7 +1279,7 @@ internal static class BrowserPlatformWorkspace
             ArgumentNullException.ThrowIfNull(source);
             string selectedProducer = NuGetSourceResolver.SourceKey(source);
             string clientProducer =
-                NuGetCache.GetSourceKey(SourceClient.Identity.Value);
+                NuGetCache.GetSourceKey(SourceClient.Identity);
             if (!selectedProducer.Equals(
                     clientProducer,
                     StringComparison.Ordinal))
