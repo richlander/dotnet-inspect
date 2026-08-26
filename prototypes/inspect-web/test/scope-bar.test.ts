@@ -1,0 +1,276 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  bindScopeBar,
+  renderScopeBar,
+  type ScopeBarBindingActions,
+} from "../src/scope-bar.ts";
+import { fakeDom } from "./fake-dom.ts";
+
+class FakeElement {
+  readonly dataset: Record<string, string | undefined>;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(fakeDom.event());
+    }
+  }
+}
+
+class FakeRoot {
+  private readonly elements = new Map<string, FakeElement[]>();
+
+  add(selector: string, ...elements: FakeElement[]) {
+    this.elements.set(selector, elements);
+    return elements;
+  }
+
+  querySelectorAll(selector: string) {
+    return this.elements.get(selector) ?? [];
+  }
+}
+
+function recordingActions(calls: string[]): ScopeBarBindingActions {
+  return {
+    onMemberSectionSelect: value => calls.push(`member:${value}`),
+    onPackageLensSelect: value => calls.push(`package:${value}`),
+    onScopeSelect: value => calls.push(`scope:${value}`),
+    onTypeLensSelect: value => calls.push(`type:${value}`),
+  };
+}
+
+function escapeHtml(value: unknown) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+const typeLenses = [
+  ["api", "API"],
+  ["metadata", "Metadata"],
+  ["source", "Source"],
+] as const;
+
+test("package scope bindings dispatch only scope and package-lens controls", () => {
+  const root = new FakeRoot();
+  const packageScope = new FakeElement({ scope: "package" });
+  const typeScope = new FakeElement({ scope: "type" });
+  const dependencies = new FakeElement({ packageLens: "dependencies" });
+  root.add("[data-scope]", packageScope, typeScope);
+  root.add("[data-package-lens]", dependencies);
+  const calls: string[] = [];
+  bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  packageScope.dispatch("click");
+  typeScope.dispatch("click");
+  dependencies.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "scope:package",
+    "scope:type",
+    "package:dependencies",
+  ]);
+});
+
+test("type scope bindings dispatch only scope and type-lens controls", () => {
+  const root = new FakeRoot();
+  const typeScope = new FakeElement({ scope: "type" });
+  const metadata = new FakeElement({ lens: "metadata" });
+  root.add("[data-scope]", typeScope);
+  root.add("[data-lens]", metadata);
+  const calls: string[] = [];
+  bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  typeScope.dispatch("click");
+  metadata.dispatch("click");
+
+  assert.deepEqual(calls, ["scope:type", "type:metadata"]);
+});
+
+test("member scope bindings dispatch only scope and member-section controls", () => {
+  const root = new FakeRoot();
+  const memberScope = new FakeElement({ scope: "member" });
+  const facts = new FakeElement({ memberSection: "facts" });
+  root.add("[data-scope]", memberScope);
+  root.add("[data-member-section]", facts);
+  const calls: string[] = [];
+  bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  memberScope.dispatch("click");
+  facts.dispatch("click");
+
+  assert.deepEqual(calls, ["scope:member", "member:facts"]);
+});
+
+test("scope bar binding tolerates an empty strip", () => {
+  const root = new FakeRoot();
+  assert.doesNotThrow(() => bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions([])));
+});
+
+test("scope bar bindings ignore missing and unknown dataset values", () => {
+  const root = new FakeRoot();
+  root.add(
+    "[data-scope]",
+    new FakeElement(),
+    new FakeElement({ scope: "assembly" }));
+  root.add(
+    "[data-package-lens]",
+    new FakeElement(),
+    new FakeElement({ packageLens: "files" }));
+  root.add(
+    "[data-lens]",
+    new FakeElement(),
+    new FakeElement({ lens: "implementation" }));
+  root.add(
+    "[data-member-section]",
+    new FakeElement(),
+    new FakeElement({ memberSection: "history" }));
+  const calls: string[] = [];
+  bindScopeBar(
+    fakeDom.parentNode(root),
+    recordingActions(calls));
+
+  for (const selector of [
+    "[data-scope]",
+    "[data-package-lens]",
+    "[data-lens]",
+    "[data-member-section]",
+  ]) {
+    for (const element of root.querySelectorAll(selector)) {
+      element.dispatch("click");
+    }
+  }
+
+  assert.deepEqual(calls, []);
+});
+
+test("package scope marks only the package segment and the active package lens", () => {
+  const html = renderScopeBar({
+    scope: "package",
+    strip: [["overview", "Overview"], ["dependencies", "Dependencies"]],
+    activeStripId: "dependencies",
+    stripAttribute: "data-package-lens",
+    escapeHtml,
+  });
+
+  assert.match(html, /data-scope="package" role="tab" aria-selected="true"/);
+  assert.match(html, /data-scope="type" role="tab" aria-selected="false"/);
+  assert.doesNotMatch(html, /data-scope="member"/);
+  assert.match(html, /class="lens active" data-package-lens="dependencies"/);
+  assert.doesNotMatch(html, /class="lens active" data-package-lens="overview"/);
+});
+
+test("type scope marks the type segment and renders the fixed type lenses", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: typeLenses,
+    activeStripId: "api",
+    stripAttribute: "data-lens",
+    escapeHtml,
+  });
+
+  assert.match(html, /data-scope="type" role="tab" aria-selected="true"/);
+  assert.doesNotMatch(html, /data-scope="member"/);
+  assert.match(html, /class="lens active" data-lens="api"/);
+  assert.match(html, /data-lens="metadata"/);
+  assert.match(html, /data-lens="source"/);
+});
+
+test("member scope adds a member segment alongside package and type", () => {
+  const html = renderScopeBar({
+    scope: "member",
+    strip: [["overview", "Overview"], ["facts", "Facts"]],
+    activeStripId: "facts",
+    stripAttribute: "data-member-section",
+    escapeHtml,
+  });
+
+  assert.match(html, /data-scope="member" role="tab" aria-selected="true"/);
+  assert.match(html, /class="lens active" data-member-section="facts"/);
+});
+
+test("type scope can expose the first-class member segment", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: typeLenses,
+    activeStripId: "api",
+    stripAttribute: "data-lens",
+    showMemberScope: true,
+    escapeHtml,
+  });
+
+  assert.match(html, /data-scope="member" role="tab" aria-selected="false"/);
+});
+
+test("member scope names an empty filtered strip", () => {
+  const html = renderScopeBar({
+    scope: "member",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-member-section",
+    emptyStripLabel: "Filtered member list",
+    escapeHtml,
+  });
+
+  assert.match(html, /<span class="lens-context">Filtered member list<\/span>/);
+});
+
+test("lens button labels carry their keyboard shortcut index", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: typeLenses,
+    activeStripId: "api",
+    stripAttribute: "data-lens",
+    escapeHtml,
+  });
+
+  assert.match(html, /API<kbd>1<\/kbd>/);
+  assert.match(html, /Metadata<kbd>2<\/kbd>/);
+  assert.match(html, /Source<kbd>3<\/kbd>/);
+});
+
+test("lens button labels are escaped", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: [["x", '<script>alert(1)</script>']],
+    activeStripId: null,
+    stripAttribute: "data-lens",
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;/);
+});
+
+test("no strip entry is marked active when nothing matches activeStripId", () => {
+  const html = renderScopeBar({
+    scope: "package",
+    strip: [["overview", "Overview"]],
+    activeStripId: null,
+    stripAttribute: "data-package-lens",
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /class="lens active"/);
+});

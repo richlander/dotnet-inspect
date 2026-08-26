@@ -104,7 +104,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "audit", // removed command, reserved so it is not treated as an implicit package target
-        "package", "project", "library", "api", "type", "member", "diff", "timeline", "find", "vocabulary", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "api", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>
@@ -143,6 +143,7 @@ public static class ArgumentPreprocessor
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
+                && !IsFollowingOptionValue(args, i)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
             {
                 HeadLines = headN;
@@ -214,6 +215,17 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    private static bool IsFollowingOptionValue(string[] args, int index)
+    {
+        if (index == 0)
+            return false;
+
+        string precedingToken = args[index - 1];
+        string optionName = precedingToken.Split('=', 2)[0];
+        return !precedingToken.Contains('=', StringComparison.Ordinal)
+            && OptionsWithFollowingValue.Contains(optionName);
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];

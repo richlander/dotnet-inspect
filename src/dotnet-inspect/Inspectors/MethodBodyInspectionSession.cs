@@ -308,7 +308,7 @@ public sealed class MethodBodyInspectionSession
         var selected = BodyIndex.DeclaredMethods.FirstOrDefault(
             method => method.MetadataToken == targetToken);
         var pattern = selected is { } identity
-            ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
+            ? Analysis.MemberPattern.Method(identity)
             : null;
 
         var edges = ImmutableArray.CreateBuilder<CallerEdge>();

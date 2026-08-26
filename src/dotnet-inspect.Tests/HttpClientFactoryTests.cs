@@ -81,6 +81,85 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
     }
 
+    [Fact]
+    public void CreateCredentialFreeClient_HonorsTimeoutWithoutAuthentication()
+    {
+        bool authenticationAdopted = false;
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions
+            {
+                DefaultTimeout = TimeSpan.FromSeconds(7),
+            });
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            handler =>
+            {
+                authenticationAdopted = true;
+                return handler;
+            });
+        try
+        {
+            using HttpClient client = DotnetInspector.Core.HttpClientFactory
+                .CreateCredentialFreeClient();
+
+            Assert.Equal(TimeSpan.FromSeconds(7), client.Timeout);
+            Assert.False(authenticationAdopted);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+        }
+    }
+
+    [Fact]
+    public void CreateCredentialFreeHandler_DisablesDesktopAmbientStateAndRedirects()
+    {
+        using HttpMessageHandler handler = DotnetInspector.Core.HttpClientFactory
+            .CreateCredentialFreeHandler();
+        HttpMessageHandler current = handler;
+        while (current is DelegatingHandler delegating)
+            current = delegating.InnerHandler!;
+
+        HttpClientHandler transport = Assert.IsType<HttpClientHandler>(current);
+        Assert.False(transport.UseCookies);
+        Assert.False(transport.UseDefaultCredentials);
+        Assert.False(transport.PreAuthenticate);
+        Assert.False(transport.AllowAutoRedirect);
+    }
+
+    [Fact]
+    public void CredentialFreeBrowserTransportAvoidsUnsupportedHandlerConfiguration()
+    {
+        using HttpClientHandler transport = DotnetInspector.Core.HttpClientFactory
+            .CreateTransportHandler(
+                isBrowser: true,
+                includeAuthentication: false);
+
+        Assert.Equal(DecompressionMethods.None, transport.AutomaticDecompression);
+        Assert.True(transport.UseCookies);
+        Assert.True(transport.AllowAutoRedirect);
+    }
+
+    [Fact]
+    public async Task CreateCredentialFreeClient_HonorsOfflinePolicy()
+    {
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions
+            {
+                Offline = true,
+            });
+        using HttpClient client = DotnetInspector.Core.HttpClientFactory
+            .CreateCredentialFreeClient();
+
+        Exception? failure = await Record.ExceptionAsync(
+            () => client.GetAsync(
+                "https://example.test/",
+                TestContext.Current.CancellationToken));
+
+        Assert.NotNull(failure);
+        Assert.NotNull(FindOffline(failure));
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task CreateClient_CapturesOneOptionsSnapshot()
     {
@@ -234,6 +313,33 @@ public class HttpClientFactoryTests : IDisposable
         await server;
 
         Assert.Contains("Blocked request to non-public address", exception.ToString());
+    }
+
+    [Fact]
+    public async Task PackageSourceClient_AllowsConfiguredPrivateIpv6Origin()
+    {
+        Assert.True(Socket.OSSupportsIPv6);
+        using var listener =
+            new TcpListener(IPAddress.IPv6Loopback, 0);
+        listener.Start();
+        int sourcePort =
+            ((IPEndPoint)listener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://[::1]:{sourcePort}/index.json";
+        Task server = ServeHttpResponseAsync(
+            listener,
+            """{"resources":[]}""",
+            TestContext.Current.CancellationToken);
+
+        using HttpClient client =
+            DotnetInspector.Core.HttpClientFactory
+                .CreatePackageSourceClient(sourceUrl);
+        string response = await client.GetStringAsync(
+            sourceUrl,
+            TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.Equal("""{"resources":[]}""", response);
     }
 
     [Theory]

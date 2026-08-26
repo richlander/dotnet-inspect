@@ -28,6 +28,7 @@ internal static class PackageInspector
         Verbosity verbosity = Verbosity.Minimal,
         bool fetchMetadata = false,
         bool requireIdentifierMetadata = false,
+        bool verifyRidPackageAvailability = false,
         NuGetSourceOptions? sourceOptions = null)
     {
         string extractPath = resolution.ExtractPath;
@@ -54,6 +55,20 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
+                if (resolution.ToolWrapperChain.Count == 0
+                    && verifyRidPackageAvailability
+                    && cached.IsRidSpecificPointerPackage
+                    && PackageIndexCache.RequiresRidReverification(cached))
+                {
+                    await RidPackageVerifier.VerifyAsync(
+                        httpClient,
+                        cached,
+                        cached.Version ?? version,
+                        localDir: null,
+                        logger,
+                        sourceOptions);
+                }
+
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
@@ -68,6 +83,15 @@ internal static class PackageInspector
                         metadata,
                         requireIdentifierMetadata);
                 }
+                await ApplyToolWrapperClassificationAsync(
+                    cached,
+                    resolution,
+                    isLocalFile,
+                    localFilePath,
+                    httpClient,
+                    logger,
+                    verifyRidPackageAvailability,
+                    sourceOptions);
                 return cached;
             }
         }
@@ -150,7 +174,10 @@ internal static class PackageInspector
         }
 
         // Verify RID-specific packages exist (always do this for RID pointer packages)
-        if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
+        if (resolution.ToolWrapperChain.Count == 0
+            && verifyRidPackageAvailability
+            && result.IsRidSpecificPointerPackage
+            && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
             string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(localFilePath!)) : null;
             await RidPackageVerifier.VerifyAsync(
@@ -190,8 +217,174 @@ internal static class PackageInspector
                 requireIdentifierMetadata);
         }
 
+        await ApplyToolWrapperClassificationAsync(
+            result,
+            resolution,
+            isLocalFile,
+            localFilePath,
+            httpClient,
+            logger,
+            verifyRidPackageAvailability,
+            sourceOptions);
         return result;
     }
+
+    private static async Task ApplyToolWrapperClassificationAsync(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        bool isLocalFile,
+        string? localFilePath,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool verifyRidPackageAvailability,
+        NuGetSourceOptions? sourceOptions)
+    {
+        ToolWrapperPackage? wrapper = resolution.ToolWrapperChain.FirstOrDefault();
+        if (wrapper is null)
+            return;
+
+        string wrapperVersion = wrapper.Version ?? result.Version;
+        NuspecProbeResult wrapperNuspecProbe =
+            await PackageExtractor.ProbeExtractedPackageNuspecAsync(
+                wrapper.ExtractPath,
+                wrapper.PackageName,
+                wrapperVersion,
+                logger.Log).ConfigureAwait(false);
+        NuspecData? wrapperNuspec =
+            wrapperNuspecProbe is
+            {
+                Status: NuspecProbeStatus.Present,
+                Xml: { } wrapperNuspecXml,
+            }
+                ? NuspecParser.ParseContent(wrapperNuspecXml)
+                : null;
+        result.PackageTypes = wrapperNuspec?.PackageTypes;
+        result.IsToolPackage |= wrapperNuspec?.IsToolPackage == true;
+
+        string toolsDir = Path.Combine(wrapper.ExtractPath, "tools");
+        if (!Directory.Exists(toolsDir))
+            return;
+
+        var wrapperTool = new InspectionResult();
+        ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
+        if (string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
+            return;
+
+        result.IsToolPackage = true;
+        result.ManifestVersion = wrapperTool.ManifestVersion;
+        result.ToolFormat = wrapperTool.ToolFormat;
+        result.ToolCommands = wrapperTool.ToolCommands;
+        result.IsRidSpecificPointerPackage = wrapperTool.IsRidSpecificPointerPackage;
+        result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
+
+        if (verifyRidPackageAvailability
+            && result.IsRidSpecificPointerPackage
+            && result.RuntimeIdentifierPackages is { Count: > 0 })
+        {
+            IReadOnlyDictionary<string, NuspecProbeStatus> acquiredEvidence =
+                await MarkAcquiredRidPackagesAsync(
+                result,
+                resolution,
+                wrapperVersion,
+                logger.Log);
+
+            string? localDir = isLocalFile
+                ? Path.GetDirectoryName(Path.GetFullPath(localFilePath!))
+                : null;
+            await RidPackageVerifier.VerifyAsync(
+                httpClient,
+                result,
+                wrapperVersion,
+                localDir,
+                logger,
+                sourceOptions,
+                acquiredEvidence);
+        }
+    }
+
+    internal static async Task<IReadOnlyDictionary<string, NuspecProbeStatus>>
+        MarkAcquiredRidPackagesAsync(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        string? wrapperVersion,
+        Action<string>? log = null)
+    {
+        if (result.RuntimeIdentifierPackages is not { Count: > 0 })
+        {
+            return new Dictionary<string, NuspecProbeStatus>(
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        List<(
+            string ExtractPath,
+            string? PackageName,
+            string? Version)> acquiredPackages =
+            resolution.ToolWrapperChain
+                .Skip(1)
+                .Select(package => (
+                    package.ExtractPath,
+                    (string?)package.PackageName,
+                    package.Version))
+                .Append((
+                    resolution.ExtractPath,
+                    resolution.PackageName,
+                    resolution.Version))
+                .ToList();
+        HashSet<string> requestedPackageIds = result.RuntimeIdentifierPackages
+            .Select(package => package.PackageId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, NuspecProbeStatus> acquiredEvidence =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var acquired in acquiredPackages)
+        {
+            if (acquired.PackageName is not null
+                && acquired.Version is not null
+                && requestedPackageIds.Contains(acquired.PackageName)
+                && VersionsEqual(
+                    wrapperVersion,
+                    acquired.Version))
+            {
+                NuspecProbeStatus status =
+                    (await PackageExtractor.ProbeExtractedPackageNuspecAsync(
+                        acquired.ExtractPath,
+                        acquired.PackageName,
+                        acquired.Version,
+                        log).ConfigureAwait(false)).Status;
+                acquiredEvidence[acquired.PackageName] =
+                    acquiredEvidence.TryGetValue(
+                        acquired.PackageName,
+                        out NuspecProbeStatus previous)
+                        ? RidPackageVerifier.CombineEvidence(previous, status)
+                        : status;
+            }
+        }
+
+        foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
+        {
+            if (acquiredEvidence.TryGetValue(
+                    package.PackageId,
+                    out NuspecProbeStatus status)
+                && status == NuspecProbeStatus.Present)
+            {
+                package.Exists = true;
+            }
+        }
+
+        return acquiredEvidence;
+    }
+
+    private static bool VersionsEqual(string? left, string? right)
+        => PackageExtractor.TryNormalizePackageVersion(
+               left,
+               out string leftVersion)
+           && PackageExtractor.TryNormalizePackageVersion(
+               right,
+               out string rightVersion)
+           && string.Equals(
+               leftVersion,
+               rightVersion,
+               StringComparison.OrdinalIgnoreCase);
 
     private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
     {
@@ -336,6 +529,7 @@ internal static class PackageInspector
         result.VersionCount = metadata.VersionCount;
         result.PackageSize = metadata.PackageSize;
         result.IsVerified = metadata.IsVerified;
+        result.Listed = metadata.Listed;
         result.Owners = metadata.Owners;
         result.Deprecation = metadata.Deprecation;
         result.Vulnerabilities = metadata.Vulnerabilities;

@@ -1,32 +1,73 @@
+import type { BrowserAnnotatedSource } from "./inspect-web-engine.d.ts";
 import type {
   AnnotatedSourceDocument,
   AnnotatedViewState,
 } from "./annotated-source-view.ts";
 import { buildAnnotatedView, MEDIA, MEDIUM_LABELS } from "./annotated-source-view.ts";
 
-export interface AnnotatedSourceResult {
+// BrowserAnnotatedSource's "document" field is generated as `unknown` because tsbindgen doesn't
+// model the wire shape of the annotated-source document graph, only which fields are DTO
+// boundaries. AnnotatedSourceDocument (annotated-source-view.ts) is the product-owned structural
+// model of that same JSON payload, coupled to document-model.ts's runtime validation — so this
+// narrows the generated field rather than re-declaring the outer DTO shape independently.
+export type AnnotatedSourceResult = Omit<BrowserAnnotatedSource, "document"> & {
   document: AnnotatedSourceDocument;
-  provenance: string;
-  contextLimitation?: string | null;
-}
+};
+
+export type AnnotatedSourceRenderResult =
+  Omit<AnnotatedSourceResult, "contextLimitation"> & {
+    contextLimitation?: BrowserAnnotatedSource["contextLimitation"];
+  };
 
 export interface RenderAnnotatedSourceOptions {
-  result: AnnotatedSourceResult;
+  result: AnnotatedSourceRenderResult;
   media: AnnotatedViewState["media"];
   selectedFactId: AnnotatedViewState["selectedFactId"];
   selectedNodeIds: AnnotatedViewState["selectedNodeIds"];
   escapeHtml: (value: unknown) => string;
 }
 
+export interface AnnotatedSourceBindingActions {
+  onClearSelection: () => void;
+  onCopy: () => void;
+  onFactSelect: (factId: number) => void;
+  onMediumToggle: (medium: string) => void;
+  onOffsetSelect: (offset: number) => void;
+}
+
+export function bindAnnotatedSource(
+  root: ParentNode,
+  actions: AnnotatedSourceBindingActions,
+) {
+  root.querySelector("#copy-annotated")?.addEventListener(
+    "click",
+    actions.onCopy);
+  root.querySelectorAll<HTMLElement>("[data-annotated-medium]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMediumToggle(button.dataset.annotatedMedium ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-annotated-fact]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onFactSelect(Number(button.dataset.annotatedFact))));
+  root.querySelectorAll<HTMLElement>("[data-annotated-offset]").forEach(span =>
+    span.addEventListener(
+      "click",
+      () => actions.onOffsetSelect(Number(span.dataset.annotatedOffset))));
+  root.querySelector("#annotated-clear")?.addEventListener(
+    "click",
+    actions.onClearSelection);
+}
+
 export function renderAnnotatedSource(options: RenderAnnotatedSourceOptions): string {
   const { result, media, selectedFactId, selectedNodeIds, escapeHtml } = options;
   let view;
   try {
-    view = buildAnnotatedView(result.document, {
-      media,
-      selectedFactId,
-      selectedNodeIds,
-    });
+    const viewState: AnnotatedViewState = {};
+    if (media !== undefined) viewState.media = media;
+    if (selectedFactId !== undefined) viewState.selectedFactId = selectedFactId;
+    if (selectedNodeIds !== undefined) viewState.selectedNodeIds = selectedNodeIds;
+    view = buildAnnotatedView(result.document, viewState);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return `<section class="document-section empty-member-section"><h2>Annotated source document rejected</h2><p>${escapeHtml(message)}</p></section>`;

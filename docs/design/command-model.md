@@ -24,7 +24,7 @@ Use inspection commands for detailed exploration:
 | ------- | ----- |
 | `package` | Package metadata, versions, dependencies, files, TFMs. |
 | `library` | Library metadata, symbols, SourceLink, references, resources. |
-| `type`/`member` | API shape, docs, decompiled/lowered C#, SourceLink-backed original source, and IL. |
+| `type`/`member` | API shape, docs, decompiled/lowered C#, PDB-mapped source, and IL. |
 
 ### Signals
 
@@ -116,7 +116,7 @@ dotnet-inspect package Markout@0.1.4 -S Signals
 
 The following are considered stable and will not change without a major version bump:
 
-1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `depends`, `extensions`, `implements`, `cache`, `skill`
+1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `graph`, `depends`, `extensions`, `implements`, `cache`, `skill`
 2. **Input syntax**: Package references use `name@version` format
 3. **Exit codes**: Zero for success, non-zero for failure
 4. **JSON output**: Schema for `--json` output is stable per command

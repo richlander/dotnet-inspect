@@ -39,12 +39,36 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             T result = await request(requestCancellation.Token)
                 .ConfigureAwait(false);
-            ThrowIfRequestExpired(requestStarted, requestCancellation);
-            return result;
+            try
+            {
+                ThrowIfRequestExpired(
+                    requestStarted,
+                    requestCancellation);
+                return result;
+            }
+            catch
+            {
+                NuGetRejectedResult.RejectIfOwned(result);
+                throw;
+            }
         }
         catch (OperationCanceledException ex)
         {
             ThrowTranslated(ex, requestCancellation, requestStarted);
+            throw;
+        }
+        catch (NuGetMetadataBodyTimeoutException ex)
+            when (IsAnyDeadlineExpired(
+                requestStarted,
+                requestCancellation))
+        {
+            ThrowTranslated(
+                new OperationCanceledException(
+                    "NuGet metadata body deadline expired after an outer deadline.",
+                    ex,
+                    requestCancellation.Token),
+                requestCancellation,
+                requestStarted);
             throw;
         }
         catch (Exception ex)
@@ -298,6 +322,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
+            and not NuGetRegistrationResourceLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
 

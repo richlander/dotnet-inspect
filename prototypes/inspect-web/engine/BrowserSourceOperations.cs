@@ -12,7 +12,7 @@ using ILInspector.Metadata;
 using InspectWeb.Engine;
 
 [SupportedOSPlatform("browser")]
-public static partial class BrowserInspectionEngine
+public static partial class InspectionEngine
 {
     const long MiB = 1024L * 1024;
     static readonly SymbolAcquisitionLimits SourceSymbolLimits =
@@ -31,7 +31,7 @@ public static partial class BrowserInspectionEngine
         BrowserSourceOperationCoordinator.CancelCurrent();
 
     [JSExport]
-    public static Task<string> QueryMemberSource(
+    public static async Task<string> QueryMemberSource(
         string packageId,
         string version,
         string targetFramework,
@@ -40,8 +40,9 @@ public static partial class BrowserInspectionEngine
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson) =>
-        QueryMemberSourceCore(
+        string styleOptionsJson)
+    {
+        BrowserSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -51,6 +52,10 @@ public static partial class BrowserInspectionEngine
             selectorKey,
             metadataToken,
             styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+    }
 
     [JSExport]
     public static async Task<string> QueryTypeSource(
@@ -64,7 +69,7 @@ public static partial class BrowserInspectionEngine
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
         (
-            BrowserInspectionScopeLease scopeLease,
+            BrowserScopeLease<BrowserInspectionScope> scopeLease,
             BrowserWorkspaceParticipant participant,
             ApiType type
         ) = await SourceTypeAsync(
@@ -96,7 +101,7 @@ public static partial class BrowserInspectionEngine
     }
 
     [JSExport]
-    public static Task<string> QueryTypeMemberSource(
+    public static async Task<string> QueryTypeMemberSource(
         string packageId,
         string version,
         string targetFramework,
@@ -105,8 +110,9 @@ public static partial class BrowserInspectionEngine
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson) =>
-        QueryMemberSourceCore(
+        string styleOptionsJson)
+    {
+        BrowserSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -116,8 +122,12 @@ public static partial class BrowserInspectionEngine
             selectorKey,
             metadataToken,
             styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserJsonContext.Default.BrowserSource);
+    }
 
-    static async Task<string> QueryMemberSourceCore(
+    static async Task<BrowserSource> QueryMemberSourceCore(
         string packageId,
         string version,
         string targetFramework,
@@ -145,7 +155,7 @@ public static partial class BrowserInspectionEngine
             metadataToken,
             operation.CancellationToken);
         operation.CancellationToken.ThrowIfCancellationRequested();
-        using BrowserInspectionScopeLease scopeLease =
+        using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
         if (resolution.Member.MetadataToken != resolution.BodyToken)
         {
@@ -168,13 +178,11 @@ public static partial class BrowserInspectionEngine
                     CreateSourceContext(),
                     operation.CancellationToken));
 
-        return JsonSerializer.Serialize(
-            Adapt(result, participant),
-            BrowserJsonContext.Default.BrowserSource);
+        return Adapt(result, participant);
     }
 
     static async Task<(
-        BrowserInspectionScopeLease ScopeLease,
+        BrowserScopeLease<BrowserInspectionScope> ScopeLease,
         BrowserWorkspaceParticipant Participant,
         ApiType Type)> SourceTypeAsync(
             string packageId,
@@ -190,7 +198,7 @@ public static partial class BrowserInspectionEngine
             targetFramework,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        BrowserInspectionScopeLease scopeLease =
+        BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
         try
         {
@@ -274,8 +282,8 @@ public static partial class BrowserInspectionEngine
             AssemblyMemberSourceEntry.Unavailable unavailable =>
                 throw SourceUnavailable(
                     unavailable.Failure,
-                    unavailable.AuthoredAttempt is { } authored
-                        ? AuthoredLimitation(authored.Lines)
+                    unavailable.PdbAttempt is { } pdb
+                        ? PdbSourceLimitation(pdb.Lines)
                         : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly member source result."),
@@ -294,8 +302,8 @@ public static partial class BrowserInspectionEngine
             AssemblyTypeSourceEntry.Unavailable unavailable =>
                 throw SourceUnavailable(
                     unavailable.Failure,
-                    unavailable.AuthoredAttempt is { } authored
-                        ? AuthoredLimitation(authored.Lines)
+                    unavailable.PdbAttempt is { } pdb
+                        ? PdbSourceLimitation(pdb.Lines)
                         : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly type source result."),
@@ -306,15 +314,17 @@ public static partial class BrowserInspectionEngine
         BrowserWorkspaceParticipant participant) =>
         source switch
         {
-            AssemblyMemberSource.Authored authored => new BrowserSource(
-                "original",
-                AuthoredProvenance(authored.Provenance),
-                authored.Inspection.Document?.ResolvedUrl,
-                authored.Text),
+            AssemblyMemberSource.Pdb pdb => new BrowserSource(
+                "pdb",
+                PdbSourceProvenance(pdb.Provenance),
+                pdb.Inspection.Document?.ResolvedUrl,
+                null,
+                pdb.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
+                PdbSourceLimitation(decompiled.PdbAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available member source result."),
@@ -325,33 +335,35 @@ public static partial class BrowserInspectionEngine
         BrowserWorkspaceParticipant participant) =>
         source switch
         {
-            AssemblyTypeSource.Authored authored => new BrowserSource(
-                "original",
-                AuthoredProvenance(authored.Provenance),
-                authored.Inspection.Document?.ResolvedUrl,
-                authored.Text),
+            AssemblyTypeSource.Pdb pdb => new BrowserSource(
+                "pdb",
+                PdbSourceProvenance(pdb.Provenance),
+                pdb.Inspection.Document?.ResolvedUrl,
+                null,
+                pdb.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
+                PdbSourceLimitation(decompiled.PdbAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available type source result."),
         };
 
-    static string AuthoredProvenance(
-        AssemblyAuthoredSourceProvenance provenance)
+    static string PdbSourceProvenance(
+        AssemblyPdbSourceProvenance provenance)
     {
         if (provenance.RepositoryUrl is { Length: > 0 } repository
             && provenance.Revision is { Length: > 0 } revision)
         {
-            return $"Checksum-verified SourceLink source from {repository} at {revision}";
+            return $"PDB-checksum-verified source fetched through SourceLink from {repository} at {revision}";
         }
         if (provenance.RepositoryUrl is { Length: > 0 } repositoryOnly)
-            return $"Checksum-verified SourceLink source from {repositoryOnly}";
+            return $"PDB-checksum-verified source fetched through SourceLink from {repositoryOnly}";
         if (provenance.Revision is { Length: > 0 } revisionOnly)
-            return $"Checksum-verified SourceLink source at {revisionOnly}";
-        return "Checksum-verified SourceLink source";
+            return $"PDB-checksum-verified source fetched through SourceLink at {revisionOnly}";
+        return "PDB-checksum-verified source fetched through SourceLink";
     }
 
     static string DecompiledProvenance(
@@ -359,7 +371,7 @@ public static partial class BrowserInspectionEngine
         $"dotnet-inspect from {participant.Coordinate.PackageId} "
         + $"{participant.Coordinate.Version} {participant.Asset.Path}";
 
-    static string? AuthoredLimitation(
+    static string? PdbSourceLimitation(
         ILInspector.Findings.FindingInspection<string> inspection) =>
         inspection.Value switch
         {
@@ -372,11 +384,11 @@ public static partial class BrowserInspectionEngine
 
     internal static InvalidOperationException SourceUnavailable(
         AssemblySourceFailure failure,
-        string? authoredLimitation = null) =>
+        string? pdbSourceLimitation = null) =>
         new(
             $"{failure.Kind}: {failure.Detail}"
-            + (authoredLimitation is { Length: > 0 }
-                ? $" Original source unavailable: {authoredLimitation}"
+            + (pdbSourceLimitation is { Length: > 0 }
+                ? $" PDB source unavailable: {pdbSourceLimitation}"
                 : ""),
             failure.Error);
 }

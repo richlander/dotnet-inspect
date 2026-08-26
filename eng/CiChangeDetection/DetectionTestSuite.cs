@@ -287,6 +287,19 @@ internal static class DetectionTestSuite
                 $"{FormatValues(source)}");
         }
 
+        Dictionary<string, string> windowsInstaller = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "install.ps1",
+            outputs);
+        if (windowsInstaller["code"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Windows installer canary did not select code: " +
+                FormatValues(windowsInstaller));
+        }
+
         Dictionary<string, string> webDependency = RunDetection(
             repository,
             body,
@@ -333,12 +346,37 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "prototypes/inspect-web/engine/BrowserInspectionEngine.cs",
+            "prototypes/inspect-web/engine/InspectionEngine.cs",
             outputs);
         if (web["code"] != "false" || web["web"] != "true")
         {
             throw new InvalidOperationException(
                 $"Web canary did not select only web: {FormatValues(web)}");
+        }
+        Dictionary<string, string> webGenerator = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/tsbindgen/JsEmitter.cs",
+            outputs);
+        if (webGenerator["code"] != "true" || webGenerator["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Web generator canary did not select code and web: "
+                + FormatValues(webGenerator));
+        }
+        Dictionary<string, string> webGenerationScript = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/generate-inspect-web-engine-dts.sh",
+            outputs);
+        if (webGenerationScript["code"] != "false"
+            || webGenerationScript["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Web generation-script canary did not select only web: "
+                + FormatValues(webGenerationScript));
         }
         foreach (string promotionInput in new[]
         {
@@ -542,6 +580,28 @@ internal static class DetectionTestSuite
             packaging,
             selected: "packaging",
             notSelected: "docs");
+
+        Dictionary<string, string> packageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/tool-v2/1.0.0/pointer.nuspec",
+            outputs);
+        AssertRouting(
+            packageFixture,
+            selected: "code",
+            notSelected: "packaging");
+
+        Dictionary<string, string> metadataPackageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/metadata-confusion/1.0.0/metadata-confusion.nuspec",
+            outputs);
+        AssertRouting(
+            metadataPackageFixture,
+            selected: "code",
+            notSelected: "packaging");
 
         Dictionary<string, string> workflow = RunDetection(
             repository,

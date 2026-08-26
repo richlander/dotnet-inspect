@@ -61,6 +61,122 @@ public class ApiTypeLookupServiceTests
         Assert.Equal("Serialize<TValue>", result.ImpliedMember);
     }
 
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".ctor:1")]
+    [InlineData(".ctor~abcdef")]
+    [InlineData(".cctor")]
+    [InlineData(".cctor:1")]
+    [InlineData(".cctor~abcdef")]
+    [InlineData(".CCTOR")]
+    [InlineData(".CCTOR:1")]
+    [InlineData(".CCTOR~abcdef")]
+    public void LookupType_ConstructorMember_PreservesSpecialName(
+        string memberName)
+    {
+        var api = CreateSurface();
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            $"System.Text.Json.JsonSerializer.{memberName}");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
+        Assert.Equal(memberName, result.ImpliedMember);
+    }
+
+    [Fact]
+    public void LookupType_KindQualifiedDottedMember_PeelsLongestTypePrefix()
+    {
+        var api = CreateSurface();
+        const string member =
+            "explicit:System.IDisposable.Dispose:1";
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            $"System.Text.Json.JsonSerializer.{member}");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
+        Assert.Equal(member, result.ImpliedMember);
+    }
+
+    [Fact]
+    public void LookupType_QualifiedMemberWithinProbeBoundKeepsCompleteRemainder()
+    {
+        var api = CreateSurface();
+        var member = string.Join(
+            '.',
+            Enumerable.Repeat("Interface", 60))
+            + ".Member";
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            $"System.Text.Json.JsonSerializer.{member}");
+
+        Assert.True(result.Found);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            result.Match);
+        Assert.Equal(member, result.ImpliedMember);
+    }
+
+    [Fact]
+    public void LookupType_GenericContainingTypeAndGenericMember_PeelsTrailingMember()
+    {
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "List`1",
+                    Members = [new ApiMember { Name = "ConvertAll", Kind = "method" }]
+                }
+            ]
+        };
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            "System.Collections.Generic.List<T>.ConvertAll<TOutput>");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Collections.Generic.List`1", result.Match);
+        Assert.Equal("ConvertAll<TOutput>", result.ImpliedMember);
+    }
+
+    [Theory]
+    [InlineData("Dictionary<TKey, TValue>", "System.Collections.Generic.Dictionary`2")]
+    [InlineData(
+        "Dictionary<TKey, TValue>.KeyCollection",
+        "System.Collections.Generic.Dictionary`2.KeyCollection")]
+    [InlineData("Outer<T>.Inner<U>", "Example.Outer`1.Inner`1")]
+    public void LookupType_ExactGenericType_DoesNotPeelTrailingSegment(
+        string query,
+        string expected)
+    {
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Namespace = "System.Collections.Generic", Name = "Dictionary`2" },
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "Dictionary`2.KeyCollection"
+                },
+                new ApiType { Namespace = "Example", Name = "Outer`1.Inner`1" }
+            ]
+        };
+
+        var result = ApiTypeLookupService.LookupType(api, query);
+
+        Assert.True(result.Found);
+        Assert.Equal(expected, result.Match);
+        Assert.Null(result.ImpliedMember);
+    }
+
     [Fact]
     public void LookupType_SimpleTypeMember_PeelsTrailingMember()
     {
@@ -89,6 +205,49 @@ public class ApiTypeLookupServiceTests
 
         Assert.False(result.Found);
         Assert.Contains("System.Text.Json.JsonSerializer", result.Suggestions);
+    }
+
+    [Fact]
+    public void LookupType_MultiMatchNestedGlob_DoesNotPeelMember()
+    {
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "OrderedDictionary`2.KeyCollection"
+                },
+                new ApiType
+                {
+                    Namespace = "System.Collections.Generic",
+                    Name = "OrderedDictionary`2.ValueCollection"
+                }
+            ]
+        };
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            "OrderedDictionary<TKey,TValue>.*Collection");
+
+        Assert.False(result.Found);
+        Assert.Null(result.ImpliedMember);
+        Assert.Equal(2, result.Suggestions.Count);
+    }
+
+    [Fact]
+    public void LookupType_ZeroMatchMemberGlob_PeelsResolvedType()
+    {
+        var result = ApiTypeLookupService.LookupType(
+            CreateSurface(),
+            "JsonSerializer.Deser*");
+
+        Assert.True(result.Found);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            result.Match);
+        Assert.Equal("Deser*", result.ImpliedMember);
     }
 
     [Fact]

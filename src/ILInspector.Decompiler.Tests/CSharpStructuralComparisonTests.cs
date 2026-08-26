@@ -293,10 +293,9 @@ public class CSharpStructuralComparisonTests
         string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
             comparison,
             CSharpStructuralSide.Before);
-        string actual = ReconstructAnnotation(beforeBody, "raise: InvocationExpression");
+        var (actual, chunkCount) = ReconstructAnnotation(beforeBody, "raise: InvocationExpression");
 
-        Assert.True(beforeBody.Split('\n').Count(line =>
-            line.StartsWith("//", StringComparison.Ordinal)) > 1);
+        Assert.True(chunkCount > 1, "the fixture must wrap annotation detail");
         Assert.Equal($"raise: InvocationExpression; changed to {afterInvocation}", actual);
     }
 
@@ -582,9 +581,13 @@ public class CSharpStructuralComparisonTests
             static line => line.Contains("return value;", StringComparison.Ordinal));
 
         Assert.True(sourceLineIndex >= 0);
+        string caretLine = rendered[sourceLineIndex + 1];
+        string detailLine = rendered[sourceLineIndex + 2];
         Assert.Equal(
             rendered[sourceLineIndex].IndexOf("return", StringComparison.Ordinal),
-            rendered[sourceLineIndex + 1].IndexOf('^'));
+            caretLine.IndexOf('^'));
+        Assert.StartsWith("//", caretLine, StringComparison.Ordinal);
+        Assert.Equal(caretLine.IndexOf('^'), detailLine.IndexOf("raise:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -627,10 +630,8 @@ public class CSharpStructuralComparisonTests
             .Split('\n');
 
         Assert.Equal("\t\t\treturn value;", rendered[1]);
-        Assert.StartsWith(
-            "\t\t\t^^^^^^^^^^^^^ raise: Return",
-            rendered[2],
-            StringComparison.Ordinal);
+        Assert.Equal("\t\t\t^^^^^^^^^^^^^", rendered[2]);
+        Assert.StartsWith("\t\t\traise: Return", rendered[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -673,7 +674,8 @@ public class CSharpStructuralComparisonTests
             .Split('\n');
 
         Assert.Equal("    return;", rendered[1]);
-        Assert.StartsWith("    ^^^^^^^ raise: Return", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("    ^^^^^^^", rendered[2]);
+        Assert.StartsWith("    raise: Return", rendered[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -714,10 +716,10 @@ public class CSharpStructuralComparisonTests
             .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
             .Split('\n');
         Assert.Equal(beforeText, rendered[0]);
-        Assert.StartsWith("^^^^ raise: InvocationExpression", rendered[1], StringComparison.Ordinal);
-        Assert.StartsWith("  ^ raise: NameExpression", rendered[2], StringComparison.Ordinal);
-        Assert.Equal("^^^^", new string([.. rendered[1].TakeWhile(character => character == '^')]));
-        Assert.Equal("^", new string([.. rendered[2].Skip(2).TakeWhile(character => character == '^')]));
+        Assert.Equal("^^^^", rendered[1]);
+        Assert.StartsWith("raise: InvocationExpression", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("  ^", rendered[3]);
+        Assert.StartsWith("  raise: NameExpression", rendered[4], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -750,7 +752,8 @@ public class CSharpStructuralComparisonTests
             .Split('\n');
 
         Assert.Equal(afterText.Split('\n')[1], rendered[1]);
-        Assert.StartsWith("    ^^ raise: Break", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("    ^^", rendered[2]);
+        Assert.StartsWith("    raise: Break", rendered[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1539,10 +1542,11 @@ public class CSharpStructuralComparisonTests
         string caretLine = lines[sourceLine + 1];
         Assert.Equal(lines[sourceLine].IndexOf(source, StringComparison.Ordinal), caretLine.IndexOf('^'));
         Assert.Equal(source.Length, caretLine.Count(character => character == '^'));
-        Assert.Contains(label, caretLine, StringComparison.Ordinal);
+        string detailLine = lines[sourceLine + 2];
+        Assert.Equal(caretLine.IndexOf('^'), detailLine.IndexOf(label, StringComparison.Ordinal));
     }
 
-    static string ReconstructAnnotation(string body, string prefix)
+    static (string Text, int ChunkCount) ReconstructAnnotation(string body, string prefix)
     {
         string[] lines = body.Split('\n');
         int lineIndex = Array.FindIndex(lines, line => line.Contains(prefix, StringComparison.Ordinal));
@@ -1551,7 +1555,7 @@ public class CSharpStructuralComparisonTests
         var chunks = new List<string> { lines[lineIndex][start..] };
         while (++lineIndex < lines.Length && lines[lineIndex].StartsWith("//", StringComparison.Ordinal))
             chunks.Add(lines[lineIndex][2..].TrimStart());
-        return string.Join(' ', chunks);
+        return (string.Join(' ', chunks), chunks.Count);
     }
 
     static AnnotatedSourceDocument TrustedDocument(

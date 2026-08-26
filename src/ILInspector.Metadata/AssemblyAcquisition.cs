@@ -35,10 +35,18 @@ public abstract record AssemblyResolutionProvenance
         new LocalAsset(resolverSource);
 
     /// <summary>
-    /// An assembly the caller enumerated explicitly, rather than one the
-    /// resolver discovered on its own. Designation is a statement of trust by
-    /// the caller: it distinguishes a build layout or corpus the user pointed
-    /// at from a file that merely happened to sit beside an inspected artifact.
+    /// An assembly the caller enumerated or named explicitly, rather than one
+    /// the resolver discovered on its own. Designation is a statement of trust
+    /// by the caller: it distinguishes a set the caller listed, or a file the
+    /// caller named outright, from a file that merely happened to sit beside an
+    /// inspected artifact. Corpus enumeration designates, and so does opening a
+    /// path or image the caller named directly — see <c>MetadataContext</c> and
+    /// <c>MetadataSource</c>, which state the designation as provenance so that
+    /// <c>CoreLibraryIdentityTrust</c> decides their entitlement rather than
+    /// being bypassed by it. Naming a <em>directory</em> on the command line
+    /// still does not designate, because platform-scope resolution already
+    /// covers build-layout inspection and a loose directory is not a coherent
+    /// closure.
     /// </summary>
     public static AssemblyResolutionProvenance Designated(string resolverSource) =>
         new DesignatedAsset(resolverSource);
@@ -333,6 +341,73 @@ public sealed class ResolvedAssemblyReference
                 provenance,
                 lastWriteTimeUtc);
         }
+    }
+
+    /// <summary>
+    /// Creates a stream-backed descriptor, using the image's real assembly
+    /// identity when one can be decoded and <paramref name="fallbackIdentity"/>
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The fallback keeps a selected malformed, native, or module image visible
+    /// as a participant. Opening that participant still validates the image and
+    /// reports its typed acquisition failure; the fallback is not evidence that
+    /// the image is a managed assembly.
+    /// <c>PackageAssemblyContextRealizationTests.MalformedSelectedAsset_RemainsARejectedParticipant</c>
+    /// gates that behavior through the package realization consumer.
+    /// </remarks>
+    public static ResolvedAssemblyReference CreateFromStreamWithFallbackIdentity(
+        Func<Stream> openRead,
+        AssemblyReferenceIdentity fallbackIdentity,
+        AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        ArgumentNullException.ThrowIfNull(fallbackIdentity);
+        ArgumentNullException.ThrowIfNull(provenance);
+
+        Stream? source = openRead();
+        if (source is null || !source.CanRead)
+        {
+            source?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
+        AssemblyReferenceIdentity? identity = null;
+        using (Stream stream = source)
+        {
+            try
+            {
+                using var peReader =
+                    new System.Reflection.PortableExecutable.PEReader(stream);
+                if (peReader.HasMetadata)
+                {
+                    MetadataReader metadata = peReader.GetMetadataReader();
+                    if (metadata.IsAssembly)
+                    {
+                        AssemblyReferenceIdentity candidate =
+                            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                                metadata);
+                        if (!string.IsNullOrWhiteSpace(candidate.Name))
+                            identity = candidate;
+                    }
+                }
+            }
+            catch (BadImageFormatException)
+            {
+                // The descriptor retains the selected image as a rejection carrier.
+            }
+        }
+
+        usedFallbackIdentity = identity is null;
+        return Create(
+            identity ?? fallbackIdentity,
+            path: null,
+            openRead,
+            provenance,
+            lastWriteTimeUtc);
     }
 
     public static bool TryCreateFromPath(

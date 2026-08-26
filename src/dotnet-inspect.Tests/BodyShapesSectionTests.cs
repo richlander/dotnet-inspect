@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -162,6 +163,36 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task CheapDiscovery_DoesNotRunComposedPerformanceQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "-D",
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--trace",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Inspection Failures",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberEffectiveDiscovery_BodyShapeGlobRequiresKind()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -268,6 +299,7 @@ public sealed class BodyShapesSectionTests
                     "--where",
                     "Confidence>=low",
                     "--jsonl",
+                    "--trace",
                 ])
                 .InvokeAsync());
 
@@ -277,6 +309,102 @@ public sealed class BodyShapesSectionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain("Performance:", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            BodyShapesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_DoesNotRunOptionalPerformanceQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--trace",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            BodyShapesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ComposedBodyShapesJson_OmitsUnselectedPerformanceProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "-S",
+                    SectionNames.BodyShapes,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--json",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("body_shapes").EnumerateArray());
+        Assert.False(
+            document.RootElement.TryGetProperty("performance", out _));
+    }
+
+    [Fact]
+    public async Task ComposedBodyShapesJson_PreservesSelectedPerformanceProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(CommandLineBuilder.PreprocessArgs(
+                [
+                    "library",
+                    FixturePath,
+                    "-S",
+                    SectionNames.BodyShapes,
+                    "-S",
+                    SectionNames.PerformanceArrays,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--json",
+                ]))
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("body_shapes").EnumerateArray());
+        Assert.NotEmpty(
+            document.RootElement
+                .GetProperty("performance")
+                .GetProperty("arrays")
+                .EnumerateArray());
     }
 
     [Fact]
@@ -448,6 +576,154 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task TypeKindPredicate_AutoSelectsBodyShapesInDefaultOutput()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
+        Assert.Contains("Body Shapes", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(BodyShapeFixture.PublicCreation),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ObjectCreationExpression",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("├─", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_PlainTextHonorsRowWindow()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--plaintext",
+                    "--columns",
+                    "Kind;Member",
+                    "--rows",
+                    "2",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            2,
+            result.Output
+                .Split('\n')
+                .Count(line => line.Contains(
+                    "ObjectCreationExpression",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_ExplicitShapeWarnsThatSelectionIsIgnored()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--shape",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "--where Kind=...",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains("├─", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Body Shapes", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_QuietVerbosityFailsVisibly()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-v:q",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "-v:q is not supported by Body Shapes queries",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Output);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--no-header")]
+    public async Task TypeKindPredicate_QuietVerbosityWithOutputModifierFailsVisibly(
+        string outputOption)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    typeof(BodyShapeFixture).FullName!,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-v:q",
+                    outputOption,
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "-v:q is not supported by Body Shapes queries",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
     public void TypeBodyShapeTokens_ExcludeProjectedExtensionMethods()
     {
         using var source = MetadataSource.Open(FixturePath);
@@ -537,6 +813,33 @@ public sealed class BodyShapesSectionTests
             "requires one exact type name",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--count")]
+    public async Task TypeKindPredicate_UnresolvedTypeDoesNotFallBackToPrefixBrowse(
+        string outputOption)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "type",
+                    "DotnetInspector.Fixtures.BodyShape",
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    outputOption,
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("prefix matches", result.Error, StringComparison.Ordinal);
+        Assert.Empty(result.Output);
     }
 
     [Fact]

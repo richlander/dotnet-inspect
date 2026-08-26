@@ -85,11 +85,46 @@ public sealed record PackageSearchMatch(
     SearchResult Metadata,
     PackageCandidateObservation Candidate);
 
+/// <summary>Why a source-scoped package search is incomplete.</summary>
+public enum PackageSearchTruncationReason
+{
+    None,
+    RequestedLimit,
+    SourcePageLimit,
+    ClientPageLimit,
+}
+
 /// <summary>
 /// Typed result of one source-scoped package search.
 /// </summary>
-public sealed record PackageSearchResult(
-    IReadOnlyList<PackageSearchMatch> Matches);
+public sealed record PackageSearchResult
+{
+    public PackageSearchResult(
+        IReadOnlyList<PackageSearchMatch> matches,
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        Matches = matches;
+        TruncationReason = truncationReason;
+    }
+
+    public PackageSearchResult(
+        IReadOnlyList<PackageSearchMatch> matches,
+        bool truncated)
+        : this(
+            matches,
+            truncated
+                ? PackageSearchTruncationReason.RequestedLimit
+                : PackageSearchTruncationReason.None)
+    {
+    }
+
+    public IReadOnlyList<PackageSearchMatch> Matches { get; }
+    public PackageSearchTruncationReason TruncationReason { get; }
+    public bool Truncated =>
+        TruncationReason != PackageSearchTruncationReason.None;
+}
 
 /// <summary>
 /// Typed result of one source-scoped version enumeration.
@@ -156,7 +191,9 @@ internal static class PackageSourceProjection
     public static PackageSearchResult ProjectSearch(
         IReadOnlyList<SearchResult> results,
         PackageSourceIdentity producer,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        PackageSearchTruncationReason truncationReason =
+            PackageSearchTruncationReason.None)
     {
         var matches = new PackageSearchMatch[results.Count];
         for (int i = 0; i < results.Count; i++)
@@ -175,9 +212,18 @@ internal static class PackageSourceProjection
         }
 
         operation.ThrowIfExpired();
-        return new PackageSearchResult(matches);
+        return new PackageSearchResult(matches, truncationReason);
     }
 }
+
+/// <summary>
+/// One bounded package manifest fetched directly from a package source.
+/// </summary>
+public sealed record PackageSourceManifest(
+    PackageSourceCoordinate Coordinate,
+    PackageSourceIdentity Producer,
+    PackageSourceKind TransportKind,
+    ReadOnlyMemory<byte> Content);
 
 /// <summary>The kind of payload returned by a package source.</summary>
 public enum PackageSourcePayloadKind
@@ -317,23 +363,26 @@ internal static class PackageSourceOperation
     {
         kind = exception switch
         {
-            NuGetRequestTimeoutException
-                or NuGetOperationTimeoutException
-                or NuGetMetadataBodyTimeoutException =>
+            TimeoutException =>
                 PackageSourceFailureKind.Timeout,
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,
-            NuGetRedirectLimitExceededException =>
+            NuGetRedirectLimitExceededException
+                or NuGetRegistrationResourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
+            NuGetSourceCapabilityUnavailableException =>
+                PackageSourceFailureKind.Unsupported,
             NuGetSourceResponseException
-                or JsonException =>
+                or JsonException
+                or InvalidDataException =>
                 PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
             {
                 StatusCode: HttpStatusCode.NotFound,
             } when coordinate is not null
                     && capability is
-                        PackageSourceCapabilities.PackagePayload
+                        PackageSourceCapabilities.Manifest
+                        or PackageSourceCapabilities.PackagePayload
                         or PackageSourceCapabilities.SymbolPayload =>
                 PackageSourceFailureKind.NotFound,
             HttpRequestException
@@ -350,20 +399,24 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.AuthenticationRequired,
             HttpRequestException =>
                 PackageSourceFailureKind.Transport,
+            OperationCanceledException =>
+                PackageSourceFailureKind.Transport,
             IOException =>
                 PackageSourceFailureKind.Transport,
             _ => default,
         };
 
         return exception is
-            NuGetRequestTimeoutException
-            or NuGetOperationTimeoutException
-            or NuGetMetadataBodyTimeoutException
+            TimeoutException
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
+            or NuGetRegistrationResourceLimitExceededException
+            or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
             or JsonException
+            or InvalidDataException
             or HttpRequestException
+            or OperationCanceledException
             or IOException;
     }
 
@@ -387,6 +440,10 @@ internal static class PackageSourceOperation
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 }
+
+internal sealed class NuGetSourceCapabilityUnavailableException()
+    : InvalidOperationException(
+        "The package source does not advertise the requested capability.");
 
 internal sealed class NuGetSourceResponseException : InvalidOperationException
 {

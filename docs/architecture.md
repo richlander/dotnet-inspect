@@ -91,9 +91,16 @@ Extract public API surface using metadata:
 
 - `type` renders type shape, summaries, members, and `--shape` declarations
 - `member` renders member tables, docs, `Member Index` selectors,
-  decompiled/lowered C#, typed decompiler fidelity causes, SourceLink-backed
-  original source, and IL
+  decompiled/lowered C#, typed decompiler fidelity causes, PDB-mapped source,
+  and IL
 - Both support package/platform/library sources and section/field projection
+
+The proposed
+[member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md)
+boundary separates parsed gestures, resolved section/member plans, producer
+authorization, shared Metadata declaration validation, and model-bound C#
+representability. It is the migration owner for the current type/member
+selection and full/summary/focused projection seams.
 
 Guarded metadata signature rejection remains fail-closed (`object`/empty
 signature shape), but it is not presented as ordinary metadata:
@@ -144,7 +151,9 @@ Searches for types across packages, platform libraries, projects, and local asse
 
 ### relationships
 
-`depends`, `extensions`, and `implements` expose dependency graphs, extension methods/properties, implementors, and subclasses.
+`graph integrations` induces typed Integration relationships over an explicit
+package workspace. `depends`, `extensions`, and `implements` expose dependency
+graphs, extension methods/properties, implementors, and subclasses.
 
 ### source
 
@@ -302,6 +311,43 @@ managed DLLs but exposes a `DotnetToolSettings.xml` with an `any` RID entry, it 
 redirects to that portable `any` package (the framework-dependent build) at the same version
 and inspects its managed assemblies. The redirect benefits every package-consuming command
 (`type`, `member`, `package`, `depends`).
+
+The extraction result retains the ordered wrapper chain separately from the final payload
+coordinate. Package inspection uses the requested wrapper's tool manifest for classification
+and commands while keeping the payload package identity and producer as the provenance of the
+managed assemblies being inspected. RID companion availability is verified when an explicit
+Manifest selection or effective discovery requests it. Normal and detailed local-file views also
+verify local siblings because that work is filesystem-only; ordinary remote views do not gain
+hidden network traffic. A coordinate-matching nuspec or an exact entry in an authoritative
+version index proves presence, authoritative absence renders `no`, and malformed or otherwise
+inconclusive probes remain `unknown`. A local sibling
+matches by NuGet's case-insensitive coordinate identity and must also pass bounded package-archive
+admission before its strict UTF-8 nuspec can prove presence; an existing but empty, non-regular,
+corrupt, unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
+mapped package present only when verification was requested and its extracted root nuspec has one
+consistently namespaced metadata, id, and version element that matches the acquired coordinate.
+Indeterminate acquired evidence remains `unknown` when every other applicable probe is absent;
+any coordinate-matching present probe still wins.
+Malformed critical `PackageBaseAddress` entries likewise keep a source's negative
+answer indeterminate without suppressing matching evidence from a usable sibling
+endpoint.
+Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective discovery renders
+every discoverable section established by its bounded automatic producer candidates, so it
+performs the same Manifest verification as targeted discovery without authorizing identifier,
+symbol, or source enrichment. Targeted discovery may authorize the producer for the explicitly
+requested section, and an explicit section selection constrains both discovery output and its producers.
+`RidPackageVerifierTests` and `PackageInspectorMetadataSourceTests` gate these local, remote, and
+acquired distinctions. Verification deduplicates case-insensitive package ids, probes at most 64
+distinct coordinates, snapshots a bounded local sibling directory once, and reads at most 500 MB
+of compressed local sibling archives across one verification operation. Each reservation uses
+the length of the opened file handle that is then read, so a path replacement cannot receive an
+uncharged allowance. Mappings and archive
+candidates beyond those limits, and candidates that race with the snapshot, remain `unknown`;
+missing paths still establish absence without spending the archive-byte budget.
+Availability is not retained in the payload index; each explicit request evaluates the current
+source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
+NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,
+and invalid UTF-8 cannot establish presence.
 
 ### Signature decoding
 
@@ -778,22 +824,117 @@ Research overlay bridge, and the application layer:
   metadata resolver and `LibraryBodyLiftedSourceOwnerResolver` consume that
   same resolution authority. The lifted-source-owner resolver owns
   acquisition-scoped local-function/lambda owner correlation, memoized owner
-  body-reference evidence, top-level entry-point authentication, and classic
-  async state-machine type-name resolution. It consumes primary metadata
-  identity and generated-code judgments rather than duplicating them.
+  execution-body evidence, bounded reference closure across sibling lifted
+  bodies, and top-level entry-point authentication. Authenticated async
+  `MoveNext` bodies from the async-source resolver seed the same closure as
+  ordinary owner bodies. Authenticated synchronous-iterator `MoveNext` bodies
+  also seed it, and bounded traversal through methods on that same state-machine
+  type retains compiler-hoisted `finally` helpers, including generic
+  state-machine calls encoded as member references. Managed top-level
+  entry-point authentication requires a static supported signature and
+  analyzable IL; runtime-async top-level owners use their authenticated method
+  body directly.
+  `AllocationFanout_TypeScopeAdmittingEveryFixtureTypePreservesAsyncLocals`
+  gates async locals reached through iterator execution and those helpers,
+  including generic methods, generic containing types, and generated async
+  iterators; it also gates exact generated source-type acquisition of the
+  authenticated async-iterator `MoveNext`.
+  `LiftedOwners_TopLevelRejectsMalformedManagedEntryPoint` and the
+  runtime-async `OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported`
+  gate the top-level close cases.
+  It consumes primary metadata identity, generated-code
+  judgments, and async execution mapping rather than duplicating them. Scoped
+  closure failures are retained as analysis diagnostics rather than becoming
+  success-shaped partial evidence. `AnalysisDiagnosticAggregation` combines
+  expansion and per-method failures by physical method, canonical label, and
+  message; null-compatible declaring/source provenance is enriched into one
+  row, conflicting non-null provenance remains distinct, and final rows retain
+  stable MethodDef order.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
   sharing and scope-aware identity.
   `OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce`,
+  `ResolveDeclaredMethod_MapsSiblingReferencedLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
+  `ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner`,
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner`,
+  `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
+  `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
+  `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
+  `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
+  `ScopeDiagnosticAggregation_EnrichesFailuresInMetadataOrder`,
+  `ScopeDiagnosticAggregation_PreservesConflictingProvenance`,
+  `ScopeDiagnosticAggregation_UsesStructuralTypeProvenanceCompatibility`,
+  `ScopeDiagnosticAggregation_DoesNotInferTypeIdentityFromDisplay`,
+  `ScopeDiagnosticAggregation_PreservesDistinctFailureMessages`,
+  `ScopeDiagnosticAggregation_PreservesPhysicalFailureIdentity`,
+  `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
-  the top-level local-function tests gate the lifted-owner caches and execution
-  mapping.
-  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic
-  async source resolution, classic source-to-`MoveNext` mapping, state-machine
-  attribute authentication, and scoped evidence expansion. It reuses primary
-  metadata identity and generated-code judgments plus the builder's shared
-  local type-definition index.
+  the top-level local-function tests gate the lifted-owner caches, closure, and
+  execution mapping.
+  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime, classic,
+  and async-iterator source resolution; authenticated source-to-`MoveNext`
+  mapping; generated lifted-source execution mapping; synchronous-iterator
+  execution authentication for lifted-owner traversal; and scoped evidence
+  expansion. Its shared execution map preserves attribute kind, rejects
+  non-unique source claims, requires the corresponding state-machine
+  interfaces, and resolves explicit iterator `MoveNext` implementations before
+  considering a named method. Authenticated execution-source maps drive acquisition and
+  per-method attribution; the scope-independent fallback contains only
+  non-generated declared sources. A rejected state-machine mapping is
+  authoritative across attribution, acquisition, and fallback, including when
+  generated-code filtering leaves one otherwise actionable source and when a
+  source carries classic and synchronous-iterator claims. Runtime-async
+  methods ignore state-machine claims of every kind, and a runtime-async
+  claimant cannot poison a valid sibling claim. A runtime-async execution
+  method cannot authenticate as a state-machine body. Generated kickoff
+  intermediates compose through authenticated lifted owners when their
+  evidence bodies are acquired; an unresolved intermediate retains its
+  physical caller rather than becoming logical attribution. Lifted-owner
+  groups authenticate state-machine claims across the complete owner
+  candidate set in every scope without acquiring unselected owner bodies.
+  Ownership-derived recommendations require an authenticated ultimate owner
+  in full, method, and type scopes; unresolved ownership retains physical
+  evidence and body-intrinsic opportunities but fails closed for attribution.
+  A recoverable ownership failure cannot abort final publication or discard
+  physical calls collected before opportunity projection.
+  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
+  owner-method-scoped, and owner-type-scoped call parity plus declared-owner
+  resolution. `DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource`
+  preserves existing async-iterator attribution without broadening iterator
+  ownership.
+  `DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection` gates the
+  close ambiguity case across caller attribution, public resolution, and
+  method-scoped acquisition.
+  `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
+  duplicate detection when classic async and async-iterator attributes occur
+  on the same source method;
+  `DirectCalls_ClassicAndSynchronousIteratorAttributesFailClosed` gates the
+  corresponding legacy-fallback and scoped-acquisition cases.
+  `DirectCalls_RuntimeAsyncIgnoresAsyncIteratorAttribute` gates the
+  runtime-async source cross-kind non-action boundary, while
+  `DirectCalls_RuntimeAsyncMoveNextCannotAuthenticateKickoff` gates the
+  execution-body boundary and cross-scope owner parity.
+  `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource` gates ignored
+  claimant collisions.
+  `DirectCalls_MalformedIteratorClaimPreservesPhysicalEvidence` and
+  `DirectCalls_ScopedMalformedLiftedOwnerFailsClosed` gate recoverable
+  publication, feature-stable physical calls, and scope-stable group
+  authentication.
+  `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
+  gates fail-closed ownership-derived recommendations while preserving
+  full-scope body-intrinsic opportunities.
+  `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
+  ordered aggregation of recoverable final-publication failures.
+  `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
+  synchronous-iterator implementations with named decoys, duplicate iterator
+  source claims, and async-iterator claims over classic-only state machines,
+  including the declared-source fallback for their rejected `MoveNext`.
+  `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
+  state-machine body requirements. The resolver reuses primary metadata
+  identity and generated-code judgments plus the builder's shared local
+  type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
@@ -828,16 +969,51 @@ Research overlay bridge, and the application layer:
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
-  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the
-  `sync-call-in-async` opportunity because sibling discovery and recursive-slot
-  suppression require reader-relative MethodDef, MethodImpl, type hierarchy,
-  exact assembly identity, and workspace-resolution evidence. It consumes the
-  canonical direct-call rows after ordinary opportunity collection and appends
-  only this metadata-bound shape; recoverable sibling-classification failures
-  remain diagnostic without discarding independent ordinary opportunities or
-  body signals. Source-independent synchronous-definition and sibling-candidate
-  discovery is cached by exact callee identity, while accessibility and
-  dispatch suppression remain source-dependent;
+  `LibraryBodyAsyncSiblingSignatureMatcher` owns stateless async-sibling
+  signature decoding, source-frame projection, exact type identity and
+  comparison, optional cancellation matching, async return compatibility, and
+  bounded finding display.
+  `AsyncSiblingMethodMatching_PreservesOpenGenericSignature`,
+  `AsyncSiblingCancellationTokenDefault_MustBeNull`,
+  and `AsyncSiblingTypeSupport_IsLinearForSharedDag` gate representative
+  decoding, compatibility, and linear-work behavior; the identity and display
+  gates below cover the remaining policy.
+  `LibraryBodyAsyncSiblingDispatchAnalyzer` owns reader-relative type
+  relationships, constructed generic projection, virtual-slot and MethodImpl
+  correspondence, constrained-method suppression, and conservative unknown
+  handling. It receives synchronized external type-definition resolution and
+  the shared `LibraryBodyAsyncSiblingMethodIndex` rather than owning a second
+  reference cache or candidate index.
+  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
+  `OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression`,
+  `MethodImplSignature_RequiresByRefDirection`, and
+  `ConstructedInterfaceIdentity_RequiresMatchingArguments` gate that policy.
+  `LibraryBodyAsyncSiblingAccessibilityAnalyzer` owns CLR member-access,
+  protected-receiver, friend-assembly identity, and directional nested-private
+  access policy. It consumes the primary reader and assembly identity plus the
+  dispatch analyzer's source-type relationship proof, without owning metadata
+  resolution or caches.
+  `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
+  `OptimizationOpportunities_FriendAccessRequiresProvableReceiver`,
+  `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`, and
+  `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey` gate that
+  policy.
+  `LibraryBodyAsyncSiblingCandidateResolver` owns synchronous-definition and
+  sibling-candidate resolution, bounded inherited-name traversal,
+  exact-callee caching, ambiguity selection, and source-dependent
+  accessibility and dispatch filtering. It consumes builder-owned synchronized
+  external resolution and the shared local type-definition index without
+  owning metadata lifetime.
+  `LibraryBodyAsyncSiblingMethodIndex` owns the synchronized reader-relative
+  per-type method-name cache shared by candidate and dispatch analysis.
+  `LibraryBodyAnalysisBuilder.AsyncSibling` owns only `sync-call-in-async`
+  opportunity orchestration, diagnostic containment, and result ordering. It
+  consumes the candidate resolver and canonical direct-call rows after
+  ordinary opportunity collection and appends only this metadata-bound shape;
+  recoverable sibling-classification failures remain diagnostic without
+  discarding independent ordinary opportunities or body signals.
+  Source-independent lookup is cached by exact callee identity, while
+  accessibility remains source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
   per-type method index that bounds distinct-callee discovery;
   `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
@@ -853,23 +1029,20 @@ Research overlay bridge, and the application layer:
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
-  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
+  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`,
   `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
   `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
   while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
-  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
-  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`, and
+  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`,
+  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`,
   `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank`, and
   `AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks` gate per-type
-  relationship and aggregate-output limits.
-  `AsyncSiblingTypeSupport_IsLinearForSharedDag` gates signature
-  classification work. Trusted framework-contract identities, exact
-  interface-slot correspondence, friend-aware protected access, and nested
-  private-access domains are gated by
+  relationship and aggregate-output limits. Trusted framework-contract
+  identities, exact interface-slot correspondence, friend-aware protected
+  access, and nested private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
-  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
-  `OptimizationOpportunities_ReceiverErasureSuppressesUnsealedFriendCandidates`,
+  `OptimizationOpportunities_FriendAccessRequiresProvableReceiver`,
   `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
   `OptimizationOpportunities_SuppressesSourceGeneratedTypes`,
   and

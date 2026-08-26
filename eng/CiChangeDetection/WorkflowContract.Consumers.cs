@@ -153,9 +153,13 @@ internal static partial class WorkflowContract
                 "needs.changes.outputs.ilroundtrip == 'true'",
             ["test/Check ilasm/ildasm/mdv result"] =
                 "steps.iltools.outcome == 'failure'",
+            ["test/Check GitHub Packages fixture result"] =
+                "steps.package_fixture.outcome == 'failure'",
             ["test-windows/Run CLI tests (all)"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run CSharpText tests"] =
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
+            ["test-windows/Run artifact contract tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run decompiler unit tests (fast)"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
@@ -179,6 +183,7 @@ internal static partial class WorkflowContract
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
         {
+            "test/Run GitHub Packages fixture test",
             "test/Run PR decompiler corpus sensor",
             "test/Install ilasm/ildasm/mdv",
             "test-windows/Install ilasm/ildasm",
@@ -187,6 +192,7 @@ internal static partial class WorkflowContract
         var allowedShell = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
+            ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
             ["test/Install ilasm/ildasm/mdv"] = "bash",
             ["test-windows/Install ilasm/ildasm"] = "bash",
@@ -198,6 +204,8 @@ internal static partial class WorkflowContract
         var allowedId = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
+            ["test/Run GitHub Packages fixture test"] =
+                "package_fixture",
             ["test/Run PR decompiler corpus sensor"] =
                 "decompiler_pr_corpus",
             ["test/Install ilasm/ildasm/mdv"] = "iltools",

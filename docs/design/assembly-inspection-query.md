@@ -87,10 +87,12 @@ single `library` inspection opened the *same* PE image multiple times:
 
 - `LibraryMetadataService.InspectAsync` opens `SourceLinkService.Open(path)` — whose
   `PdbContext` already owns a `PEReader` and exposes metadata operations
-  (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`). The library analysis path now
-  prefetches that owner. AppContext scanning and member-drill projection use its public
-  capabilities; `LibraryBodyIndex` consumes immutable content from the prefetched image, so none
-  of those consumers reopens the target.
+  (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`). Full library Analysis prefetches
+  that owner. AppContext scanning and member-drill projection use its public capabilities;
+  `LibraryBodyIndex` consumes immutable content from the prefetched image, so none of those
+  consumers reopens the target. Bounded unsafe-presence discovery instead uses a synchronous
+  capability callback over the same non-prefetched reader and scans sequentially, avoiding
+  complete-image materialization without granting a production assembly friendship.
 - `MemberCodeProvider` opens a `PEReader` to build a type index, then calls
   `MetadataSource.Open`, which opens the PE image **again** internally.
 
@@ -191,6 +193,17 @@ This is the currency that replaces the bare `string`. #2051 introduced
 through it. The structured forwarding design evolves it in its second delivery slice from the
 original value-equal record to a registration-backed, non-equatable descriptor:
 
+> **Current implementation and migration note:** the source-specific
+> `AssemblyResolutionProvenance` hierarchy below describes the current
+> implementation. The target
+> [artifact acquisition design](artifact-acquisition-and-workspaces.md)
+> replaces that Metadata-owned union with an artifact identity and acquisition
+> registration. Source adapters retain their own typed provenance and
+> correspondence proof. It also replaces the parameterless opener with
+> content access guarded by an owner-issued admission or current-query
+> authorization lease; a descriptor path is not read authority. Do not add
+> another source variant to Metadata as the target integration seam.
+
 ```csharp
 public abstract record AssemblyResolutionProvenance
 {
@@ -218,6 +231,16 @@ public abstract record AssemblyResolutionProvenance
 
     public static AssemblyResolutionProvenance Local(string resolverSource) =>
         new LocalAsset(resolverSource);
+
+    public static AssemblyResolutionProvenance Embedded(
+        string contentRef,
+        string digest,
+        string declaredName) =>
+        new EmbeddedAsset(contentRef, digest, declaredName);
+
+    public static AssemblyResolutionProvenance Designated(
+        string resolverSource) =>
+        new DesignatedAsset(resolverSource);
 
     public sealed record PackageAsset(
         string PackageId,
@@ -249,6 +272,20 @@ public abstract record AssemblyResolutionProvenance
     {
         private protected override int Discriminator => 3;
     }
+
+    public sealed record EmbeddedAsset(
+        string ContentRef,
+        string Digest,
+        string DeclaredName) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 4;
+    }
+
+    public sealed record DesignatedAsset(
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 5;
+    }
 }
 
 var reference = ResolvedAssemblyReference.Create(
@@ -264,9 +301,11 @@ descriptor exposes the selected image's identity, path, opener, structured prove
 registration. The incoming `AssemblyRef` identity remains request evidence, not descriptor
 identity. See
 [Type forwarding resolution](type-forwarding-resolution.md#assembly-candidate) for the
-authoritative identity, ownership, and migration contract. Provenance still widens from
-`string?` into a structured value — package@version, tfm, rid, platform-or-not, resolver source
-— so inspection reads provenance back instead of re-deriving it.
+authoritative identity, ownership, and migration contract. During the current
+migration, provenance widens from `string?` into a structured value so
+inspection does not re-derive it. In the target artifact architecture, the
+source adapter retains that structured value and Metadata carries only the
+source-neutral correspondence currency described above.
 
 **Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
 no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
@@ -495,11 +534,15 @@ Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReade
 and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
 new parallel one.
 
-The library Analysis path now uses `PdbContext` as its target-file owner. It prefetches the
-complete image and exposes lifetime-safe capabilities: `MethodBodySource` for body-local Metadata
-composition, high-level Metadata facets for drill projection, and immutable prefetched content
-for Analysis. This removes target reopens without exposing or lending the context-owned reader;
-Analysis constructs a reader over the in-memory content.
+The library Analysis path now uses `PdbContext` as its target-file owner. Full body-index analysis
+prefetches the complete image and consumes immutable content so its parallel readers never seek a
+shared stream. Bounded unsafe-presence discovery instead uses the context-owned reader through a
+synchronous capability callback and scans sequentially. The callback does not transfer reader
+ownership, its contract forbids retention after the call, and it avoids a production
+`InternalsVisibleTo`; `Metadata_FriendsOnlyTestAssemblies` gates that boundary. `MethodBodySource`
+remains the public
+body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
+remove target reopens without exposing the raw reader to the CLI.
 The broader model still has a prerequisite. `MetadataSource` owns a separate reader, and
 `ResolvedAssemblyReference` carries only an `OpenRead` opener. Completing the session across
 member/decompiler and descriptor-based paths requires a **low-level PE-owner primitive** opened
@@ -836,11 +879,17 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
    `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
-The provenance breadth is resolved by `AssemblyResolutionProvenance`: package assets carry
-package/version/tfm/rid, platform assets carry framework/version/source, project assets carry
-project/tfm/rid, and local assets carry resolver source. This is the minimum current consumers
-read back; adding another field or arm requires a named consumer rather than turning provenance
-into a grab bag.
+During the current migration, provenance breadth is resolved by
+`AssemblyResolutionProvenance`: package assets carry package/version/tfm/rid,
+platform assets carry framework/version/source, project assets carry
+project/tfm/rid, local assets carry resolver source, and embedded assets carry
+content reference/digest/declared name. `DesignatedAsset` additionally carries
+the caller's explicit corpus/build-layout designation used by current
+core-library trust policy. This is the minimum current consumers read back. The
+target artifact design moves source records to their adapters and designation
+to authorized workspace-role evidence instead of widening this hierarchy;
+either way, adding a field requires a named consumer rather than turning
+provenance into a grab bag.
 
 ## Open questions
 

@@ -40,7 +40,17 @@ public static class TypeMatcher
         // equivalent for lookup, without changing Normalize's public formatting contract.
         var normalizedCandidate = NormalizeForLookup(candidate);
         var normalizedTarget = NormalizeForLookup(target);
+        return MatchesNormalized(normalizedCandidate, normalizedTarget);
+    }
 
+    /// <summary>
+    /// Matches lookup-normalized type names without repeating normalization in
+    /// candidate-scanning loops.
+    /// </summary>
+    public static bool MatchesNormalized(
+        string normalizedCandidate,
+        string normalizedTarget)
+    {
         // Exact match
         if (normalizedCandidate.Equals(normalizedTarget, StringComparison.OrdinalIgnoreCase))
             return true;
@@ -79,30 +89,18 @@ public static class TypeMatcher
     /// Gets the base name without generic arity suffixes.
     /// "List`1" → "List"; "Dictionary`2.KeyCollection" → "Dictionary.KeyCollection".
     /// </summary>
+    /// <remarks>
+    /// Only a canonical <c>`N</c> suffix is an arity suffix
+    /// (<see cref="MetadataNameArity"/>), so a search key keeps a backtick that
+    /// is name text: <c>Ns.Widget`1Extra</c> stays itself instead of becoming
+    /// <c>Ns.WidgetExtra</c> and matching an unrelated type. This is search and
+    /// display text whose nesting spelling is already flattened, not an identity
+    /// contract.
+    /// </remarks>
     public static string GetBaseName(string typeName)
     {
-        var backtickIdx = typeName.IndexOf('`');
-        if (backtickIdx < 0)
-            return typeName;
-
-        var result = new System.Text.StringBuilder(typeName.Length);
-        for (var i = 0; i < typeName.Length; i++)
-        {
-            if (typeName[i] != '`')
-            {
-                result.Append(typeName[i]);
-                continue;
-            }
-
-            i++;
-            while (i < typeName.Length && char.IsDigit(typeName[i]))
-                i++;
-
-            if (i < typeName.Length)
-                result.Append(typeName[i]);
-        }
-
-        return result.ToString();
+        ArgumentNullException.ThrowIfNull(typeName);
+        return MetadataNameArity.StripFromFlattenedName(typeName);
     }
 
     /// <summary>
@@ -163,7 +161,8 @@ public static class TypeMatcher
         if (string.IsNullOrEmpty(target))
             yield break;
 
-        var targetBase = GetBaseName(GetSimpleName(FqnParser.NormalizeTypeName(target)));
+        var normalizedTarget = NormalizeForLookup(target);
+        var targetBase = GetBaseName(GetSimpleName(normalizedTarget));
 
         List<(string Name, double Similarity)> scored = [];
 
@@ -173,10 +172,12 @@ public static class TypeMatcher
                 continue;
 
             // Exact match is handled by Matches — skip here
-            if (Matches(candidate, target))
+            var normalizedCandidate = NormalizeForLookup(candidate);
+            if (MatchesNormalized(normalizedCandidate, normalizedTarget))
                 continue;
 
-            var candidateBase = GetBaseName(GetSimpleName(FqnParser.NormalizeTypeName(candidate)));
+            var candidateBase =
+                GetBaseName(GetSimpleName(normalizedCandidate));
             var similarity = StringDistance.Similarity(candidateBase, targetBase);
 
             if (similarity >= minSimilarity)
@@ -195,20 +196,25 @@ public static class TypeMatcher
     /// Gets the generic arity from a type name.
     /// "List`1" → 1, "Dictionary`2" → 2, "String" → 0
     /// </summary>
+    /// <remarks>
+    /// The arity is the one declared by the innermost component that carries a
+    /// canonical <c>`N</c> suffix, so a nested spelling
+    /// (<c>Dictionary`2.KeyCollection</c>) answers 2 and both sides of a match
+    /// answer alike. Only <see cref="MetadataNameArity"/>'s canonical form
+    /// counts, so <c>Widget`1Extra</c>, <c>Widget`0</c>, <c>Widget`+1</c>, and an
+    /// out-of-range count are 0 rather than a parsed number.
+    /// </remarks>
     public static int GetGenericArity(string typeName)
     {
-        var backtickIdx = typeName.IndexOf('`');
-        if (backtickIdx < 0)
-            return 0;
+        ArgumentNullException.ThrowIfNull(typeName);
+        int arity = 0;
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(typeName))
+        {
+            if (component.Arity > 0)
+                arity = component.Arity;
+        }
 
-        var digitStart = backtickIdx + 1;
-        var digitEnd = digitStart;
-        while (digitEnd < typeName.Length && char.IsDigit(typeName[digitEnd]))
-            digitEnd++;
-
-        return digitEnd > digitStart && int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity)
-            ? arity
-            : 0;
+        return arity;
     }
 
     /// <summary>
@@ -235,6 +241,28 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Returns true when the user supplied generic syntax, including malformed
+    /// or zero-arity syntax that must not be treated as an unspecified arity.
+    /// </summary>
+    public static bool HasExplicitGenericNotation(string pattern) =>
+        pattern.Contains('`') || pattern.Contains('<');
+
+    /// <summary>
+    /// Returns true when wildcard syntax remains after valid generic arguments
+    /// are normalized away.
+    /// </summary>
+    public static bool IsTypeGlobPattern(string pattern)
+    {
+        var matchPattern = GetTypeMatchPattern(pattern);
+        return matchPattern.Contains('*') || matchPattern.Contains('?');
+    }
+
+    private static string GetTypeMatchPattern(string pattern) =>
+        HasExplicitGenericNotation(pattern)
+            ? FqnParser.NormalizeTypeName(pattern)
+            : pattern;
+
+    /// <summary>
     /// Tests whether <paramref name="text"/> matches a glob pattern (* and ? wildcards).
     /// Case-insensitive.
     /// </summary>
@@ -252,13 +280,34 @@ public static class TypeMatcher
 
     /// <summary>
     /// Checks whether a full type name matches a single filter pattern (glob or exact).
-    /// For globs, tries both the full name and simple name.
-    /// For non-globs, delegates to <see cref="Matches"/> which handles namespace prefix and generic arity.
+    /// For globs, tries the full name and every dotted suffix so simple names,
+    /// nested owner chains, and namespace-qualified names use one rule.
+    /// Explicit generic notation preserves exact arity; other non-globs use
+    /// <see cref="Matches"/> for namespace and base-name matching.
     /// </summary>
     public static bool MatchesTypeFilter(string fullName, string pattern)
     {
-        if (pattern.Contains('*') || pattern.Contains('?'))
-            return MatchesGlob(fullName, pattern) || MatchesGlob(GetSimpleName(fullName), pattern);
+        var matchPattern = GetTypeMatchPattern(pattern);
+        if (IsTypeGlobPattern(pattern))
+        {
+            var normalizedFullName = NormalizeForLookup(fullName);
+            var normalizedPattern = matchPattern.Replace('+', '.');
+            return MatchesGlob(normalizedFullName, normalizedPattern)
+                || MatchesGlob(
+                    normalizedFullName,
+                    $"*.{normalizedPattern}");
+        }
+        if (HasExplicitGenericNotation(pattern))
+        {
+            var normalizedFullName = NormalizeForLookup(fullName);
+            var normalizedPattern = NormalizeForLookup(pattern);
+            return normalizedFullName.Equals(
+                       normalizedPattern,
+                       StringComparison.OrdinalIgnoreCase)
+                   || EndsWithDottedSuffix(
+                       normalizedFullName,
+                       normalizedPattern);
+        }
         return Matches(fullName, pattern);
     }
 
@@ -313,12 +362,13 @@ public static class TypeMatcher
     {
         var list = candidates as IList<string> ?? candidates.ToList();
 
-        bool isGlob = pattern.Contains('*') || pattern.Contains('?');
+        bool isGlob = IsTypeGlobPattern(pattern);
 
         if (isGlob)
         {
-            var hits = list.Where(c =>
-                MatchesGlob(c, pattern) || MatchesGlob(GetSimpleName(c), pattern)).ToList();
+            var hits = list
+                .Where(candidate => MatchesTypeFilter(candidate, pattern))
+                .ToList();
 
             return hits.Count switch
             {
@@ -328,36 +378,66 @@ public static class TypeMatcher
             };
         }
 
-        // Exact match via Matches (handles namespace prefix, generic arity, case-insensitive)
-        // When pattern has generic notation (e.g., Option<T>), prefer matching arity
-        var patternArity = GetPatternArity(pattern);
-        var matches = list.Where(c => Matches(c, pattern)).ToList();
+        var normalizedPattern = NormalizeForLookup(pattern);
+        var matches = list
+            .Select(candidate => (
+                Candidate: candidate,
+                Normalized: NormalizeForLookup(candidate)))
+            .Where(candidate =>
+                MatchesNormalized(
+                    candidate.Normalized,
+                    normalizedPattern))
+            .ToList();
 
         if (matches.Count > 0)
         {
-            // If pattern specified arity (e.g., Option<T>), prefer candidate with matching arity
-            if (patternArity >= 0)
-            {
-                var arityMatch = matches.FirstOrDefault(c => GetGenericArity(c) == patternArity);
-                if (arityMatch != null)
-                    return new LookupResult(arityMatch, []);
-            }
+            // Preserve every nested segment's arity before falling back to the legacy
+            // single-arity preference below. Otherwise Outer`1.Inner`2 and
+            // Outer`1.Inner`3 both compare only as Outer`1 and the first sibling wins.
+            var exactNormalizedMatch = matches.FirstOrDefault(candidate =>
+                candidate.Normalized.Equals(
+                           normalizedPattern,
+                           StringComparison.OrdinalIgnoreCase)
+                       || EndsWithDottedSuffix(
+                           candidate.Normalized,
+                           normalizedPattern));
+            if (exactNormalizedMatch.Candidate != null)
+                return new LookupResult(
+                    exactNormalizedMatch.Candidate,
+                    []);
 
-            var normalizedPattern = FqnParser.NormalizeTypeName(pattern);
+            // Explicit generic notation is exact identity evidence, including
+            // every nested segment's arity. Never broaden it to a base-name hit.
+            if (HasExplicitGenericNotation(pattern))
+                return new LookupResult(
+                    null,
+                    matches
+                        .Take(maxSuggestions)
+                        .Select(candidate => candidate.Candidate)
+                        .ToList());
+
             var exactSimpleNameMatch = matches.FirstOrDefault(c =>
-                GetGenericArity(GetSimpleName(c)) == 0
-                && GetSimpleName(c).Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase));
-            if (exactSimpleNameMatch != null)
-                return new LookupResult(exactSimpleNameMatch, []);
+                GetGenericArity(GetSimpleName(c.Candidate)) == 0
+                && GetSimpleName(c.Candidate).Equals(
+                    normalizedPattern,
+                    StringComparison.OrdinalIgnoreCase));
+            if (exactSimpleNameMatch.Candidate != null)
+                return new LookupResult(
+                    exactSimpleNameMatch.Candidate,
+                    []);
 
             var exactFullNameMatch = matches.FirstOrDefault(c =>
-                GetGenericArity(c) == 0
-                && c.Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase));
-            if (exactFullNameMatch != null)
-                return new LookupResult(exactFullNameMatch, []);
+                GetGenericArity(c.Candidate) == 0
+                && c.Candidate.Equals(
+                    normalizedPattern,
+                    StringComparison.OrdinalIgnoreCase));
+            if (exactFullNameMatch.Candidate != null)
+                return new LookupResult(
+                    exactFullNameMatch.Candidate,
+                    []);
 
             // Otherwise return first match (existing behavior for non-generic patterns)
-            return new LookupResult(matches[0], []);
+            return new LookupResult(matches[0].Candidate, []);
         }
 
         // Fuzzy fallback

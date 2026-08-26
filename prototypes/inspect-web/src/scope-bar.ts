@@ -1,13 +1,62 @@
-type LensDefinition = readonly [id: string, label: string];
+import {
+  isMemberSection,
+  isPackageLens,
+  isTypeLens,
+  isWorkspaceScope,
+  type MemberSection,
+  type PackageLens,
+  type TypeLens,
+  type WorkspaceScope,
+} from "./data.ts";
 
-export type Scope = "package" | "type" | "member";
+type LensDefinition<TId extends string = string> = readonly [id: TId, label: string];
 
-export interface RenderScopeBarOptions {
-  scope: Scope;
-  strip: readonly LensDefinition[];
-  activeStripId: string | null;
+// `TId` is inferred from the strip catalog, so the active id has to be a member of the
+// strip being rendered. A `string` there let a caller pass an id no button carries, which
+// renders a strip with nothing active and no failure anywhere. `NoInfer` keeps the strip
+// as the sole inference site; without it TypeScript infers the union of both and a
+// mismatched pair type-checks.
+export interface RenderScopeBarOptions<TId extends string = string> {
+  scope: WorkspaceScope;
+  strip: readonly LensDefinition<TId>[];
+  activeStripId: NoInfer<TId> | null;
   stripAttribute: string;
+  showMemberScope?: boolean;
+  emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
+}
+
+export interface ScopeBarBindingActions {
+  onMemberSectionSelect: (section: MemberSection) => void;
+  onPackageLensSelect: (lens: PackageLens) => void;
+  onScopeSelect: (scope: WorkspaceScope) => void;
+  onTypeLensSelect: (lens: TypeLens) => void;
+}
+
+export function bindScopeBar(
+  root: ParentNode,
+  actions: ScopeBarBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+    button.addEventListener("click", () => {
+      const scope = button.dataset.scope;
+      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
+    button.addEventListener("click", () => {
+      const lens = button.dataset.packageLens;
+      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+    button.addEventListener("click", () => {
+      const lens = button.dataset.lens;
+      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
+    button.addEventListener("click", () => {
+      const section = button.dataset.memberSection;
+      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
+    }));
 }
 
 function lensButton(
@@ -31,17 +80,29 @@ function scopeSegment(id: string, label: string, active: boolean): string {
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
-export function renderScopeBar(options: RenderScopeBarOptions): string {
-  const { scope, strip, activeStripId, stripAttribute, escapeHtml } = options;
+export function renderScopeBar<TId extends string>(
+  options: RenderScopeBarOptions<TId>,
+): string {
+  const {
+    scope,
+    strip,
+    activeStripId,
+    stripAttribute,
+    showMemberScope = scope === "member",
+    emptyStripLabel = "",
+    escapeHtml,
+  } = options;
   const stripHtml = strip
     .map(([id, label], i) => lensButton(id, label, activeStripId === id, stripAttribute, i, escapeHtml))
-    .join("");
+    .join("") || (emptyStripLabel
+      ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
+      : "");
   return `
     <nav class="lensbar" aria-label="Scope and lenses">
       <div class="scope-switch" role="tablist" aria-label="Scope">
         ${scopeSegment("package", "Package", scope === "package")}
         ${scopeSegment("type", "Types", scope === "type")}
-        ${scope === "member" ? scopeSegment("member", "Member", true) : ""}
+        ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
       </div>
       <span class="lens-separator"></span>
       ${stripHtml}

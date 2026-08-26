@@ -119,7 +119,24 @@ same check and prints this repair when a stale checkout reaches the test suite.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
+Windows Metadata (`.winmd`) is not a supported input format.
+
 Bare names are routed automatically: platform-looking names (`System.*`, `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names resolve as NuGet packages. In API commands, common CoreLib aliases and simple type names such as `string`, `int`, `DateTime`, and `Guid` resolve to `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`, or `--library` when you need a specific source.
+
+Discover NuGet.org packages by ID prefix without downloading package archives:
+
+```bash
+dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
+```
+
+Patternless `--package-prefix` streams the latest listed package metadata and
+exact `.nuspec` manifests, including owners and declared dependency groups.
+`-t` limits packages rather than flattened dependency rows. Supplying a pattern
+keeps the existing API-search behavior and may acquire package archives:
+
+```bash
+dotnet-inspect find JsonSerializer --package-prefix Microsoft.
+```
 
 For API and relationship commands, `--project` means an existing
 `project.assets.json` restored-assets context. Passing a `.csproj` or project
@@ -154,8 +171,8 @@ dnx dotnet-inspect -y -- library System.Text.Json \
 
 | Member | Token | Match |
 | ------ | ----- | ----- |
-| `System.Text.Json.JsonDocument.RootElement~2810741072` | `0x06000260` | `new JsonElement(this, 0)` |
-| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
+| `System.Text.Json.JsonDocument.RootElement~2810741072:1` | `0x06000260` | `new JsonElement(this, 0)` |
+| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d:2` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
 | `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
 ```
 
@@ -207,15 +224,17 @@ permits a selected non-public member.
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
-| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
-| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
-| Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
+| API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Patternless `find --package-prefix PREFIX` discovers latest NuGet.org package manifests without downloading archives. Add `--project` to resolve type/member queries in the project's restored dependency context. |
+| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified PDB Source evidence. |
+| Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods in one retained assembly, with explicit exact, near, different, unsupported, failed, limit-reached, and ambiguous-correspondence results. Add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
+| Relationships | `graph`, `depends`, `extensions`, `implements` | Explicit package-set Integration graphs, type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors, and subclasses. Add `--project` to search project-referenced packages. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member M --where "Kind=ObjectCreationExpression"`; `type T --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member, type, or assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `member M --where "Kind=ObjectCreationExpression"`; `type T --where "Kind=ObjectCreationExpression"`; `library X --where "Kind=ObjectCreationExpression"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one selected member, type, or assembly for exact stable rendered-syntax kinds and ranges, diffs checksum-verified PDB Source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
+| Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -226,21 +245,75 @@ permits a selected non-public member.
 | `project [path]` | Inspect restored direct package references for skill files and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, async methods, and rendered body shapes (`--where "Kind=<ID>"`). |
 | `type X` | Discover types or render a single type shape. |
-| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), SourceLink-backed original source, and IL. |
-| `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes (`--where "Kind=<ID>"`), checksum-verified PDB Source, and IL. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet.org package manifests. |
+| `match A B` | Compare two unambiguous `Type.Member` names from one retained assembly by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. Overload selectors are not supported. |
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
-| `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
+| `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified PDB Source implementation evidence. |
+| `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit, binding-consistent package set. |
+| `demo [id]` | List or run closed product-home inspection demos backed by real section output. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
+| `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
-| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
+| `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill sourcelink`, `skill performance`). |
+
+Convert a browser `w` query value to its exact compact JSON shape:
+
+```bash
+dotnet-inspect workspace-state decode "$w"
+dotnet-inspect workspace-state decode "$w" | jq
+```
+
+Convert JSON back to the one canonical base64url packet:
+
+```bash
+dotnet-inspect workspace-state encode --file workspace-state.json
+printf '%s' "$json" | dotnet-inspect workspace-state encode -
+```
+
+Bounded stdin and file input use strict UTF-8 and may end with one LF or CRLF;
+that transport line ending does not count against the packet or JSON payload
+limit.
+
+Encoding accepts equivalent duplicate-free JSON whitespace, property order, and
+string escapes, then validates the complete v1 shape and emits its canonical
+packet. Decoding requires a canonical packet and emits the exact JSON text
+used by that packet. Both directions are bounded, local conversions: they do
+not acquire artifacts, authorize package sources, or execute a workspace.
 
 Remote dependency trees requested with `depends --package`,
 `package -S Dependencies --tree`, or the legacy `package --dependencies` alias
 resolve from nuspec manifests without downloading package archives. Local
 `.nupkg` inputs, wildcard selectors, and .NET tool redirects retain archive
 acquisition.
+
+`graph integrations` is the first generic inspection-graph command. Repeat
+`--package name[@version]` to declare the finite induced set and supply one
+shared `--tfm`. The command does not traverse: there is no direction or depth,
+and only relationships whose semantic endpoints are both inside the package
+subject closure enter the graph. Its default relationship family is
+`api.extension`, `integration.observed`, and `integration.opportunity`; repeat
+`--relationship <id>` to select an exact subset. Markdown renders an edge table
+by default; `--tree`, `--mermaid`, `--table`, `--tsv`, `--jsonl`, `--json`,
+`--count`, and `--rows` address the same ordered logical-edge rows. Missing
+peer packages remain visible as typed binding failures and make the command
+exit nonzero rather than silently shortening the graph. Tabular edge rows
+include source/target assembly identity and package ownership. JSON and JSONL
+keep occurrence counts numeric and absent values null rather than lowering
+them to display strings; JSON edges do not expose unresolved document-local
+occurrence ids.
+
+```bash
+dotnet-inspect graph integrations \
+  --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
+  --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+  --package Microsoft.Extensions.Logging@10.0.0 \
+  --package Microsoft.Extensions.Http@10.0.0 \
+  --tfm net10.0 \
+  --relationship integration.observed
+```
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
@@ -282,6 +355,20 @@ coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
 summary, single/multi-package parity, provenance, and listing.
 
+Select `Audit: Findings` (or `@Audit`) to scan text-bearing files and decoded
+SourceLink mappings inside the package. It reports one row per finding with
+`Path`, `Kind`, and `Encoded Text`, including control/bidi text, cleared restore
+sources, declared package sources, concerning SourceLink map text, and literal
+`../` references in SourceLink document keys or URLs. A parent-path row is a
+prompt to review the mapping, not a maliciousness verdict. The scan is explicit
+because its work scales with package content; candidate paths, text reads,
+SourceLink carriers, and embedded-PDB expansion are bounded. Package
+document payloads are visually encoded on stdout; `--out
+<path>` on a single-file selection remains the byte-exact payload export.
+`PackageContentAuditTests` and
+`PackageAudit_RendersContentAndSourceLinkFindings` gate the scan and
+its Markdown/JSONL shape with compiler-produced PDB evidence.
+
 Library and package Signals also report `Identifier confusion` for assembly
 names and package IDs. Every non-ASCII identifier character is reported as an
 identity concern. Names whose leading characters exactly match `System`,
@@ -303,8 +390,9 @@ transitive reference closure.
 | `library X -S "Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name, direct-reference, and resolved transitive-reference locations, classifications, similarity, and code points. |
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including signature provenance, Gallery listing state, identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 | `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
+| `package X -S "Signals,Audit: Findings"` | Package audit | Scans text-bearing package files and decoded SourceLink maps, listing each finding as path, kind, and safely encoded evidence. |
 | `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
 | `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
 | `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
@@ -426,13 +514,16 @@ retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
-Export nested JSON when runtime correlation is the next step, then give that
-document and the matching allocation trace to `runfaster`:
+Export nested JSON when runtime correlation is the next step. The `runfaster`
+prototype is available only in this repository and is not included in the
+published `dotnet-inspect` packages. From a source checkout, give it that
+document and a matching allocation trace:
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --json > triage.json
-runfaster correlate --triage triage.json --trace workload.nettrace
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
 ```
 
 The compact `Performance:* --jsonl` table intentionally carries only the tight
@@ -507,11 +598,11 @@ A property, indexer, or event has no body of its own, so body sections
 Address them through the overload-index selector: `Name:1` is the getter/adder
 (the default) and `Name:2` the setter/remover, each rooted at its metadata
 accessor name (`get_Name`, `set_Name`, `add_Name`, `remove_Name`). Fields have
-no accessor and stay body-less. The SourceLink source-file sections
-(`Original Source`, `Source Diff`, `Source Locations`) follow the same
+no accessor and stay body-less. The source-evidence sections
+(`PDB Source`, `Source Diff`, `Source Locations`) follow the same
 addressing and resolve through the accessor's PDB sequence points.
-`Source Locations` reports that accessor-specific range; `Original Source` and
-`Source Diff` use its first line to select the enclosing authored declaration,
+`Source Locations` reports that accessor-specific range; `PDB Source` and
+`Source Diff` use its first line to select the enclosing source declaration,
 so a getter and setter both render the whole property rather than invalid
 accessor fragments.
 
@@ -540,7 +631,8 @@ to high. Caller-loop evidence remains queryable but does not change priority.
 `member -S @Source` raises a method body to C# and shows the supporting
 evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
 hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
-rendering as a machine payload), `Original Source` (SourceLink-backed),
+rendering as a machine payload), `PDB Source` (Portable-PDB-selected,
+checksum-verified source acquired locally or through SourceLink),
 and `IL`. The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
@@ -755,6 +847,7 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,Sou
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Dependencies
 dotnet-inspect package System.Text.Json -S @Audit
@@ -789,7 +882,7 @@ dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
 dotnet-inspect timeline --package MyLib@1.0.0..2.0.0 --type MyType --member Parse --finding analysis.unsafety --at all
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --authored-source -m MyType.HotPath
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --pdb-source -m MyType.HotPath
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect implements IEquatable --project ./src/App -v:q
 dotnet-inspect extensions string --project ./src/App -v:n

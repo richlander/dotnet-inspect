@@ -102,6 +102,8 @@ public sealed class LibraryBodyIndex
             analysis.Methods.InAssemblyTypeIsException;
         _suppressedOpportunityTokens =
             analysis.Optimizations.SuppressedMethodTokens;
+        _scopeExcludedOpportunityTokens =
+            analysis.Optimizations.ScopeExcludedMethodTokens;
         _exceptionTypeNames = analysis.Optimizations.ExceptionTypeNames;
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
@@ -317,6 +319,10 @@ public sealed class LibraryBodyIndex
                                 _physicalDirectCalls,
                                 Methods),
                             _allocationOccurrences)
+                        .Where(summary =>
+                            !_scopeExcludedOpportunityTokens
+                                .Contains(
+                                    summary.Method.MetadataToken))
                         .Select(summary => new OptimizationOpportunity(
                             summary.Method,
                             "allocation-fanout",
@@ -424,6 +430,7 @@ public sealed class LibraryBodyIndex
         {
             Finding<AllocationOccurrence>? allocation = null;
             Finding<DirectCall>? callSite = null;
+            Finding<DirectCall>? supportingCallSite = null;
             bool attachFinding =
                 opportunity.Shape != "generic-parameter-object-box";
             if (attachFinding && opportunity.ILOffset is { } offset)
@@ -477,6 +484,29 @@ public sealed class LibraryBodyIndex
                 }
             }
 
+            if (opportunity.SupportingCallSite is { } supportSite
+                && physicalCallsByCaller.TryGetValue(
+                    supportSite.EvidenceMethodToken,
+                    out var supportingCalls))
+            {
+                if (!callSiteFindings.TryGetValue(
+                        supportSite.EvidenceMethodToken,
+                        out var findings))
+                {
+                    findings = AnalysisFindings.InspectCallSites(
+                        supportingCalls,
+                        FindingSubjectFor(
+                            supportingCalls[0].Caller));
+                    callSiteFindings[
+                        supportSite.EvidenceMethodToken] =
+                        findings;
+                }
+                supportingCallSite = SingleFindingAtOffset(
+                    findings,
+                    supportSite.ILOffset,
+                    static call => call.ILOffset);
+            }
+
             string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id ?? opportunity.SourceFinding;
             FindingKey? findingKey = allocation?.Key ?? callSite?.Key;
             int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
@@ -510,6 +540,22 @@ public sealed class LibraryBodyIndex
                     ? CallOperation(callSite?.Payload)
                     : AllocationOperation(allocation.Payload),
                 OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
+                SupportingCallSite =
+                    opportunity.SupportingCallSite is not
+                        { } supportCoordinate
+                        ? null
+                        : supportCoordinate with
+                        {
+                            SourceFinding =
+                                supportingCallSite
+                                    ?.Descriptor.Id,
+                            Operation = CallOperation(
+                                supportingCallSite
+                                    ?.Payload),
+                            OperandToken =
+                                supportingCallSite
+                                    ?.Payload.OperandToken,
+                        },
                 Provenance = opportunity.Provenance != PerformanceTriageProvenance.Unknown
                     ? opportunity.Provenance
                     : sourceFinding is not null
@@ -766,6 +812,8 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
     readonly IReadOnlySet<int> _suppressedOpportunityTokens;
+    readonly IReadOnlySet<int>
+        _scopeExcludedOpportunityTokens;
     readonly IReadOnlySet<string> _exceptionTypeNames;
     readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
@@ -1021,6 +1069,8 @@ public sealed class LibraryBodyIndex
                 Optimizations: new(
                     Opportunities: [],
                     SuppressedMethodTokens: new HashSet<int>(),
+                    ScopeExcludedMethodTokens:
+                        new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
                 OwnershipFlow: new(Methods: []),
@@ -1132,6 +1182,64 @@ public sealed class LibraryBodyIndex
             plan,
             resolver,
             rootSnapshot);
+    }
+
+    /// <summary>
+    /// Determines whether an opened metadata context contains any unsafe
+    /// declaration or body evidence, stopping after the first finding instead
+    /// of materializing a whole-assembly body index or PE image.
+    /// </summary>
+    /// <remarks>
+    /// Gates:
+    /// <c>Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery</c> and
+    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>.
+    /// </remarks>
+    public static bool HasUnsafeEvidence(
+        string path,
+        PdbContext context)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(context);
+
+        return context.InspectImage(
+            peReader => HasUnsafeEvidence(
+                path,
+                peReader));
+    }
+
+    /// <summary>
+    /// Determines whether an immutable PE image contains unsafe evidence.
+    /// Prefer the context overload when an owning metadata context is already
+    /// open.
+    /// </summary>
+    public static bool HasUnsafeEvidence(
+        string path,
+        ImmutableArray<byte> image)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A PE image is required.",
+                nameof(image));
+        }
+
+        using var peReader = new PEReader(image);
+        return HasUnsafeEvidence(path, peReader);
+    }
+
+    static bool HasUnsafeEvidence(
+        string path,
+        PEReader peReader)
+    {
+        if (!peReader.HasMetadata)
+            return false;
+
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            peReader.GetMetadataReader(),
+            peReader);
+        return builder.HasUnsafeEvidence();
     }
 
     static LibraryBodyIndex BuildFromReader(

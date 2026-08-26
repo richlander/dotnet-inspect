@@ -5,18 +5,18 @@
 // the metadata image rather than the API surface within it — so they live in one module, the
 // way `type-panel.ts` combines the type selector and the type viewer.
 //
-// `app.js` keeps everything that is not markup: `state`, the engine calls that fetch a
-// metadata image, a table row window, or a heap listing (`loadPackageMetadata`,
-// `loadExplorerWindow`, `loadExplorerHeap`), the explorer's focus/history stack
-// (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`, `explorerHistoryBack/Forward`,
-// `explorerShowOverview`, `closeExplorer`), the DOM event binding, the `IntersectionObserver`
-// that hydrates cards lazily, the resize listener, and the global keydown handler. This
-// module owns only the markup shape given an explicit snapshot of that state, matching how
-// `type-panel.ts` left comparably rich navigation state in `app.js`.
+// `package-inspection.ts` coordinates the package-level metadata request, while
+// `metadata-inspection.ts` coordinates type metadata and the explorer's table-window and
+// heap-listing requests. `dotnet-inspect.ts` keeps `state` and the explorer's focus/history
+// stack (`openExplorer`, `pushExplorerFocus`, `applyExplorerFocus`,
+// `explorerHistoryBack/Forward`, `explorerShowOverview`, `closeExplorer`), the
+// `IntersectionObserver` that hydrates cards lazily, the resize listener, and the global
+// gesture effects registered with the shared keybinding dispatcher. This module owns the
+// markup and its interaction mapping given explicit state and action callbacks.
 //
 // The shared text helpers used well beyond these views (`escapeHtml`, `fmtBytes`) and the
 // shared lens chrome (`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`,
-// `platformPackForAssembly`) stay in `app.js` and are injected rather than duplicated here.
+// `platformPackForAssembly`) stay in `dotnet-inspect.ts` and are injected rather than duplicated here.
 
 type EscapeHtml = (value: unknown) => string;
 type FormatBytes = (value: number) => string;
@@ -197,6 +197,123 @@ export interface ExplorerState {
   pageSize?: number;
 }
 
+export interface MetadataExplorerBindingActions {
+  onClose: () => void;
+  onHistoryBack: () => void;
+  onHistoryForward: () => void;
+  onHeapFocus: (heap: string) => void;
+  onJump: (index: number, rowId: number) => void;
+  onOpenHeap: (assembly: string, heap: string) => void;
+  onOpenTable: (assembly: string, index: number) => void;
+  onPage: (index: number, startRowId: number) => void;
+  onRowFocus: (index: number, rowId: number) => void;
+  onShowOverview: () => void;
+  onTableFocus: (index: number, rowId: number) => void;
+}
+
+function parseExplorerCoordinates(value: string | undefined): [number, number] | null {
+  const parts = value?.split(":");
+  if (!parts || parts.length !== 2) return null;
+  const indexText = parts[0];
+  const rowIdText = parts[1];
+  if (!indexText || !rowIdText
+    || !/^\d+$/.test(indexText) || !/^\d+$/.test(rowIdText)) {
+    return null;
+  }
+  const index = Number(indexText);
+  const rowId = Number(rowIdText);
+  return Number.isSafeInteger(index) && Number.isSafeInteger(rowId)
+    ? [index, rowId]
+    : null;
+}
+
+export function bindMetadataExplorer(
+  root: ParentNode,
+  explorer: Pick<ExplorerState, "overview"> | null,
+  actions: MetadataExplorerBindingActions,
+) {
+  root.querySelector("#mde-exit")?.addEventListener("click", actions.onClose);
+  root.querySelector("#mde-hist-back")?.addEventListener(
+    "click",
+    actions.onHistoryBack);
+  root.querySelector("#mde-hist-fwd")?.addEventListener(
+    "click",
+    actions.onHistoryForward);
+  root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
+    button.addEventListener("click", () => {
+      const assembly = button.dataset.mdeAssembly ?? "";
+      const tableIndex = button.dataset.mdeOpen ?? "";
+      if (!assembly || !/^\d+$/.test(tableIndex)) return;
+      const index = Number(tableIndex);
+      if (Number.isSafeInteger(index)) actions.onOpenTable(assembly, index);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-mde-open-heap]").forEach(button =>
+    button.addEventListener("click", () => {
+      const assembly = button.dataset.mdeAssembly ?? "";
+      const heap = button.dataset.mdeOpenHeap ?? "";
+      if (assembly && heap) actions.onOpenHeap(assembly, heap);
+    }));
+  if (!explorer) return;
+
+  root.querySelectorAll<HTMLElement>("[data-mde-chip]").forEach(chip =>
+    chip.addEventListener(
+      "click",
+      () => actions.onTableFocus(Number(chip.dataset.mdeChip), 0)));
+  root.querySelectorAll<HTMLElement>("[data-mde-jump]").forEach(button =>
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      const coordinates = parseExplorerCoordinates(button.dataset.mdeJump);
+      if (coordinates) actions.onJump(...coordinates);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-mde-overview]").forEach(button =>
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      actions.onShowOverview();
+    }));
+  root.querySelectorAll<HTMLElement>("[data-mde-page]").forEach(button =>
+    button.addEventListener("click", () => {
+      const coordinates = parseExplorerCoordinates(button.dataset.mdePage);
+      if (coordinates) actions.onPage(...coordinates);
+    }));
+  root.querySelectorAll<HTMLElement>("[data-mde-heap-chip]").forEach(chip =>
+    chip.addEventListener("click", () => {
+      const heap = chip.dataset.mdeHeapChip;
+      if (heap) actions.onHeapFocus(heap);
+    }));
+
+  if (explorer.overview) {
+    root.querySelectorAll<HTMLElement>(
+      ".mde-wall .mde-card[data-mde-index] .mde-card-head",
+    ).forEach(head => head.addEventListener("click", () => {
+      const card = head.closest<HTMLElement>(".mde-card");
+      if (card) actions.onTableFocus(Number(card.dataset.mdeIndex), 0);
+    }));
+    root.querySelectorAll<HTMLElement>(
+      ".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head",
+    ).forEach(head => head.addEventListener("click", () => {
+      const card = head.closest<HTMLElement>(".mde-heap-card");
+      const heap = card?.dataset.mdeHeap;
+      if (heap) actions.onHeapFocus(heap);
+    }));
+    root.querySelectorAll<HTMLElement>(
+      ".mde-wall .mde-row[data-mde-row]",
+    ).forEach(row => row.addEventListener("click", () => {
+      const coordinates = parseExplorerCoordinates(row.dataset.mdeRow);
+      if (coordinates) actions.onTableFocus(...coordinates);
+    }));
+  } else {
+    root.querySelector("#mde-canvas")?.addEventListener(
+      "click",
+      actions.onShowOverview);
+    root.querySelectorAll<HTMLElement>(
+      ".mde-focus .mde-row[data-mde-row]",
+    ).forEach(row => row.addEventListener("click", () => {
+      const coordinates = parseExplorerCoordinates(row.dataset.mdeRow);
+      if (coordinates) actions.onRowFocus(...coordinates);
+    }));
+  }
+}
+
 /** Everything the explorer's markup needs: the open explorer plus the shared text helpers. */
 export interface ExplorerRenderContext extends MetadataTextHelpers {
   explorer: ExplorerState;
@@ -206,7 +323,7 @@ export interface ExplorerRenderContext extends MetadataTextHelpers {
 
 /**
  * A conservative fallback page size; the real one adapts to the focus panel's visible height
- * (see `estimateExplorerPageSize` and `app.js`'s `syncExplorerPageSize`) so a tall panel is
+ * (see `estimateExplorerPageSize` and `dotnet-inspect.ts`'s `syncExplorerPageSize`) so a tall panel is
  * not left half-empty.
  */
 export const EXPLORER_PAGE = 50;
@@ -270,7 +387,7 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
   /** The scoped platform library name, or "" when the platform lens has no selection yet. */
   scopedLibrary: string;
   activeFramework: string;
-  /** The shared `platformLensPicker` markup, rendered by `app.js` for the platform lens. */
+  /** The shared `platformLensPicker` markup, rendered by `dotnet-inspect.ts` for the platform lens. */
   pickerHtml: string;
   /** True when the loaded metadata (or in-flight load) belongs to the current scope. */
   fresh: boolean;
@@ -339,7 +456,7 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
   const heapRows = (asm.heaps || [])
     .filter(heap => heap.sizeInBytes > 0)
     .map(heap => `
-      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(asm.assembly)}|${escapeHtml(heap.name)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
+      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(heap.name)}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
         <span class="meta-heap-name">${escapeHtml(heapStreamName(heap.name))}</span>
         <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
         <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
@@ -347,7 +464,7 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
 
   const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
   const tableRows = tables.map(table => `
-    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${escapeHtml(asm.assembly)}|${table.index}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
+    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
       <span class="meta-table-name">${escapeHtml(table.name)}</span>
       <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
       <span class="meta-table-go">→</span>
@@ -384,13 +501,13 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
 // -- Metadata Explorer -----------------------------------------------------------------------
 // A spatial "browse the metadata like a database" view. The overview lens hands off an
 // assembly + a starting table; the explorer lays every populated table out as a card,
-// `app.js` lazy-loads each table's row window on demand, and handle/range cells render as
-// ref->def jumps that `app.js` transports you along.
+// `dotnet-inspect.ts` lazy-loads each table's row window on demand, and handle/range cells render as
+// ref->def jumps that `dotnet-inspect.ts` transports you along.
 
 /**
  * The whole explorer surface: the nav bar, the table/heap chips, the wall of cards, and (when
- * not zoomed out to the overview) the focus lightbox. `app.js` mounts this markup and binds
- * its events; every `data-mde-*` attribute here is a binding contract with `app.js`.
+ * not zoomed out to the overview) the focus lightbox. `dotnet-inspect.ts` mounts this markup and binds
+ * its events; every `data-mde-*` attribute here is a binding contract with `dotnet-inspect.ts`.
  */
 export function renderMetadataExplorer(context: ExplorerRenderContext): string {
   const { explorer: ex, escapeHtml, fmtBytes } = context;

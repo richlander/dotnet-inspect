@@ -52,7 +52,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task PathlessMember_AcquiresVerifiedAuthoredSource()
+    public async Task PathlessMember_AcquiresVerifiedPdbSource()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyMemberSourceRequest request =
@@ -76,18 +76,18 @@ public sealed class AssemblyContextSourceQueryTests
         var available =
             Assert.IsType<AssemblyMemberSourceEntry.Available>(
                 result);
-        var authored =
-            Assert.IsType<AssemblyMemberSource.Authored>(
+        var pdbSource =
+            Assert.IsType<AssemblyMemberSource.Pdb>(
                 available.Source);
         Assert.Contains(
             nameof(SourceFixture.Describe),
-            authored.Text,
+            pdbSource.Text,
             StringComparison.Ordinal);
         Assert.Equal(
             SourceChecksumVerification.Exact,
-            authored.Inspection.ChecksumVerification);
-        Assert.NotNull(authored.Inspection.Mapping);
-        Assert.NotNull(authored.Inspection.Document);
+            pdbSource.Inspection.ChecksumVerification);
+        Assert.NotNull(pdbSource.Inspection.Mapping);
+        Assert.NotNull(pdbSource.Inspection.Document);
         Assert.Null(assembly.Assembly.Path);
         Assert.NotEmpty(host.SymbolRequests);
         Assert.NotEmpty(host.SourceRequests);
@@ -135,13 +135,13 @@ public sealed class AssemblyContextSourceQueryTests
                 TestContext.Current.CancellationToken);
 
         var member =
-            Assert.IsType<AssemblyMemberSource.Authored>(
+            Assert.IsType<AssemblyMemberSource.Pdb>(
                 Assert.IsType<
                     AssemblyMemberSourceEntry.Available>(
                         memberResult)
                     .Source);
         var type =
-            Assert.IsType<AssemblyTypeSource.Authored>(
+            Assert.IsType<AssemblyTypeSource.Pdb>(
                 Assert.IsType<
                     AssemblyTypeSourceEntry.Available>(
                         typeResult)
@@ -156,7 +156,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task MissingAuthoredSource_FallsBackToDecompiler()
+    public async Task MissingPdbSource_FallsBackToDecompiler()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyMemberSourceRequest request =
@@ -186,13 +186,13 @@ public sealed class AssemblyContextSourceQueryTests
             decompiled.Text,
             StringComparison.Ordinal);
         Assert.IsType<FindingInspection<string>.Absent>(
-            decompiled.AuthoredAttempt.Lines.Value);
+            decompiled.PdbAttempt.Lines.Value);
         Assert.Empty(host.SourceRequests);
         Assert.True(assembly.Policy.SelectionCount > 0);
     }
 
     [Fact]
-    public async Task AuthoredIntegrityFailure_IsPreservedBesideDecompiler()
+    public async Task PdbSourceIntegrityFailure_IsPreservedBesideDecompiler()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyMemberSourceRequest request =
@@ -220,10 +220,10 @@ public sealed class AssemblyContextSourceQueryTests
             Assert.IsType<AssemblyMemberSource.Decompiled>(
                 available.Source);
         Assert.IsType<FindingInspection<string>.Failed>(
-            decompiled.AuthoredAttempt.Lines.Value);
+            decompiled.PdbAttempt.Lines.Value);
         Assert.Equal(
             SourceChecksumVerification.Mismatch,
-            decompiled.AuthoredAttempt.ChecksumVerification);
+            decompiled.PdbAttempt.ChecksumVerification);
         Assert.Contains(
             nameof(SourceFixture.Describe),
             decompiled.Text,
@@ -231,7 +231,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task PathlessType_AcquiresVerifiedAuthoredDocument()
+    public async Task PathlessType_AcquiresVerifiedPdbDocument()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyTypeSourceRequest request =
@@ -255,20 +255,20 @@ public sealed class AssemblyContextSourceQueryTests
         var available =
             Assert.IsType<AssemblyTypeSourceEntry.Available>(
                 result);
-        var authored =
-            Assert.IsType<AssemblyTypeSource.Authored>(
+        var pdbSource =
+            Assert.IsType<AssemblyTypeSource.Pdb>(
                 available.Source);
         Assert.Contains(
             nameof(SourceFixture),
-            authored.Text,
+            pdbSource.Text,
             StringComparison.Ordinal);
         Assert.Equal(
             SourceChecksumVerification.Exact,
-            authored.Inspection.ChecksumVerification);
+            pdbSource.Inspection.ChecksumVerification);
     }
 
     [Fact]
-    public async Task MissingAuthoredType_FallsBackToDecompiler()
+    public async Task MissingPdbSourceForType_FallsBackToDecompiler()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyTypeSourceRequest request =
@@ -299,7 +299,7 @@ public sealed class AssemblyContextSourceQueryTests
             StringComparison.Ordinal);
         Assert.True(decompiled.Decompilation.Succeeded);
         Assert.IsType<FindingInspection<string>.Absent>(
-            decompiled.AuthoredAttempt.Lines.Value);
+            decompiled.PdbAttempt.Lines.Value);
     }
 
     [Fact]
@@ -1173,7 +1173,7 @@ public sealed class AssemblyContextSourceQueryTests
                     available.Source);
             var failed =
                 Assert.IsType<FindingInspection<string>.Failed>(
-                    decompiled.AuthoredAttempt.Lines.Value);
+                    decompiled.PdbAttempt.Lines.Value);
             Assert.Contains(
                 "source-content store failed",
                 failed.Error.Reason,
@@ -1191,7 +1191,7 @@ public sealed class AssemblyContextSourceQueryTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task SourceStoreOperationalFailure_PreservesAuthoredFailureAndFallback(
+    public async Task SourceStoreOperationalFailure_PreservesPdbSourceFailureAndFallback(
         bool failRead)
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -1224,7 +1224,7 @@ public sealed class AssemblyContextSourceQueryTests
                     .Source);
         var failed =
             Assert.IsType<FindingInspection<string>.Failed>(
-                decompiled.AuthoredAttempt.Lines.Value);
+                decompiled.PdbAttempt.Lines.Value);
         Assert.Contains(
             "source-content store failed",
             failed.Error.Reason,
@@ -1275,7 +1275,7 @@ public sealed class AssemblyContextSourceQueryTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(false, false)]
-    public async Task SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess(
+    public async Task SourceStoreSuccessfulCancellation_PropagatesBeforePdbSourceSuccess(
         bool member,
         bool cancelRead)
     {
@@ -1334,7 +1334,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType()
+    public async Task PdbStoreFailure_PreservesPdbSourceFailureAndFallsBackForMemberAndType()
     {
         TestAssembly assembly = TestAssembly.Create();
         var pdbStore = new ThrowingPdbStore();
@@ -1363,7 +1363,7 @@ public sealed class AssemblyContextSourceQueryTests
                 memberAvailable.Source);
         var memberFailure =
             Assert.IsType<FindingInspection<string>.Failed>(
-                memberDecompiled.AuthoredAttempt.Lines.Value);
+                memberDecompiled.PdbAttempt.Lines.Value);
         Assert.Contains(
             "Portable PDB acquisition failed",
             memberFailure.Error.Reason,
@@ -1389,7 +1389,7 @@ public sealed class AssemblyContextSourceQueryTests
                 typeAvailable.Source);
         var typeFailure =
             Assert.IsType<FindingInspection<string>.Failed>(
-                typeDecompiled.AuthoredAttempt.Lines.Value);
+                typeDecompiled.PdbAttempt.Lines.Value);
         Assert.Contains(
             "Portable PDB acquisition failed",
             typeFailure.Error.Reason,
@@ -1405,7 +1405,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType()
+    public async Task CorruptEmbeddedPdb_PreservesPdbSourceFailureAndFallsBackForMemberAndType()
     {
         byte[] bytes =
             CorruptEmbeddedPdb(
@@ -1437,7 +1437,7 @@ public sealed class AssemblyContextSourceQueryTests
             Assert.IsType<AssemblyMemberSource.Decompiled>(
                 memberAvailable.Source);
         Assert.IsType<FindingInspection<string>.Failed>(
-            memberDecompiled.AuthoredAttempt.Lines.Value);
+            memberDecompiled.PdbAttempt.Lines.Value);
         Assert.Contains(
             nameof(EmbeddedSourceFixture.Echo),
             memberDecompiled.Text,
@@ -1458,7 +1458,7 @@ public sealed class AssemblyContextSourceQueryTests
             Assert.IsType<AssemblyTypeSource.Decompiled>(
                 typeAvailable.Source);
         Assert.IsType<FindingInspection<string>.Failed>(
-            typeDecompiled.AuthoredAttempt.Lines.Value);
+            typeDecompiled.PdbAttempt.Lines.Value);
         Assert.Contains(
             nameof(EmbeddedSourceFixture),
             typeDecompiled.Text,
@@ -1491,10 +1491,80 @@ public sealed class AssemblyContextSourceQueryTests
                     "corrupt embedded PDB fixture"));
 
         Assert.Throws<BadImageFormatException>(
-            () => PdbContext.OpenMetadataOnly(
+            () => PdbContext.OpenEmbeddedPdbOnly(
                 descriptor));
 
         Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(1024, 1)]
+    [InlineData(1, 1024)]
+    public async Task EmbeddedPdbHostLimits_ApplyBeforeQueryOwnedOpen(
+        long maxPortablePdbBytes,
+        long maxExpandedPdbBytes)
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        using var stream =
+            new DisposeCountingStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Local(
+                    "embedded PDB limit fixture"));
+        using var host = QueryHost.WithoutPdb(
+            new SymbolAcquisitionLimits(
+                maxSymbolPackageBytes: 1024,
+                maxPortablePdbBytes,
+                maxSymbolPackageEntries: 1,
+                maxExpandedPdbBytes));
+
+        var result =
+            await AssemblyContextSourceQuery.OpenSourceLinkAsync(
+                descriptor,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Source);
+        Assert.IsType<PdbResourceLimitException>(result.Failure);
+        Assert.Equal(1, stream.DisposeCount);
+        Assert.Empty(host.SymbolRequests);
+    }
+
+    [Fact]
+    public async Task PreOpenCancellation_DoesNotOpenAssemblyStream()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        int openCount = 0;
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () =>
+                {
+                    openCount++;
+                    return new MemoryStream(bytes, writable: false);
+                },
+                AssemblyResolutionProvenance.Local(
+                    "pre-open cancellation fixture"));
+        using var host = QueryHost.WithoutPdb();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.OpenSourceLinkAsync(
+                descriptor,
+                host.Context,
+                cancellation.Token));
+
+        Assert.Equal(0, openCount);
     }
 
     [Fact]
@@ -1734,7 +1804,7 @@ public sealed class AssemblyContextSourceQueryTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task PdbDisposalFailure_PreventsAuthoredSuccess(
+    public async Task PdbDisposalFailure_PreventsPdbSourceSuccess(
         bool memberQuery,
         bool cancellationFailure)
     {
@@ -1977,7 +2047,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType()
+    public async Task MalformedPdbDocument_PreservesPdbSourceFailureAndFallsBackForType()
     {
         TestAssembly assembly = TestAssembly.Create();
         byte[] pdbBytes =
@@ -1993,7 +2063,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task MalformedTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback()
+    public async Task MalformedTargetPdbDocument_ProducesFailedPdbSourceEvidenceBeforeTypeFallback()
     {
         TestAssembly assembly = TestAssembly.Create();
         byte[] pdbBytes =
@@ -2009,7 +2079,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task EmptyTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback()
+    public async Task EmptyTargetPdbDocument_ProducesFailedPdbSourceEvidenceBeforeTypeFallback()
     {
         TestAssembly assembly = TestAssembly.Create();
         byte[] pdbBytes =
@@ -2024,7 +2094,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback()
+    public async Task MalformedTargetSequencePoints_ProduceFailedPdbSourceEvidenceBeforeTypeFallback()
     {
         TestAssembly assembly = TestAssembly.Create();
         byte[] pdbBytes =
@@ -2041,7 +2111,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task RejectedUnrelatedTypeName_ProducesFailedAuthoredEvidenceBeforeTypeFallback()
+    public async Task RejectedUnrelatedTypeName_ProducesFailedPdbSourceEvidenceBeforeTypeFallback()
     {
         TestAssembly original = TestAssembly.Create();
         byte[] bytes =
@@ -2084,9 +2154,9 @@ public sealed class AssemblyContextSourceQueryTests
                 result);
         Assert.Equal(
             AssemblySourceFailureKind
-                .AuthoredAndDecompiledUnavailable,
+                .PdbAndDecompiledUnavailable,
             unavailable.Failure.Kind);
-        Assert.NotNull(unavailable.AuthoredAttempt);
+        Assert.NotNull(unavailable.PdbAttempt);
         Assert.NotNull(unavailable.DecompiledAttempt);
         Assert.False(unavailable.DecompiledAttempt!.Succeeded);
     }
@@ -2282,7 +2352,7 @@ public sealed class AssemblyContextSourceQueryTests
                 available.Source);
         var failed =
             Assert.IsType<FindingInspection<string>.Failed>(
-                decompiled.AuthoredAttempt.Lines.Value);
+                decompiled.PdbAttempt.Lines.Value);
         Assert.Contains(
             "Portable PDB type source mapping failed",
             failed.Error.Reason,
@@ -2859,7 +2929,8 @@ public sealed class AssemblyContextSourceQueryTests
             SourceHandler sourceHandler,
             ISourceContentStore? sourceContentStore = null,
             IPdbStore? pdbStore = null,
-            bool allowLocalSourceReads = false)
+            bool allowLocalSourceReads = false,
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -2876,6 +2947,8 @@ public sealed class AssemblyContextSourceQueryTests
             {
                 AllowLocalSourceReads =
                     allowLocalSourceReads,
+                SymbolAcquisitionLimits =
+                    symbolAcquisitionLimits,
             };
             SymbolRequests = symbolHandler.RequestUris;
             SourceRequests = sourceHandler.RequestUris;
@@ -2921,10 +2994,12 @@ public sealed class AssemblyContextSourceQueryTests
                 allowLocalSourceReads:
                     allowLocalSourceReads);
 
-        internal static QueryHost WithoutPdb()
+        internal static QueryHost WithoutPdb(
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
             => new(
                 new SymbolPackageHandler(snupkg: null),
-                new SourceHandler(content: null));
+                new SourceHandler(content: null),
+                symbolAcquisitionLimits: symbolAcquisitionLimits);
 
         public void Dispose()
         {
