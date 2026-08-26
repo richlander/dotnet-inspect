@@ -102,19 +102,26 @@ type syntax and doubles literal backslashes, so a referenced type containing
 literal `\u0041` cannot masquerade as a generated escape. Structured member
 signatures apply that boundary to each raw return, parameter, constraint, base,
 and interface type before composing the declaration; existing C# default-value
-escapes remain presentation syntax and are not doubled. When a literal
-backslash in a structured raw slot requires disambiguation, document JSON
-prepares that declaration without mutating `ApiMember`; benign signatures stay
-byte-neutral, while a degraded compatibility signature remains visibly
-accompanied by its decode status.
+escapes remain presentation syntax and are not doubled. Member kinds that
+retain compatibility signature text contain its code spans as raw metadata
+while preserving string and character literal spans as rendered C#. When a
+literal backslash in a structured raw slot requires disambiguation, document
+JSON prepares that declaration without mutating `ApiMember`; benign signatures
+stay byte-neutral, while a degraded compatibility signature remains visibly
+accompanied by its decode status. Generic-constraint JSON uses the metadata
+type-versus-keyword classification, so type-name entries cross the raw boundary
+without changing `class`, `struct`, `default`, or `new()` syntax.
 Adding trusted inline-code markup preserves the original containment evidence
 rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
 `SemanticTypeOutputContainmentTests.RawTypePresentation_DistinguishesLiteralEscapeFromScalar`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_PreservesCSharpLiteralEscapes`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_DegradedFallbackRemainsVisible`,
+`SemanticTypeOutputContainmentTests.TypeParameterJson_PreservesSyntaxAndContainsRawTypes`,
 `SemanticTypeOutputContainmentTests.CSharpCodeText_PreservesContainmentEvidence`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
+`CSharpDeclarationWriterTests.CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes`,
+`CSharpFormatterTests.FormatTypeParameterConstraints_PreservesConstraintSyntax`,
 `CSharpFormatterTests.FormatTypeName_ExactSegmentDisambiguatesLiteralBackslashOnce`,
 and the `ContainIdentifier_*`, `ContainRawComposedName_*`, and
 `ContainComposedName_*` cases in

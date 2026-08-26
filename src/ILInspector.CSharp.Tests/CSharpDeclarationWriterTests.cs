@@ -1405,6 +1405,63 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
+    [Fact]
+    public void CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes()
+    {
+        const string literalType = @"N.Lit\u202EType";
+        const string scalarType = "N.Lit\u202EType";
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Holder",
+            Kind = "class",
+        };
+
+        string literal = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            Operator(literalType));
+        string scalar = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            Operator(scalarType));
+
+        Assert.Contains(@"N.Lit\\u202EType", literal);
+        Assert.Contains(@"N.Lit\u202EType", scalar);
+        Assert.Contains("= \"line\\n\"", literal);
+        Assert.DoesNotContain(@"line\\n", literal);
+        Assert.NotEqual(literal, scalar);
+
+        static ApiMember Operator(string returnType)
+            => new()
+            {
+                Name = "op_Implicit",
+                Kind = "operator",
+                IsStatic = true,
+                Signature =
+                    $"{returnType} op_Implicit(N.Holder value, string text = \"line\\n\")",
+                ReturnType = returnType,
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = returnType,
+                    MemberName = "op_Implicit",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "value",
+                            Type = "N.Holder",
+                        },
+                        new ApiParameter
+                        {
+                            Name = "text",
+                            Type = "string",
+                            HasDefault = true,
+                            DefaultValueText = "\"line\\n\"",
+                        },
+                    ],
+                },
+            };
+    }
+
     [Theory]
     // MAI-Code round-3 finding: a ')' inside a string default terminated the parameter
     // list early, so the trailing-context rule saw leftover text and declined to escape.

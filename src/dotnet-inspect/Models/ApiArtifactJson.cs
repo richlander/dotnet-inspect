@@ -125,8 +125,7 @@ internal static class ApiArtifactJson
             SetCSharpStrings(
                 typeInfo,
                 "display_name");
-            SetRawTypeStrings(typeInfo, "constraints_summary");
-            SetRawTypeStringLists(typeInfo, "constraints");
+            SetPreparedTypeParameterConstraints(typeInfo);
         }
         else if (typeInfo.Type == typeof(ApiType))
         {
@@ -261,6 +260,36 @@ internal static class ApiArtifactJson
                     : member.Signature;
         };
         property.CustomConverter =
+            ApiArtifactCSharpStringJsonConverter.Instance;
+    }
+
+    private static void SetPreparedTypeParameterConstraints(
+        JsonTypeInfo typeInfo)
+    {
+        JsonPropertyInfo constraints = typeInfo.Properties.Single(
+            property => WireNamesEqual(
+                property.Name,
+                "constraints"));
+        constraints.Get = value => CSharpFormatter
+            .FormatTypeParameterConstraintEntries((TypeParameter)value)
+            .ToList();
+        constraints.CustomConverter =
+            ApiArtifactCSharpStringListJsonConverter.Instance;
+
+        JsonPropertyInfo summary = typeInfo.Properties.Single(
+            property => WireNamesEqual(
+                property.Name,
+                "constraints_summary"));
+        summary.Get = value =>
+        {
+            IReadOnlyList<string> entries =
+                CSharpFormatter.FormatTypeParameterConstraintEntries(
+                    (TypeParameter)value);
+            return entries.Count == 0
+                ? null
+                : string.Join(", ", entries);
+        };
+        summary.CustomConverter =
             ApiArtifactCSharpStringJsonConverter.Instance;
     }
 

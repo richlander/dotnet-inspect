@@ -318,6 +318,20 @@ public sealed class CSharpFormatter
         => CSharpDeclarationWriter.EscapeTypeKeywords(type);
 
     /// <summary>
+    /// Formats each constraint entry while preserving special-constraint syntax
+    /// and containing entries that are raw metadata type names.
+    /// </summary>
+    public static IReadOnlyList<string> FormatTypeParameterConstraintEntries(
+        TypeParameter typeParameter,
+        IEnumerable<string>? parameterNames = null)
+    {
+        ArgumentNullException.ThrowIfNull(typeParameter);
+        return CSharpDeclarationWriter.FormatConstraintEntries(
+            typeParameter,
+            parameterNames ?? []);
+    }
+
+    /// <summary>
     /// Rewrites CLR primitive full names (e.g. <c>System.Int32</c>, <c>System.IntPtr</c>)
     /// to their C# keyword spelling (<c>int</c>, <c>nint</c>) wherever they appear as a
     /// complete type-name segment inside a type string — including nested in generics,

@@ -425,6 +425,54 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void TypeParameterJson_PreservesSyntaxAndContainsRawTypes()
+    {
+        var parameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints =
+            [
+                "class",
+                @"Ns.Lit\u202EType",
+                "new()",
+            ],
+            StructuredConstraints =
+            [
+                new("class", IsTypeName: false),
+                new(@"Ns.Lit\u202EType", IsTypeName: true),
+                new("new()", IsTypeName: false),
+            ],
+        };
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            TypeParameters = [parameter],
+        };
+
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                type,
+                ApiArtifactJson.Type));
+        JsonElement parameterJson = document.RootElement
+            .GetProperty("type_parameters")[0];
+
+        Assert.Equal(
+            ["class", @"Ns.Lit\\u202EType", "new()"],
+            parameterJson.GetProperty("constraints")
+                .EnumerateArray()
+                .Select(static value => value.GetString()!)
+                .ToArray());
+        Assert.Equal(
+            @"class, Ns.Lit\\u202EType, new()",
+            parameterJson.GetProperty("constraints_summary")
+                .GetString());
+        Assert.Equal(
+            @"Ns.Lit\u202EType",
+            parameter.Constraints[1]);
+    }
+
+    [Fact]
     public void DocumentationEncoding_PreservesLiteralEscapeIdentity()
     {
         var comment = new DocComment
@@ -574,7 +622,7 @@ public sealed class SemanticTypeOutputContainmentTests
         var detailed = Assert.Single(methods.Rows!);
         Assert.Equal(@"Run\u202E", detailed.NameText.ToString());
         Assert.Contains(
-            "Run_",
+            @"Run\u202E",
             detailed.SignatureText.ToString(),
             StringComparison.Ordinal);
         Assert.DoesNotContain(

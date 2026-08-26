@@ -1604,6 +1604,36 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatTypeParameterConstraints_PreservesConstraintSyntax()
+    {
+        var parameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints =
+            [
+                "class",
+                @"Ns.Lit\u202EType",
+                "new()",
+            ],
+            StructuredConstraints =
+            [
+                new("class", IsTypeName: false),
+                new(@"Ns.Lit\u202EType", IsTypeName: true),
+                new("new()", IsTypeName: false),
+            ],
+        };
+
+        Assert.Equal(
+            ["class", @"Ns.Lit\\u202EType", "new()"],
+            CSharpFormatter.FormatTypeParameterConstraintEntries(parameter));
+
+        parameter.StructuredConstraints = null;
+        Assert.Equal(
+            ["class", @"Ns.Lit\\u202EType", "new()"],
+            CSharpFormatter.FormatTypeParameterConstraintEntries(parameter));
+    }
+
+    [Fact]
     public void FormatTypeName_DistributesExactNestedGenericParameters()
     {
         MetadataTypeDefinitionName exactName =

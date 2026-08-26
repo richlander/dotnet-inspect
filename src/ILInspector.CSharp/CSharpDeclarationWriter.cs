@@ -1068,7 +1068,11 @@ internal static class CSharpDeclarationWriter
                     $"Member '{member.Name}' requires compatibility signature text, "
                     + "whose signature attributes cannot be suppressed safely.");
             }
-            signature = member.Signature ?? member.ReturnType ?? "";
+            signature = member.Signature is { } compatibilitySignature
+                ? ContainCompatibilitySignature(compatibilitySignature)
+                : member.ReturnType is { } returnType
+                    ? EscapeTypeKeywords(returnType)
+                    : "";
         }
         if (string.IsNullOrWhiteSpace(signature))
         {
@@ -1750,7 +1754,9 @@ internal static class CSharpDeclarationWriter
     /// sites because this method is what composes the untrusted text into a single
     /// display string, and its two callers would otherwise each have to remember.
     /// </remarks>
-    internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
+    internal static IReadOnlyList<string> FormatConstraintEntries(
+        TypeParameter typeParameter,
+        IEnumerable<string> parameterNames)
     {
         var parts = typeParameter.StructuredConstraints is { } structured
             ? structured.Select(entry =>
@@ -1758,9 +1764,18 @@ internal static class CSharpDeclarationWriter
                     ? EscapeTypeKeywords(entry.Value)
                     : entry.Value)
             : typeParameter.Constraints.Select(SpellConstraint);
-        return CSharpIdentifierCore.ContainComposedName(
-            EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames));
+        return parts
+            .Select(part => CSharpIdentifierCore.ContainComposedName(
+                EscapeKnownIdentifiers(part, parameterNames)))
+            .ToList();
     }
+
+    internal static string FormatConstraintList(
+        TypeParameter typeParameter,
+        IEnumerable<string> parameterNames)
+        => string.Join(
+            ", ",
+            FormatConstraintEntries(typeParameter, parameterNames));
 
     // Fallback used only when structured constraint kinds are unavailable: a
     // constraint entry equal to a special-constraint keyword is emitted verbatim,
@@ -1771,6 +1786,37 @@ internal static class CSharpDeclarationWriter
         => s_specialConstraintKeywords.Contains(constraint)
             ? constraint
             : EscapeTypeKeywords(constraint);
+
+    static string ContainCompatibilitySignature(string signature)
+    {
+        var builder = new StringBuilder(signature.Length);
+        int chunkStart = 0;
+        for (int index = 0; index < signature.Length;)
+        {
+            int literalEnd;
+            if (IsStringLiteralStart(signature, index))
+                literalEnd = SkipStringLiteral(signature, index);
+            else if (signature[index] == '\'')
+                literalEnd = SkipCharLiteral(signature, index);
+            else
+            {
+                index++;
+                continue;
+            }
+
+            builder.Append(
+                CSharpIdentifierCore.ContainRawComposedName(
+                    signature[chunkStart..index]));
+            builder.Append(signature.AsSpan(index, literalEnd - index));
+            index = literalEnd;
+            chunkStart = literalEnd;
+        }
+
+        builder.Append(
+            CSharpIdentifierCore.ContainRawComposedName(
+                signature[chunkStart..]));
+        return builder.ToString();
+    }
 
     static string EscapeReservedKeywordIdentifiers(string text)
     {
