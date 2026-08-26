@@ -295,6 +295,25 @@ test("runtime surface merging rejects an unmatched nonempty descriptor list", ()
   assert.equal(resident.types.length, originalTypes);
 });
 
+test("runtime surface merging rejects types without an assembly descriptor", () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const originalTypes = resident.types.length;
+  const originalMembers = resident.totalMembers;
+  const originalAccessibility = resident.accessibility[0]?.count;
+  assert.throws(
+    () => mergeRuntimePackageSurface(resident, packageSurface({
+      package: "Microsoft.NETCore.App",
+      defaultAssemblyId: "missing",
+      assemblies: [],
+      types: [typeSurface("System.Text.Json.JsonDocument", "System.Text.Json")],
+    })),
+    /platform query returned no descriptor for missing/);
+  assert.equal(resident.types.length, originalTypes);
+  assert.equal(resident.totalMembers, originalMembers);
+  assert.equal(resident.accessibility[0]?.count, originalAccessibility);
+});
+
 // Adversarial review (Claude Opus 5) found that validating the selected descriptor
 // *before* the merge branch regressed a surface the engine really emits.
 // `InspectionEngine.cs` permits an empty `assemblies` list whenever extraction truncates,

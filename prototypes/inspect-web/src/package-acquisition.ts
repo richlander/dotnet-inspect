@@ -212,7 +212,10 @@ export function mergeRuntimePackageSurface(
   const defaultAssemblyId = requireAssemblyIdentity(
     result,
     "The platform query did not return its selected assembly identity.");
-  if ((result.assemblies?.length ?? 0) > 0 && !selectedAssembly(result)) {
+  const hasProjectedContent =
+    (result.assemblies?.length ?? 0) > 0
+    || (result.types?.length ?? 0) > 0;
+  if (hasProjectedContent && !selectedAssembly(result)) {
     throw new Error(
       `The platform query returned no descriptor for ${defaultAssemblyId}.`);
   }
