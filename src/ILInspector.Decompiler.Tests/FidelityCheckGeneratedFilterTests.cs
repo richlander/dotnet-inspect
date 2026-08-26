@@ -92,16 +92,29 @@ public class FidelityCheckGeneratedFilterTests
 
             namespace Models
             {
+                public sealed class T { }
                 public sealed class Timer { }
             }
 
             namespace SignatureCollision
             {
                 public interface I { void M(Models.Timer value); }
+                public interface IGeneric { void M<T>(Models.T value); }
+                public interface ITypeGeneric { void M(Models.T value); }
 
                 public sealed class C : I
                 {
                     void I.M(Models.Timer value) { }
+                }
+
+                public sealed class Generic : IGeneric
+                {
+                    void IGeneric.M<T>(Models.T value) { }
+                }
+
+                public sealed class TypeGeneric<T> : ITypeGeneric
+                {
+                    void ITypeGeneric.M(Models.T value) { }
                 }
             }
             """);
@@ -115,7 +128,9 @@ public class FidelityCheckGeneratedFilterTests
                 ("SameNamespace", "Contracts.ICloneable.Clone", true),
                 ("SkeletonUsingCollision", "Contracts.ICloneable.Clone", false),
                 ("ChildNamespaceCollision", "N.I.M", false),
-                ("C", "SignatureCollision.I.M", false)
+                ("C", "SignatureCollision.I.M", false),
+                ("Generic", "SignatureCollision.IGeneric.M", false),
+                ("TypeGeneric`1", "SignatureCollision.ITypeGeneric.M", false)
             })
             {
                 var type = reader.GetTypeDefinition(Assert.Single(
@@ -148,7 +163,9 @@ public class FidelityCheckGeneratedFilterTests
                 typeName => typeName is "Contracts.SameNamespace"
                     or "App.SkeletonUsingCollision"
                     or "T.ChildNamespaceCollision"
-                    or "SignatureCollision.C",
+                    or "SignatureCollision.C"
+                    or "SignatureCollision.Generic"
+                    or "SignatureCollision.TypeGeneric`1",
                 candidate => candidate.Method.EndsWith(
                     "Clone",
                     StringComparison.Ordinal)
@@ -158,7 +175,9 @@ public class FidelityCheckGeneratedFilterTests
                 typeName => typeName is "Contracts.SameNamespace"
                     or "App.SkeletonUsingCollision"
                     or "T.ChildNamespaceCollision"
-                    or "SignatureCollision.C");
+                    or "SignatureCollision.C"
+                    or "SignatureCollision.Generic"
+                    or "SignatureCollision.TypeGeneric`1");
             foreach (var results in new[] { targetedResults, batchResults })
             {
                 var control = Assert.Single(
@@ -171,7 +190,9 @@ public class FidelityCheckGeneratedFilterTests
                 {
                     "App.SkeletonUsingCollision",
                     "T.ChildNamespaceCollision",
-                    "SignatureCollision.C"
+                    "SignatureCollision.C",
+                    "SignatureCollision.Generic",
+                    "SignatureCollision.TypeGeneric`1"
                 })
                 {
                     Assert.False(Assert.Single(

@@ -4792,8 +4792,9 @@ static class FidelityCheck
                 StringComparer.Ordinal);
             effectiveNamespaces.UnionWith(result.Namespaces);
             var interfaceDef = reader.GetTypeDefinition(target.Interface);
-            var bodyDef = reader.GetTypeDefinition(
-                reader.GetMethodDefinition(target.Body).GetDeclaringType());
+            var bodyType = reader.GetMethodDefinition(target.Body)
+                .GetDeclaringType();
+            var bodyDef = reader.GetTypeDefinition(bodyType);
             string interfaceNamespace = reader.GetString(interfaceDef.Namespace);
             string bodyNamespace = reader.GetString(bodyDef.Namespace);
             if (bodyNamespace != interfaceNamespace
@@ -4811,6 +4812,7 @@ static class FidelityCheck
             if (HasAmbiguousBareMemberIdentifier(
                     reader,
                     methodDeclaration,
+                    bodyType,
                     effectiveNamespaces,
                     bodyNamespace,
                     references))
@@ -4872,6 +4874,7 @@ static class FidelityCheck
     static bool HasAmbiguousBareMemberIdentifier(
         MetadataReader reader,
         MethodDeclarationSyntax declaration,
+        TypeDefinitionHandle bodyType,
         IReadOnlySet<string> importedNamespaces,
         string bodyNamespace,
         ReferenceSet references)
@@ -4895,11 +4898,18 @@ static class FidelityCheck
             .Select(parameter => parameter.Identifier.ValueText)
             .ToHashSet(StringComparer.Ordinal)
             ?? [];
+        foreach (var parameterHandle in reader
+            .GetTypeDefinition(bodyType)
+            .GetGenericParameters())
+        {
+            typeParameters.Add(
+                reader.GetString(
+                    reader.GetGenericParameter(parameterHandle).Name));
+        }
         var identifiers = declaration.DescendantNodes()
             .OfType<SimpleNameSyntax>()
             .Where(name =>
-                !typeParameters.Contains(name.Identifier.ValueText)
-                && name.Identifier.ValueText is not ("dynamic" or "nint" or "nuint")
+                name.Identifier.ValueText is not ("dynamic" or "nint" or "nuint")
                 && !name.Ancestors().Any(node =>
                     node is ExplicitInterfaceSpecifierSyntax)
                 && name.Parent is not QualifiedNameSyntax
@@ -4912,6 +4922,8 @@ static class FidelityCheck
         foreach (string identifier in identifiers)
         {
             var symbols = new HashSet<string>(StringComparer.Ordinal);
+            if (typeParameters.Contains(identifier))
+                symbols.Add($"type-parameter:{identifier}");
             foreach (var handle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(handle);
