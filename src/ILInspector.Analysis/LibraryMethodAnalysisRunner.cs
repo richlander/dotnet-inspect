@@ -614,6 +614,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                 bodyTypeScope?.Invoke(
                     caller.DeclaringType)
                     == true;
+            bool directlySelectedMethod =
+                requestedMethodScope?.Contains(
+                    caller.MetadataToken)
+                    == true;
             if (bodyTypeScope is not null)
             {
                 ImmutableArray<TypeRef> sourceTypes = [];
@@ -642,9 +646,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             try
             {
                 bool directlySelectedBody =
-                    requestedMethodScope?.Contains(
-                        caller.MetadataToken)
-                        == true
+                    directlySelectedMethod
                     || directlySelectedType;
                 MethodIdentity? declaredMethod =
                     _infrastructure.ResolveDeclaredMethod(
@@ -831,16 +833,22 @@ internal sealed class LibraryMethodAnalysisRunner(
                             .DeclaringType));
             bool collectBodyIntrinsicOpportunities =
                 includeOpportunities
-                && (bodyTypeScope is null
-                    || (directlySelectedType
+                && (!plan.IsScoped
+                    || ((directlySelectedMethod
+                            || directlySelectedType)
                         && (!requiresDeclaredOwner
                             || ownerResolution
                                     == DeclaredOwnerResolution
                                         .Unresolved))
                     || collectOwnershipDerivedOpportunities
-                    || unresolvedOpportunityOwner is { } unresolvedOwner
-                        && bodyTypeScope(
-                            unresolvedOwner.DeclaringType));
+                    || unresolvedOpportunityOwner
+                            is { } unresolvedOwner
+                        && (requestedMethodScope?.Contains(
+                                unresolvedOwner.MetadataToken)
+                                == true
+                            || bodyTypeScope?.Invoke(
+                                unresolvedOwner.DeclaringType)
+                                == true));
             result.ScopeExcluded =
                 includeOpportunities
                 && !collectOwnershipDerivedOpportunities;

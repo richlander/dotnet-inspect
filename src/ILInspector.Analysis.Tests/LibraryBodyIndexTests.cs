@@ -5718,6 +5718,17 @@ public class LibraryBodyIndexTests
                 opportunity => opportunity.Method
                     == invalidMoveNext);
 
+            var methodScoped = LibraryBodyIndex.Open(
+                path,
+                bodyScope: new HashSet<int>
+                {
+                    invalidMoveNext.MetadataToken,
+                });
+            Assert.DoesNotContain(
+                methodScoped.OptimizationOpportunities,
+                opportunity => opportunity.Method
+                    == invalidMoveNext);
+
             var scoped = LibraryBodyIndex.Open(
                 path,
                 bodyTypeScope:
