@@ -196,19 +196,24 @@ rows are part of the selected table but are not ordinary evidence data:
 - JSONL serializes the discriminator as `recordKind` and emits no second table
   or ad hoc summary object.
 
-Implementation Diff defines the current integrity-row schema in
-[`implementation-diff.md`](implementation-diff.md). This exception preserves
-the one-table shape while preventing a semantic row window from hiding the
-typed reason for an incomplete comparison. Raw rendered-line limits such as
-`-n` remain presentation truncation and do not change the operation's exit
-status. A session-owned body-added/body-removed record is ordinary `Evidence`,
-not an integrity row: it counts toward `--rows`/`--tail` and remains present
-when no producer-owned display line exists. Implementation Diff chooses both
-producer and session fallbacks after native-line filtering, so removing every
-candidate line cannot erase a difference-bearing disposition. Presentation-safe
-partial evidence from a failed disposition is also ordinary, filterable
-`Evidence`; the failed ledger's mandatory diagnostic remains outside the row
-window and cannot be replaced by that partial evidence.
+The shipped Implementation Diff schema currently has five columns: `Member`,
+`Mechanism`, `Difference`, `Change`, and `Evidence`. It has no integrity-row
+descriptor, and presentation can still hide the context for an incomplete
+comparison.
+
+[`implementation-diff.md`](implementation-diff.md) defines an **unimplemented
+target exception** for same-schema integrity rows. The target preserves the
+one-table shape while preventing a semantic row window from hiding the typed
+reason for an incomplete comparison. Raw rendered-line limits such as `-n`
+remain presentation truncation and do not change the operation's exit status.
+A session-owned body-added/body-removed record is ordinary `Evidence`, not an
+integrity row: it counts toward `--rows`/`--tail` and remains present when no
+producer-owned display line exists. Implementation Diff chooses both producer
+and session fallbacks after native-line filtering, so removing every candidate
+line cannot erase a difference-bearing disposition. Presentation-safe partial
+evidence from a failed disposition is also ordinary, filterable `Evidence`;
+the failed ledger's mandatory diagnostic remains outside the row window and
+cannot be replaced by that partial evidence.
 
 For Implementation Diff, the integrity columns are `Record Kind`, `Work Item`,
 `Participant`, `Member`, `Mechanism`, `Disposition`, `Change`, `Reason`, and
@@ -220,6 +225,13 @@ remain in schema order and never come from rendered cell text. A
 diagnostic-free result retains normal projection behavior. Thus neither a
 semantic row window nor projection of an empty diagnostic field can turn a
 typed failure into empty or success-shaped structured output.
+
+This target safety property is unverified until the
+`Ledger output visibility` gate in
+[`implementation-diff.md`](implementation-diff.md#gates) covers the descriptor,
+schema, effective Markout projection, row-window behavior, and all structured
+formats. Do not describe the exception as current before that gate and the
+descriptor exist.
 
 ## How dotnet-inspect flags select a shape
 

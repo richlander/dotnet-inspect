@@ -166,7 +166,9 @@ to ResearchQueries; Research cannot construct either.
 
 A separate synchronous ResearchQueries direct operation owns both the
 source-bounded direct designation factory and executor. Its designation retains
-only the designation id, two live Metadata sources, and both MVIDs. After
+only the designation id, two opaque designation-local side/source ids, two live
+Metadata sources, and both MVIDs. The source ids bind exact source objects but
+are not participants or cross-version pairing evidence before admission. After
 minting the concrete ledger and charging admission, the operation seals its
 direct question **before** using the core-Queries direct-pairing factory to
 create role manifests, bindings, qualified keys, and the admitted pairing. It

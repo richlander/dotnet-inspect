@@ -296,6 +296,42 @@ reports quiescence. Synchronous disposal may initiate this deferred release; it
 must not invalidate content under an active callback. Cleanup failures compose
 with, and never replace, the active operation failure.
 
+A query that must retain every cleanup failure reserves one fixed typed
+diagnostic slot and bounded non-artifact text storage **before** each owned
+group, session, lease, scratch reservation, or native callback result transfers
+into its lifetime. The resource-acquiring stage owns that charge; cleanup only
+consumes the precharged slot and cannot allocate or grow a diagnostic
+collection. A resource whose reservation cannot be charged is not acquired.
+This applies to package role realizations. A product-owned planning operation
+first returns an inert `PackageAssemblyContextRealizationPlan` containing the
+exact operation-local identities of the distinct groups it will own (surface
+and, only when the implementation role is non-empty and distinct, an
+implementation group). An absent implementation role and a shared
+implementation role therefore produce one distinct group identity, while a
+separate implementation role produces two. The endpoint stage reserves one
+slot and text range for each plan identity and returns those reservations to
+the product-owned execution operation with that exact plan. Execution lowers a
+creation failure as the primary typed acquisition diagnostic. It catches each
+group cleanup failure at the group-specific disposal site and writes it
+directly to that group's reservation, preserving group identity and every
+group failure without first collecting exceptions. Neither the endpoint nor a
+harness reconstructs the group plan from asset layout. The `Operation
+lifetime` gate asserts exact equality among planned group identities,
+reservations, and the distinct owned group set for absent, shared, and separate
+implementation roles.
+
+The current `PackageAssemblyContextRealization` exception API, which may wrap a
+creation failure and unkeyed disposal failures in an `AggregateException`, is a
+migration witness rather than the target query boundary. The target
+product-owned operation returns a discriminated success/failed outcome carrying
+the realization or the bounded primary diagnostic plus the already populated
+group-keyed cleanup records. Query code does not catch and reinterpret the
+aggregate: by then role identity is unavailable and the exception graph is
+unbounded. The realization operation and its lower group-disposal helper must
+therefore adopt the typed sink before Implementation Diff uses that path.
+Borrowed resources require no disposal slot because the query must not dispose
+them.
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
