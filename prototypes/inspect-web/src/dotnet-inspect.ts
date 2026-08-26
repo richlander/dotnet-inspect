@@ -1150,8 +1150,8 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
-state.queryNotice = "";
+  || initialWorkspace.startsAtHome;
+state.queryNotice = initialWorkspace.visibleNotice;
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
   state.requestedVersion = initialLocation.version || "latest";
@@ -8423,7 +8423,14 @@ async function restoreWorkspaceFromLocation(
   navigationSeq = navigationSequence.begin(),
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!loc.package) return;
+  if (!loc.package) {
+    state.loading = false;
+    state.home = true;
+    state.queryNotice = loc.workspaceNotice || "";
+    state.queryNoticeRetryAction = null;
+    render();
+    return;
+  }
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;

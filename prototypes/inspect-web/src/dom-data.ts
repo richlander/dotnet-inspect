@@ -1,21 +1,21 @@
 // `dom-payload-boundary.test.ts` compares this product-owned contract with every
-// canonical decoder call, so deleting an attribute's only parser is red.
-export const numericDomAttributes = [
-  "annotatedFact",
-  "annotatedOffset",
-  "depGroup",
-  "mdeChip",
-  "mdeIndex",
-  "mdeJump",
-  "mdeNeedsLoad",
-  "mdeOpen",
-  "mdePage",
-  "mdeRow",
-  "navOverload",
-  "overload",
-  "perfToken",
-  "slIndex",
-] as const;
+// canonical decoder call, so deleting or substituting an attribute's parser is red.
+export const numericDomAttributes = {
+  annotatedFact: ["parseNonNegativeInteger"],
+  annotatedOffset: ["parseNonNegativeInteger"],
+  depGroup: ["isSelectedGroupChip", "parseNonNegativeInteger"],
+  mdeChip: ["parseNonNegativeInteger"],
+  mdeIndex: ["parseNonNegativeInteger"],
+  mdeJump: ["parseExplorerCoordinates"],
+  mdeNeedsLoad: ["parseNonNegativeInteger"],
+  mdeOpen: ["parseNonNegativeInteger"],
+  mdePage: ["parseExplorerCoordinates"],
+  mdeRow: ["parseExplorerCoordinates"],
+  navOverload: ["parseNonNegativeInteger"],
+  overload: ["parseNonNegativeInteger"],
+  perfToken: ["parseMetadataToken"],
+  slIndex: ["parseNonNegativeInteger"],
+} as const;
 
 export function parseNonNegativeInteger(
   value: string | undefined,

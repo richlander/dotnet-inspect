@@ -756,6 +756,8 @@ export interface WorkspaceLocationPersistence {
 export interface WorkspaceLocationPreflight {
   visible: ParsedWorkspaceLocation;
   hasWorkspaceState: boolean;
+  startsAtHome: boolean;
+  visibleNotice: string;
   resolve(
     decode?: WorkspaceShareDecoder,
   ): ParsedWorkspaceLocation;
@@ -801,6 +803,10 @@ export function createWorkspaceLocationPersistence(
     return {
       visible: route.visible,
       hasWorkspaceState: route.hasWorkspaceState,
+      startsAtHome: !route.visible.package && !route.hasWorkspaceState,
+      visibleNotice: route.hasWorkspaceState
+        ? ""
+        : route.visible.workspaceNotice,
       resolve(decode?: WorkspaceShareDecoder) {
         return resolveWorkspaceRoute(route, decode);
       },

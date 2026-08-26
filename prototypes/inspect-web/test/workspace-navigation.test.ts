@@ -355,6 +355,8 @@ test("location preflight snapshots once and defers decoding", () => {
   assert.equal(decodeCalls, 0);
   assert.equal(preflight.visible.package, "Visible.Package");
   assert.equal(preflight.hasWorkspaceState, true);
+  assert.equal(preflight.startsAtHome, false);
+  assert.equal(preflight.visibleNotice, "");
 
   const resolved = preflight.resolve(value => {
     decodeCalls++;
@@ -367,6 +369,21 @@ test("location preflight snapshots once and defers decoding", () => {
   assert.equal(
     resolved.workspaceNotice,
     "The product decoder rejected this packet.");
+});
+
+test("location preflight preserves malformed visible-route notices for home", () => {
+  const persistence = createWorkspaceLocationPersistence({
+    current: () => locationSnapshot(
+      "https://inspect.example/packages/%/1.0.0"),
+    replace() {},
+    push() {},
+  });
+
+  const preflight = persistence.preflightCurrent();
+  assert.equal(preflight.visible.package, null);
+  assert.equal(preflight.hasWorkspaceState, false);
+  assert.equal(preflight.startsAtHome, true);
+  assert.match(preflight.visibleNotice, /package/);
 });
 
 test("graph member URLs retain exact identity instead of a lossy body target", () => {

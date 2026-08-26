@@ -2217,7 +2217,10 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
+    /state\.home = state\.credits\s*\|\| initialWorkspace\.startsAtHome/);
+  assert.match(
+    appSource,
+    /state\.queryNotice = initialWorkspace\.visibleNotice/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -2232,6 +2235,13 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
   assert.ok(initializeAt < restoreAt);
+
+  const restoreLocation = appSource.match(
+    /async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction applyLocationView/)?.[0]
+    ?? "";
+  assert.match(
+    restoreLocation,
+    /if \(!loc\.package\) \{\s*state\.loading = false;\s*state\.home = true;\s*state\.queryNotice = loc\.workspaceNotice \|\| "";\s*state\.queryNoticeRetryAction = null;\s*render\(\);\s*return;/);
 });
 
 test("member entry controls move focus into the resulting member navigation", () => {

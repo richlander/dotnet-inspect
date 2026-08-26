@@ -622,12 +622,12 @@ Numeric DOM and URL payloads accept only non-negative safe decimal integers,
 bounded to UInt32 for metadata tokens. `dom-data` and the owning binding tests
 gate what the parsers reject; `dom-payload-boundary` gates that call sites use
 them. It parses the TypeScript AST, compares canonical decoder calls with the
-product-owned numeric-attribute catalog, and rejects direct `Number`,
+product-owned attribute-to-decoder catalog, and rejects direct `Number`,
 `parseInt`, or unary `+` coercions plus numeric attributes read raw elsewhere.
 Dataset aliases and destructuring remain visible to the gate, dataset objects
 cannot escape to unaudited helpers, dynamic property reads cannot masquerade as
-named attributes, and only unshadowed imports from `dom-data` count as canonical
-decoders.
+named attributes, alternate attribute APIs fail closed, and only unshadowed
+imports from `dom-data` count as canonical decoders.
 A malformed URL field -- a bad percent-escape in a package route, an unknown
 lens or member section, or a non-canonical overload in query or rich share
 state -- is reported in the workspace notice rather than becoming a default

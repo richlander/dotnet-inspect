@@ -259,12 +259,22 @@ function domAttribute(
   return null;
 }
 
-function aliasScope(ancestors: readonly Node[]): Node {
+function aliasScope(
+  ancestors: readonly Node[],
+  functionScoped: boolean,
+): Node {
   for (let index = ancestors.length - 1; index >= 0; index--) {
     const node = ancestors[index];
-    if (node && (node.type === "BlockStatement"
-      || node.type === "StaticBlock"
-      || node.type === "Program")) {
+    if (!node) continue;
+    if (functionScoped
+      ? node.type === "FunctionDeclaration"
+        || node.type === "FunctionExpression"
+        || node.type === "ArrowFunctionExpression"
+        || node.type === "StaticBlock"
+        || node.type === "Program"
+      : node.type === "BlockStatement"
+        || node.type === "StaticBlock"
+        || node.type === "Program") {
       return node;
     }
   }
@@ -473,7 +483,11 @@ function domAliases(program: Program): DomAliases {
       const id: unknown = Reflect.get(node, "id");
       const init: unknown = Reflect.get(node, "init");
       if (!isNode(id)) return;
-      const scope = aliasScope(ancestors);
+      const declaration = ancestors.at(-1);
+      const scope = aliasScope(
+        ancestors,
+        declaration?.type === "VariableDeclaration"
+          && declaration.kind === "var");
       if (!isNode(init)) {
         addPatternAliasesAndMasks([id], aliases, scope);
         return;
@@ -869,6 +883,12 @@ function assignmentAliasViolations(files: readonly SourceFile[]): string[] {
   return violations;
 }
 
+const unsupportedAttributeReadMethods = new Set([
+  "getAttributeNS",
+  "getAttributeNode",
+  "getAttributeNodeNS",
+]);
+
 function getAttributeEscapeViolations(files: readonly SourceFile[]): string[] {
   const violations: string[] = [];
   for (const file of files) {
@@ -876,16 +896,25 @@ function getAttributeEscapeViolations(files: readonly SourceFile[]): string[] {
       const parent = ancestors.at(-1);
       if (node.type === "Property"
         && parent?.type === "ObjectPattern"
-        && propertyName(Reflect.get(node, "key")) === "getAttribute") {
+        && (propertyName(Reflect.get(node, "key")) === "getAttribute"
+          || unsupportedAttributeReadMethods.has(
+            propertyName(Reflect.get(node, "key")) ?? ""))) {
         violations.push(
           `${file.name}:${lineOf(file.text, node.start)}: `
           + file.text.slice(node.start, node.end));
         return;
       }
-      if (node.type !== "MemberExpression"
-        || memberName(node) !== "getAttribute") {
+      if (node.type !== "MemberExpression") {
         return;
       }
+      const method = memberName(node);
+      if (method && unsupportedAttributeReadMethods.has(method)) {
+        violations.push(
+          `${file.name}:${lineOf(file.text, node.start)}: `
+          + file.text.slice(node.start, node.end));
+        return;
+      }
+      if (method !== "getAttribute") return;
       if (parent?.type === "CallExpression"
         && Reflect.get(parent, "callee") === node) {
         return;
@@ -913,7 +942,7 @@ test("no browser payload is numerically coerced outside the canonical parsers", 
   assert.deepEqual(
     getAttributeEscapeViolations(files),
     [],
-    "getAttribute escaped direct-call inspection");
+    "an attribute read escaped direct-call inspection");
 });
 
 test("the gate rejects preprocessing, dynamic reads, and defaulted aliases", () => {
@@ -1054,15 +1083,27 @@ Number(picked);
     objectDefaultReads.get("slIndex")?.some(site =>
       site.text === "rawIndex" && site.decoder === null));
 
+  const varProbe = sourceFile("var-probe.ts", `
+function read(button: HTMLElement) {
+  { var raw = button.dataset.overload; }
+  return Number(raw);
+}
+`);
+  assert.ok(
+    numericCoercionViolations([varProbe]).some(site =>
+      site.endsWith("Number(raw)")));
+
   const getAttributeEscapeProbe = sourceFile("get-attribute-escape-probe.ts", `
 const read = button.getAttribute.bind(button);
 Number(read("data-overload"));
 const { getAttribute: extracted } = button;
 Number(extracted("data-overload"));
+Number(button.getAttributeNS(null, "data-overload"));
+const { getAttributeNode } = button;
 `);
   assert.equal(
     getAttributeEscapeViolations([getAttributeEscapeProbe]).length,
-    2);
+    4);
 });
 
 test("the gate requires unshadowed decoder imports", () => {
@@ -1201,7 +1242,8 @@ test("every declared numeric attribute reaches a canonical parser at every numer
   const files = sources();
   const decoders = approvedDecoders(files);
   const reads = attributeReads(files, decoders);
-  const expected = [...numericDomAttributes]
+  const contracts = Object.entries(numericDomAttributes);
+  const expected = contracts.map(([attribute]) => attribute)
     .sort((left, right) => left.localeCompare(right));
   const parsed = [...reads]
     .filter(([, sites]) => sites.some(site => site.decoder !== null))
@@ -1214,6 +1256,19 @@ test("every declared numeric attribute reaches a canonical parser at every numer
     "the product-owned numeric DOM attribute catalog and canonical decoder call sites "
     + "must stay equal; a missing entry has lost its only parser and an extra entry has "
     + "no declared numeric contract");
+
+  for (const [attribute, declaredDecoders] of contracts) {
+    const actualDecoders = [...new Set(
+      (reads.get(attribute) ?? [])
+        .flatMap(site => site.decoder ? [site.decoder] : []))]
+      .sort((left, right) => left.localeCompare(right));
+    const requiredDecoders = [...declaredDecoders]
+      .sort((left, right) => left.localeCompare(right));
+    assert.deepEqual(
+      actualDecoders,
+      requiredDecoders,
+      `${attribute} must use its product-declared canonical decoder set`);
+  }
 
   const dynamicReads = (reads.get(dynamicAttribute) ?? [])
     .map(site =>
