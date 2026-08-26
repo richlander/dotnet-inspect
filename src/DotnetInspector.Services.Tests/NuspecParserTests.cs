@@ -388,6 +388,57 @@ public class NuspecParserTests : IDisposable
     }
 
     [Fact]
+    public void Parse_MetadataDeclaredNuspecNamespace_UsesThatNamespace()
+    {
+        var nuspec = WriteNuspec("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+              <metadata xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+                <id>Legacy.Package</id>
+                <version>1.0.0</version>
+                <authors>Legacy Author</authors>
+                <dependencies>
+                  <dependency id="Legacy.Dependency" version="2.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        NuspecData result = NuspecParser.Parse(nuspec);
+
+        Assert.Equal("2010/07", result.ManifestVersion);
+        Assert.Equal("Legacy.Package", result.PackageName);
+        Assert.Equal("1.0.0", result.Version);
+        Assert.Equal("Legacy Author", result.Authors);
+        Assert.Equal(
+            "Legacy.Dependency",
+            Assert.Single(
+                Assert.Single(result.DependencyGroups!).Dependencies).Id);
+    }
+
+    [Theory]
+    [InlineData(
+        "<notpackage><metadata><id>Example.Package</id><version>1.0.0</version></metadata></notpackage>")]
+    [InlineData(
+        "<package xmlns=\"https://example.test/not-nuspec\"><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
+    public void ParseContent_InvalidDocumentRootIsRejected(string xml)
+    {
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => NuspecParser.ParseContent(xml));
+
+        Assert.Contains(
+            "invalid document root",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Example.Package",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FindNuspec_NoNuspecInPackageDirectory_ReturnsNull()
     {
         Assert.Null(NuspecParser.FindNuspec(_tempDir));

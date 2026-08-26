@@ -40,7 +40,8 @@ internal static class LibraryMetadataService
         HttpClient httpClient,
         bool isPlatformAssembly = false,
         HashSet<InspectionQueryDefinition>? queries = null,
-        InspectionQueryRegistry<InspectionQueryContext>? queryRegistry = null,
+        InspectionQueryCatalog<InspectionQueryContext>? queryCatalog = null,
+        InspectionQueryPlan<InspectionQueryContext>? queryPlan = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
         AssemblyIntegrationOpportunitiesEntry?
@@ -52,12 +53,20 @@ internal static class LibraryMetadataService
 
         try
         {
-            var requiredQueries = queryRegistry is not null && queries is not null
-                ? queryRegistry.ExpandRequired(queries)
-                : queries;
+            queryPlan ??= queryCatalog is not null && queries is not null
+                ? queryCatalog.Plan(queries)
+                : null;
+            IReadOnlyCollection<InspectionQueryDefinition>? requiredQueries =
+                queryPlan is null
+                    ? queries
+                    : queryPlan.Queries;
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
-            var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(requiredQueries);
+            var bodyAnalysisFeatures =
+                SelectBodyAnalysisFeatures(requiredQueries);
+            bool needsPrefetchedImage =
+                bodyAnalysisFeatures
+                    != Analysis.LibraryBodyAnalysisFeatures.None;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
@@ -81,29 +90,37 @@ internal static class LibraryMetadataService
                     maxMappings: 16 * 1024);
             using var service = discoveryOnly
                 ? assemblyReference is not null
-                    ? SourceLinkService.OpenEmbeddedPdbOnly(
-                        assemblyReference,
-                        discoveryReadLimits,
-                        logger.Log)
-                    : SourceLinkService.OpenEmbeddedPdbOnly(
-                        path,
-                        discoveryReadLimits,
-                        logger.Log)
+                    ? needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                assemblyReference,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            assemblyReference,
+                            discoveryReadLimits,
+                            logger.Log)
+                    : needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                path,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            path,
+                            discoveryReadLimits,
+                            logger.Log)
                 : assemblyReference is not null
-                    ? bodyAnalysisFeatures
-                        == Analysis.LibraryBodyAnalysisFeatures.None
+                    ? !needsPrefetchedImage
                         ? SourceLinkService.Open(
                             assemblyReference,
                             logger.Log)
                         : SourceLinkService.OpenPrefetched(
                             assemblyReference,
                             logger.Log)
-                    : bodyAnalysisFeatures
-                        == Analysis.LibraryBodyAnalysisFeatures.None
-                            ? SourceLinkService.Open(path, logger.Log)
-                            : SourceLinkService.OpenPrefetched(
-                                path,
-                                logger.Log);
+                    : !needsPrefetchedImage
+                        ? SourceLinkService.Open(path, logger.Log)
+                        : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
             bool projectOptimizationOpportunities =
                 options.IncludeSections is null
@@ -135,7 +152,7 @@ internal static class LibraryMetadataService
                 nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
                 nativeAudit.IsDeterministic = pdbContext.HasReproducibleFlag;
 
-                if (queryRegistry is not null && requiredQueries is not null)
+                if (queryPlan is not null)
                 {
                     using var queryContext = new Sections.InspectionQueryContext
                     {
@@ -153,8 +170,7 @@ internal static class LibraryMetadataService
                         path,
                         nativeAudit,
                         logger,
-                        queryRegistry,
-                        requiredQueries,
+                        queryPlan,
                         queryContext,
                         projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
@@ -260,7 +276,7 @@ internal static class LibraryMetadataService
             // Run typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
             var referencesWillRun =
-                queryRegistry is not null
+                queryPlan is not null
                 && requiredQueries?.Contains(AssemblyReferencesQuery.Definition) == true;
             if ((collectReferenceTree || needsAuditSignals) && !referencesWillRun)
             {
@@ -272,7 +288,7 @@ internal static class LibraryMetadataService
                     AssemblyReferencesQuery.Execute(session));
             }
 
-            if (queryRegistry is not null && requiredQueries is not null)
+            if (queryPlan is not null)
             {
                 using var queryContext = new Sections.InspectionQueryContext
                 {
@@ -291,8 +307,7 @@ internal static class LibraryMetadataService
                     path,
                     inspection,
                     logger,
-                    queryRegistry,
-                    requiredQueries,
+                    queryPlan,
                     queryContext,
                     projectOptimizationOpportunities,
                     trace).ConfigureAwait(false);
@@ -504,7 +519,7 @@ internal static class LibraryMetadataService
     }
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
-        IReadOnlySet<InspectionQueryDefinition>? queries)
+        IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
@@ -2138,6 +2153,15 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                UnsafeEvidencePresenceQuery.Definition,
+                out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
+        {
+            ApplyUnsafeEvidencePresenceResult(
+                inspection,
+                unsafeEvidencePresence);
+        }
+
+        if (results.TryGet(
                 UnsafeEvidenceQuery.Definition,
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
@@ -2744,6 +2768,30 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyUnsafeEvidencePresenceResult(
+        LibraryInspection inspection,
+        UnsafeEvidencePresenceResult result)
+    {
+        switch (result)
+        {
+            case UnsafeEvidencePresenceResult.Available available:
+                inspection.UnsafeEvidencePresent =
+                    available.HasEvidence;
+                inspection.UnsafeEvidencePresenceError = null;
+                break;
+
+            case UnsafeEvidencePresenceResult.Failed failed:
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    failed.Error;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe-evidence-presence result '{result.GetType().Name}'.");
+        }
+    }
+
     internal static void ApplyCustomAttributesResult(
         string path,
         LibraryInspection inspection,
@@ -2905,8 +2953,7 @@ internal static class LibraryMetadataService
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        InspectionQueryRegistry<InspectionQueryContext> queryRegistry,
-        HashSet<InspectionQueryDefinition> requiredQueries,
+        InspectionQueryPlan<InspectionQueryContext> queryPlan,
         InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities,
         Sections.InspectionTrace? trace)
@@ -2917,8 +2964,7 @@ internal static class LibraryMetadataService
         InspectionQueryResults results;
         try
         {
-            results = await queryRegistry.RunAsync(
-                requiredQueries,
+            results = await queryPlan.RunAsync(
                 queryContext,
                 recordQuery).ConfigureAwait(false);
         }

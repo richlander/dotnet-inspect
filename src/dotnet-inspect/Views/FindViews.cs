@@ -108,11 +108,140 @@ public record FindMemberRow(
     public string Source => SourceText.ToString();
 }
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    DescriptionProperty = nameof(Description),
+    FieldLayout = FieldLayout.Table)]
+public sealed class PackageProfileView
+{
+    public PackageProfileView(
+        InertString title,
+        InertString prefix,
+        InertString? description = null)
+    {
+        TitleText = title;
+        PrefixText = prefix;
+        DescriptionText = description;
+    }
+
+    [MarkoutIgnore] public InertString TitleText { get; }
+    [MarkoutIgnore] public InertString PrefixText { get; }
+    [MarkoutIgnore] public InertString? DescriptionText { get; }
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    [MarkoutIgnore] [MarkoutSkipNull]
+    public string? Description => DescriptionText?.ToString();
+    [MarkoutIgnore]
+    public string Prefix => PrefixText.ToString();
+    [MarkoutIgnore]
+    public int Packages { get; init; }
+    [MarkoutIgnore]
+    public int Failures { get; init; }
+    [MarkoutIgnore]
+    public bool Truncated { get; init; }
+
+    [MarkoutSection(Name = "Packages")]
+    public List<PackageProfileRow>? Results { get; init; }
+}
+
+[MarkoutSerializable]
+public sealed class PackageProfileRow
+{
+    public PackageProfileRow(
+        string package,
+        string dependency,
+        string version,
+        string owners,
+        string targetFramework,
+        string dependencyVersion,
+        string authors,
+        string verified,
+        string downloads,
+        string source,
+        string status,
+        string error)
+        : this(
+            Contain(package),
+            Contain(dependency),
+            Contain(version),
+            Contain(owners),
+            Contain(targetFramework),
+            Contain(dependencyVersion),
+            Contain(authors),
+            Contain(verified),
+            Contain(downloads),
+            Contain(source),
+            Contain(status),
+            Contain(error))
+    {
+    }
+
+    internal PackageProfileRow(
+        InertString package,
+        InertString dependency,
+        InertString version,
+        InertString owners,
+        InertString targetFramework,
+        InertString dependencyVersion,
+        InertString authors,
+        InertString verified,
+        InertString downloads,
+        InertString source,
+        InertString status,
+        InertString error)
+    {
+        PackageText = package;
+        DependencyText = dependency;
+        VersionText = version;
+        OwnersText = owners;
+        TargetFrameworkText = targetFramework;
+        DependencyVersionText = dependencyVersion;
+        AuthorsText = authors;
+        VerifiedText = verified;
+        DownloadsText = downloads;
+        SourceText = source;
+        StatusText = status;
+        ErrorText = error;
+    }
+
+    [MarkoutIgnore] public InertString PackageText { get; }
+    [MarkoutIgnore] public InertString DependencyText { get; }
+    [MarkoutIgnore] public InertString VersionText { get; }
+    [MarkoutIgnore] public InertString OwnersText { get; }
+    [MarkoutIgnore] public InertString TargetFrameworkText { get; }
+    [MarkoutIgnore] public InertString DependencyVersionText { get; }
+    [MarkoutIgnore] public InertString AuthorsText { get; }
+    [MarkoutIgnore] public InertString VerifiedText { get; }
+    [MarkoutIgnore] public InertString DownloadsText { get; }
+    [MarkoutIgnore] public InertString SourceText { get; }
+    [MarkoutIgnore] public InertString StatusText { get; }
+    [MarkoutIgnore] public InertString ErrorText { get; }
+
+    public string Package => PackageText.ToString();
+    public string Dependency => DependencyText.ToString();
+    public string Version => VersionText.ToString();
+    public string Owners => OwnersText.ToString();
+    [MarkoutPropertyName("TFM")]
+    public string TargetFramework => TargetFrameworkText.ToString();
+    [MarkoutPropertyName("Dependency Version")]
+    public string DependencyVersion => DependencyVersionText.ToString();
+    public string Authors => AuthorsText.ToString();
+    public string Verified => VerifiedText.ToString();
+    public string Downloads => DownloadsText.ToString();
+    public string Source => SourceText.ToString();
+    public string Status => StatusText.ToString();
+    public string Error => ErrorText.ToString();
+
+    private static InertString Contain(string value) =>
+        new(TextPolicy.Field, value);
+}
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(FindResultView))]
 [MarkoutContext(typeof(FindRow))]
 [MarkoutContext(typeof(FindMembersResultView))]
 [MarkoutContext(typeof(FindMemberRow))]
+[MarkoutContext(typeof(PackageProfileView))]
+[MarkoutContext(typeof(PackageProfileRow))]
 [MarkoutContext(typeof(ImplementsResultView))]
 [MarkoutContext(typeof(ImplementerRow))]
 [MarkoutContext(typeof(ExtensionsResultView))]
