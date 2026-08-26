@@ -11,6 +11,9 @@ import { fakeDom } from "./fake-dom.ts";
 setProductHomeDemoCatalog([
   { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
   { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
+  { id: "stj-serialize-callgraph", title: "Serialize call graph", summary: "Dense package-local STJ graph" },
+  { id: "config-bind-callgraph", title: "Configuration Bind", summary: "Recursive binder call graph" },
+  { id: "options-add-callgraph", title: "Options hub", summary: "Inbound fan-in at AddOptions" },
 ]);
 
 class FakeElement {
@@ -109,6 +112,7 @@ test("home shell accepts only known demos", () => {
   const credits = new FakeElement();
   const stj = new FakeElement({ homeDemo: "stj-serializer" });
   const callgraph = new FakeElement({ homeDemo: "extensions-callgraph" });
+  const serializeGraph = new FakeElement({ homeDemo: "stj-serialize-callgraph" });
   const unknown = new FakeElement({ homeDemo: "other" });
   const absent = new FakeElement();
   root.add("#home-theme", theme);
@@ -118,6 +122,7 @@ test("home shell accepts only known demos", () => {
     "[data-home-demo]",
     stj,
     callgraph,
+    serializeGraph,
     unknown,
     absent,
   );
@@ -139,6 +144,7 @@ test("home shell accepts only known demos", () => {
   assert.equal(credits.dispatch("click"), true);
   stj.dispatch("click");
   callgraph.dispatch("click");
+  serializeGraph.dispatch("click");
   unknown.dispatch("click");
   absent.dispatch("click");
   assert.deepEqual(calls, [
@@ -147,6 +153,7 @@ test("home shell accepts only known demos", () => {
     "credits",
     "demo:stj-serializer",
     "demo:extensions-callgraph",
+    "demo:stj-serialize-callgraph",
   ]);
 });
 
