@@ -369,6 +369,158 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void ShortTableRows_PreserveEveryKeyWithEmptyStringPadding()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["first", "second", "third"],
+            [["<code>A&lt;B&gt;</code>"]],
+            0,
+            new MarkoutWriterOptions());
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var row = document.RootElement.GetProperty("results")[0];
+
+        Assert.Equal(["first", "second", "third"], row.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("A<B>", row.GetProperty("first").GetString());
+        Assert.Equal("", row.GetProperty("second").GetString());
+        Assert.Equal("", row.GetProperty("third").GetString());
+    }
+
+    [Fact]
+    public void LabeledArrays_PreserveKeysEmptyValuesAndSiblingBoundaries()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatArray(TextWriter.Null, "Target Frameworks", ["<code>net8.0</code>"], false);
+        formatter.FormatArray(TextWriter.Null, "Package Types", [], false);
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var overview = document.RootElement.GetProperty("overview");
+
+        Assert.Equal(JsonValueKind.Object, overview.ValueKind);
+        Assert.Equal(["target_frameworks", "package_types"], overview.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("net8.0", overview.GetProperty("target_frameworks")[0].GetString());
+        Assert.Empty(overview.GetProperty("package_types").EnumerateArray());
+    }
+
+    [Fact]
+    public void LabeledAndUnlabeledLists_FailRatherThanFlattening()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatArray(TextWriter.Null, "Target Frameworks", ["net8.0"], false);
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatListItem(TextWriter.Null, "unlabeled"));
+
+        Assert.Contains("LabeledArrays and UnlabeledList", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LabeledArraysSharingAMachineKey_FailRatherThanMerging()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatArray(TextWriter.Null, "Call Graph", ["first"], false);
+        formatter.FormatArray(TextWriter.Null, "CallGraph", ["second"], false);
+
+        var error = Assert.Throws<NotSupportedException>(() => formatter.Finish());
+
+        Assert.Contains("call_graph", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnlabeledLists_NormalizeInlineValuesWithoutInferringTypes()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Values", null);
+        formatter.FormatListItem(TextWriter.Null, "<code>A&lt;B&gt;</code>");
+        formatter.FormatListItem(TextWriter.Null, "3");
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var values = document.RootElement.GetProperty("values");
+
+        Assert.Equal("A<B>", values[0].GetString());
+        Assert.Equal(JsonValueKind.String, values[1].ValueKind);
+        Assert.Equal("3", values[1].GetString());
+    }
+
+    [Fact]
+    public void FieldsAndTrees_NormalizeInlineValuesAndPreserveTreeState()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatFields(
+            TextWriter.Null,
+            [new MarkoutField("Root Value", "<code>A&lt;B&gt;</code>")],
+            false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatFields(
+            TextWriter.Null,
+            [
+                new MarkoutField("Code", "<code>Marked&lt;T&gt;</code>"),
+                new MarkoutField("Plain", "plain &amp; text"),
+            ],
+            false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Tree", null);
+        formatter.FormatTree(
+            TextWriter.Null,
+            [
+                new TreeNode("<code>Normal</code>"),
+                new TreeNode("<code>Shared</code>") { Badge = "<code>Again</code>", State = TreeNodeState.Revisit },
+            ],
+            new MarkoutWriterOptions());
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var root = document.RootElement;
+        var tree = root.GetProperty("tree");
+
+        Assert.Equal("A<B>", root.GetProperty("root_value").GetString());
+        Assert.Equal("Marked<T>", root.GetProperty("overview").GetProperty("code").GetString());
+        Assert.Equal("plain &amp; text", root.GetProperty("overview").GetProperty("plain").GetString());
+        Assert.Equal(["text"], tree[0].EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal(["text", "badge", "state"], tree[1].EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal("Normal", tree[0].GetProperty("text").GetString());
+        Assert.Equal("Shared", tree[1].GetProperty("text").GetString());
+        Assert.Equal("Again", tree[1].GetProperty("badge").GetString());
+        Assert.Equal("revisit", tree[1].GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public void TreeBadgeSelection_DoesNotSuppressStructuralState()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Tree", null);
+        formatter.FormatTree(
+            TextWriter.Null,
+            [new TreeNode("Shared") { Badge = "Again", State = TreeNodeState.Revisit }],
+            new MarkoutWriterOptions { IncludeBadges = false });
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var node = document.RootElement.GetProperty("tree")[0];
+
+        Assert.Equal(["text", "state"], node.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.False(node.TryGetProperty("badge", out _));
+        Assert.Equal("revisit", node.GetProperty("state").GetString());
+    }
+
+    [Fact]
     public void TwoSectionsSharingAMachineKey_FailRatherThanEmittingDuplicateKeys()
     {
         // Normalizing display headings to machine keys made collisions possible that verbatim names
@@ -423,7 +575,7 @@ public class JsonSectionFormatterTests
         using var document = JsonDocument.Parse(formatter.Finish());
 
         Assert.Equal("Contoso", document.RootElement.GetProperty("package").GetString());
-        Assert.Equal("a", document.RootElement.GetProperty("call_graph")[0].GetString());
+        Assert.Equal("a", document.RootElement.GetProperty("call_graph").GetProperty("items")[0].GetString());
         Assert.Equal("MemoryCache", document.RootElement.GetProperty("results")[0].GetProperty("type").GetString());
     }
 

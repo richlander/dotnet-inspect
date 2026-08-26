@@ -36,13 +36,11 @@ section or route is correct.
 
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
-keys are still derived from display headings, labeled-array keys are discarded,
-short table rows currently omit trailing properties, semantic inline markup is
-written verbatim instead of normalized like JSONL, and section-scoped
-projection has not been proven over broad multi-section documents. Issue #4677
-owns the in-progress redesign of semantic item limits versus explicit
-rendered-line limits; this contract does not pre-empt that decision. These are
-hardening work, not accepted compatibility behavior.
+keys are still derived from display headings, and section-scoped projection has
+not been proven over broad multi-section documents. Issue #4677 owns the
+in-progress redesign of semantic item limits versus explicit rendered-line
+limits; this contract does not pre-empt that decision. These are hardening work,
+not accepted compatibility behavior.
 
 Related docs:
 
@@ -598,6 +596,17 @@ Existing pilot coverage proves only the currently wired slice:
   `Find_RowWindowUnderProjectedJson_KeepsTheDocumentParsable` gate row-window
   identity and valid empty windows.
 - `Find_CompactUnderProjectedJson_IsHonored` gates compact output.
+- `ShortTableRows_PreserveEveryKeyWithEmptyStringPadding` gates JSONL-compatible
+  trailing-cell padding.
+- `LabeledArrays_PreserveKeysEmptyValuesAndSiblingBoundaries`,
+  `LabeledAndUnlabeledLists_FailRatherThanFlattening`, and
+  `LabeledArraysSharingAMachineKey_FailRatherThanMerging` gate labeled-array
+  identity and losslessness.
+- `UnlabeledLists_NormalizeInlineValuesWithoutInferringTypes` and
+  `FieldsAndTrees_NormalizeInlineValuesAndPreserveTreeState` gate supported
+  inline slots, string value kinds, deterministic tree properties, and
+  structural node state. `TreeBadgeSelection_DoesNotSuppressStructuralState`
+  gates badge selection independently from structural state.
 - The mixed-content, duplicate-key, over-wide-row, and streaming-callback tests
   in `JsonSectionFormatterTests` gate visible failure for the formatter's known
   loss cases.
