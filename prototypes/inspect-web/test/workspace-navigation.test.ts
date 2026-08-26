@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
   createNavigationHistory,
@@ -394,6 +395,7 @@ test("canonical context capture does not broaden a selected subset for Call Grap
     basis.tabs,
     0,
     basis,
+    true,
     true);
 
   assert.deepEqual(captured, {
@@ -405,13 +407,63 @@ test("canonical context capture does not broaden a selected subset for Call Grap
 test("Browser-created Call Graph state synthesizes root-first package context", () => {
   const tabs = workspaceState().tabs;
 
-  const captured = workspaceShareCaptureTopology(tabs, 1, null, true);
+  const captured = workspaceShareCaptureTopology(
+    tabs,
+    1,
+    null,
+    false,
+    true);
 
   assert.deepEqual(captured.contexts.at(-1), {
     id: "g2",
     tabIds: ["t1", "t0"],
   });
   assert.equal(captured.selectedContextId, "g2");
+});
+
+test("reminted tab IDs cannot preserve stale canonical contexts", () => {
+  const basis: BrowserWorkspaceShareState = {
+    ...workspaceState(),
+    contexts: [{ id: "g0", tabIds: ["t1"] }],
+    selectedContextId: "g0",
+  };
+  const reminted = basis.tabs.map((tab, index) => ({
+    ...tab,
+    source: `Replacement.${index}`,
+  }));
+
+  const captured = workspaceShareCaptureTopology(
+    reminted,
+    0,
+    basis,
+    false,
+    false);
+
+  assert.deepEqual(captured, {
+    contexts: [
+      { id: "g0", tabIds: ["t0"] },
+      { id: "g1", tabIds: ["t1"] },
+    ],
+    selectedContextId: "g0",
+  });
+});
+
+test("Browser-created Call Graph contexts include only binding-compatible tabs", () => {
+  const tabs = workspaceState().tabs.map((tab, index) => ({
+    ...tab,
+    framework: index === 0 ? "net10.0" : "net6.0",
+  }));
+
+  assert.deepEqual(browserCreatedCallGraphTabIds(tabs, 0), ["t0"]);
+  assert.deepEqual(
+    workspaceShareCaptureTopology(tabs, 0, null, false, true),
+    {
+      contexts: [
+        { id: "g0", tabIds: ["t0"] },
+        { id: "g1", tabIds: ["t1"] },
+      ],
+      selectedContextId: "g0",
+    });
 });
 
 test("package-root URLs discard stale workspace state and restore the package lens", () => {

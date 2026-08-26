@@ -263,7 +263,7 @@ test("unversioned platform residual maps to the browser runtime pack", () => {
     tabIds: ["t1", "t0"],
   }]);
   const { url, location } = parseDemoHref(href);
-  assert.equal(url.searchParams.get("package"), PLATFORM_RUNTIME_PACK.source);
+  assert.equal(url.searchParams.get("package"), "Microsoft.NETCore.App");
   assert.deepEqual(location.tabs, [
     {
       id: "System.Text.Json",

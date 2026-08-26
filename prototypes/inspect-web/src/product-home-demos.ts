@@ -65,6 +65,8 @@ function locationHref(
   return `?${params.toString()}`;
 }
 
+const BROWSER_RUNTIME_PACKAGE = "Microsoft.NETCore.App";
+
 function packageTab(
   member: BrowserHomeDemoMember,
   index: number,
@@ -142,7 +144,9 @@ export function productHomeDemoLocationHref(
     ...tabs.filter(tab => tab.kind === "package").map(tab => tab.id),
   ];
   return locationHref({
-    package: focusTab.source,
+    package: focusTab.kind === "group"
+      ? BROWSER_RUNTIME_PACKAGE
+      : focusTab.source,
     tabs,
     contexts: [{
       id: "g0",

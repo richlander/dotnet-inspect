@@ -2164,6 +2164,10 @@ test("shared member views use portable product identity and omit UI-local filter
     capture,
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
   assert.match(capture, /libraries = state\.libraryScope/);
+  assert.match(
+    capture,
+    /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
+  assert.match(capture, /package: state\.package\.id/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);
   assert.doesNotMatch(capture, /memberAccessibilityFilter:/);
@@ -2220,20 +2224,41 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /window\.addEventListener\("popstate"[\s\S]*?\n}\);/)?.[0] ?? "";
   const sync = appSource.match(
     /function syncUrl\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  const stateUrl = appSource.match(
+    /function buildStateUrl\([\s\S]*?\n}/)?.[0] ?? "";
+  const scopePlatform = appSource.match(
+    /async function openPlatformLibrary\([\s\S]*?\n}/)?.[0] ?? "";
+  const validateView = appSource.match(
+    /function canonicalViewRestorationFailure\([\s\S]*?\n}/)?.[0] ?? "";
 
   assert.match(
     restore,
     /failedTabCount[\s\S]*loc\.shareState && failedTabCount > 0[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
-    /canonicalViewRestorationFailure\(targetModel, deep\)[\s\S]*failCanonicalWorkspaceRestore/);
+    /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     history,
     /state\.workspaceShareBasis = loc\.shareState/);
+  assert.match(
+    appSource,
+    /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
+  assert.match(
+    appSource,
+    /captured\.preservesBasis,[\s\S]*state\.memberSection === "call-graph"/);
   assert.match(sync, /state\.atPackageRoot/);
   assert.match(
     sync,
-    /workspaceLocation\.replace\(buildPackageRootStateUrl/);
+    /workspaceLocation\.replace\(buildStateUrl\(\)/);
+  assert.match(
+    stateUrl,
+    /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
+  assert.match(
+    scopePlatform,
+    /candidate\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*scopeOnly\) return hasLib \? pkg : undefined/);
+  assert.match(
+    validateView,
+    /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {
@@ -2510,7 +2535,7 @@ test("Platform scope restoration defers selection, rendering, and data loading",
     ?? "";
   assert.match(
     openPlatformLibrary,
-    /const scopeOnly = options\.scopeOnly === true;[\s\S]*state\.libraryScope = hasLib \? new Set\(\[key\]\) : null;[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*candidate\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*state\.libraryScope = actualKey \? new Set\(\[actualKey\]\) : null;[\s\S]*if \(scopeOnly\) return hasLib \? pkg : undefined;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
   const applyScope =
     appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\n\/\/ History/)?.[0]
     ?? "";

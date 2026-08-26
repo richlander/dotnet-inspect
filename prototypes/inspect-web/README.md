@@ -773,7 +773,9 @@ reverses the same path. TypeScript neither understands compact packet fields nor
 owns base64url. Packet-local tabs, independent navigation focus and selected
 binding context, portable member anchors/signatures, section, and sorted library
 scope cross the generated bridge as long-form records. The selected context,
-not every open tab, bounds package Call Graph expansion.
+not every open tab, bounds package Call Graph expansion. Browser-created Call
+Graph state composes only package tabs with the active tab's framework and RID;
+incompatible tabs remain separate contexts.
 
 Browser activation supports package tabs and one exact or floating `:Platform`
 group tab without RIDs. Canonical activation is atomic: any unavailable tab,
@@ -785,7 +787,8 @@ unresolved graph targets,
 ambiguous overloads, and members without a portable product identity fail
 visibly rather than producing lossy state. Filters and browse presentation stay
 session-local. A package-root view drops stale `w=` state and uses the ordinary
-Browser package route until product facet ids exist. Other transient,
+Browser package route for address-bar synchronization and explicit Share until
+product facet ids exist. Other transient,
 non-projectable views retain the last valid canonical URL; explicit Share
 reports the refusal.
 `test/workspace-navigation.test.ts` gates that the route preflight cannot decode

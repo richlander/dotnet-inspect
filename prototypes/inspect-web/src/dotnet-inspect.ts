@@ -81,6 +81,7 @@ import {
 } from "./member-filtering.ts";
 import {
   bindWorkspaceLinkNavigation,
+  browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   createNavigationHistory,
   createNavigationSequence,
@@ -5616,10 +5617,13 @@ async function openPlatformLibrary(
   if (!pkg) { render(); return undefined; }
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
-  const hasLib = pkg.types.some(type => libraryKey(type) === key);
-  state.libraryScope = hasLib ? new Set([key]) : null;
-  if (hasLib) recordPlatformRecent(key, pack);
-  if (scopeOnly) return pkg;
+  const actualKey = pkg.types
+    .map(libraryKey)
+    .find(candidate => candidate.toLowerCase() === key.toLowerCase());
+  const hasLib = actualKey !== undefined;
+  state.libraryScope = actualKey ? new Set([actualKey]) : null;
+  if (actualKey) recordPlatformRecent(actualKey, pack);
+  if (scopeOnly) return hasLib ? pkg : undefined;
   state.loading = false;
   state.atPackageRoot = !hasLib; // scoped → jump straight to the type list; otherwise the overview
   state.packageLens = "overview";
@@ -5862,35 +5866,38 @@ function shareTabMatchesPackage(
 
 function capturedShareTabs() {
   const basis = state.workspaceShareBasis;
-  if (basis
+  const preservesBasis = Boolean(basis
     && basis.tabs.length === state.packages.length
     && basis.tabs.every((tab, index) => {
       const pkg = state.packages[index];
       return pkg ? shareTabMatchesPackage(tab, pkg) : false;
-    })) {
-    return basis.tabs.map(tab => ({ ...tab }));
-  }
-
-  return state.packages.map((pkg, index) => ({
-    id: `t${index}`,
-    kind: pkg.isRuntimePack ? "group" : "package",
-    source: pkg.isRuntimePack ? ":Platform" : pkg.id,
-    version: pkg.version || null,
-    framework: pkg.activeFramework || null,
-    runtimeIdentifier: null,
-  }));
+    }));
+  const tabs: BrowserWorkspaceShareState["tabs"] =
+    preservesBasis && basis
+      ? basis.tabs.map(tab => ({ ...tab }))
+      : state.packages.map((pkg, index) => ({
+          id: `t${index}`,
+          kind: pkg.isRuntimePack ? "group" : "package",
+          source: pkg.isRuntimePack ? ":Platform" : pkg.id,
+          version: pkg.version || null,
+          framework: pkg.activeFramework || null,
+          runtimeIdentifier: null,
+        }));
+  return { tabs, preservesBasis };
 }
 
 function selectedCallGraphWorkspacePackages(): AppPackage[] {
   const basis = state.workspaceShareBasis;
-  const preservesBasis = basis
-    && basis.tabs.length === state.packages.length
-    && basis.tabs.every((tab, index) => {
-      const pkg = state.packages[index];
-      return pkg ? shareTabMatchesPackage(tab, pkg) : false;
-    });
-  if (!preservesBasis) {
-    return state.packages.filter(packageItem => !packageItem.isRuntimePack);
+  const { tabs, preservesBasis } = capturedShareTabs();
+  if (!preservesBasis || !basis) {
+    const activeIndex = state.package
+      ? state.packages.indexOf(state.package)
+      : -1;
+    const selectedIds = new Set(
+      browserCreatedCallGraphTabIds(tabs, activeIndex));
+    return state.packages.filter((packageItem, index) =>
+      !packageItem.isRuntimePack
+      && selectedIds.has(tabs[index]!.id));
   }
 
   const selected = basis.contexts.find(
@@ -5916,7 +5923,8 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
       "The pending graph member must resolve before this workspace can be shared.");
   }
 
-  const tabs = capturedShareTabs();
+  const captured = capturedShareTabs();
+  const tabs = captured.tabs;
   const activeIndex = state.packages.indexOf(state.package);
   const activeTab = tabs[activeIndex];
   if (!activeTab) return null;
@@ -5926,6 +5934,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     tabs,
     activeIndex,
     basis,
+    captured.preservesBasis,
     state.memberSection === "call-graph");
 
   const type = selectedType();
@@ -5952,12 +5961,16 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     }
   }
 
+  if (state.libraryScope && state.libraryScope.size > 1) {
+    throw new Error(
+      "Select one library before sharing this Browser workspace.");
+  }
   const libraries = state.libraryScope
     ? [...state.libraryScope].sort((left, right) =>
         left < right ? -1 : left > right ? 1 : 0)
     : [];
   return {
-    package: activeTab.source,
+    package: state.package.id,
     tabs,
     contexts,
     activeTabId: activeTab.id,
@@ -5976,6 +5989,14 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
 }
 
 function buildStateUrl(base = location.href) {
+  if (state.atPackageRoot && state.package) {
+    return buildPackageRootStateUrl(base, {
+      package: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      lens: state.packageLens,
+    });
+  }
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? workspaceLocation.build(snapshot, base)
@@ -5989,12 +6010,7 @@ function syncUrl() {
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      workspaceLocation.replace(buildPackageRootStateUrl(location.href, {
-        package: state.package.id,
-        version: state.package.version,
-        framework: state.package.activeFramework,
-        lens: state.packageLens,
-      }).toString());
+      workspaceLocation.replace(buildStateUrl().toString());
       return;
     }
     const snapshot = captureWorkspaceUrlState();
@@ -6013,7 +6029,15 @@ type DeepLink = WorkspaceDeepLink;
 function canonicalViewRestorationFailure(
   pkg: AppPackage,
   deep: DeepLink,
+  requestedLens: TypeLens | null,
 ): string | null {
+  const lens = requestedLens ?? "api";
+  if (!typeLensesFor(pkg).some(([id]) => id === lens)) {
+    return `The shared '${lens}' lens is not available for ${pkg.id}.`;
+  }
+  if (lens !== "api" && !deep.type) {
+    return `The shared '${lens}' lens requires a selected type.`;
+  }
   const requestedType = deep.type
     ? pkg.types.find(type => type.id === deep.type)
     : null;
@@ -6025,7 +6049,15 @@ function canonicalViewRestorationFailure(
     && !state.libraryScope.has(libraryKey(requestedType))) {
     return `The shared type '${deep.type}' is not part of the selected library.`;
   }
-  if (!deep.memberAnchor && !deep.memberSignature) return null;
+  const hasPortableMember = Boolean(
+    deep.memberAnchor || deep.memberSignature);
+  if (deep.section && !hasPortableMember) {
+    return `The shared member section '${deep.section}' requires a selected member.`;
+  }
+  if (!hasPortableMember) return null;
+  if (lens !== "api") {
+    return `The shared member selection is not available in the '${lens}' lens.`;
+  }
   if (!deep.type) {
     return "The shared member has no declaring type and cannot be restored.";
   }
@@ -8772,7 +8804,7 @@ async function restoreWorkspaceFromLocation(
       }
     }
     const viewFailure = loc.shareState
-      ? canonicalViewRestorationFailure(targetModel, deep)
+      ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
       : null;
     if (loc.shareState && viewFailure) {
       failCanonicalWorkspaceRestore(loc, deep, viewFailure);
@@ -9466,7 +9498,7 @@ window.addEventListener("popstate", () => {
         state.package,
         loc.library);
       const viewFailure = loc.shareState
-        ? canonicalViewRestorationFailure(state.package, loc)
+        ? canonicalViewRestorationFailure(state.package, loc, loc.lens)
         : null;
       const restorationFailure = libraryFailure ?? viewFailure;
       if (loc.shareState && restorationFailure) {
@@ -9524,7 +9556,7 @@ async function restorePlatformScopeThenDeepLink(
   }
   const pkg = state.package;
   const viewFailure = pkg && loc.shareState
-    ? canonicalViewRestorationFailure(pkg, loc)
+    ? canonicalViewRestorationFailure(pkg, loc, loc.lens)
     : null;
   if (loc.shareState && viewFailure) {
     failCanonicalWorkspaceRestore(loc, loc, viewFailure);
@@ -9624,7 +9656,7 @@ async function restoreRuntimePackFromHistory(
       return;
     }
     const viewFailure = loc.shareState
-      ? canonicalViewRestorationFailure(pack, deep)
+      ? canonicalViewRestorationFailure(pack, deep, loc.lens)
       : null;
     if (loc.shareState && viewFailure) {
       failCanonicalWorkspaceRestore(loc, deep, viewFailure);

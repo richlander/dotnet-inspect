@@ -1141,6 +1141,8 @@ Definition records and product demos (this slice):
   topology through typed Browser records, and reverses the same path when
   sharing. The active navigation tab and selected query context remain
   independent; the selected context bounds cross-package Call Graph expansion.
+  Browser-created Call Graph contexts compose only package tabs with the active
+  tab's framework and RID; incompatible targets remain separate contexts.
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
   while an absent pin remains floating. Browser activation accepts at most one
   Platform tab and is atomic: an unavailable coordinate, selected library,
@@ -1148,8 +1150,8 @@ Definition records and product demos (this slice):
   the source URL intact. Unsupported groups, RIDs, multi-library Browser views,
   unknown lenses or sections, package facets, pending graph targets, and
   members without portable anchor/signature identity fail visibly instead of
-  being flattened. Package-root navigation uses the ordinary Browser route,
-  without stale packet state, until product facet ids exist; and
+  being flattened. Package-root navigation and explicit Share use the ordinary
+  Browser route, without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI
   use of the codec/transposer for executable `-W`, or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still

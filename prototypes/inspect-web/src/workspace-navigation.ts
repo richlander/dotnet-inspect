@@ -291,13 +291,29 @@ export interface WorkspaceShareCaptureTopology {
   selectedContextId: string;
 }
 
+export function browserCreatedCallGraphTabIds(
+  tabs: readonly BrowserWorkspaceShareTab[],
+  activeIndex: number,
+): string[] {
+  const activeTab = tabs[activeIndex];
+  if (activeTab?.kind !== "package") return [];
+  const framework = activeTab.framework?.toLowerCase() ?? null;
+  return tabs.filter(tab =>
+    tab.kind === "package"
+    && (tab.framework?.toLowerCase() ?? null) === framework
+    && tab.runtimeIdentifier === activeTab.runtimeIdentifier)
+    .map(tab => tab.id);
+}
+
 export function workspaceShareCaptureTopology(
   tabs: readonly BrowserWorkspaceShareTab[],
   activeIndex: number,
   basis: BrowserWorkspaceShareState | null,
+  preserveBasis: boolean,
   callGraph: boolean,
 ): WorkspaceShareCaptureTopology {
   const preservesBasis = basis
+    && preserveBasis
     && basis.tabs.length === tabs.length
     && basis.tabs.every((tab, index) => tab.id === tabs[index]?.id);
   const contexts = preservesBasis
@@ -314,14 +330,12 @@ export function workspaceShareCaptureTopology(
     : contexts[activeIndex]?.id ?? contexts[0]?.id ?? "";
 
   if (!preservesBasis && callGraph) {
-    const activeTab = tabs[activeIndex];
-    const packageTabIds = tabs
-      .filter(tab => tab.kind === "package")
-      .map(tab => tab.id);
-    if (activeTab?.kind === "package" && packageTabIds.length > 1) {
+    const packageTabIds = browserCreatedCallGraphTabIds(tabs, activeIndex);
+    if (packageTabIds.length > 1) {
+      const activeTabId = tabs[activeIndex]!.id;
       const rootFirst = [
-        activeTab.id,
-        ...packageTabIds.filter(id => id !== activeTab.id),
+        activeTabId,
+        ...packageTabIds.filter(id => id !== activeTabId),
       ];
       const context = {
         id: `g${contexts.length}`,
