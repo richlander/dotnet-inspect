@@ -10,6 +10,9 @@ See [overview.md](../overview.md) for subsystem ownership,
 [output-shapes.md](output-shapes.md) for the shape ladder this note builds on.
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
 owns the source-neutral boundary below workspace-backed assembly queries.
+[The package query CLI](package-query-cli.md) applies this split to a
+concrete, not-yet-implemented feature: nuspec/promoted facet predicates over
+`find --package-prefix`.
 
 ## Purpose
 
