@@ -118,6 +118,12 @@ public sealed class StateMachineRelationshipIndexTests
     [InlineData("CustomBuilderAsync", StateMachineClaimKind.ClassicAsync)]
     [InlineData("GenericAsync", StateMachineClaimKind.ClassicAsync)]
     [InlineData("InstanceAsync", StateMachineClaimKind.ClassicAsync)]
+    [InlineData(
+        "IExplicitGenericStateMachines<System.String,System.Int32>.GetAsync",
+        StateMachineClaimKind.ClassicAsync)]
+    [InlineData(
+        "IExplicitGenericStateMachines<System.String,System.Int32>.get_Items",
+        StateMachineClaimKind.Iterator)]
     public void
         StateMachineRelationshipIndex_ResolvesGeneratedAndCustomBuilderKickoffs(
             string kickoffNameFragment,
@@ -140,10 +146,17 @@ public sealed class StateMachineRelationshipIndexTests
 
         Assert.Equal(expectedKind, result.Relationship.Kind);
         Assert.Equal(
-            [
-                StateMachineMethodRole.MoveNext,
-                StateMachineMethodRole.SetStateMachine,
-            ],
+            expectedKind == StateMachineClaimKind.Iterator
+                ?
+                [
+                    StateMachineMethodRole.MoveNext,
+                    StateMachineMethodRole.Dispose,
+                ]
+                :
+                [
+                    StateMachineMethodRole.MoveNext,
+                    StateMachineMethodRole.SetStateMachine,
+                ],
             result.Relationship.Methods.Select(
                 method => method.Role));
     }
@@ -232,6 +245,9 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(
             StateMachineRelationshipFailureKind.Malformed,
             result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine attribute constructor is malformed.",
+            result.Failure.Detail);
     }
 
     [Fact]
@@ -264,7 +280,9 @@ public sealed class StateMachineRelationshipIndexTests
             : StateMachineClaimKind.ClassicAsync;
         using var image = new LoadedImage(
             BuildClaimImage(
-                [StateMachineClaimKind.ClassicAsync, second]));
+                [StateMachineClaimKind.ClassicAsync, second],
+                secondKickoffClaim:
+                    StateMachineClaimKind.ClassicAsync));
 
         StateMachineRelationshipIndex index =
             StateMachineRelationshipIndex.Create(image.Reader);
@@ -274,6 +292,16 @@ public sealed class StateMachineRelationshipIndexTests
                     MetadataTokens.MethodDefinitionHandle(1)));
 
         Assert.Equal(expected, result.Failure.Kind);
+        Assert.Single(result.Failure.ClaimedTypes);
+        Assert.Single(result.Failure.StateMachineCandidates);
+        Assert.IsType<StateMachineRelationshipResult.Rejected>(
+            index.GetByStateMachine(
+                MetadataTokens.TypeDefinitionHandle(3)));
+        var otherKickoff =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(2)));
+        Assert.Same(result.Failure, otherKickoff.Failure);
     }
 
     [Fact]
@@ -322,6 +350,32 @@ public sealed class StateMachineRelationshipIndexTests
             StateMachineRelationshipFailureKind.Unresolved,
             result.Failure.Kind);
         Assert.Empty(result.Failure.StateMachineCandidates);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_AcceptsCurrentAssemblyQualification()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName:
+                    "Fixtures.Owner+Machine, StateMachineClaims, "
+                    + "Version=1.0.0.0, Culture=neutral, "
+                    + "PublicKeyToken=null"));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            "The state-machine type does not implement a required interface.",
+            result.Failure.Detail);
+        Assert.Single(result.Failure.ClaimedTypes);
+        Assert.Single(result.Failure.StateMachineCandidates);
     }
 
     [Fact]
@@ -388,6 +442,9 @@ public sealed class StateMachineRelationshipIndexTests
         ClassicRelationshipMutation.CustomModifiedSetStateMachine,
         StateMachineRelationshipFailureKind.Unresolved)]
     [InlineData(
+        ClassicRelationshipMutation.ValueTypeSetStateMachine,
+        StateMachineRelationshipFailureKind.Unresolved)]
+    [InlineData(
         ClassicRelationshipMutation.StaticMoveNext,
         StateMachineRelationshipFailureKind.Unresolved)]
     [InlineData(
@@ -421,6 +478,79 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(expected, kickoff.Failure.Kind);
         Assert.Same(kickoff.Failure, stateMachine.Failure);
         Assert.Single(kickoff.Failure.ClaimedTypes);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName: new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters
+                        * 4
+                        + 1)));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine type name exceeds its encoded byte budget.",
+            result.Failure.Detail);
+    }
+
+    [Theory]
+    [InlineData(AsyncEnumeratorShape.Bare)]
+    [InlineData(AsyncEnumeratorShape.WrongArity)]
+    public void
+        StateMachineRelationshipIndex_RejectsMalformedAsyncEnumeratorShape(
+            AsyncEnumeratorShape shape)
+    {
+        using var image = new LoadedImage(
+            BuildAsyncIteratorRelationshipImage(shape));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Unresolved,
+            result.Failure.Kind);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [],
+                unrelatedAttributeCount: 2));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 1);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
     }
 
     static MethodDefinitionHandle FindMethod(
@@ -475,7 +605,8 @@ public sealed class StateMachineRelationshipIndexTests
         bool includeStateMachineType = true,
         bool duplicateStateMachineType = false,
         StateMachineClaimKind? secondKickoffClaim = null,
-        string serializedTypeName = "Fixtures.Owner+Machine")
+        string serializedTypeName = "Fixtures.Owner+Machine",
+        int unrelatedAttributeCount = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -593,6 +724,39 @@ public sealed class StateMachineRelationshipIndexTests
             AddClaimAttribute(secondKickoff, secondKind);
         }
 
+        if (unrelatedAttributeCount > 0)
+        {
+            TypeReferenceHandle unrelatedType =
+                metadata.AddTypeReference(
+                    coreReference,
+                    metadata.GetOrAddString("Other"),
+                    metadata.GetOrAddString("UnrelatedAttribute"));
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    0,
+                    returnType => returnType.Void(),
+                    parameters => { });
+            MemberReferenceHandle constructor =
+                metadata.AddMemberReference(
+                    unrelatedType,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(signature));
+            var value = new BlobBuilder();
+            value.WriteUInt16(1);
+            value.WriteUInt16(0);
+            BlobHandle valueHandle =
+                metadata.GetOrAddBlob(value);
+            for (int i = 0; i < unrelatedAttributeCount; i++)
+            {
+                metadata.AddCustomAttribute(
+                    kickoff,
+                    constructor,
+                    valueHandle);
+            }
+        }
+
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(
@@ -624,21 +788,10 @@ public sealed class StateMachineRelationshipIndexTests
                     metadata.GetOrAddString(
                         "System.Runtime.CompilerServices"),
                     metadata.GetOrAddString(attributeName));
-            var constructorSignature = new BlobBuilder();
-            new BlobEncoder(constructorSignature)
-                .MethodSignature(isInstanceMethod: true)
-                .Parameters(
-                    1,
-                    returnType => returnType.Void(),
-                    parameters =>
-                    {
-                        SignatureTypeEncoder parameter =
-                            parameters.AddParameter().Type();
-                        if (malformedConstructor)
-                            parameter.Int32();
-                        else
-                            parameter.Type(systemType, isValueType: false);
-                    });
+            BlobBuilder constructorSignature =
+                malformedConstructor
+                    ? ValueTypeConstructorSignature(systemType)
+                    : TypeConstructorSignature(systemType);
             MemberReferenceHandle constructor =
                 metadata.AddMemberReference(
                     attributeType,
@@ -724,14 +877,20 @@ public sealed class StateMachineRelationshipIndexTests
                 returnType => returnType.Void(),
                 parameters => { });
         BlobBuilder setStateMachineSignature =
-            mutation
-                == ClassicRelationshipMutation
-                    .CustomModifiedSetStateMachine
-                    ? CustomModifiedSetStateMachineSignature(
+            mutation switch
+            {
+                ClassicRelationshipMutation
+                    .CustomModifiedSetStateMachine =>
+                    CustomModifiedSetStateMachineSignature(
                         asyncStateMachine,
-                        modifier)
-                    : SetStateMachineSignature(
-                        asyncStateMachine);
+                        modifier),
+                ClassicRelationshipMutation
+                    .ValueTypeSetStateMachine =>
+                    ValueTypeSetStateMachineSignature(
+                        asyncStateMachine),
+                _ => SetStateMachineSignature(
+                    asyncStateMachine),
+            };
 
         var instructions = new BlobBuilder();
         var encoder = new InstructionEncoder(
@@ -871,6 +1030,236 @@ public sealed class StateMachineRelationshipIndexTests
         return image.ToArray();
     }
 
+    static byte[] BuildAsyncIteratorRelationshipImage(
+        AsyncEnumeratorShape shape)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("AsyncIteratorRelationship.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("AsyncIteratorRelationship"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyName coreLibrary =
+            typeof(AsyncStateMachineAttribute).Assembly.GetName();
+        AssemblyReferenceHandle coreReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(coreLibrary.Name!),
+                coreLibrary.Version!,
+                default,
+                metadata.GetOrAddBlob(
+                    coreLibrary.GetPublicKeyToken()!),
+                default,
+                default);
+        TypeReferenceHandle systemType =
+            AddTypeReference(
+                "System",
+                "Type");
+        TypeReferenceHandle asyncStateMachine =
+            AddTypeReference(
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine");
+        TypeReferenceHandle asyncAttribute =
+            AddTypeReference(
+                "System.Runtime.CompilerServices",
+                nameof(AsyncIteratorStateMachineAttribute));
+        TypeReferenceHandle asyncEnumerator =
+            AddTypeReference(
+                "System.Collections.Generic",
+                "IAsyncEnumerator`1");
+        TypeReferenceHandle asyncDisposable =
+            AddTypeReference(
+                "System",
+                "IAsyncDisposable");
+        TypeReferenceHandle valueTask =
+            AddTypeReference(
+                "System.Threading.Tasks",
+                "ValueTask");
+        TypeReferenceHandle valueTaskOfT =
+            AddTypeReference(
+                "System.Threading.Tasks",
+                "ValueTask`1");
+
+        var staticVoid = new BlobBuilder();
+        new BlobEncoder(staticVoid)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                result => result.Void(),
+                parameters => { });
+        var instanceVoid = new BlobBuilder();
+        new BlobEncoder(instanceVoid)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                result => result.Void(),
+                parameters => { });
+        BlobBuilder setStateMachine =
+            SetStateMachineSignature(asyncStateMachine);
+        var moveNextAsync = new BlobBuilder();
+        moveNextAsync.WriteByte(0x20);
+        moveNextAsync.WriteCompressedInteger(0);
+        moveNextAsync.WriteByte(0x15);
+        moveNextAsync.WriteByte(0x11);
+        WriteTypeDefOrRefEncoded(
+            moveNextAsync,
+            valueTaskOfT);
+        moveNextAsync.WriteCompressedInteger(1);
+        moveNextAsync.WriteByte(0x02);
+        var disposeAsync = new BlobBuilder();
+        disposeAsync.WriteByte(0x20);
+        disposeAsync.WriteCompressedInteger(0);
+        disposeAsync.WriteByte(0x11);
+        WriteTypeDefOrRefEncoded(
+            disposeAsync,
+            valueTask);
+
+        var asyncEnumeratorSpecification = new BlobBuilder();
+        asyncEnumeratorSpecification.WriteByte(0x15);
+        asyncEnumeratorSpecification.WriteByte(0x12);
+        WriteTypeDefOrRefEncoded(
+            asyncEnumeratorSpecification,
+            asyncEnumerator);
+        asyncEnumeratorSpecification.WriteCompressedInteger(
+            shape == AsyncEnumeratorShape.Bare ? 1 : 2);
+        asyncEnumeratorSpecification.WriteByte(0x02);
+        if (shape == AsyncEnumeratorShape.WrongArity)
+            asyncEnumeratorSpecification.WriteByte(0x02);
+        EntityHandle implementedAsyncEnumerator =
+            shape == AsyncEnumeratorShape.Bare
+                ? asyncEnumerator
+                : metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(
+                        asyncEnumeratorSpecification));
+
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(
+            instructions,
+            new ControlFlowBuilder());
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset =
+            new MethodBodyStreamEncoder(methodBodies)
+                .AddMethodBody(encoder, maxStack: 0);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle machine =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString("Machine"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddNestedType(
+            machine,
+            MetadataTokens.TypeDefinitionHandle(2));
+        metadata.AddInterfaceImplementation(
+            machine,
+            asyncStateMachine);
+        metadata.AddInterfaceImplementation(
+            machine,
+            implementedAsyncEnumerator);
+        metadata.AddInterfaceImplementation(
+            machine,
+            asyncDisposable);
+
+        MethodDefinitionHandle kickoff =
+            AddMethod(
+                "Kickoff",
+                staticVoid,
+                MethodAttributes.Public
+                    | MethodAttributes.Static);
+        AddMethod(
+            "MoveNext",
+            instanceVoid,
+            MethodAttributes.Public
+                | MethodAttributes.Virtual);
+        AddMethod(
+            "SetStateMachine",
+            setStateMachine,
+            MethodAttributes.Public
+                | MethodAttributes.Virtual);
+        AddMethod(
+            "MoveNextAsync",
+            moveNextAsync,
+            MethodAttributes.Public
+                | MethodAttributes.Virtual);
+        AddMethod(
+            "DisposeAsync",
+            disposeAsync,
+            MethodAttributes.Public
+                | MethodAttributes.Virtual);
+
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                asyncAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    TypeConstructorSignature(systemType)));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString("Fixtures.Owner+Machine");
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            kickoff,
+            constructor,
+            metadata.GetOrAddBlob(value));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+
+        TypeReferenceHandle AddTypeReference(
+            string @namespace,
+            string name) =>
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString(@namespace),
+                metadata.GetOrAddString(name));
+
+        MethodDefinitionHandle AddMethod(
+            string name,
+            BlobBuilder signature,
+            MethodAttributes attributes) =>
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+    }
+
     static BlobBuilder SetStateMachineSignature(
         TypeReferenceHandle asyncStateMachine)
     {
@@ -886,6 +1275,48 @@ public sealed class StateMachineRelationshipIndexTests
                     .Type(
                         asyncStateMachine,
                         isValueType: false));
+        return signature;
+    }
+
+    static BlobBuilder TypeConstructorSignature(
+        TypeReferenceHandle systemType)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters
+                    .AddParameter()
+                    .Type()
+                    .Type(systemType, isValueType: false));
+        return signature;
+    }
+
+    static BlobBuilder ValueTypeConstructorSignature(
+        TypeReferenceHandle systemType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x11);
+        WriteTypeDefOrRefEncoded(signature, systemType);
+        return signature;
+    }
+
+    static BlobBuilder ValueTypeSetStateMachineSignature(
+        TypeReferenceHandle asyncStateMachine)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x11);
+        WriteTypeDefOrRefEncoded(
+            signature,
+            asyncStateMachine);
         return signature;
     }
 
@@ -925,10 +1356,17 @@ public sealed class StateMachineRelationshipIndexTests
     public enum ClassicRelationshipMutation
     {
         CustomModifiedSetStateMachine,
+        ValueTypeSetStateMachine,
         StaticMoveNext,
         NonIlMoveNext,
         MethodImplBodyOnOtherType,
         NonIlKickoff,
+    }
+
+    public enum AsyncEnumeratorShape
+    {
+        Bare,
+        WrongArity,
     }
 
     sealed class LoadedImage(byte[] image) : IDisposable

@@ -311,6 +311,7 @@ public sealed class StateMachineRelationshipIndex
             foreach (CustomAttributeHandle attributeHandle
                 in method.GetCustomAttributes())
             {
+                Charge();
                 CustomAttribute attribute =
                     _reader.GetCustomAttribute(attributeHandle);
                 string? attributeName =
@@ -333,7 +334,6 @@ public sealed class StateMachineRelationshipIndex
                     continue;
                 }
 
-                Charge();
                 if (candidates.Count
                     == MetadataSafetyPolicy.MaxRelationshipNodes)
                 {
@@ -377,15 +377,15 @@ public sealed class StateMachineRelationshipIndex
                         .Distinct()
                         .Skip(1)
                         .Any();
-                _byKickoff[MetadataTokens.GetToken(kickoff)] =
-                    Rejected(
-                        crossKind
-                            ? StateMachineRelationshipFailureKind.CrossKind
-                            : StateMachineRelationshipFailureKind.Duplicate,
-                        crossKind
-                            ? "The kickoff method has cross-kind state-machine claims."
-                            : "The kickoff method has duplicate state-machine claims.",
-                        [Address(kickoff)]);
+                RejectKickoffCandidates(
+                    kickoff,
+                    candidates,
+                    crossKind
+                        ? StateMachineRelationshipFailureKind.CrossKind
+                        : StateMachineRelationshipFailureKind.Duplicate,
+                    crossKind
+                        ? "The kickoff method has cross-kind state-machine claims."
+                        : "The kickoff method has duplicate state-machine claims.");
                 return;
             }
 
@@ -411,6 +411,14 @@ public sealed class StateMachineRelationshipIndex
             StateMachineClaimKind kind,
             CustomAttribute attribute)
         {
+            if (SerializedTypeArgumentExceedsByteBudget(attribute))
+            {
+                return ClaimCandidate.Rejected(
+                    kind,
+                    StateMachineRelationshipFailureKind.Malformed,
+                    "The state-machine type name exceeds its encoded byte budget.");
+            }
+
             CustomAttributeValue<string>? decoded =
                 AttributeDecoder
                     .TryDecodePreservingSerializedTypeNames(
@@ -453,6 +461,36 @@ public sealed class StateMachineRelationshipIndex
                 Detail: null);
         }
 
+        bool SerializedTypeArgumentExceedsByteBudget(
+            CustomAttribute attribute)
+        {
+            try
+            {
+                BlobReader value =
+                    _reader.GetBlobReader(attribute.Value);
+                if (value.RemainingBytes < 3
+                    || value.ReadUInt16() != 1)
+                {
+                    return false;
+                }
+
+                int offset = value.Offset;
+                if (value.ReadByte() == 0xFF)
+                    return false;
+                value.Offset = offset;
+                int byteCount = value.ReadCompressedInteger();
+                return byteCount
+                    > MetadataSafetyPolicy.MaxTypeNameCharacters
+                        * 4;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
         bool TryGetCurrentAssemblyTypeName(
             string serializedType,
             out MetadataTypeDefinitionName? name,
@@ -467,19 +505,28 @@ public sealed class StateMachineRelationshipIndex
                 return false;
             }
 
-            int separator = serializedType.IndexOf(',');
-            string typeName = (
-                separator < 0
-                    ? serializedType
-                    : serializedType[..separator]).Trim();
-            if (separator >= 0
-                && !AssemblyQualificationMatches(
-                    serializedType[(separator + 1)..]))
+            var options = new TypeNameParseOptions
+            {
+                MaxNodes =
+                    MetadataSafetyPolicy.MaxRelationshipNodes,
+            };
+            if (!TypeName.TryParse(
+                    serializedType,
+                    out TypeName? parsed,
+                    options))
+            {
+                malformed = true;
+                return false;
+            }
+
+            if (parsed.AssemblyName is { } assembly
+                && !AssemblyQualificationMatches(assembly))
             {
                 return false;
             }
 
-            if (MetadataTypeDefinitionName.ParseSerialized(typeName)
+            if (MetadataTypeDefinitionName
+                    .FromParsedSerializedName(parsed)
                 is not MetadataTypeDefinitionNameResult.Valid valid)
             {
                 malformed = true;
@@ -490,7 +537,8 @@ public sealed class StateMachineRelationshipIndex
             return true;
         }
 
-        bool AssemblyQualificationMatches(string qualification)
+        bool AssemblyQualificationMatches(
+            AssemblyNameInfo qualification)
         {
             if (!_reader.IsAssembly)
                 return false;
@@ -498,74 +546,87 @@ public sealed class StateMachineRelationshipIndex
             AssemblyReferenceIdentity assembly =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
                     _reader);
-            string[] parts = qualification.Split(',');
-            if (parts.Length == 0
-                || !string.Equals(
-                    parts[0].Trim(),
+            if (!string.Equals(
+                    qualification.Name,
                     assembly.Name,
                     StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
-
-            foreach (string part in parts.Skip(1))
+            if (qualification.Version is { } version
+                && version != assembly.Version)
             {
-                int equals = part.IndexOf('=');
-                if (equals <= 0)
-                    return false;
-                string key = part[..equals].Trim();
-                string value = part[(equals + 1)..].Trim();
-                if (key.Equals(
-                        "Version",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!Version.TryParse(value, out Version? version)
-                        || version != assembly.Version)
-                    {
-                        return false;
-                    }
-                }
-                else if (key.Equals(
-                        "Culture",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    string? culture = value.Equals(
-                        "neutral",
-                        StringComparison.OrdinalIgnoreCase)
-                            ? null
-                            : value;
-                    if (!string.Equals(
-                            culture,
-                            assembly.Culture,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        return false;
-                    }
-                }
-                else if (key.Equals(
-                        "PublicKeyToken",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    string? token = value.Equals(
-                        "null",
-                        StringComparison.OrdinalIgnoreCase)
-                            ? null
-                            : value;
-                    if (!string.Equals(
-                            token,
-                            assembly.PublicKeyToken,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    return false;
-                }
+                return false;
+            }
+            if (!string.IsNullOrEmpty(qualification.CultureName)
+                && !string.Equals(
+                    qualification.CultureName,
+                    assembly.Culture,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            if ((qualification.Flags
+                    & AssemblyNameFlags.PublicKey) != 0)
+            {
+                return false;
+            }
+            if (!qualification.PublicKeyOrToken.IsDefaultOrEmpty
+                && !string.Equals(
+                    Convert.ToHexString(
+                        qualification.PublicKeyOrToken.AsSpan()),
+                    assembly.PublicKeyToken,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
             }
 
             return true;
+        }
+
+        void RejectKickoffCandidates(
+            MethodDefinitionHandle kickoff,
+            IReadOnlyList<ClaimCandidate> candidates,
+            StateMachineRelationshipFailureKind kind,
+            string detail)
+        {
+            ImmutableArray<MetadataTypeDefinitionName> claimedTypes =
+                [.. candidates
+                    .Where(candidate =>
+                        candidate.StateMachineName is not null)
+                    .Select(candidate =>
+                        candidate.StateMachineName!)
+                    .Distinct()];
+            var stateMachines =
+                ImmutableArray.CreateBuilder<
+                    MetadataTypeDefinitionAddress>();
+            foreach (MetadataTypeDefinitionName claimedType
+                in claimedTypes)
+            {
+                if (_typeDefinitions.TryGetDefinition(
+                        claimedType,
+                        out TypeDefinitionHandle stateMachine,
+                        out _))
+                {
+                    stateMachines.Add(TypeAddress(stateMachine));
+                }
+            }
+
+            StateMachineRelationshipResult.Rejected rejection =
+                Rejected(
+                    kind,
+                    detail,
+                    [Address(kickoff)],
+                    stateMachines.ToImmutable(),
+                    claimedTypes);
+            _byKickoff[MetadataTokens.GetToken(kickoff)] =
+                rejection;
+            foreach (MetadataTypeDefinitionAddress stateMachine
+                in stateMachines)
+            {
+                _byStateMachine[
+                    stateMachine.Definition.Value] = rejection;
+            }
         }
 
         void Resolve(
@@ -575,6 +636,14 @@ public sealed class StateMachineRelationshipIndex
             MetadataMethodAddress kickoff = Address(claim.Kickoff);
             MetadataTypeDefinitionAddress stateMachineAddress =
                 TypeAddress(stateMachine);
+            if (_byStateMachine.TryGetValue(
+                    stateMachineAddress.Definition.Value,
+                    out StateMachineRelationshipResult?
+                        priorRejection))
+            {
+                _byKickoff[kickoff.Token] = priorRejection;
+                return;
+            }
             if (!HasManagedIlBody(
                     _reader.GetMethodDefinition(claim.Kickoff)))
             {
@@ -943,6 +1012,9 @@ public sealed class StateMachineRelationshipIndex
     sealed class StateMachineSignatureProvider :
         ISignatureTypeProvider<SignatureType, object?>
     {
+        const byte ValueTypeCode = 0x11;
+        const byte ClassTypeCode = 0x12;
+
         readonly MetadataReader _reader;
         readonly bool _currentAssemblyIsCoreLibrary;
 
@@ -1057,7 +1129,9 @@ public sealed class StateMachineRelationshipIndex
         internal bool IsKnownType(
             EntityHandle handle,
             KnownStateMachineType expected)
-            => DecodeType(handle).Is(expected);
+            => DecodeType(
+                handle,
+                ClassTypeCode).Is(expected);
 
         bool Matches(
             MethodSignature<SignatureType> signature,
@@ -1117,19 +1191,21 @@ public sealed class StateMachineRelationshipIndex
                 null);
         }
 
-        SignatureType DecodeType(EntityHandle handle)
+        SignatureType DecodeType(
+            EntityHandle handle,
+            byte directTypeKind)
             => handle.Kind switch
             {
                 HandleKind.TypeDefinition =>
                     GetTypeFromDefinition(
                         _reader,
                         (TypeDefinitionHandle)handle,
-                        rawTypeKind: 0),
+                        directTypeKind),
                 HandleKind.TypeReference =>
                     GetTypeFromReference(
                         _reader,
                         (TypeReferenceHandle)handle,
-                        rawTypeKind: 0),
+                        directTypeKind),
                 HandleKind.TypeSpecification =>
                     GuardedProviderDecode.TypeSpec(
                         _reader,
@@ -1146,10 +1222,12 @@ public sealed class StateMachineRelationshipIndex
             {
                 PrimitiveTypeCode.Boolean =>
                     SignatureType.Known(
-                        KnownStateMachineType.Boolean),
+                        KnownStateMachineType.Boolean,
+                        SignatureReferenceKind.Primitive),
                 PrimitiveTypeCode.Void =>
                     SignatureType.Known(
-                        KnownStateMachineType.Void),
+                        KnownStateMachineType.Void,
+                        SignatureReferenceKind.Primitive),
                 _ => SignatureType.Unknown,
             };
 
@@ -1163,7 +1241,8 @@ public sealed class StateMachineRelationshipIndex
             return ReadKnownType(
                 MetadataTypeDefinitionName.Read(
                     reader,
-                    handle));
+                    handle),
+                rawTypeKind);
         }
 
         public SignatureType GetTypeFromReference(
@@ -1196,7 +1275,8 @@ public sealed class StateMachineRelationshipIndex
             return ReadKnownType(
                 MetadataTypeDefinitionName.Read(
                     reader,
-                    handle));
+                    handle),
+                rawTypeKind);
         }
 
         public SignatureType GetTypeFromSpecification(
@@ -1235,18 +1315,39 @@ public sealed class StateMachineRelationshipIndex
         public SignatureType GetGenericInstantiation(
             SignatureType genericType,
             ImmutableArray<SignatureType> typeArguments)
-            => genericType.Type
-                == KnownStateMachineType.ValueTaskOfT
-                && typeArguments is
+        {
+            if (genericType.Modified
+                || typeArguments.Length != 1)
+            {
+                return SignatureType.Unknown;
+            }
+
+            return genericType.Type switch
+            {
+                KnownStateMachineType.IAsyncEnumeratorDefinition
+                    when genericType.ReferenceKind
+                        == SignatureReferenceKind.Class =>
+                    SignatureType.Known(
+                        KnownStateMachineType.IAsyncEnumerator,
+                        SignatureReferenceKind.Class),
+                KnownStateMachineType.ValueTaskOfTDefinition
+                    when genericType.ReferenceKind
+                            == SignatureReferenceKind.ValueType
+                        && typeArguments is
                     [
                         {
                             Type: KnownStateMachineType.Boolean,
                             Modified: false,
+                            ReferenceKind:
+                                SignatureReferenceKind.Primitive,
                         },
-                    ]
-                ? SignatureType.Known(
-                    KnownStateMachineType.ValueTaskOfBoolean)
-                : genericType;
+                    ] =>
+                    SignatureType.Known(
+                        KnownStateMachineType.ValueTaskOfBoolean,
+                        SignatureReferenceKind.ValueType),
+                _ => SignatureType.Unknown,
+            };
+        }
 
         public SignatureType GetGenericTypeParameter(
             object? context,
@@ -1272,11 +1373,24 @@ public sealed class StateMachineRelationshipIndex
             };
 
         static SignatureType ReadKnownType(
-            MetadataTypeDefinitionNameReadResult result)
+            MetadataTypeDefinitionNameReadResult result,
+            byte rawTypeKind)
             => result is MetadataTypeDefinitionNameReadResult.Read read
                 ? SignatureType.Known(
-                    KnownType(read.Name))
+                    KnownType(read.Name),
+                    ReferenceKind(rawTypeKind))
                 : SignatureType.Unknown;
+
+        static SignatureReferenceKind ReferenceKind(
+            byte rawTypeKind)
+            => rawTypeKind switch
+            {
+                ClassTypeCode =>
+                    SignatureReferenceKind.Class,
+                ValueTypeCode =>
+                    SignatureReferenceKind.ValueType,
+                _ => SignatureReferenceKind.Unknown,
+            };
 
         static KnownStateMachineType AttributeType(
             string name)
@@ -1310,7 +1424,7 @@ public sealed class StateMachineRelationshipIndex
                 ("System.Collections", "IEnumerator") =>
                     KnownStateMachineType.IEnumerator,
                 ("System.Collections.Generic", "IAsyncEnumerator`1") =>
-                    KnownStateMachineType.IAsyncEnumerator,
+                    KnownStateMachineType.IAsyncEnumeratorDefinition,
                 ("System.Runtime.CompilerServices",
                     "IAsyncStateMachine") =>
                     KnownStateMachineType.IAsyncStateMachine,
@@ -1326,7 +1440,7 @@ public sealed class StateMachineRelationshipIndex
                 ("System.Threading.Tasks", "ValueTask") =>
                     KnownStateMachineType.ValueTask,
                 ("System.Threading.Tasks", "ValueTask`1") =>
-                    KnownStateMachineType.ValueTaskOfT,
+                    KnownStateMachineType.ValueTaskOfTDefinition,
                 ("System", "IAsyncDisposable") =>
                     KnownStateMachineType.IAsyncDisposable,
                 _ => KnownStateMachineType.Unknown,
@@ -1336,17 +1450,48 @@ public sealed class StateMachineRelationshipIndex
 
     readonly record struct SignatureType(
         KnownStateMachineType Type,
+        SignatureReferenceKind ReferenceKind,
         bool Modified)
     {
         internal static SignatureType Unknown =>
-            new(KnownStateMachineType.Unknown, Modified: false);
+            new(
+                KnownStateMachineType.Unknown,
+                SignatureReferenceKind.Unknown,
+                Modified: false);
 
         internal static SignatureType Known(
-            KnownStateMachineType type) =>
-            new(type, Modified: false);
+            KnownStateMachineType type,
+            SignatureReferenceKind referenceKind) =>
+            new(type, referenceKind, Modified: false);
 
         internal bool Is(KnownStateMachineType type)
-            => !Modified && Type == type;
+            => !Modified
+                && Type == type
+                && ReferenceKind == ExpectedReferenceKind(type);
+
+        static SignatureReferenceKind ExpectedReferenceKind(
+            KnownStateMachineType type)
+            => type switch
+            {
+                KnownStateMachineType.Void
+                    or KnownStateMachineType.Boolean =>
+                    SignatureReferenceKind.Primitive,
+                KnownStateMachineType.ValueTask
+                    or KnownStateMachineType.ValueTaskOfTDefinition
+                    or KnownStateMachineType.ValueTaskOfBoolean =>
+                    SignatureReferenceKind.ValueType,
+                KnownStateMachineType.Unknown =>
+                    SignatureReferenceKind.Unknown,
+                _ => SignatureReferenceKind.Class,
+            };
+    }
+
+    enum SignatureReferenceKind
+    {
+        Unknown,
+        Primitive,
+        Class,
+        ValueType,
     }
 
     enum KnownStateMachineType
@@ -1357,11 +1502,12 @@ public sealed class StateMachineRelationshipIndex
         Type,
         IAsyncStateMachine,
         IEnumerator,
+        IAsyncEnumeratorDefinition,
         IAsyncEnumerator,
         IDisposable,
         IAsyncDisposable,
         ValueTask,
-        ValueTaskOfT,
+        ValueTaskOfTDefinition,
         ValueTaskOfBoolean,
         AsyncStateMachineAttribute,
         AsyncIteratorStateMachineAttribute,

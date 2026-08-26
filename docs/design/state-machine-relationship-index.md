@@ -56,6 +56,10 @@ Malformed trusted attributes are rejected, while same-named attributes from
 untrusted assemblies are ignored. The distinction is gated by
 `StateMachineRelationshipIndex_RejectsMalformedTrustedConstructor` and
 `StateMachineRelationshipIndex_IgnoresUntrustedAttributeSpoof`.
+Reflection-name escaping is decoded before matching raw metadata names, so
+compiler-generated names containing escaped commas remain resolvable.
+`StateMachineRelationshipIndex_ResolvesGeneratedAndCustomBuilderKickoffs`
+gates this with explicit implementations of a two-argument generic interface.
 
 The required roles are:
 
@@ -68,8 +72,8 @@ The required roles are:
 For each role, an exact matching `MethodImpl` declaration wins. Without one,
 the index accepts one implicit public virtual implementation with the exact
 name and signature. The matcher also rejects custom-modified signatures,
-static methods, non-IL methods, and `MethodImpl` bodies declared by another
-type.
+`class`/`valuetype` mismatches, bare or wrong-arity generic interfaces, static
+methods, non-IL methods, and `MethodImpl` bodies declared by another type.
 `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations`,
 `StateMachineRelationshipIndex_ExplicitMethodImplWinsOverNamedDecoy`, and
 `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` gate these
@@ -79,17 +83,22 @@ positive and negative forms.
 
 Discovery scans at most
 `MetadataSafetyPolicy.MaxCorrespondenceMethodRows` `MethodDef` rows. A separate
-cumulative relationship budget charges recognized-name attribute candidates,
-including the bounded authentication work needed to ignore an untrusted
-lookalike, plus interface rows, `MethodImpl` rows, and candidate implementation
-methods. Existing signature, custom-attribute, serialized-name, and
-metadata-relationship guards bound recursive or allocated decoding.
+cumulative relationship budget charges every inspected custom-attribute row,
+including the bounded authentication work needed to ignore an unrelated or
+untrusted attribute, plus interface rows, `MethodImpl` rows, and candidate
+implementation methods. State-machine `System.Type` values receive an encoded
+byte-length preflight before SRM materializes their strings. Existing
+signature, custom-attribute, serialized-name, and metadata-relationship guards
+bound recursive or allocated decoding.
 
 Exhausting a bound rejects the index with `BudgetExceeded`; malformed SRM data
 rejects it with `Malformed`. Neither becomes an empty successful index.
 `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure` and
 `StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget` gate the
-visible budget results.
+visible budget results;
+`StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows` and
+`StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode` gate the
+attribute-row and serialized-name bounds.
 
 ## Ownership boundaries
 

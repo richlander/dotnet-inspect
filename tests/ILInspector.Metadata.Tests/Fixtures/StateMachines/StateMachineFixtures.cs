@@ -86,6 +86,32 @@ public sealed class GenericStateMachineFixtures<T>
     }
 }
 
+public interface IExplicitGenericStateMachines<TFirst, TSecond>
+{
+    IEnumerable<int> Items { get; }
+    Task<int> GetAsync();
+}
+
+public sealed class ExplicitGenericStateMachines :
+    IExplicitGenericStateMachines<string, int>
+{
+    IEnumerable<int>
+        IExplicitGenericStateMachines<string, int>.Items
+    {
+        get
+        {
+            yield return 42;
+        }
+    }
+
+    async Task<int>
+        IExplicitGenericStateMachines<string, int>.GetAsync()
+    {
+        await Task.Yield();
+        return 42;
+    }
+}
+
 [AsyncMethodBuilder(typeof(CustomTaskMethodBuilder<>))]
 public readonly struct CustomTask<T>
 {

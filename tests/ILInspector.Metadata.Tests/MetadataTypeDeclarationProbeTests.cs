@@ -80,11 +80,18 @@ public class MetadataTypeDeclarationProbeTests
         var consecutiveDot =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.ParseSerialized("N..T+S"));
+        var escapedComma =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    @"N.Outer+<I<A\,B>-M>d__1"));
 
         Assert.Equal(
             Name("", "Program", "<<Main>$>d__0"),
             nested.Name);
         Assert.Equal(Name("N", ".T", "S"), consecutiveDot.Name);
+        Assert.Equal(
+            Name("N", "Outer", "<I<A,B>-M>d__1"),
+            escapedComma.Name);
     }
 
     [Theory]
