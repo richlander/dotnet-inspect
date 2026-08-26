@@ -2,6 +2,7 @@ import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  assertNever,
   pdbSourceLimitationHtml,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
@@ -21,6 +22,8 @@ import {
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  isMemberSection,
+  memberSectionDefinitions,
   memberSectionIdsFor,
   packageCoordinateMatchesLocation,
   packageForView,
@@ -56,6 +59,12 @@ import {
   type WorkspaceTab,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
+} from "./data.ts";
+import type {
+  MemberSection,
+  PackageLens,
+  TypeLens,
+  WorkspaceScope,
 } from "./data.ts";
 import type { CommandPaletteResult } from "./command-bar.ts";
 import {
@@ -231,6 +240,7 @@ import {
   createSpotlight,
   type SpotlightPackageHit,
   type SpotlightResult,
+  type SpotlightScope,
   visibleSpotlightPackageHits,
 } from "./spotlight.ts";
 import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
@@ -513,18 +523,13 @@ interface Diagnostics {
   assets: number;
 }
 
-type MemberSection = "overview" | "source" | "annotated" | "call-graph" | "facts";
-
-function isMemberSection(value: string): value is MemberSection {
-  return memberSections.some(section => section === value);
-}
-
 function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
   return MEDIA.some(medium => medium === value);
 }
 
 let spotlightCache: SpotlightCache | null = null;
 const HOME_BOT_ANIMATION_DURATION_MS = 5500;
+const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 const initialState = {
@@ -539,7 +544,7 @@ const initialState = {
   queryNoticeRetryAction: null,
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
-  requestedFramework: "net10.0",
+  requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -617,8 +622,8 @@ const initialState = {
   memberDocumentationLoading: false,
   memberDocumentationError: "",
   memberDocumentationKey: "",
-  lens: "api",
-  packageLens: "overview",
+  lens: "api" as const,
+  packageLens: "overview" as const,
   atPackageRoot: false,
   typeFilter: "",
   namespaceFilter: "",
@@ -630,7 +635,7 @@ const initialState = {
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
-  spotlightScope: "all",
+  spotlightScope: "all" as const,
   spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
   spotlightPkgHits: [],
@@ -710,7 +715,10 @@ interface StateOverrides {
   accessibilityFilter: Set<string>;
   spotlightPkgHits: SpotlightPackageHit[];
   spotlightFocus: "input" | "chips";
+  spotlightScope: SpotlightScope;
   memberSection: MemberSection;
+  lens: TypeLens;
+  packageLens: PackageLens;
   packageVersions: Record<string, string[]>;
   packageVersionsLoading: Record<string, boolean>;
   platformRecent: PlatformRecent[];
@@ -995,9 +1003,7 @@ function applyView(view: WorkspaceView) {
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
-  state.memberSection = isMemberSection(memberHistory.memberSection)
-    ? memberHistory.memberSection
-    : "overview";
+  state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
@@ -1061,16 +1067,19 @@ function applyView(view: WorkspaceView) {
   }
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    if (state.memberSection === "source")
+    const section = state.memberSection;
+    if (section === "source")
       observeAsync(loadSelectedMemberSource(), "Loading member source");
-    else if (state.memberSection === "annotated")
+    else if (section === "annotated")
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (state.memberSection === "call-graph")
+    else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-    else if (state.memberSection === "facts")
+    else if (section === "facts")
       observeAsync(loadSelectedMemberFacts(), "Loading member facts");
-    else
+    else if (section === "overview")
       observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+    else
+      assertNever(section, "member section");
   } else {
     render();
   }
@@ -1097,20 +1106,6 @@ function navForward() {
   navigationHistory.forward();
 }
 
-const memberSections: readonly MemberSection[] =
-  ["overview", "source", "annotated", "call-graph", "facts"];
-
-// Member-mode strip: the sections shown for an open member, in display order. Lives at
-// module scope because both the scope/lens strip (in render) and the member detail view
-// read it. Order here is the visual left-to-right order in the strip.
-const memberSectionDefs = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Facts"],
-  ["source", "Source"],
-  ["annotated", "Annotated source"]
-] as const;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1121,7 +1116,7 @@ function memberSectionsFor(member: AppMemberGroup) {
       member,
       state.package?.isRuntimePack,
       memberHasSelectedBody(member)));
-  return memberSectionDefs.filter(([id]) => allowed.has(id));
+  return memberSectionDefinitions.filter(([id]) => allowed.has(id));
 }
 
 function memberHasSelectedBody(member: AppMemberGroup) {
@@ -1150,14 +1145,15 @@ function parseLocation() {
 
 type ParsedLocation = ParsedWorkspaceLocation;
 
-const initialLocation = parseLocation();
+const initialWorkspace = workspaceLocation.preflightCurrent();
+const initialLocation = initialWorkspace.visible;
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length));
-state.queryNotice = initialLocation.workspaceNotice || "";
+  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
+state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
   state.requestedVersion = initialLocation.version || "latest";
@@ -1169,21 +1165,21 @@ if (initialLocation.atPackageRoot) {
   state.packageLens = initialLocation.packageLens || "overview";
 }
 
-// Deep-link selection to restore once the first package model is available. Consumed
-// (and cleared) by the first loadPackage so later package switches start fresh.
-const initialDeepLink = {
-  type: initialLocation.type,
-  member: initialLocation.member,
-  overload: initialLocation.overload,
-  section: initialLocation.section,
-  bodyTarget: initialLocation.bodyTarget,
-  memberBrowse: initialLocation.memberBrowse,
-  memberTextFilter: initialLocation.memberTextFilter,
-  memberKindFilter: initialLocation.memberKindFilter,
-  memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
-  memberTraitFilter: initialLocation.memberTraitFilter,
-  graphTarget: initialLocation.graphTarget
-};
+function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
+  return {
+    type: loc.type,
+    member: loc.member,
+    overload: loc.overload,
+    section: loc.section,
+    bodyTarget: loc.bodyTarget,
+    memberBrowse: loc.memberBrowse,
+    memberTextFilter: loc.memberTextFilter,
+    memberKindFilter: loc.memberKindFilter,
+    memberAccessibilityFilter: loc.memberAccessibilityFilter,
+    memberTraitFilter: loc.memberTraitFilter,
+    graphTarget: loc.graphTarget
+  };
+}
 
 function requireElement(selector: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(selector);
@@ -1326,7 +1322,7 @@ function focusTypeList(generation = spotlightFocusGeneration) {
   });
 }
 
-function openSpotlight(seed = "", spotlightScope = "all") {
+function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
   if (state.loading || state.error) return;
   state.tasteOpen = false;
   beginSpotlightNavigation();
@@ -1944,9 +1940,31 @@ function selectedMember(type: BrowserTypeSurface | null | undefined) {
 // Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
 // type (one public type), or member (a member + its overloads under the API lens). The
 // lens strip, detail pane, and arrow keys all react to the active scope.
-function scope() {
+function scope(): WorkspaceScope {
   if (state.atPackageRoot) return "package";
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
+}
+
+function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
+  if (workspaceScope === "package") {
+    const selected = packageLensesFor(state.package)[index];
+    if (selected) {
+      state.packageLens = selected[0];
+      render();
+    }
+  } else if (workspaceScope === "type") {
+    const selected = typeLensesFor(state.package)[index];
+    if (selected) {
+      state.lens = selected[0];
+      render();
+    }
+  } else if (workspaceScope === "member") {
+    const member = selectedMember(selectedType());
+    const selected = member ? memberSectionsFor(member)[index] : undefined;
+    if (selected) applyMemberSection(selected[0]);
+  } else {
+    assertNever(workspaceScope, "workspace scope");
+  }
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
@@ -1967,16 +1985,6 @@ function scopedPlatformLibrary() {
   if (state.libraryScope && state.libraryScope.size === 1)
     return state.libraryScope.values().next().value ?? null;
   return null;
-}
-
-function activeLenses() {
-  const sc = scope();
-  if (sc === "package") return packageLensesFor(state.package);
-  if (sc === "member") {
-    const member = selectedMember(selectedType());
-    return member ? memberSectionsFor(member) : [];
-  }
-  return typeLensesFor(state.package);
 }
 
 // The nav pane reacts to context: types at the top level, or the current type's
@@ -2085,7 +2093,8 @@ function applyMemberSection(id: MemberSection) {
     observeAsync(loadSelectedMemberFacts(), "Loading member facts");
   else if (id === "overview")
     observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-  else render();
+  else
+    assertNever(id, "member section");
 }
 
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
@@ -2576,14 +2585,20 @@ function renderScopeBar() {
       escapeHtml,
     });
   }
-  return renderScopeBarPure({
-    scope: sc,
-    strip: typeLensesFor(state.package),
-    activeStripId: state.lens,
-    stripAttribute: "data-lens",
-    showMemberScope,
-    escapeHtml,
-  });
+  if (sc === "type") {
+    return renderScopeBarPure({
+      scope: sc,
+      // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
+      // lens, and reading the catalog directly here would skip that restriction.
+      strip: typeLensesFor(state.package),
+      activeStripId: state.lens,
+      stripAttribute: "data-lens",
+      showMemberScope,
+      escapeHtml,
+    });
+  }
+  // A new scope used to render silently as the type strip.
+  return assertNever(sc, "workspace scope");
 }
 
 function packageHeading() {
@@ -2603,22 +2618,24 @@ function packageHeading() {
   </header>`;
 }
 
-function packageLensPlaceholder(lensId: string) {
-  const copy = ({
-    dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."]
-  } as Record<string, string[]>)[lensId]
-    || ["△", "Not available", "This package lens is not wired yet."];
-  return `<section class="document-section empty-document"><span class="large-glyph">${copy[0]}</span><h2>${escapeHtml(copy[1])}</h2><p>${escapeHtml(copy[2])}</p></section>`;
+function renderPackageView() {
+  const body = packageLensBody();
+  return `${packageHeading()}${body}`;
 }
 
-function renderPackageView() {
-  if (state.packageLens === "overview") return `${packageHeading()}${renderPackageOverview()}`;
-  if (state.packageLens === "dependencies") return `${packageHeading()}${renderPackageDependencies()}`;
-  if (state.packageLens === "integrations") return `${packageHeading()}${renderPackageIntegrations()}`;
-  if (state.packageLens === "opportunities") return `${packageHeading()}${renderPackageOpportunities()}`;
-  if (state.packageLens === "analysis") return `${packageHeading()}${renderPackagePerformance()}`;
-  if (state.packageLens === "metadata") return `${packageHeading()}${renderPackageMetadata()}`;
-  return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
+function packageLensBody() {
+  switch (state.packageLens) {
+    case "overview": return renderPackageOverview();
+    case "dependencies": return renderPackageDependencies();
+    case "integrations": return renderPackageIntegrations();
+    case "opportunities": return renderPackageOpportunities();
+    case "analysis": return renderPackagePerformance();
+    case "metadata": return renderPackageMetadata();
+  }
+  // `packageLenses` drives the rendered strip directly, so a new catalog entry is offered
+  // to users the moment it is added. It used to fall through to a "not available"
+  // placeholder here, which is indistinguishable from a lens that is wired but empty.
+  return assertNever(state.packageLens, "package lens");
 }
 
 function packageDependenciesSignature() {
@@ -3636,9 +3653,23 @@ function renderTypeSourceHtml(item: BrowserTypeSurface) {
 function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
+  switch (state.lens) {
+    case "source":
+      return `
+      ${typeHeadingHtml(item)}
+      ${renderTypeSourceHtml(item)}`;
+    case "metadata":
+      return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
+    case "api":
+      return renderApiLens(item);
+    default:
+      return assertNever(state.lens, "type lens");
+  }
+}
+
+function renderApiLens(item: AppTypeSurface) {
   const pending = state.pendingGraphMemberDeepLink;
-  if (state.lens === "api"
-    && pending
+  if (pending
     && graphMemberPendingMatchesView(
       pending,
       packageIdentityKey(state.package),
@@ -3649,8 +3680,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     return renderGraphMemberPendingHtml(item, title);
   }
   const member = selectedMember(item);
-  if (state.lens === "api" && member) return renderMember(item, member);
-  if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
+  if (member) return renderMember(item, member);
+  if (state.memberBrowseTypeId === item.id) {
     return `
       ${typeHeadingHtml(item)}
       <section class="document-section empty-document">
@@ -3658,14 +3689,6 @@ function renderLens(item: AppTypeSurface | null | undefined) {
         <h2>No member selected</h2>
         <p>Adjust the member filters or choose a member from the list.</p>
       </section>`;
-  }
-  if (state.lens === "source") {
-    return `
-      ${typeHeadingHtml(item)}
-      ${renderTypeSourceHtml(item)}`;
-  }
-  if (state.lens === "metadata") {
-    return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const { publicMembers, graphMembers } =
     partitionGraphMembers(item.api);
@@ -3886,7 +3909,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
       : state.memberAnnotated
         ? renderAnnotatedSource(state.memberAnnotated)
         : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
-  } else {
+  } else if (state.memberSection === "source") {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
@@ -3895,6 +3918,8 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
+  } else {
+    assertNever(state.memberSection, "member section");
   }
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
@@ -4465,7 +4490,7 @@ function bindTypePanelEvents() {
 function bindScopeBarEvents() {
   bindScopeBar(document, {
     onMemberSectionSelect: section => {
-      if (section && isMemberSection(section)) applyMemberSection(section);
+      applyMemberSection(section);
     },
     onPackageLensSelect: lens => {
       state.packageLens = lens;
@@ -4487,6 +4512,9 @@ function bindScopeBarEvents() {
         state.selectedOverloadIndex = null;
       } else if (target === "member") {
         enterMemberScope();
+      } else {
+        // A new scope used to be accepted here and then do nothing at all.
+        assertNever(target, "workspace scope");
       }
       render();
     },
@@ -4622,7 +4650,9 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     render();
   },
   onDismissPackageNotice: () => {
-    currentPackage().inspectionError = "";
+    const pkg = currentPackage();
+    pkg.inspectionErrors = [];
+    pkg.inspectionError = "";
     render();
   },
   onGoHome: goHome,
@@ -5089,47 +5119,69 @@ function mostRecentAvailableLibrary() {
 // In "all" each group is capped so every target stays visible; a focused scope shows a
 // deeper single-target list. Loaded packages rank ahead of NuGet discovery hits, which
 // exclude anything already open.
+function runtimeSpotlightResults(query: string): SpotlightResult[] {
+  const results: SpotlightResult[] = [];
+  if (state.runtimePackLoading) {
+    results.push({ kind: "rtpack-status", loading: true });
+    return results;
+  }
+  if (state.runtimePackError && !runtimePackLoaded()) {
+    results.push({ kind: "rtpack-status", error: state.runtimePackError });
+  }
+  // Index-first: the platform library roster needs no pack download. Selecting
+  // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
+  // index knows for the active framework, filterable by name.
+  const roster = platformLibraryRoster(query);
+  for (const lib of roster.slice(0, 200)) {
+    results.push({ ...lib, kind: "platform-lib" });
+  }
+  // Once a pack is resident, blend its type/member matches so drilled-in
+  // platform content stays searchable alongside the library roster.
+  if (platformSurfaceLoaded()) {
+    const typeSource = query ? spotlightTypeMatches(query) : [];
+    for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+      results.push({ ...match, kind: "type" });
+    }
+    if (query) {
+      for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+        results.push({ ...match, kind: "member" });
+      }
+    }
+  }
+  // Only when the static index is unavailable do we fall back to the old
+  // download-first prompt, so the scope is never empty and inert.
+  if (!roster.length && !runtimePackLoaded()) {
+    results.push({ kind: "rtpack-suggest" });
+  }
+  return results;
+}
+
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
+  // Exhaustive scope dispatch. "all" blends the package, type and member scopes, so those four
+  // arms share the composed body below instead of each owning a renderer. Adding an entry to the
+  // spotlight scope catalog offers it to users immediately, so it must fail compilation here
+  // until it declares which of these shapes it is.
+  switch (spotlightScope) {
+    case "runtime":
+      return runtimeSpotlightResults(query);
+    case "commands":
+      // `spotlight.ts` answers the command scope from the command palette and never delegates
+      // here. Reaching this arm means that interception was removed, which is a wiring failure
+      // and not an empty result set.
+      throw new Error("Spotlight delegated the command scope to the workspace search results.");
+    case "all":
+    case "packages":
+    case "types":
+    case "members":
+      break;
+    default:
+      return assertNever(spotlightScope, "spotlight scope");
+  }
+
   const all = spotlightScope === "all";
   const results: SpotlightResult[] = [];
-
-  if (spotlightScope === "runtime") {
-    if (state.runtimePackLoading) {
-      results.push({ kind: "rtpack-status", loading: true });
-      return results;
-    }
-    if (state.runtimePackError && !runtimePackLoaded()) {
-      results.push({ kind: "rtpack-status", error: state.runtimePackError });
-    }
-    // Index-first: the platform library roster needs no pack download. Selecting
-    // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
-    // index knows for the active framework, filterable by name.
-    const roster = platformLibraryRoster(query);
-    for (const lib of roster.slice(0, 200)) {
-      results.push({ ...lib, kind: "platform-lib" });
-    }
-    // Once a pack is resident, blend its type/member matches so drilled-in
-    // platform content stays searchable alongside the library roster.
-    if (platformSurfaceLoaded()) {
-      const typeSource = query ? spotlightTypeMatches(query) : [];
-      for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
-        results.push({ ...match, kind: "type" });
-      }
-      if (query) {
-        for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
-          results.push({ ...match, kind: "member" });
-        }
-      }
-    }
-    // Only when the static index is unavailable do we fall back to the old
-    // download-first prompt, so the scope is never empty and inert.
-    if (!roster.length && !runtimePackLoaded()) {
-      results.push({ kind: "rtpack-suggest" });
-    }
-    return results;
-  }
 
   if (all || spotlightScope === "packages") {
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
@@ -5804,7 +5856,9 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     selectedTypeId: pending?.type ?? state.selectedTypeId,
     selectedMemberKey: pending?.member ?? state.selectedMemberKey,
     selectedOverloadIndex,
-    memberSection: pending?.section ?? state.memberSection,
+    memberSection: pending && isMemberSection(pending.section)
+      ? pending.section
+      : state.memberSection,
     selectedBodyTarget: pending ? null : state.selectedBodyTarget,
     graphTarget,
     memberBrowse: memberScopeIsActive(state, selectedType()?.id),
@@ -6027,6 +6081,18 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
+// Returns the loader for a type-level lens, or the sentinel `"member"` when the lens
+// defers to the member-section loaders below. A new type lens used to fall through the
+// `state.lens !== "api"` test and silently fetch nothing.
+function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
+  switch (state.lens) {
+    case "source": return loadSelectedTypeSource();
+    case "metadata": return loadSelectedTypeMetadata();
+    case "api": return "member";
+  }
+  return assertNever(state.lens, "type lens");
+}
+
 function loadSelectionData() {
   if (state.pendingGraphMemberDeepLink
     && !graphMemberPendingMatchesView(
@@ -6039,21 +6105,20 @@ function loadSelectionData() {
     return restorePendingGraphMember();
   }
   if (state.atPackageRoot) return undefined;
-  if (state.lens === "source") {
-    return loadSelectedTypeSource();
-  }
-  if (state.lens === "metadata") {
-    return loadSelectedTypeMetadata();
-  }
-  if (state.lens !== "api" || !state.selectedMemberKey) return undefined;
+  const typeLensLoad = loadSelectedTypeLensData();
+  if (typeLensLoad !== "member") return typeLensLoad;
+  if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;
-  if (state.memberSection === "source") return loadSelectedMemberSource();
-  if (state.memberSection === "annotated") return loadSelectedMemberAnnotatedSource();
-  if (state.memberSection === "call-graph") return loadSelectedMemberCallGraph();
-  if (state.memberSection === "facts") return loadSelectedMemberFacts();
-  return loadSelectedMemberDocumentation();
+  switch (state.memberSection) {
+    case "source": return loadSelectedMemberSource();
+    case "annotated": return loadSelectedMemberAnnotatedSource();
+    case "call-graph": return loadSelectedMemberCallGraph();
+    case "facts": return loadSelectedMemberFacts();
+    case "overview": return loadSelectedMemberDocumentation();
+    default: return assertNever(state.memberSection, "member section");
+  }
 }
 
 async function share() {
@@ -8495,13 +8560,27 @@ function applyLocationView(loc: ParsedLocation) {
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
-  const loc = {
-    ...initialLocation,
-    package: state.requestedPackage,
-    version: state.requestedVersion,
-    framework: state.requestedFramework
+  const loc = initialWorkspace.resolve();
+  const packageId = loc.package;
+  if (!packageId) {
+    state.loading = false;
+    state.home = true;
+    state.queryNotice = loc.workspaceNotice || "";
+    render();
+    return;
+  }
+  const resolvedLocation = {
+    ...loc,
+    package: packageId,
+    version: loc.version || "latest",
+    framework: loc.framework || DEFAULT_REQUESTED_FRAMEWORK
   };
-  await restoreWorkspaceFromLocation(loc, initialDeepLink);
+  state.requestedPackage = resolvedLocation.package;
+  state.requestedVersion = resolvedLocation.version;
+  state.requestedFramework = resolvedLocation.framework;
+  await restoreWorkspaceFromLocation(
+    resolvedLocation,
+    deepLinkFromLocation(resolvedLocation));
 }
 
 function isStyleTier(value: unknown): value is StyleTier {
@@ -8938,17 +9017,7 @@ keybindings.register({
     && !event.metaKey
     && !event.ctrlKey,
   run: event => {
-    const set = activeLenses();
-    const index = Number(event.key) - 1;
-    const selected = set[index];
-    if (selected) {
-      const [id] = selected;
-      const sc = scope();
-      if (sc === "package") { state.packageLens = id; render(); }
-      else if (sc === "member" && isMemberSection(id))
-        applyMemberSection(id);
-      else { state.lens = id; render(); }
-    }
+    selectScopeLensByIndex(Number(event.key) - 1, scope());
     return true;
   },
 });

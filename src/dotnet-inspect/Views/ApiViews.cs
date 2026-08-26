@@ -620,40 +620,113 @@ public class TypeInfoSection(
 [MarkoutSkipNull]
 public class ApiInfoSection
 {
-    [MarkoutPropertyName("Library")]
-    public string? Assembly { get; init; }
+    public ApiInfoSection(
+        InertString? assemblyText,
+        int? types,
+        int? methods,
+        int? properties,
+        InertString? versionText,
+        InertString? tfmText,
+        InertString? sourceText)
+    {
+        AssemblyText = assemblyText;
+        Types = types;
+        Methods = methods;
+        Properties = properties;
+        VersionText = versionText;
+        TfmText = tfmText;
+        SourceText = sourceText;
+    }
 
-    public int? Types { get; init; }
-    public int? Methods { get; init; }
-    public int? Properties { get; init; }
-    public string? Version { get; init; }
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AssemblyText { get; }
+
+    [MarkoutPropertyName("Library")]
+    public string? Assembly => AssemblyText?.ToString();
+
+    public int? Types { get; }
+    public int? Methods { get; }
+    public int? Properties { get; }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? VersionText { get; }
+
+    public string? Version => VersionText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? TfmText { get; }
 
     [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; init; }
+    public string? Tfm => TfmText?.ToString();
 
-    public string? Source { get; init; }
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? SourceText { get; }
+
+    public string? Source => SourceText?.ToString();
 }
 
 /// <summary>
 /// View model for full API surface rendering (all types in an assembly).
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
-public class CliApiSurface(InertString nameText)
+public class CliApiSurface
 {
-    [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
-    [MarkoutIgnore] public string Name => NameText.ToString();
-    [MarkoutIgnore] public string? Description { get; set; }
+    public CliApiSurface(
+        InertString? nameText,
+        InertString? descriptionText,
+        InertString? libraryText,
+        InertString? sourceText,
+        InertString? versionText,
+        InertString? tfmText)
+    {
+        NameText = nameText;
+        DescriptionText = descriptionText;
+        LibraryText = libraryText;
+        SourceText = sourceText;
+        VersionText = versionText;
+        TfmText = tfmText;
+    }
 
-    [MarkoutSkipNull] public string? Library { get; set; }
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? NameText { get; }
+
+    [MarkoutIgnore]
+    public string? Name => NameText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? DescriptionText { get; set; }
+
+    [MarkoutIgnore]
+    public string? Description => DescriptionText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? LibraryText { get; }
+
+    [MarkoutSkipNull]
+    public string? Library => LibraryText?.ToString();
+
     [MarkoutSkipNull] public int? Types { get; set; }
     [MarkoutSkipNull] public int? Methods { get; set; }
     [MarkoutSkipNull] public int? Properties { get; set; }
-    [MarkoutSkipNull] public string? Source { get; set; }
-    [MarkoutSkipNull] public string? Version { get; set; }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? SourceText { get; }
+
+    [MarkoutSkipNull]
+    public string? Source => SourceText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? VersionText { get; }
+
+    [MarkoutSkipNull]
+    public string? Version => VersionText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? TfmText { get; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; set; }
+    public string? Tfm => TfmText?.ToString();
 
     /// <summary>
     /// API surface identity fact table. Unlike every other section on this view, the row set does
@@ -701,16 +774,32 @@ public class CliApiSurface(InertString nameText)
 
 [MarkoutSerializable]
 public sealed class TypeSummaryRow(
-    string kind,
+    InertString kindText,
     InertString typeText,
-    string members,
+    InertString membersText,
     InertString? descriptionText)
 {
-    public string Kind { get; } = kind;
+    public TypeSummaryRow(
+        string kind,
+        string type,
+        string members,
+        string? description)
+        : this(
+            ApiViewText.Field(kind),
+            ApiViewText.Field(type),
+            ApiViewText.Field(members),
+            ApiViewText.OptionalField(description))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore] public InertString KindText { get; } = kindText;
+    public string Kind => KindText.ToString();
     [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
     public string Type => MarkoutInline.Code(TypeText);
-    public string Members { get; } = members;
+    [MarkoutIgnore, JsonIgnore] public InertString MembersText { get; } = membersText;
+    public string Members => MembersText.ToString();
     [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    [MarkoutSkipNull]
     public string? Description => DescriptionText?.ToString();
 }
 
@@ -721,13 +810,72 @@ public record ForwarderSummaryRow(
 
 [MarkoutSerializable]
 public record ApiInspectionFailureRow(
-    string Operation,
-    string Subject,
-    string Mechanism,
-    string Kind,
-    string Detail,
-    [property: MarkoutSkipNull] string? Assembly = null,
-    [property: MarkoutSkipNull] string? DependencyAssembly = null);
+    InertString OperationText,
+    InertString SubjectText,
+    InertString MechanismText,
+    InertString KindText,
+    InertString DetailText,
+    InertString? AssemblyText = null,
+    InertString? DependencyAssemblyText = null)
+{
+    public ApiInspectionFailureRow(
+        string operation,
+        string subject,
+        string mechanism,
+        string kind,
+        string detail,
+        string? assembly = null,
+        string? dependencyAssembly = null)
+        : this(
+            ApiViewText.Field(operation),
+            ApiViewText.Field(subject),
+            ApiViewText.Field(mechanism),
+            ApiViewText.Field(kind),
+            ApiViewText.Field(detail),
+            ApiViewText.OptionalField(assembly),
+            ApiViewText.OptionalField(dependencyAssembly))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString OperationText { get; init; } = OperationText;
+
+    public string Operation => OperationText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SubjectText { get; init; } = SubjectText;
+
+    public string Subject => SubjectText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MechanismText { get; init; } = MechanismText;
+
+    public string Mechanism => MechanismText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString KindText { get; init; } = KindText;
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DetailText { get; init; } = DetailText;
+
+    public string Detail => DetailText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AssemblyText { get; init; } = AssemblyText;
+
+    [MarkoutSkipNull]
+    public string? Assembly => AssemblyText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? DependencyAssemblyText { get; init; } =
+        DependencyAssemblyText;
+
+    [MarkoutSkipNull]
+    public string? DependencyAssembly =>
+        DependencyAssemblyText?.ToString();
+}
 
 [MarkoutSerializable]
 public sealed class MemberRow(
@@ -1026,12 +1174,26 @@ public class ApiSurfaceTableView
 
 [MarkoutSerializable]
 public sealed class ApiTableRow(
-    string kind,
+    InertString kindText,
     InertString nameText,
     CSharpPresentationText returnTypeText,
     CSharpPresentationText detailText)
 {
-    public string Kind { get; } = kind;
+    public ApiTableRow(
+        string kind,
+        string name,
+        string returnType,
+        string detail)
+        : this(
+            ApiViewText.Field(kind),
+            ApiViewText.Field(name),
+            ApiViewText.RawTypeField(returnType),
+            ApiViewText.RawTypeField(detail))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore] public InertString KindText { get; } = kindText;
+    public string Kind => KindText.ToString();
     [MarkoutIgnore, JsonIgnore] public InertString NameText { get; } = nameText;
     public string Name => NameText.ToString();
     [MarkoutIgnore, JsonIgnore] public CSharpPresentationText ReturnTypeText { get; } = returnTypeText;
@@ -1045,16 +1207,32 @@ public sealed class ApiTableRow(
 
 [MarkoutSerializable]
 public sealed class ApiSurfaceTableRow(
-    string kind,
+    InertString kindText,
     InertString typeText,
-    string members,
+    InertString membersText,
     InertString? descriptionText)
 {
-    public string Kind { get; } = kind;
+    public ApiSurfaceTableRow(
+        string kind,
+        string type,
+        string members,
+        string? description)
+        : this(
+            ApiViewText.Field(kind),
+            ApiViewText.Field(type),
+            ApiViewText.Field(members),
+            ApiViewText.OptionalField(description))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore] public InertString KindText { get; } = kindText;
+    public string Kind => KindText.ToString();
     [MarkoutIgnore, JsonIgnore] public InertString TypeText { get; } = typeText;
     public string Type => MarkoutInline.Code(TypeText);
-    public string Members { get; } = members;
+    [MarkoutIgnore, JsonIgnore] public InertString MembersText { get; } = membersText;
+    public string Members => MembersText.ToString();
     [MarkoutIgnore, JsonIgnore] public InertString? DescriptionText { get; } = descriptionText;
+    [MarkoutSkipNull]
     public string? Description => DescriptionText?.ToString();
 }
 

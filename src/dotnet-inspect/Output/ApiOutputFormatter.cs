@@ -65,50 +65,52 @@ public static class ApiOutputFormatter
             : projectionActive;
 
         var view = new CliApiSurface(
-            ApiViewText.Field(api.Name ?? string.Empty))
+            ApiViewText.OptionalField(api.Name),
+            descriptionText: null,
+            libraryText: ApiViewText.OptionalField(
+                showCompactFields ? api.Library : null),
+            sourceText: ApiViewText.OptionalField(
+                showCompactFields ? api.Source : null),
+            versionText: ApiViewText.OptionalField(
+                showCompactFields ? api.Version : null),
+            tfmText: ApiViewText.OptionalField(
+                showCompactFields ? api.Tfm : null))
         {
-            Library = showCompactFields ? api.Library : null,
             Types = showCompactFields ? api.PublicTypeCount : null,
             Methods = showCompactFields ? api.PublicMethodCount : null,
             Properties = showCompactFields ? api.PublicPropertyCount : null,
-            Source = showCompactFields ? api.Source : null,
-            Version = showCompactFields ? api.Version : null,
-            Tfm = showCompactFields ? api.Tfm : null,
 
             // Deliberately the same values the compact fields list carries, not a second spelling
             // of them: this section is a promotion of that line into a selectable fixed section, so
             // a reader who selects it and a reader who reads the line must not see two different
             // answers to the same question.
-            ApiInfo = new ApiInfoSection
-            {
-                Assembly = api.Library,
-                Types = api.PublicTypeCount,
-                Methods = api.PublicMethodCount,
-                Properties = api.PublicPropertyCount,
-                Version = api.Version,
-                Tfm = api.Tfm,
-                Source = api.Source
-            }
+            ApiInfo = new ApiInfoSection(
+                ApiViewText.OptionalField(api.Library),
+                api.PublicTypeCount,
+                api.PublicMethodCount,
+                api.PublicPropertyCount,
+                ApiViewText.OptionalField(api.Version),
+                ApiViewText.OptionalField(api.Tfm),
+                ApiViewText.OptionalField(api.Source))
         };
 
         if (RendersInspectionFailures(api, options))
         {
             view.InspectionFailures = api.InspectionFailures
                 .Select(failure => new ApiInspectionFailureRow(
-                    failure.Operation,
-                    $"0x{failure.SubjectToken:X8}",
-                    failure.Mechanism.ToString(),
-                    failure.Kind,
-                    CSharpIdentifier.ContainRenderedText(
-                        failure.Detail),
+                    ApiViewText.Field(failure.Operation),
+                    ApiViewText.Field($"0x{failure.SubjectToken:X8}"),
+                    ApiViewText.Field(failure.Mechanism.ToString()),
+                    ApiViewText.Field(failure.Kind),
+                    ApiViewText.Field(failure.Detail),
                     failure.SubjectAssembly is null
                         ? null
-                        : CSharpIdentifier.ContainRenderedText(
+                        : ApiViewText.Field(
                             AssemblyIdentityFormatter.Format(
                                 failure.SubjectAssembly)),
                     failure.DependencyAssembly is null
                         ? null
-                        : CSharpIdentifier.ContainRenderedText(
+                        : ApiViewText.Field(
                             AssemblyIdentityFormatter.Format(
                                 failure.DependencyAssembly))))
                 .ToList();
@@ -118,7 +120,8 @@ public static class ApiOutputFormatter
         {
             if (api.TypeForwarders.Count > 0)
             {
-                view.Description = "This library contains no public types. Type forwarders could not be resolved.";
+                view.DescriptionText = ApiViewText.Field(
+                    "This library contains no public types. Type forwarders could not be resolved.");
                 view.TypeForwarders = api.TypeForwarders
                     .GroupBy(f => f.TargetAssembly)
                     .OrderBy(g => g.Key)
@@ -127,13 +130,15 @@ public static class ApiOutputFormatter
             }
             else
             {
-                view.Description = "This library contains no public types.";
+                view.DescriptionText = ApiViewText.Field(
+                    "This library contains no public types.");
             }
         }
         else if (options.Verbosity != Verbosity.Quiet)
         {
             if (api.IsTypeForwardingAssembly)
-                view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
+                view.DescriptionText = ApiViewText.Field(
+                    "*This is a type-forwarding library. Types shown are resolved from target libraries.*");
 
             var showDocs = options.ShowDocs
                 || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)
@@ -181,9 +186,9 @@ public static class ApiOutputFormatter
                         80);
                 }
                 return new TypeSummaryRow(
-                    group.Key,
+                    ApiViewText.Field(group.Key),
                     fullName,
-                    members,
+                    ApiViewText.Field(members),
                     descriptionText);
             }).ToList();
 
@@ -3300,7 +3305,7 @@ public static class ApiOutputFormatter
             };
             var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
             return new ApiTableRow(
-                kindLabel,
+                ApiViewText.Field(kindLabel),
                 ApiViewText.Field(
                     OperatorNames.FormatRawDisplayName(m.Name)),
                 ApiViewText.RawTypeField(returnType),
@@ -3363,9 +3368,9 @@ public static class ApiOutputFormatter
                     }
                 }
                 return new ApiSurfaceTableRow(
-                    t.Kind,
+                    ApiViewText.Field(t.Kind),
                     FormatGenericFullName(t),
-                    t.Members.Count.ToString(),
+                    ApiViewText.Field(t.Members.Count.ToString()),
                     descriptionText);
             })
             .ToList();

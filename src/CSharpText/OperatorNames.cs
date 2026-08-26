@@ -88,6 +88,14 @@ public static class OperatorNames
     }
 
     /// <summary>
+    /// Converts an IL operator method name to its untreated C# display form.
+    /// Presentation boundaries that carry typed inert text use this overload
+    /// so the value retains the original text concerns.
+    /// </summary>
+    public static string FormatDisplayNameUntreated(string name)
+        => FormatRawDisplayName(name);
+
+    /// <summary>
     /// Maps a binary/unary operator suffix (without any "op_"/"Checked" prefix, e.g. "Addition")
     /// to its C# symbol ("+"), or null if the suffix is not a binary/unary operator. Shared with the
     /// signature renderer so checked-operator symbols are defined in exactly one place.

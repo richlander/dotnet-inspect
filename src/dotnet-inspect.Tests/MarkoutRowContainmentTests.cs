@@ -60,7 +60,7 @@ namespace DotnetInspector.Tests;
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
 /// are the residual tracked by issue #3463. The census below pins the current
-/// member and type totals after the library and API boundaries moved to typed
+/// member and type totals after the API presentation boundary moved to typed
 /// inert text.</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
@@ -128,20 +128,6 @@ public class MarkoutRowContainmentTests
         "AllocationFactRow.ILOffset",
         "AllocationFactRow.InLoop",
         "AllocationFactRow.Member",
-        "ApiInfoSection.Assembly",
-        "ApiInfoSection.Source",
-        "ApiInfoSection.Tfm",
-        "ApiInfoSection.Version",
-        "ApiInspectionFailureRow.Assembly",
-        "ApiInspectionFailureRow.DependencyAssembly",
-        "ApiInspectionFailureRow.Detail",
-        "ApiInspectionFailureRow.Kind",
-        "ApiInspectionFailureRow.Mechanism",
-        "ApiInspectionFailureRow.Operation",
-        "ApiInspectionFailureRow.Subject",
-        "ApiSurfaceTableRow.Kind",
-        "ApiSurfaceTableRow.Members",
-        "ApiTableRow.Kind",
         "AppliedTasteRow.Detail",
         "AppliedTasteRow.Fidelity",
         "AppliedTasteRow.Rule",
@@ -167,11 +153,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.OperandToken",
         "CallerSiteRow.ReturnAddress",
         "CallerSiteRow.Source",
-        "CliApiSurface.Description",
-        "CliApiSurface.Library",
-        "CliApiSurface.Source",
-        "CliApiSurface.Tfm",
-        "CliApiSurface.Version",
         "CliSchemaView.Description",
         "CliSchemaView.Name",
         "CliSchemaView.Title",
@@ -321,8 +302,6 @@ public class MarkoutRowContainmentTests
         "TypeShapeView.Modifiers",
         "TypeShapeView.Package",
         "TypeShapeView.Version",
-        "TypeSummaryRow.Kind",
-        "TypeSummaryRow.Members",
         "TypeView.Assembly",
         "TypeView.BaseType",
         "TypeView.Implements",
@@ -347,11 +326,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt225MembersAcross53Types()
+    public void ResidualCensus_IsPinnedAt204MembersAcross47Types()
     {
-        Assert.Equal(225, NotSelfContaining.Length);
+        Assert.Equal(204, NotSelfContaining.Length);
         Assert.Equal(
-            53,
+            47,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
