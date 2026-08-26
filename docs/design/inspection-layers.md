@@ -141,7 +141,11 @@ charges endpoint slots, seals questions, and lends owner-local
 operation-stamped facets: the core-Queries endpoint lease to endpoint
 realization/pairing and the Research projection lease only after population
 projection. ResearchQueries is the legal composition point because it already
-references both core Queries and Research. It owns one typed, bijective
+references both core Queries and Research and, under the target model, is the
+only production friend authorized by both owners' internal structured-
+population boundaries. Other production assemblies may reference both owners'
+public APIs, but those references confer no population-construction authority.
+ResearchQueries owns one typed, bijective
 `PopulationSealing` stage that exhaustively lowers pairing outcomes and
 questions into query domains/correlations, then one typed, bijective
 `PopulationProjection` that lowers the complete query endpoint/input/binding/
@@ -153,8 +157,8 @@ crosses into Research.
 `ILInspector.Research` owns Research plan expansion, producer preflight and
 projection, bounded evidence completion, and `ResearchBodyEvidenceComparison`.
 It adds only `InternalsVisibleTo("DotnetInspector.ResearchQueries")`; the
-existing downward `ResearchQueries -> Research` reference remains the sole
-project edge. Research adds no reference to core Queries or ResearchQueries.
+`ResearchQueries -> Research` dependency remains one-way. Research adds no
+reference to core Queries or ResearchQueries.
 ResearchQueries owns bounded authored Source input acquisition, query/Research
 correspondence validation, outer-result publication, and cleanup. Query-level
 `ImplementationDiffResult` and `ImplementationMemberDiffResult` therefore move

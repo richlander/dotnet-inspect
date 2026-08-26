@@ -200,9 +200,13 @@ join them through display identity afterward.
 
 The ownership boundary is part of the model. Core-Queries acquisition
 currencies never become Research currencies merely because one object contains
-the same facts. `DotnetInspector.ResearchQueries` is the only assembly that
-references both owners, so it owns the typed, bijective population projection
-between them. The query-side model is:
+the same facts. In the target model, `DotnetInspector.ResearchQueries` is the
+only production assembly authorized to compose both owners' internal
+structured populations: core Queries already grants it friend access and
+Research adds the reciprocal friend boundary. Other production assemblies may
+reference both owners' public APIs, but those references confer no population-
+construction authority. ResearchQueries owns the typed, bijective population
+projection between the owners. The query-side model is:
 
 ```text
 BodyEvidenceParticipantBinding
@@ -277,8 +281,10 @@ BodyEvidencePopulationProjectionReceipt
                          Research input-id bijection
   ParticipantBindings   exact core role-manifest id + side + input key ->
                          Research participant-id + binding-id bijection
-  ParticipantDomains     exact query-domain-key ->
-                         Research domain-id bijection
+  ParticipantDomains     exact query-domain key -> Research domain-id
+                         bijection plus inert admitted pairing-kind and
+                         before/after binding-summary-or-absence-proof
+                         correspondence
   Questions              exact query-question-id ->
                          Research question-id bijection
   Correlations           exact query-correlation-id ->
@@ -329,14 +335,23 @@ ResearchBodyEvidenceLiveBinding
                          ReferenceOnly(inert proof)
   Lifetime               current Research session only
 
+ResearchBodyEvidenceAdmittedSide
+  Value                  Binding(exact ResearchBodyEvidenceLiveBinding) |
+                         Absent(inert proof)
+
 ResearchBodyEvidenceParticipantDomain
   Id                     exact ResearchBodyEvidenceDomainId
   Endpoint               exact ResearchBodyEvidenceEndpointId
-  Outcome                Admitted(exact Research live bindings) |
+  Outcome                Admitted(Paired | BeforeOnly | AfterOnly +
+                         exact before/after
+                         ResearchBodyEvidenceAdmittedSide) |
                          EndpointAbsent(inert proofs) |
                          ParticipantFailed(
                          ResearchBodyEvidenceTerminalEvidenceId +
                          inert terminal evidence)
+  Admitted validity      Paired = Binding/Binding;
+                         BeforeOnly = Binding/Absent;
+                         AfterOnly = Absent/Binding
 
 ResearchBodyEvidenceSelectionQuestion
   Id                     exact ResearchBodyEvidenceQuestionId
@@ -425,6 +440,21 @@ ResearchBodyEvidenceParticipantBinding
   Body                   SameSelection |
                          Implementation(immutable registration identity + MVID) |
                          ReferenceOnly(inert proof)
+
+ResearchBodyEvidenceParticipantSideReceipt
+  Value                  Binding(exact
+                         ResearchBodyEvidenceParticipantBinding) |
+                         Absent(inert proof)
+
+ResearchBodyEvidenceParticipantDomainReceipt
+  Id                     exact Research domain id
+  Endpoint               exact Research endpoint id
+  Outcome                Admitted(Paired | BeforeOnly | AfterOnly +
+                         exact before/after
+                         ResearchBodyEvidenceParticipantSideReceipt) |
+                         EndpointAbsent(inert proofs) |
+                         ParticipantFailed(exact terminal-evidence id +
+                         inert terminal evidence)
 
 ResearchBodyEvidencePlanReceipt
   Revision                exact Research completed-plan identity
@@ -597,11 +627,12 @@ rejects a missing, extra, substituted, wrong-side, or live-backed snapshot.
 Research. `DotnetInspector.ResearchQueries` consumes the complete sealed query
 question/domain/correlation population and invokes internal Research factories
 to mint a `ResearchBodyEvidenceAdmissionPlan`. It copies each live admitted
-binding into a Research-owned live binding, and each terminal outcome into a
-Research-owned inert terminal value, only after charging one population-
-projection entry for every Research admission value/correspondence-map entry
-and every retained request/receipt character in that new copy. It cannot pass
-through an
+binding into a Research-owned live binding, copies each admitted absent arm
+into a Research-owned inert absence proof, preserves the exact admitted pairing
+kind, and copies each terminal outcome into a Research-owned inert terminal
+value. It does so only after charging one population-projection entry for every
+Research admission value/correspondence-map entry and every retained
+request/receipt character in that new copy. It cannot pass through an
 `ArtifactParticipantPairing`, `ArtifactParticipantInputKey`,
 `AssemblyParticipantRoleManifest.Id`, `EndpointSlotFailure`, or
 `DirectMemberDesignationId`.
@@ -616,14 +647,17 @@ two images in one map, no Research identity may have two core antecedents, and
 every Research admission value must have an entry. The participant/binding map
 issues exactly one Research participant id and one Research binding id for each
 projected core binding; neither identity is minted or charged separately from
-that entry. Payload validation additionally proves side, MVID, registration,
-assembly identity, role, terminal kind, reason, diagnostic, proof, selection
-request, derived intent, and endpoint scope equality. For the direct request,
-the exact addresses and roles must also agree. Its Research participant ids are
-the only permitted enrichment: each must be the projected image of the exact
-query binding named by the admitted direct pairing. Equal text or equal numeric
-payloads never establish correspondence. The receipt retains only both sides'
-inert identities and snapshots; it cannot reconstruct either live currency.
+that entry. The participant-domain map additionally proves the admitted pairing
+kind and each side's exact binding-or-absence arm; a missing binding never
+serves as absence evidence. Payload validation additionally proves side, MVID,
+registration, assembly identity, role, terminal kind, reason, diagnostic,
+proof, selection request, derived intent, and endpoint scope equality. For the
+direct request, the exact addresses and roles must also agree. Its Research
+participant ids are the only permitted enrichment: each must be the projected
+image of the exact query binding named by the admitted direct pairing. Equal
+text or equal numeric payloads never establish correspondence. The receipt
+retains only both sides' inert identities and snapshots; it cannot reconstruct
+either live currency.
 
 `ILInspector.Research` defines the admission values and internal session but
 references no Queries assembly. Its project grants
@@ -631,10 +665,14 @@ references no Queries assembly. Its project grants
 access lets the already-downward `ResearchQueries -> Research` project edge
 invoke internal factories without adding an upward project reference.
 ResearchQueries separately uses its existing core-Queries friend access to
-read the acquisition snapshots it must lower. A source-architecture gate rejects
-an `ILInspector.Research -> DotnetInspector.Queries` or
-`ILInspector.Research -> DotnetInspector.ResearchQueries` reference and rejects
-any Research-owned public or internal model whose field type is a core-Queries
+read the acquisition snapshots it must lower. Those two production friend
+grants, not project-reference exclusivity, authorize composition. A source-
+architecture gate rejects another production friend or call site for either
+internal structured-population boundary, a public construction path that
+bypasses those boundaries, an
+`ILInspector.Research -> DotnetInspector.Queries` or
+`ILInspector.Research -> DotnetInspector.ResearchQueries` reference, and any
+Research-owned public or internal model whose field type is a core-Queries
 currency.
 
 Producer-native comparison objects are callback-local values, not ledger or
@@ -779,6 +817,9 @@ operation-stamped correspondence token permits the Research session to accept
 that plan once; it exposes no core id, pairing, role manifest/binding, endpoint
 failure, or direct designation. A missing, extra, duplicated, wrong-side,
 rekeyed, or payload-divergent projection fails before Research plan expansion.
+Every admitted Research domain already carries the projected pairing kind and
+an explicit `Binding | Absent(proof)` arm for each side; Research never infers
+absence from a missing binding.
 
 Research mints one `ResearchBodyEvidenceSelectionScope` for every
 `(Research correlation id, Research domain id)` entry. This preserves
@@ -2149,7 +2190,7 @@ The target lifecycle is unverified until these gates exist:
 | --- | --- | --- |
 | Endpoint-manifest totality | Artifact adapters + Queries over package `Preferred`, explicit/all TFM/RID, distinct/shared/absent implementation roles, project outputs/dependencies, platform, directory, two-bundle embedded workspace, cross-source, explicit endpoint absence, wrong-arm requests, and single/mixed/two-sided failed endpoints | Request and outcome `(Side, Id)` sets differ; the pairing plan omits or repeats a request or places it in an arm that disagrees with `ComparisonEndpointKey.Side`; a duplicate/rekeyed/cross-side outcome occupies another request; failed/omitted acquisition is treated as `Absent`; a failed slot's outcome map differs from its exact requested arms, its absent-arm map differs from its exact `Absent(proof)` arms, any outcome/absence key disagrees with its source arm, its terminal-key set is empty/inexact, one terminal reason/diagnostic/absence proof is lost, or a realized opposite is reclassified one-sided instead of retained as tainted input summary; one endpoint is forced to one participant; a realized endpoint has an empty/unsealed manifest; a real selected inventory differs from its manifest; the manifest differs from the workspace role generation, loses or duplicates a role participant, treats shared-group reuse as correspondence, fabricates an implementation for a reference-only surface, or reconstructs role correspondence from asset layout; an embedded pair lacks a host-issued paired designation or uses workspace context/`ContentRef` as cross-side identity; or pairing differs from a failure-free manifest union |
 | Participant correspondence | Workspace roles + adapters + Queries over same/distinct/reference-only selection/body roles, repeated/equal-identity, colliding/reordered manifest-local input ids, duplicate-slot, wrong-arm/swapped/foreign/missing/extra payload-identity, same-source direct inputs, absent/available content-digest, and reordered-input fixtures | The acquisition slot-outcome set differs from the endpoint plan; a planned participant key omits the endpoint key, side, manifest revision, or local id; a direct participant key omits the designation id or side; a qualified key's side disagrees with its pairing binding arm; equal local ids across manifests/direct sides collapse, make valid outcomes overlap, or permit silent shortening; a participant outcome set does not partition its exact qualified manifest union; an outcome's input set differs from its admitted binding identities or complete ambiguity/failure payload identities; participant pairing requests or requires a content digest; the adapter, Implementation Diff, Metadata, or Research reconstructs same-side role correspondence or translates a nullable compatibility lookup; path/version/TFM/RID/`ContentRef`/digest/MVID/registration/role-manifest id, physical method/body address, or occurrence becomes cross-version pairing identity/evidence; duplicate logical slots select one; an `Ambiguous` or `Failed` pairing outcome exposes an admitted binding or is omitted, reconstructed downstream, or loses its exact slot/outcome id/kind, complete upstream payload, reason, or diagnostic when lowered to a terminal domain; direct admitted keys differ from the two side-qualified designation inputs or bindings do not use `SameSelection`; or adding a participant renumbers another |
-| Population-projection separation | Project-reference/source-architecture inventory + planned/direct bijection fixtures with reordered, missing, extra, duplicate, wrong-side, rekeyed, and payload-divergent endpoint/input/binding/domain/question/correlation/terminal/designation values | `ILInspector.Research` references core Queries or ResearchQueries; Research owns an outer query result; ResearchQueries lacks the one-way friend access needed to construct internal Research admission values; a Research model field or session parameter uses `ArtifactParticipantPairing`, `ArtifactParticipantInputKey`, `AssemblyParticipantRoleManifest.Id`, `EndpointSlotFailure`, `DirectMemberDesignationId`, or another core-Queries currency; the population projection occurs after Research selection; any projection map is not bijective; a Research endpoint, input, participant, binding, domain, question, correlation, terminal-evidence, or direct-designation identity lacks one exact query antecedent or has two; a participant/binding pair is not issued and charged by exactly one projected core-binding entry; side, role, MVID, registration, assembly identity, terminal kind, reason, diagnostic, proof, selection request, derived intent, endpoint scope, or direct address/role changes across the boundary; a direct Research participant id is not the projected image for the exact admitted query binding; a correspondence is reconstructed from text/numeric equality; a live core value enters Research; a population-projection entry or retained Research copy bypasses its own entry/character charge; publication accepts mismatched query, correspondence, and Research receipts; or a completed outer result is constructible inside Research |
+| Population-projection separation | Project-reference/friend-access/forbidden-call-site/source-architecture inventory + planned/direct bijection fixtures with reordered, missing, extra, duplicate, wrong-side, rekeyed, and payload-divergent endpoint/input/binding/domain/question/correlation/terminal/designation values | `ILInspector.Research` references core Queries or ResearchQueries; Research owns an outer query result; ResearchQueries lacks either owner's exact production friend access, another production assembly receives that access or invokes an internal structured-population constructor, or either owner exposes a public construction path that bypasses the friend boundaries; a Research model field or session parameter uses `ArtifactParticipantPairing`, `ArtifactParticipantInputKey`, `AssemblyParticipantRoleManifest.Id`, `EndpointSlotFailure`, `DirectMemberDesignationId`, or another core-Queries currency; the population projection occurs after Research selection; any projection map is not bijective; a Research endpoint, input, participant, binding, domain, question, correlation, terminal-evidence, or direct-designation identity lacks one exact query antecedent or has two; a participant/binding pair is not issued and charged by exactly one projected core-binding entry; an admitted Research domain loses or changes its pairing kind or either side's exact binding-or-absence arm, or Research infers absence from a missing binding; side, role, MVID, registration, assembly identity, terminal kind, reason, diagnostic, proof, selection request, derived intent, endpoint scope, or direct address/role changes across the boundary; a direct Research participant id is not the projected image for the exact admitted query binding; a correspondence is reconstructed from text/numeric equality; a live core value enters Research; a population-projection entry or retained Research copy bypasses its own entry/character charge; publication accepts mismatched query, correspondence, and Research receipts; or a completed outer result is constructible inside Research |
 | Selection-correlation totality | CLI/host + Queries and Research over explicit/enumerative questions spanning one/multiple endpoint slots and admitted pairings, two-sided endpoint absence, single/mixed/two-sided endpoint failure, all-failed and mixed admitted/failed endpoint populations, all-ambiguous and mixed admitted/ambiguous participant-pairing outcomes, one question over multiple slots with colliding slot-local terminal ids, multiple questions over one ambiguous slot, zero-result filters, reordered inputs, omitted/substituted/mixed/reparented questions/requests/scopes/domains, inert receipt lowering, and direct lowering | A query question does not embed its exact immutable typed selection request; a request is omitted, rekeyed, substituted, or disagrees with its derived intent; the pre-acquisition question ids or endpoint-slot scopes differ from the sealed query question set; a question names no slot or an unknown slot; the union of question slot sets differs from the pairing-plan slot set; an endpoint slot expands to no query domain or a sealed domain enters no query correlation; any `Admitted(Paired \| BeforeOnly \| AfterOnly)`, `Ambiguous`, or `Failed` participant outcome lacks exactly one matching admitted/terminal query domain; terminal participant domain keys omit the endpoint-slot id or collide when different slots reuse one local outcome id; pairing outcomes differ from the sealed slot-owned admitted/endpoint-absent/failed query-domain set; a failed endpoint domain loses any requested outcome key, absent-arm proof, terminal payload/diagnostic, or realized tainted-input summary; a query question lacks exactly one query correlation; a query correlation changes its question/selection/derived intent/slot scope, lacks the exact domain expansion of those slots, omits an endpoint-absent, ambiguous, or failed domain, or duplicates a domain; Research scopes are not bijective with the projected `(Research correlation, Research domain)` pairs; a scope is missing, extra, belongs to multiple Research correlations, disagrees on correlation/domain, or is omitted before selection; a terminal Research domain fabricates a participant/side inventory/request; a terminal pairing domain loses its projected payload/reason/diagnostic or lacks a question-local participant-failed work item; query, correspondence, and Research receipt question/domain/correlation/scope sets differ; a selected or failed correlated scope still yields no-match; a correlation made entirely of endpoint-absent/admitted-two-sided-absent scopes does not yield typed no-match; an all-ambiguous or all-failed correlation cannot complete with retained failures; an enumerative terminal failure becomes silent; an enumerative proven-empty correlation invents evidence; or direct lowering lacks its sealed pre-pairing question, query slot outcome/domain/correlation, projection maps, and Research scope |
 | Body-target attempt totality | Research + Queries over same/distinct/reference-only selection/body roles, AssemblyRef-version-only drift, accessor roles, signature drift, same-scope and split-across-scope correspondence-key collisions, multi-participant selectors, overlapping selectors, endpoint/two-sided participant absence, selection/resolution failure, incomplete `All`, bodyless methods, and participant ambiguity/failure | An admitted scope side is not exactly `Selected`, proven `Absent`, or `Failed`; an endpoint-absent or participant-failed scope has side outcomes or target requests; an endpoint-absent scope invents a work item or loses either proof; an ambiguous/failed participant domain lacks exactly one question-local terminal work item and complete failure ledgers or invokes selection/resolution/producers; the completed participant-domain/scope outcome set differs from the sealed manifest/query input or plan; a two-sided absent admitted scope disappears, invents a work item, or is inferred from an empty work-item set; selected request ids differ from their requests; a failed/incomplete/ambiguous census becomes absence or a shortened selected set; a target request is not already scope/side/participant/role-generation scoped; selection enumerates the implementation role or body resolution uses the selection surface when a distinct implementation was designated; a reference-only binding invokes Metadata, becomes `Absent`/`Bodyless`/semantic add-remove, or lacks one unavailable attempt and complete failure ledgers; an exact target omits or bypasses relationship-role validation; one strict target is fanned across versions/participants; a selection failure invokes body resolution; one request lacks exactly one attempt; one attempt maps to zero/multiple work items; a same-scope collision lacks one side-scoped ambiguity work item keyed by the authoritative `CorrespondenceAmbiguousKey` and retaining all colliding attempts; a split-across-scope collision creates ambiguity, duplicate-key rejection, or cross-scope aliasing; a dependent opposite attempt lacks its own counterpart-unavailable item; a work item lacks attempts or question-local failure identity; correlation ids authorize matching; `AttemptMap`, aliases, and discriminated keys differ; remove/add shares one request/key/attempt; bodyless becomes a resolution failure; or aliases weaken exact/strict/correspondence validation |
 | Counterpart and body-presence disposition | Research C#/IL/body-signal tests over bodyful/bodyful, resolved bodyless/bodyful and bodyful/bodyless, proven-one-sided bodyful/bodyless, failed selector, failed body-key resolution, correspondence ambiguity, ambiguous/failed participant pairing, failed endpoint, and bodyless/bodyless scopes | Two bodyful sides bypass the producer; producer authority lacks one native exact/different verdict or carries body-presence evidence; a resolved or proven-one-sided exactly-one-bodyful item lacks a session-authoritative `Compared(Different, BodyAdded \| BodyRemoved)` value or exactly one matching `ResearchBodyEvidenceChange` session arm; optional single-side display evidence supplies another verdict; a missing-body native result becomes `Failed(ComparisonUnavailable)`; a failed/incomplete/ambiguous counterpart or terminal participant domain produces semantic pair/add/remove or Source eligibility instead of its typed terminal failure; an attempt appears in both failure items; a failure-free unambiguous matched coordinate is tainted; no bodyful side is not `Absent(NoBody)`; or bodyless becomes a target failure |
