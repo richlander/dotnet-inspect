@@ -752,12 +752,17 @@ state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
-navigation generation, share-packet encoding and decoding, URL parsing and
+navigation generation, share-packet encoding and decoding, URL routing and
 building, the browser-history port, and the single delegated click listener
 that intercepts same-origin in-app anchor clicks
 (`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
 `target`-scoped link, `download` link, or cross-origin href keeps native
-browser behavior. `dotnet-inspect.ts` remains the sole mutable
+browser behavior. Initial routing records the opaque `w=` value without decoding
+it, which preserves the bare-home paint before WebAssembly while allowing shared
+workspace resolution to run only after the engine is ready.
+`test/workspace-navigation.test.ts` gates that the route preflight cannot decode
+the packet and that later resolution invokes exactly one decoder.
+`dotnet-inspect.ts` remains the sole mutable
 application-state owner: it supplies typed snapshots and explicit transition
 callbacks, calls the one link-navigation binder instead of adding its own
 click listener, and registers application-level gestures and context
