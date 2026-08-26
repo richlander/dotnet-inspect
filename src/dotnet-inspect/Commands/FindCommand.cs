@@ -96,7 +96,8 @@ public class FindCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                WriteCount(results, title);
+                if (!WriteCount(results, title, options))
+                    return 1;
             }
             else if (options.JsonOutput)
             {
@@ -348,7 +349,8 @@ public class FindCommand
 
         if (options.Count)
         {
-            WriteMemberCount(results, title);
+            if (!WriteMemberCount(results, title, options))
+                return 1;
         }
         else if (options.JsonOutput)
         {
@@ -443,10 +445,16 @@ public class FindCommand
         }
     }
 
-    private static void WriteCount(List<TypeFindResult> rawData, string title)
+    private static bool WriteCount(List<TypeFindResult> rawData, string title, FindOptions options)
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
-        CountOutput.WriteCount(view.Results?.Count ?? 0);
+        return CountOutput.TryWriteProjected(
+            view,
+            SearchViewContext.Default,
+            "Results",
+            options.Columns,
+            options.Fields,
+            options.Rows);
     }
 
     private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
@@ -474,10 +482,16 @@ public class FindCommand
         }
     }
 
-    private static void WriteMemberCount(List<MemberFindResult> rawData, string title)
+    private static bool WriteMemberCount(List<MemberFindResult> rawData, string title, FindOptions options)
     {
         var view = FindOutputFormatter.BuildMemberView(rawData, title);
-        CountOutput.WriteCount(view.Results?.Count ?? 0);
+        return CountOutput.TryWriteProjected(
+            view,
+            SearchViewContext.Default,
+            "Members",
+            options.Columns,
+            options.Fields,
+            options.Rows);
     }
 }
 
