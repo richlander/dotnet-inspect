@@ -4,9 +4,9 @@
 //   eng/generate-inspect-web-engine-dts.sh
 // CI fails if the committed file drifts from this output.
 
-export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous";
+export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 
-export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime";
+export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
 export interface BrowserAccessibilityDescriptor {
   id: string;
