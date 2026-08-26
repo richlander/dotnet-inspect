@@ -494,6 +494,7 @@ public static class InspectionCommandDefinitions
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
                 SelectDefault = selectDefault,
+                SelectExplicitlySet = hasExplicitSelect,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
