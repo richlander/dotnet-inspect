@@ -371,19 +371,25 @@ test("location preflight snapshots once and defers decoding", () => {
     "The product decoder rejected this packet.");
 });
 
-test("location preflight preserves malformed visible-route notices for home", () => {
+test("location preflight preserves malformed visible-coordinate notices for home", () => {
+  let href = "https://inspect.example/packages/%/1.0.0";
   const persistence = createWorkspaceLocationPersistence({
-    current: () => locationSnapshot(
-      "https://inspect.example/packages/%/1.0.0"),
+    current: () => locationSnapshot(href),
     replace() {},
     push() {},
   });
 
-  const preflight = persistence.preflightCurrent();
-  assert.equal(preflight.visible.package, null);
-  assert.equal(preflight.hasWorkspaceState, false);
-  assert.equal(preflight.startsAtHome, true);
-  assert.match(preflight.visibleNotice, /package/);
+  for (const [url, field] of [
+    ["https://inspect.example/packages/%/1.0.0", "package"],
+    ["https://inspect.example/?overload=abc", "overload"],
+  ]) {
+    href = url;
+    const preflight = persistence.preflightCurrent();
+    assert.equal(preflight.visible.package, null);
+    assert.equal(preflight.hasWorkspaceState, false);
+    assert.equal(preflight.startsAtHome, true);
+    assert.match(preflight.visibleNotice, new RegExp(field));
+  }
 });
 
 test("graph member URLs retain exact identity instead of a lossy body target", () => {
