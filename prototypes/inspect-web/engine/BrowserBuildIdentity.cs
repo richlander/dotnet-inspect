@@ -11,7 +11,7 @@ internal static class BrowserBuildIdentityReader
 
         string informationalVersion =
             assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? assembly.GetName().Version?.ToString()
+            ?? assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version
             ?? "0.0.0";
         string version = informationalVersion.Split('+', 2)[0];
         Dictionary<string, string> metadata = assembly
