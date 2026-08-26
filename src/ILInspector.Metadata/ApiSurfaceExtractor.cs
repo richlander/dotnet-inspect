@@ -2265,6 +2265,17 @@ public static class ApiSurfaceExtractor
         }
     }
 
+    /// <summary>
+    /// Whether a MethodImpl declaration parent and an InterfaceImpl row name the
+    /// same interface definition. Authentication requires a present structured
+    /// definition identity on both sides: an unavailable or rejected name is not
+    /// an identity two declarations can share, so a null never matches a null.
+    /// <see cref="IdentifiedTypeContext"/> already fails such a context closed as
+    /// <see cref="ApiExplicitInterfaceDeclarationKind.Unavailable"/>; this
+    /// restates the invariant where authentication happens so a future producer
+    /// cannot reintroduce a name-free positive. Gated by
+    /// <c>UnnamedExternalMethodImplDeclarationsDoNotAuthenticate</c>.
+    /// </summary>
     private static bool SameExplicitInterfaceDefinition(
         ApiExplicitInterfaceDeclarationContext candidate,
         ApiExplicitInterfaceDeclarationContext implemented)
@@ -2272,7 +2283,9 @@ public static class ApiSurfaceExtractor
                 is ApiExplicitInterfaceDeclarationKind.SameImage
                     or ApiExplicitInterfaceDeclarationKind.External
             && candidate.Kind == implemented.Kind
-            && candidate.DefinitionName == implemented.DefinitionName
+            && candidate.DefinitionName is { } candidateDefinitionName
+            && implemented.DefinitionName is { } implementedDefinitionName
+            && candidateDefinitionName == implementedDefinitionName
             && candidate.InterfaceTypeIdentity
                 == implemented.InterfaceTypeIdentity
             && (candidate.Assembly is null
@@ -2550,7 +2563,7 @@ public static class ApiSurfaceExtractor
         return declaringType.Kind switch
         {
             HandleKind.TypeDefinition =>
-                new ApiExplicitInterfaceDeclarationContext(
+                IdentifiedTypeContext(
                     ApiExplicitInterfaceDeclarationKind.SameImage,
                     ReadDefinitionName(
                         reader,
@@ -2606,7 +2619,7 @@ public static class ApiSurfaceExtractor
         return terminal.Kind switch
         {
             HandleKind.AssemblyReference =>
-                new ApiExplicitInterfaceDeclarationContext(
+                IdentifiedTypeContext(
                     ApiExplicitInterfaceDeclarationKind.External,
                     definitionName,
                     ReadAssemblyReferenceIdentity(
@@ -2615,7 +2628,7 @@ public static class ApiSurfaceExtractor
                         referenceProjection,
                         beforeDecodeWork)),
             HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
-                new ApiExplicitInterfaceDeclarationContext(
+                IdentifiedTypeContext(
                     ApiExplicitInterfaceDeclarationKind.SameImage,
                     definitionName),
             _ => new ApiExplicitInterfaceDeclarationContext(
@@ -2623,6 +2636,30 @@ public static class ApiSurfaceExtractor
                 definitionName),
         };
     }
+
+    /// <summary>
+    /// An identity-bearing declaration context, or an
+    /// <see cref="ApiExplicitInterfaceDeclarationKind.Unavailable"/> one when the
+    /// exact structured definition name could not be read or was rejected (an
+    /// empty, oversized, or otherwise unrepresentable metadata name). Without that
+    /// name a context carries no identity to compare, so two unrelated declarations
+    /// would authenticate against each other on a pair of nulls; failing closed
+    /// here keeps the rejection visible as unavailable provenance instead.
+    /// Gated by
+    /// <c>UnnamedExternalMethodImplDeclarationsDoNotAuthenticate</c>.
+    /// </summary>
+    private static ApiExplicitInterfaceDeclarationContext
+        IdentifiedTypeContext(
+        ApiExplicitInterfaceDeclarationKind kind,
+        MetadataTypeDefinitionName? definitionName,
+        AssemblyReferenceIdentity? assembly = null)
+        => definitionName is null
+            ? new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable)
+            : new ApiExplicitInterfaceDeclarationContext(
+                kind,
+                definitionName,
+                assembly);
 
     private static ApiExplicitInterfaceDeclarationContext
         GetExplicitInterfaceTypeSpecificationContext(
@@ -2645,7 +2682,7 @@ public static class ApiSurfaceExtractor
         ApiExplicitInterfaceDeclarationContext context = root.Type.Kind switch
         {
             HandleKind.TypeDefinition =>
-                new ApiExplicitInterfaceDeclarationContext(
+                IdentifiedTypeContext(
                     ApiExplicitInterfaceDeclarationKind.SameImage,
                     ReadDefinitionName(
                         reader,

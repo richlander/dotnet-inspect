@@ -771,7 +771,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 target,
                 targeted: true,
-                isPrimaryConstructor: false);
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source));
 
             Assert.NotNull(wholeMember);
             Assert.Contains(
@@ -788,7 +789,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 target,
                 targeted: true,
-                isPrimaryConstructor: true));
+                isPrimaryConstructor: true,
+                render: FidelityCheck.BodyRender.Shipped(source)));
 
             var result = Assert.Single(
                 FidelityCheck.Evaluate(
@@ -836,7 +838,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 finalizer,
                 targeted: true,
-                isPrimaryConstructor: false);
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source));
 
             Assert.NotNull(wholeMember);
             Assert.IsType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>(
@@ -885,7 +888,8 @@ public class FidelityCheckGeneratedFilterTests
             source,
             finalizer,
             targeted: true,
-            isPrimaryConstructor: false);
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.Shipped(source));
 
         Assert.Null(wholeMember);
 
@@ -943,7 +947,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 valueAccessors.Setter,
                 targeted: true,
-                isPrimaryConstructor: false);
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source));
 
             Assert.NotNull(wholeMember);
             Assert.Contains("public int Value", wholeMember.Value.Text, StringComparison.Ordinal);
@@ -1081,7 +1086,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 customEvent.GetAccessors().Adder,
                 targeted: true,
-                isPrimaryConstructor: false);
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source));
             Assert.NotNull(wholeMember);
             Assert.Contains("public event EventHandler Changed", wholeMember.Value.Text, StringComparison.Ordinal);
             Assert.Contains("add =>", wholeMember.Value.Text, StringComparison.Ordinal);
@@ -1094,19 +1100,22 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 fieldLikeEvent.GetAccessors().Adder,
                 targeted: true,
-                isPrimaryConstructor: false));
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source)));
             Assert.NotNull(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
                 explicitEvent.GetAccessors().Adder,
                 targeted: true,
-                isPrimaryConstructor: false));
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source)));
             Assert.Null(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
                 overrideEvent.GetAccessors().Adder,
                 targeted: true,
-                isPrimaryConstructor: false));
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source)));
 
             var results = FidelityCheck.Evaluate(assemblyPath)
                 .Where(result => result.Type == "EventWholeMemberFixture"
@@ -1218,13 +1227,15 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 explicitAccessor,
                 targeted: true,
-                isPrimaryConstructor: false));
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source)));
             Assert.Null(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
                 structAccessor,
                 targeted: true,
-                isPrimaryConstructor: false));
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source)));
 
             var explicitResult = Assert.Single(
                 FidelityCheck.Evaluate(
@@ -1295,7 +1306,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 method,
                 targeted: true,
-                isPrimaryConstructor: false);
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source));
 
             Assert.NotNull(rendered);
             Assert.Contains("Twice", rendered.Value.Text, StringComparison.Ordinal);
@@ -1370,7 +1382,8 @@ public class FidelityCheckGeneratedFilterTests
                 source,
                 accessor,
                 targeted: true,
-                isPrimaryConstructor: false));
+                isPrimaryConstructor: false,
+                render: FidelityCheck.BodyRender.Shipped(source)));
 
             var result = Assert.Single(
                 FidelityCheck.Evaluate(

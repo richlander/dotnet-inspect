@@ -67,3 +67,34 @@ public sealed class SkeletonProtectedPropertyOverrideFixture
 {
     protected override int Value => 2;
 }
+
+public interface ISkeletonExplicitLoweredView
+{
+    int Accumulate(int value);
+}
+
+/// <summary>
+/// An explicit interface implementation whose body is spelled differently by
+/// each body view: the raised view keeps the <c>lock</c> statement, while the
+/// lowered view shows the <c>Monitor.Enter</c>/<c>Monitor.Exit</c> shape beneath
+/// it. That difference is what makes
+/// <c>SkeletonExplicitInterfaceWholeMemberHonorsRequestedView</c> non-vacuous:
+/// whole-member production that ignored the requested view would return the
+/// raised text for both.
+/// </summary>
+public sealed class SkeletonExplicitLoweredViewFixture
+    : ISkeletonExplicitLoweredView
+{
+    readonly object _gate = new();
+    int _total;
+
+    int ISkeletonExplicitLoweredView.Accumulate(int value)
+    {
+        lock (_gate)
+        {
+            _total += value;
+        }
+
+        return _total;
+    }
+}

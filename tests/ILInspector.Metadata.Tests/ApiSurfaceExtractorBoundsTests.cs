@@ -473,6 +473,72 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 == "authenticate MethodImpl target");
     }
 
+    /// <summary>
+    /// A MethodImpl declaration parent authenticates against an InterfaceImpl row
+    /// only when both carry a readable structured definition name. Two different
+    /// external TypeRefs whose names metadata cannot represent both degrade to an
+    /// unavailable identity, and one unavailable identity never matches another.
+    /// </summary>
+    [Theory]
+    // Positive control: distinct TypeRef rows naming the same external interface
+    // still authenticate, so the guard rejects missing identity, not externals.
+    [InlineData("Contracts", "IValue", true)]
+    // The reproduction: two different unnamed external TypeRefs.
+    [InlineData("Other", "", false)]
+    // Close negative: same resolution scope and namespace, still no readable name.
+    [InlineData("Contracts", "", false)]
+    public void UnnamedExternalMethodImplDeclarationsDoNotAuthenticate(
+        string declaredNamespace,
+        string interfaceName,
+        bool authenticates)
+    {
+        byte[] image = BuildExternalInterfaceDefinitionNameImage(
+            declaredNamespace,
+            interfaceName);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        var provenance = Assert.IsType<ApiExplicitInterfaceProvenance>(
+            member.ExplicitInterfaceProvenance);
+        ApiExplicitInterfaceDeclarationContext declaration =
+            Assert.Single(provenance.Declarations);
+        if (authenticates)
+        {
+            Assert.Equal(
+                "explicit-interface-implementation",
+                member.Kind);
+            Assert.Equal(
+                ApiExplicitInterfaceProvenanceKind.External,
+                provenance.Kind);
+            Assert.Equal(
+                ApiExplicitInterfaceDeclarationKind.External,
+                declaration.Kind);
+            Assert.NotNull(declaration.DefinitionName);
+            Assert.DoesNotContain(
+                surface.InspectionFailures,
+                failure => failure.Operation
+                    == "authenticate MethodImpl target");
+            return;
+        }
+
+        Assert.Equal("method", member.Kind);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            provenance.Kind);
+        Assert.Equal(
+            ApiExplicitInterfaceDeclarationKind.Unavailable,
+            declaration.Kind);
+        Assert.Null(declaration.DefinitionName);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1947,6 +2013,65 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 accessor,
                 declaration);
         }
+        return Serialize(metadata);
+    }
+
+    /// <summary>
+    /// An explicit-interface method whose InterfaceImpl row and whose MethodImpl
+    /// declaration parent are two separate TypeRef rows in the same external
+    /// assembly. Equal namespace and name make them the same definition; an empty
+    /// name makes each row's structured identity unreadable on both sides at once,
+    /// which is the shape that must fail closed rather than match null to null.
+    /// </summary>
+    static byte[] BuildExternalInterfaceDefinitionNameImage(
+        string declaredNamespace,
+        string interfaceName)
+    {
+        var metadata = Metadata("ExternalInterfaceDefinitionName");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ExternalInterfaceDefinitionName");
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(methodSignature);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        TypeReferenceHandle implemented = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(interfaceName));
+        TypeReferenceHandle declared = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString(declaredNamespace),
+            metadata.GetOrAddString(interfaceName));
+        metadata.AddInterfaceImplementation(type, implemented);
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            declared,
+            metadata.GetOrAddString("Run"),
+            signature);
+        metadata.AddMethodImplementation(type, body, declaration);
         return Serialize(metadata);
     }
 

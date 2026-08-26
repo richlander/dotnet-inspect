@@ -1,3 +1,4 @@
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -303,6 +304,95 @@ public class SkeletonEmitTests
         {
             Assert.True(result.UsedProductWholeMember);
         }
+    }
+
+    /// <summary>
+    /// The product's whole-member production must render the body view the
+    /// caller asked for. The harness renders each body itself at a requested
+    /// altitude and with the caller's <see cref="PrinterOptions"/>, then replaces
+    /// the selected member's text with the product's whole-member render and
+    /// reports <c>UsedProductWholeMember</c>; producing that text at the shipped
+    /// defaults would report one view's C# as another's (#3924). Explicit
+    /// interface implementations are the case that matters here, because their
+    /// interface-qualified signature is exactly what the harness stopped
+    /// self-spelling.
+    /// </summary>
+    [Fact]
+    public void SkeletonExplicitInterfaceWholeMemberHonorsRequestedView()
+    {
+        const string typeName =
+            "ILInspector.Decompiler.Tests.SkeletonExplicitLoweredViewFixture";
+        const string methodName =
+            "ILInspector.Decompiler.Tests.ISkeletonExplicitLoweredView.Accumulate";
+        string assemblyPath = typeof(SkeletonEmitFixture).Assembly.Location;
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var reader = pe.GetMetadataReader();
+        var fixtureType = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name)
+                    == "SkeletonExplicitLoweredViewFixture"));
+        var target = Assert.Single(
+            fixtureType.GetMethods(),
+            handle => reader.GetString(
+                reader.GetMethodDefinition(handle).Name) == methodName);
+
+        using var source = MetadataSource.Open(assemblyPath);
+        var raised = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            target,
+            targeted: true,
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.For(source, lowered: false));
+        var lowered = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            target,
+            targeted: true,
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.For(source, lowered: true));
+
+        Assert.NotNull(raised);
+        Assert.NotNull(lowered);
+        // The interface-qualified signature the harness stopped self-spelling,
+        // shortened by the product exactly as the whole-type listing spells it.
+        const string signature =
+            "int ISkeletonExplicitLoweredView.Accumulate(int value)";
+        Assert.Contains(signature, raised.Value.Text, StringComparison.Ordinal);
+        Assert.Contains(signature, lowered.Value.Text, StringComparison.Ordinal);
+        // The raised view keeps the lock statement; the lowered view shows the
+        // Monitor shape beneath it. Identical text here would mean the requested
+        // view never reached the product.
+        Assert.Contains("lock (", raised.Value.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("lock (", lowered.Value.Text, StringComparison.Ordinal);
+        Assert.Contains("Monitor.Enter", lowered.Value.Text, StringComparison.Ordinal);
+
+        // An opt-in PrinterOptions knob must reach the same production.
+        var qualified = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            target,
+            targeted: true,
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.For(
+                source,
+                lowered: false,
+                new PrinterOptions { QualifyFieldAccess = true }));
+        Assert.NotNull(qualified);
+        Assert.NotEqual(raised.Value.Text, qualified.Value.Text);
+        Assert.Contains("this._total", qualified.Value.Text, StringComparison.Ordinal);
+
+        // The whole-member text really is what the fidelity path splices in.
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            assemblyPath,
+            lowered: true,
+            FidelityCheck.ClusterMode.Off,
+            type => type == typeName,
+            method => method.Method == methodName));
+        Assert.True(result.UsedProductWholeMember);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }
 
     [Fact]

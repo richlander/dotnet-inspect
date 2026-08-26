@@ -454,10 +454,16 @@ unless property or event MethodSemantics identify them as accessors. Explicit-in
 remain explicit-interface-implementation members because their private property or event rows do
 not independently represent the public interface contract. When selected for compile-back,
 explicit-interface methods, properties, and events retain their interface clause and valid C#
-declaration shape. An unresolved external MethodImpl declaration is accepted as interface
+declaration shape. That whole-member text is produced by the product, and it is rendered in the
+body view the caller requested — the same altitude and the same printer options — so a consumer
+that renders bodies itself never splices in a differently-viewed member while reporting its own
+view. An unresolved external MethodImpl declaration is accepted as interface
 evidence only when its structured definition identity also appears in the containing type's
 InterfaceImpl rows; a private body shape alone cannot turn an external class slot into an
-interface member. A structurally valid MethodImpl whose external target cannot be authenticated
+interface member. Authentication also requires that structured definition identity to be
+readable on both sides: a declaration parent or InterfaceImpl row whose metadata name cannot be
+represented degrades to unavailable provenance, so two unreadable identities never authenticate
+each other. A structurally valid MethodImpl whose external target cannot be authenticated
 is retained with unavailable provenance and an `authenticate MethodImpl target` inspection
 failure, rather than being silently dropped or relabeled as an interface member. Authenticated
 and unavailable declarations remain independently visible when one body has both; consumers that
@@ -520,6 +526,8 @@ matching and trusted-platform upgrade-only unification,
 scaffolding, `SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding` gates target
 identity after scaffold changes, `SkeletonEmitsExplicitInterfaceTargets` gates selected explicit
 methods and accessors,
+`SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering
+the requested body view and printer options,
 `SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
 consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
@@ -527,6 +535,7 @@ MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOt
 the event semantic-method boundary. `MethodImplWithoutImplementedInterface_FailsVisibly`,
 `AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
 `Extract_TransitiveExternalMethodImplFailsVisibly`,
+`UnnamedExternalMethodImplDeclarationsDoNotAuthenticate`,
 `ConstructedMethodImplRequiresExactInterfaceInstantiation`,
 `ConstructedMethodImplAuthenticatesExactInterfaceInstantiation`,
 `ConstructedMethodImplRequiresExactArgumentAssemblyIdentity`,

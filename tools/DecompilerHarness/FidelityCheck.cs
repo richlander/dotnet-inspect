@@ -119,13 +119,55 @@ static class FidelityCheck
     // view with a single knob on and prove it recompiles to the same IL. Options
     // apply to the raised view (the view every opt-in knob targets); the lowered
     // view has no opt-in knobs, so it keeps the shipped renderer.
-    static Func<IrFunction, DecompilerResult> Renderer(MetadataSource source, bool lowered)
+    static BodyRender Renderer(MetadataSource source, bool lowered)
         => Renderer(source, lowered, options: null);
 
-    static Func<IrFunction, DecompilerResult> Renderer(MetadataSource source, bool lowered, PrinterOptions? options)
-        => lowered
-            ? CSharpPrinter.PrintLowered
-            : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method), options);
+    static BodyRender Renderer(MetadataSource source, bool lowered, PrinterOptions? options)
+        => new(
+            lowered,
+            options,
+            lowered
+                ? CSharpPrinter.PrintLowered
+                : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method), options));
+
+    /// <summary>
+    /// One body-render request: the view the caller asked for — lowered
+    /// altitude and opt-in <see cref="PrinterOptions"/> — carried with the
+    /// delegate that applies it. The identity has to travel with the delegate
+    /// because the product's whole-member production renders the member itself
+    /// and replaces the spliced body: handed only the delegate it would render
+    /// the shipped raised defaults and still be reported as the requested view.
+    /// </summary>
+    internal sealed record BodyRender(
+        bool Lowered,
+        PrinterOptions? Options,
+        Func<IrFunction, DecompilerResult> Render)
+    {
+        internal DecompilerResult Invoke(IrFunction function) => Render(function);
+
+        /// <summary>The same request expressed for product-owned whole-member production.</summary>
+        internal MemberBodyView View
+            => Lowered ? MemberBodyView.Lowered : MemberBodyView.Raised;
+
+        /// <summary>
+        /// The request's identity, without the delegate: a fresh delegate is
+        /// built per type, so a memo keyed on the delegate would never hit.
+        /// </summary>
+        internal (bool Lowered, PrinterOptions? Options) Identity => (Lowered, Options);
+
+        /// <summary>The shipped raised view, for a caller that renders nothing itself.</summary>
+        internal static BodyRender Shipped(MetadataSource source)
+            => For(source, lowered: false);
+
+        /// <summary>
+        /// The harness's own render request for a chosen view and option set —
+        /// the seam a gate uses to ask whole-member production for exactly the
+        /// view a corpus path would have asked for.
+        /// </summary>
+        internal static BodyRender For(
+            MetadataSource source, bool lowered, PrinterOptions? options = null)
+            => Renderer(source, lowered, options);
+    }
 
     public static int Run(
         IReadOnlyList<string> assemblies,
@@ -1317,7 +1359,7 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
+        BodyRender render, int maxEntries = int.MaxValue,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
     {
@@ -1337,7 +1379,7 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectTypeEntries(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
+        TypeDefinition typeDef, BodyRender render, int maxEntries = int.MaxValue,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
     {
@@ -1378,7 +1420,7 @@ static class FidelityCheck
             string? body;
             string? chain;
             IReadOnlyList<(string Field, string Value)> fieldInits;
-            try { var printed = render(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
+            try { var printed = render.Invoke(function); body = printed.Output; chain = printed.ConstructorChain; fieldInits = printed.FieldInitializers; }
             catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
             if (body is null)
                 continue;
@@ -1396,7 +1438,8 @@ static class FidelityCheck
                 source,
                 mh,
                 targeted: methodFilter is not null,
-                isPrimaryConstructor: primaryConstructor is not null);
+                isPrimaryConstructor: primaryConstructor is not null,
+                render: render);
             ApiExplicitInterfaceProvenance?
                 explicitInterfaceProvenance =
                 TargetApiIndex(pe).TryGetValue(
@@ -1564,7 +1607,7 @@ static class FidelityCheck
     /// </summary>
     static IEnumerable<(string FullType, List<Entry> Entries, TypeDefinitionHandle Handle)> EnumerateTypeTree(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, Func<string, bool>? typeFilter = null)
+        BodyRender render, Func<string, bool>? typeFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, typeFilter: typeFilter) is { } collected)
@@ -1577,7 +1620,7 @@ static class FidelityCheck
     static void EvaluateType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ReferenceSet references, CSharpParseOptions parseOptions,
-        CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
+        CSharpCompilationOptions compileOptions, BodyRender render, List<CompileBackResult> results,
         int maxEntries = int.MaxValue, ClusterMode clusterMode = ClusterMode.Off,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
@@ -2742,7 +2785,7 @@ static class FidelityCheck
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, int cap, int maxExamples,
-        Func<IrFunction, DecompilerResult> render,
+        BodyRender render,
         ref int total, ref int full, ref int exact, ref int contextFail,
         ref int recompileFail, ref int opcodeDiff, ref int operandDiff, ref int fidelityUnavailable,
         List<string> opcodeDiffExamples, List<string> operandDiffExamples,
@@ -4968,9 +5011,11 @@ static class FidelityCheck
     /// (<see cref="MemberBodyProducer.ProduceMembers"/>), computed once per
     /// <see cref="ApiType"/> so a type's assembly is opened and its type maps
     /// built once for all its members rather than once per member. Keyed on the
-    /// open <see cref="PEReader"/> so it shares the reader's lifetime.
+    /// open <see cref="PEReader"/> so it shares the reader's lifetime, and on
+    /// the requested body view (<see cref="BodyRender.Identity"/>) because the
+    /// same type renders differently under a different altitude or option set.
     /// </summary>
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PEReader, System.Collections.Concurrent.ConcurrentDictionary<ApiType, IReadOnlyDictionary<ApiMember, MemberRenderResult>>> TargetMemberRenderCache = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PEReader, System.Collections.Concurrent.ConcurrentDictionary<(ApiType Type, (bool Lowered, PrinterOptions? Options) Render), IReadOnlyDictionary<ApiMember, MemberRenderResult>>> TargetMemberRenderCache = new();
 
     /// <summary>
     /// The corpus <see cref="MetadataContext"/> the harness opened a source with,
@@ -5127,13 +5172,19 @@ static class FidelityCheck
     /// declines the member render. Broad evaluation renders the whole type once
     /// and memoizes the batch; method-filtered evaluation uses the product's
     /// targeted member path so unselected siblings are not rendered.
+    /// <paramref name="render"/> is the caller's own body-render request, and it
+    /// is required rather than defaulted: this text replaces the body the caller
+    /// rendered, so producing it at the shipped defaults would report one view's
+    /// text as another's. It also keys the memo, so two views of the same type
+    /// do not share an entry.
     /// </summary>
     internal static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
         PEReader pe,
         MetadataSource source,
         MethodDefinitionHandle mh,
         bool targeted,
-        bool isPrimaryConstructor)
+        bool isPrimaryConstructor,
+        BodyRender render)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
@@ -5167,8 +5218,8 @@ static class FidelityCheck
         }
 
         var result = targeted
-            ? RenderTargetMember(entry.Type, entry.Member, source)
-            : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
+            ? RenderTargetMember(entry.Type, entry.Member, source, render)
+            : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source, render);
         if (result is null || !result.IsComplete || result.Text is null)
             return null;
         if (entry.Member.Kind == "constructor"
@@ -5198,7 +5249,8 @@ static class FidelityCheck
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
     }
 
-    static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
+    static MemberRenderResult? RenderTargetMember(
+        ApiType type, ApiMember member, MetadataSource source, BodyRender render)
     {
         try
         {
@@ -5210,13 +5262,17 @@ static class FidelityCheck
                     pdbPath: null,
                     context.Resolver,
                     context,
-                    attributeMode: MemberRenderAttributeMode.CompilationRequired)
+                    printerOptions: render.Options,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired,
+                    view: render.View)
                 : MemberBodyProducer.ProduceMember(
                     type,
                     member,
                     source.Path,
                     pdbPath: null,
-                    attributeMode: MemberRenderAttributeMode.CompilationRequired);
+                    printerOptions: render.Options,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired,
+                    view: render.View);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -5225,10 +5281,13 @@ static class FidelityCheck
     }
 
     static MemberRenderResult? RenderTypeMemberBatch(
-        PEReader pe, ApiType type, ApiMember member, MetadataSource source)
+        PEReader pe, ApiType type, ApiMember member, MetadataSource source, BodyRender render)
     {
         var memo = TargetMemberRenderCache.GetOrCreateValue(pe);
-        var rendered = memo.GetOrAdd(type, static (candidate, src) => RenderTypeMembers(candidate, src), source);
+        var rendered = memo.GetOrAdd(
+            (type, render.Identity),
+            static (key, arg) => RenderTypeMembers(key.Type, arg.Source, arg.Render),
+            (Source: source, Render: render));
         return rendered.GetValueOrDefault(member);
     }
 
@@ -5237,7 +5296,8 @@ static class FidelityCheck
     /// point, reusing the harness's corpus resolver/context (when the source was
     /// registered) so cross-assembly resolution matches the harness's own decode.
     /// </summary>
-    static IReadOnlyDictionary<ApiMember, MemberRenderResult> RenderTypeMembers(ApiType type, MetadataSource source)
+    static IReadOnlyDictionary<ApiMember, MemberRenderResult> RenderTypeMembers(
+        ApiType type, MetadataSource source, BodyRender render)
     {
         try
         {
@@ -5248,12 +5308,16 @@ static class FidelityCheck
                     pdbPath: null,
                     context.Resolver,
                     context,
-                    attributeMode: MemberRenderAttributeMode.CompilationRequired)
+                    printerOptions: render.Options,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired,
+                    view: render.View)
                 : MemberBodyProducer.ProduceMembers(
                     type,
                     source.Path,
                     pdbPath: null,
-                    attributeMode: MemberRenderAttributeMode.CompilationRequired);
+                    printerOptions: render.Options,
+                    attributeMode: MemberRenderAttributeMode.CompilationRequired,
+                    view: render.View);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

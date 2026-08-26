@@ -4613,17 +4613,21 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Router_GenericMemberFilterPreservesPlatformOwner()
     {
-        SkipUnlessAspNetCoreAvailable();
-        const string target =
-            "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
-            + ".ArrayPoolBufferAdapter<T1,T2,T3>";
+        // A generic platform type whose explicit-interface member is stable:
+        // List<T> implements IList.IsReadOnly explicitly (a private, final,
+        // newslot accessor), so the routed member filter has exactly one owner.
+        // The earlier ASP.NET target's ToResult is a public static member whose
+        // MethodImpl row implements a static abstract interface member
+        // implicitly, so it is an ordinary method rather than an
+        // explicit-interface implementation and can never answer this filter.
+        const string target = "System.Collections.Generic.List<T>";
 
         var (exit, output, error) = await RunAppAsync(
             target,
             "-m",
-            "explicit:ToResult",
+            "explicit:System.Collections.IList.get_IsReadOnly",
             "--framework",
-            "aspnetcore",
+            "runtime",
             "--all",
             "-S",
             "Member Index",
