@@ -14711,7 +14711,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareSelectSingleOverloadCallerScope_DoesNotAnalyzeOtherMembers()
+    public async Task Member_BareSelectSingleOverloadCallerScope_PreservesAuthoredOverview()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
@@ -14720,8 +14720,9 @@ public partial class CommandExecutionTests
             "-S", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Callers", output);
-        Assert.Contains("No callers found", output);
+        Assert.Contains("## Methods", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.NoCalls), output);
+        Assert.DoesNotContain("## Callers", output);
         Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), output);
         Assert.Empty(error);
     }
