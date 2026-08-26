@@ -174,7 +174,12 @@ public static class Strategies
         var currentModel = new SpikeModel();
         List<string> currentTrace = [];
         var currentContext = new CurrentScannerContext { Model = currentModel, Trace = currentTrace.Add };
-        currentScanners.RunScanners(currentPipeline.GetRequiredScanners(verbosity, include), currentContext);
+        currentScanners.RunScanners(
+            CurrentBaselinePipelines.GetRequiredScanners(
+                currentPipeline,
+                verbosity,
+                include),
+            currentContext);
         await CurrentBaselinePipelines.RunNetworkWorkAsync(
             currentPipeline, include, verbosity, currentContext);
 
