@@ -357,20 +357,9 @@ public class ApiCommand
         MemberOptions resolved,
         SectionPipeline<ApiType> pipeline)
     {
-        var countMapSelectionSections = resolved.IncludeSections;
-        if (resolved.IncludeSections is { Count: > 0 }
-            && resolved.HasCallerScope)
-        {
-            countMapSelectionSections = new HashSet<string>(
-                resolved.IncludeSections,
-                StringComparer.OrdinalIgnoreCase)
-            {
-                SectionNames.Callers
-            };
-        }
         var countMapSections = OutputFormatter.ResolveCountMapSections(
             pipeline,
-            countMapSelectionSections,
+            resolved.IncludeSections,
             fixedOverview: false);
         if (resolved.Discover == null && resolved.Count
             && (!CountOutput.ValidateSectionsSelected(
@@ -924,22 +913,11 @@ public class ApiCommand
             ? pipelineIndependentMemberSelection?.Sections
             : options.IncludeSections;
         var selectionValidationDeferred = selectionDeferred && selectionSections is null;
-        var countMapSelectionSections = selectionSections;
-        if (selectionSections is { Count: > 0 }
-            && options is MemberOptions { HasCallerScope: true })
-        {
-            countMapSelectionSections = new HashSet<string>(
-                selectionSections,
-                StringComparer.OrdinalIgnoreCase)
-            {
-                SectionNames.Callers
-            };
-        }
         var countMapSections = singleTypeMode
             ? OutputFormatter.ResolveCountMapSections(
-                memberPipeline, countMapSelectionSections, fixedOverview: false)
+                memberPipeline, selectionSections, fixedOverview: false)
             : OutputFormatter.ResolveCountMapSections(
-                typePipeline, countMapSelectionSections, fixedOverview: false);
+                typePipeline, selectionSections, fixedOverview: false);
         if (options.Discover == null && options.Count && !selectionValidationDeferred
             && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
                 || !CountOutput.ValidateMapFormat(
@@ -1563,6 +1541,28 @@ public class ApiCommand
 
         var filtered = BuildFilteredTypeForSections(type, options);
         var (empty, _) = pipeline.GetEmptySections(filtered, options.Verbosity, options.IncludeSections);
+        if (options is MemberOptions memberOptions)
+        {
+            foreach (var section in pipeline.SelectableSectionNames)
+            {
+                if (!options.IncludeSections.Contains(section)
+                    || !MemberCommand.IsBodyEvidenceSection(section)
+                    || empty.Contains(section, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                HashSet<string> requestedSection =
+                    new(StringComparer.OrdinalIgnoreCase) { section };
+                if (ApiOutputFormatter.ResolveBodyMethods(
+                        filtered,
+                        requestedSection,
+                        memberOptions).Count == 0)
+                {
+                    empty.Add(section);
+                }
+            }
+        }
         if (empty.Count == 0)
             return;
 

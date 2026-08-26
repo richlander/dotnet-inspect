@@ -23,3 +23,12 @@ public abstract class MemberBodylessEvidenceFixture
 
     public void Generic(byte value) { }
 }
+
+public sealed class MemberBodylessExtensionReceiver;
+
+public static class MemberBodylessExtensionFixture
+{
+    [System.Runtime.InteropServices.DllImport("member-bodyless-native")]
+    public static extern void AttachedNative(
+        this MemberBodylessExtensionReceiver receiver);
+}

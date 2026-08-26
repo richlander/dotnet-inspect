@@ -2373,9 +2373,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_ImplicitCallerSection_CountRejectsTreePresentation()
+    public async Task Member_AuthoredCallGraphWithCallerScope_CountRemainsScalar()
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] arguments =
+        [
             "member",
             typeof(MemberCallGraphFixture).FullName!,
             nameof(MemberCallGraphFixture.RootCall),
@@ -2386,13 +2387,16 @@ public partial class CommandExecutionTests
             "--bin",
             Path.GetDirectoryName(TestAssemblyPath)!,
             "--count",
-            "--tree",
             "--tips",
-            "q");
+            "q",
+        ];
+        var scalar = await RunAppAsync(arguments);
+        var tree = await RunAppAsync([.. arguments, "--tree"]);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("exactly one selected shape", error);
+        Assert.Equal(scalar, tree);
+        Assert.Equal(0, tree.Exit);
+        Assert.True(int.TryParse(tree.Output.Trim(), out int count));
+        Assert.True(count > 0);
     }
 
     [Fact]
@@ -14602,10 +14606,11 @@ public partial class CommandExecutionTests
         string memberName = nameof(CallerScopeCountFixture.Target);
         var unscoped = await RunAppAsync(
             "member", typeName, memberName, "--library", fixtureAssembly,
-            "--count", "-S", "Methods", "--tips", "q");
+            "--count", "--mermaid", "-S", "Methods", "--tips", "q");
         var scoped = await RunAppAsync(
             "member", typeName, memberName, "--library", fixtureAssembly,
-            "--bin", fixtureDirectory, "--count", "-S", "Methods", "--tips", "q");
+            "--bin", fixtureDirectory, "--count", "--mermaid",
+            "-S", "Methods", "--tips", "q");
 
         Assert.Equal(0, unscoped.Exit);
         Assert.Empty(unscoped.Error);
@@ -15124,6 +15129,20 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Output);
+        Assert.Contains("section 'IL' has no data", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_AttachedPInvokeExtensionIl_IsVisibleAsInapplicable()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessExtensionReceiver).FullName!,
+            "--library", typeof(MemberBodylessExtensionReceiver).Assembly.Location,
+            nameof(MemberBodylessExtensionFixture.AttachedNative),
+            "-S", SectionNames.IL, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain($"## {SectionNames.IL}", result.Output);
         Assert.Contains("section 'IL' has no data", result.Error);
     }
 

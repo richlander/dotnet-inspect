@@ -1048,6 +1048,9 @@ public static class MemberCommand
         SectionNames.Facts
     ];
 
+    internal static bool IsBodyEvidenceSection(string section) =>
+        BodyEvidenceSectionNames.Contains(section);
+
     private static IEnumerable<int> BodyMethodTokens(
         ApiType type,
         ApiMember member)

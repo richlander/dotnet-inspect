@@ -1520,7 +1520,17 @@ public static class ApiOutputFormatter
                 .ToList() is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
-            methods = AccessorMethods(single, type)
+            IEnumerable<ApiMember> accessors = AccessorMethods(single, type);
+            if (options is MemberOptions { OverloadIndex: { } accessorOrdinal })
+            {
+                // Keep bodyless slots in the ordinal inventory: filtering first would
+                // compact :2 into :1 and inspect the wrong accessor.
+                accessors = accessors
+                    .Skip(accessorOrdinal - 1)
+                    .Take(1);
+            }
+
+            methods = accessors
                 .Where(member =>
                     includeBodyless
                     || ApiMemberSectionDescriptors.HasExecutableBody(member))

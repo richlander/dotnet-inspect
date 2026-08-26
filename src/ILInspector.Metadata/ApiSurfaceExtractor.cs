@@ -2914,6 +2914,7 @@ public static class ApiSurfaceExtractor
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MetadataToken = extension.MetadataToken,
+                    HasMethodBody = extension.HasMethodBody,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,
