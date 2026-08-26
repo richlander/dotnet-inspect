@@ -900,7 +900,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     {
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
-        AnalysisDiagnostic? firstDiagnostic = null;
 
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
@@ -913,13 +912,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     typeHandle,
                     typeDefinition,
                     methodHandle);
+                ThrowIfIncomplete(result.Diagnostic);
                 if (result.HasEvidence)
                     return true;
-                firstDiagnostic ??= result.Diagnostic;
             }
         }
 
-        ThrowIfIncomplete(firstDiagnostic);
         return false;
 
         static void ThrowIfIncomplete(

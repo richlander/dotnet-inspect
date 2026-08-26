@@ -87,7 +87,9 @@ streaming instruction visits have a separate 4 MiB aggregate budget. A
 marker-bearing declaration, local, member-reference, method-definition, or
 method-specification signature that the structural guard rejects makes the
 presence result explicitly incomplete instead of becoming successful absence
-or affirmative evidence. Name-only `Unsafe` candidates require trusted
+or affirmative evidence, even when a later method contains conclusive evidence.
+Decoded custom modifiers retain their unmodified type, so a wrapped pointer
+still counts as unsafe evidence. Name-only `Unsafe` candidates require trusted
 framework identity resolution before becoming evidence. The discovery gate
 also retains renderable metadata signature-decode diagnostics so a negative
 bounded probe cannot hide a known-incomplete scan.

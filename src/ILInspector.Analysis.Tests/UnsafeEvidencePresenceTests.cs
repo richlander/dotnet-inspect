@@ -36,6 +36,49 @@ public class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        UnsafeEvidencePresence_EarlierIncompleteResultOverridesLaterEvidence()
+    {
+        ImmutableArray<byte> image =
+            BuildGuardRejectedUnsafeAssembly(
+                GuardRejectedSignatureKind.Local,
+                appendUnsafeBody: true);
+
+        Assert.Throws<InvalidDataException>(
+            () => LibraryBodyIndex.HasUnsafeEvidence(
+                "IncompleteThenEvidence.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_CustomModifiedPointerLocalCountsAsEvidence()
+    {
+        ImmutableArray<byte> image =
+            BuildCustomModifiedPointerLocalAssembly();
+
+        Assert.True(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "CustomModifiedPointerLocal.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        TypeRef_ContainsPointer_TraversesCustomModifierPayload()
+    {
+        TypeRef modified = TypeRef.UnsupportedModified(
+            TypeRef.CoreLib(
+                "System.Runtime.CompilerServices",
+                "IsVolatile"),
+            TypeRef.Pointer(
+                TypeRef.CoreLib("System", "Int32")),
+            isRequired: false);
+
+        Assert.True(modified.ContainsPointer());
+    }
+
+    [Fact]
+    public void
         UnsafeEvidencePresence_GuardRejectedPointerMemberRefFailsVisibly()
     {
         ImmutableArray<byte> image =
@@ -324,7 +367,8 @@ public class UnsafeEvidencePresenceTests
 
     static ImmutableArray<byte> BuildGuardRejectedUnsafeAssembly(
         GuardRejectedSignatureKind rejectedKind,
-        bool unsafeLookalikeParent = false)
+        bool unsafeLookalikeParent = false,
+        bool appendUnsafeBody = false)
     {
         var metadata = CreateMetadata("GuardRejected");
         metadata.AddTypeDefinition(
@@ -420,6 +464,25 @@ public class UnsafeEvidencePresenceTests
             AddVoidMethodSignature(metadata),
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
+        if (appendUnsafeBody)
+        {
+            var unsafeCode = new BlobBuilder();
+            unsafeCode.WriteByte((byte)ILOpCode.Calli);
+            unsafeCode.WriteInt32(0);
+            unsafeCode.WriteByte((byte)ILOpCode.Ret);
+            int unsafeBodyOffset =
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(unsafeCode),
+                    maxStack: 1);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("UnsafeLater"),
+                AddVoidMethodSignature(metadata),
+                unsafeBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(
@@ -430,6 +493,66 @@ public class UnsafeEvidencePresenceTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return ImmutableArray.Create(image.ToArray());
+    }
+
+    static ImmutableArray<byte>
+        BuildCustomModifiedPointerLocalAssembly()
+    {
+        var metadata = CreateMetadata(
+            "CustomModifiedPointerLocal");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Sample"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsVolatile"));
+        StandaloneSignatureHandle localSignature =
+            metadata.AddStandaloneSignature(
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x07,
+                        0x01,
+                        0x20,
+                        0x05,
+                        0x0F,
+                        0x08,
+                    }));
+        var bodies = new BlobBuilder();
+        var code = new BlobBuilder();
+        code.WriteByte((byte)ILOpCode.Ret);
+        int bodyOffset =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(code),
+                    maxStack: 1,
+                    localVariablesSignature:
+                        localSignature,
+                    attributes:
+                        MethodBodyAttributes.InitLocals);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
     }
 
     static byte[] GuardRejectedSignature(

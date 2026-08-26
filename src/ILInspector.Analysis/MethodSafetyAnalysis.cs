@@ -439,6 +439,11 @@ internal static class MethodSafetyAnalysis
         {
             return true;
         }
+        if (type.UnmodifiedType is not null
+            && ContainsUnsafeType(type.UnmodifiedType))
+        {
+            return true;
+        }
         return type.TypeArguments.Any(ContainsUnsafeType);
     }
 
