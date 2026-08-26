@@ -174,6 +174,13 @@ public sealed record SlotDefUseGraph(
 
 public static class ReachingDefinitions
 {
+    /// <summary>
+    /// Offset of the synthetic definition seeded for every incoming argument slot before the
+    /// first instruction executes. A use whose only reaching definition carries this offset
+    /// still holds the original incoming argument.
+    /// </summary>
+    public const int EntryDefinitionOffset = -1;
+
     public static ReachingDefinitionsResult Analyze(byte[] il, int argumentSlotCount)
         => Analyze(il, argumentSlotCount, []);
 
@@ -241,7 +248,7 @@ public static class ReachingDefinitions
         var definitionByOffset = new Dictionary<int, int>();
 
         for (int slot = 0; slot < argumentSlotCount; slot++)
-            AddDefinition(new SlotKey(slot, IsArgument: true), Offset: -1);
+            AddDefinition(new SlotKey(slot, IsArgument: true), EntryDefinitionOffset);
 
         foreach (var instruction in instructions)
         {
