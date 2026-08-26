@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -63,8 +64,7 @@ public static class TimelineCommand
                     selectedSections,
                     options.MemberName,
                     options.IncludeAll);
-                Write(view, options, selectedSections);
-                return 0;
+                return Write(view, options, selectedSections);
             }
             finally
             {
@@ -1116,12 +1116,7 @@ public static class TimelineCommand
             return false;
         }
 
-        if (options.Count && selectedSections.Count != 1)
-        {
-            error = "--count requires exactly one selected section: Evaluations or Transitions.";
-            return false;
-        }
-        if (options.IsTabular && selectedSections.Count != 1)
+        if (!options.Count && options.IsTabular && selectedSections.Count != 1)
         {
             error = "Table, TSV, and JSONL output require exactly one selected section: Evaluations or Transitions.";
             return false;
@@ -1187,18 +1182,56 @@ public static class TimelineCommand
         return sections;
     }
 
-    static void Write(
+    internal static int Write(
         TimelineDocumentView view,
         TimelineOptions options,
         HashSet<string> selectedSections)
     {
         if (options.Count)
         {
-            int count = selectedSections.Contains(EvaluationsSection)
-                ? view.Evaluations?.Count ?? 0
-                : view.Transitions?.Count ?? 0;
-            CountOutput.WriteCount(count);
-            return;
+            var schema = TimelineViewContext.Default
+                .GetSchemaInfo<TimelineDocumentView>()!
+                .ToDocumentSchema();
+            if (!ProjectionDiagnostics.ValidateProjection(
+                    schema, selectedSections, options.Fields, options.Columns))
+            {
+                return 1;
+            }
+
+            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
+                options.Columns, options.Fields);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+            var projection = new CountProjection();
+            if (selectedSections.Contains(EvaluationsSection))
+            {
+                writerOptions.IncludeSections = [EvaluationsSection];
+                projection.Merge(CountProjectionFormatter.Capture(
+                    new TimelineEvaluationsView { Rows = view.Evaluations },
+                    TimelineViewContext.Default,
+                    writerOptions));
+            }
+            if (selectedSections.Contains(TransitionsSection))
+            {
+                writerOptions.IncludeSections = [TransitionsSection];
+                projection.Merge(CountProjectionFormatter.Capture(
+                    new TimelineTransitionsView { Rows = view.Transitions },
+                    TimelineViewContext.Default,
+                    writerOptions));
+            }
+
+            var ordered = new[] { EvaluationsSection, TransitionsSection }
+                .Where(selectedSections.Contains)
+                .ToArray();
+            CountOutput.Write(
+                projection,
+                ordered.Length > 1 ? ordered : null,
+                options.JsonOutput ? OutputFormat.Json
+                    : options.Jsonl ? OutputFormat.Jsonl
+                    : options.Tsv ? OutputFormat.Tsv
+                    : options.Tabular ? OutputFormat.Table
+                    : OutputFormat.Markdown,
+                options.NoHeader);
+            return 0;
         }
 
         if (options.JsonOutput)
@@ -1206,7 +1239,7 @@ public static class TimelineCommand
             Console.WriteLine(JsonSerializer.Serialize(
                 view,
                 TimelineJsonContext.Default.TimelineDocumentView));
-            return;
+            return 0;
         }
 
         if (options.IsTabular)
@@ -1249,12 +1282,13 @@ public static class TimelineCommand
                             writerOptions),
                     options.Rows);
             }
-            return;
+            return 0;
         }
 
         var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
         TimelineViewContext.Default.Serialize(view, writer);
         Console.WriteLine(writer.ToString().TrimEnd());
+        return 0;
     }
 
     internal sealed record TimelineEvaluation(

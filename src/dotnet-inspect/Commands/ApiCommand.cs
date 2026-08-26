@@ -85,6 +85,7 @@ public class ApiCommand
             FormatExplicitlySet = options.FormatExplicitlySet,
             FormatFlagExplicitlySet = options.FormatFlagExplicitlySet,
             MarkdownExplicitlySet = options.MarkdownExplicitlySet,
+            Format = options.Format,
             PlainText = options.PlainText,
             MermaidOutput = options.MermaidOutput,
             EmbeddedMermaid = options.EmbeddedMermaid,
@@ -266,10 +267,20 @@ public class ApiCommand
         if (options.SelectDeferredToListing)
         {
             if (listingOptions.Discover == null && listingOptions.Count
-                && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
+                && (!CountOutput.ValidateSectionsSelected(
+                        listingOptions.IncludeSections, fixedOverview: false)
+                    || !CountOutput.ValidateMapFormat(
+                        listingOptions.Format,
+                        OutputFormatter.ResolveCountMapSections(
+                            typePipeline, listingOptions.IncludeSections, fixedOverview: false),
+                        listingOptions.Tree,
+                        listingOptions.EmbeddedMermaid)))
+            {
                 return null;
+            }
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+            if (!listingOptions.Count
+                && !OutputFormatResolver.ValidateSingleSectionForTabular(
                     listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
                 return null;
         }
@@ -680,6 +691,7 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
+        options = options with { UserVerbosityOverride = options.UserVerbosity };
         if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
         {
             options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
@@ -888,9 +900,29 @@ public class ApiCommand
             ? pipelineIndependentMemberSelection?.Sections
             : options.IncludeSections;
         var selectionValidationDeferred = selectionDeferred && selectionSections is null;
+        var countMapSelectionSections = selectionSections;
+        if (selectionSections is { Count: > 0 }
+            && options is MemberOptions { HasCallerScope: true })
+        {
+            countMapSelectionSections = new HashSet<string>(
+                selectionSections,
+                StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.Callers
+            };
+        }
+        var countMapSections = singleTypeMode
+            ? OutputFormatter.ResolveCountMapSections(
+                memberPipeline, countMapSelectionSections, fixedOverview: false)
+            : OutputFormatter.ResolveCountMapSections(
+                typePipeline, countMapSelectionSections, fixedOverview: false);
         if (options.Discover == null && options.Count && !selectionValidationDeferred
-            && !CountOutput.ValidateSingleSection(selectionSections))
+            && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
+                || !CountOutput.ValidateMapFormat(
+                    options.Format, countMapSections, options.Tree, options.EmbeddedMermaid)))
+        {
             return (null!, 1);
+        }
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (!ValidateActiveShapeCount(shapeCount))
@@ -916,10 +948,13 @@ public class ApiCommand
             return (null!, 1);
 
         if (!selectionValidationDeferred
+            && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
-        if (options is MemberOptions memberFormat && options.Discover is null)
+        if (options is MemberOptions memberFormat
+            && options.Discover is null
+            && !(options.Count && countMapSections is null))
         {
             if (!ValidateMemberGraphFormatConflict(memberFormat))
                 return (null!, 1);
@@ -1853,10 +1888,16 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
-            if (!TryReportEmptyProjection(markdown, options))
+            var projection = CountProjectionFormatter.Capture(
+                view, ApiViewContext.Default, writerOptions);
+            if (!TryReportEmptyProjection(projection.WroteAnyContent, options))
                 return 1;
-            CountOutput.WriteCountFromMarkdown(markdown);
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                ApiTypeSectionDescriptors.CreatePipeline(),
+                options.IncludeSections,
+                fixedOverview: false);
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader);
         }
         else if (options.Tabular)
         {
@@ -2065,8 +2106,8 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
-    /// nothing. Returns false when the caller should stop.
+    /// Fails a projection whose names cannot apply to the selected shape, rather than exiting 0
+    /// with an empty or partially unrelated render. Returns false when the caller should stop.
     /// </summary>
     /// <remarks>
     /// This is the gate for "a projection that matches nothing must not look like success".
@@ -2092,22 +2133,69 @@ public class ApiCommand
     /// prevent.</item>
     /// </list>
     ///
-    /// The name check is deliberately a NARROWING condition on an already-empty render, never a
-    /// pre-check. Two earlier attempts validated names up front and both produced false negatives,
-    /// because the set of legitimately projectable names is wider than any one section's schema:
+    /// The name check is normally a narrowing condition on an already-empty render. When another
+    /// selected section writes content, it also runs if the selection contains a section of the
+    /// projected kind; otherwise unrelated rows can hide an invalid projection. It remains
+    /// disabled for a cross-kind projection such as <c>-S Classes --fields NoSuchField</c>, where
+    /// fields intentionally do not constrain the selected table.
+    ///
+    /// The candidates still come from every section, not only the selection. Two earlier attempts
+    /// validated against selected-section names and produced false negatives, because the set of
+    /// legitimately projectable names is wider than any one section's schema:
     /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
     /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
-    /// that survives regardless of which section is selected. Both of those RENDER, so ordering
-    /// emptiness first puts the schema's blind spots out of reach.
+    /// that survives regardless of which section is selected. The candidates below include the
+    /// product-owned fact-table columns when API Info is selected.
     /// </remarks>
-    private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(rendered))
-            return true;
+    private static bool TryReportEmptyProjection(
+        string rendered,
+        ApiOptions options,
+        DocumentSchema? schema = null)
+        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options, schema);
 
+    private static bool ProjectionIncludesSection(
+        DocumentSchema schema,
+        string section,
+        ApiOptions options)
+    {
+        if (options.Fields is not { Length: > 0 }
+            && options.Columns is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        var sectionSchema = schema.GetSection(section);
+        return sectionSchema is not null
+            && ((options.Fields is { Length: > 0 } fields
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, fields).Resolved.Length > 0)
+                || (options.Columns is { Length: > 0 } columns
+                    && sectionSchema.ItemKind.Equals(
+                        "column", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, columns).Resolved.Length > 0));
+    }
+
+    private static bool TryReportEmptyProjection(
+        bool wroteAnyContent,
+        ApiOptions options,
+        DocumentSchema? schema = null)
+    {
         var names = options.Fields ?? options.Columns;
         if (names is not { Length: > 0 })
             return true;
+
+        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
+        schema ??= ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        if (wroteAnyContent
+            && options.IncludeSections is { Count: > 0 } sections
+            && !sections.Any(section =>
+                schema.GetSection(section)?.ItemKind.Equals(
+                    wantedKind,
+                    StringComparison.OrdinalIgnoreCase) == true))
+        {
+            return true;
+        }
 
         // Resolved by KIND across EVERY section, not against the selected sections. Two
         // independent corrections are folded in here, and dropping either one reopens a real
@@ -2124,9 +2212,17 @@ public class ApiCommand
         // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
         // unrelated section's column and silently succeed while printing nothing. `--fields` can
         // only be satisfied by a field and `--columns` only by a column.
-        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
-        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
         var candidates = new List<string>();
+        if (string.Equals(
+                wantedKind,
+                "column",
+                StringComparison.OrdinalIgnoreCase)
+            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
+        {
+            candidates.Add("Field");
+            candidates.Add("Value");
+        }
+
         foreach (var section in schema.SectionNames)
         {
             foreach (var item in schema.Discover(section) ?? [])
@@ -2271,11 +2367,17 @@ public class ApiCommand
             // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
             // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
+            SourceChecksumVerification checksumVerification =
+                SourceChecksumVerification.Unavailable;
             var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    localBytes);
                 content = NormalizePdbSourceLineEndings(
                     DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
             }
@@ -2287,6 +2389,10 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    repoBytes);
                 content = NormalizePdbSourceLineEndings(
                     DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
             }
@@ -2301,6 +2407,7 @@ public class ApiCommand
                 content = fetch.Text is null
                     ? null
                     : NormalizePdbSourceLineEndings(fetch.Text);
+                checksumVerification = fetch.ChecksumVerification;
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
@@ -2320,7 +2427,10 @@ public class ApiCommand
                 methodName,
                 methodInfo.SourceUrl ?? methodInfo.FilePath,
                 pdbPath,
-                methodInfo.SequencePointStartLines);
+                methodInfo.SequencePointStartLines,
+                methodInfo.ChecksumAlgorithm,
+                methodInfo.Checksum,
+                checksumVerification);
         }
         catch (Exception ex)
         {
@@ -2383,7 +2493,11 @@ public class ApiCommand
         string methodName,
         string sourceLocation,
         string? pdbPath,
-        IReadOnlyList<int>? visibleSequencePointStartLines = null)
+        IReadOnlyList<int>? visibleSequencePointStartLines = null,
+        string? checksumAlgorithm = null,
+        byte[]? checksum = null,
+        SourceChecksumVerification checksumVerification =
+            SourceChecksumVerification.Unavailable)
     {
         try
         {
@@ -2402,7 +2516,12 @@ public class ApiCommand
                     pdbPath,
                     MemberHasNoPdbDeclaration: true)
                 : new ResolvedMethodSource(
-                    new MethodSourceContext(sourceCode, sourceLocation),
+                    new MethodSourceContext(
+                        sourceCode,
+                        sourceLocation,
+                        checksumAlgorithm,
+                        checksum is null ? null : Convert.ToHexString(checksum),
+                        checksumVerification),
                     pdbPath);
         }
         catch (CSharpTextComplexityException)
@@ -2764,7 +2883,9 @@ public class ApiCommand
                 view,
                 GetRequestedMemberSections(type, options),
                 options is MemberOptions { MemberSourceTooComplex: true },
-                options is MemberOptions { MemberSourceCoordinatesInvalid: true });
+                options is MemberOptions { MemberSourceCoordinatesInvalid: true },
+                (options as MemberOptions)?.MethodSource,
+                options.UserVerbosity < Verbosity.Detailed);
 
         }
 
@@ -2826,27 +2947,36 @@ public class ApiCommand
 
         if (options.Count)
         {
-            // A call graph declares edge rows in its projection. Count those rows directly
-            // rather than scanning any rendered lowering, whose syntax cannot answer the
-            // row question.
-            if (options.IncludeSections is { Count: 1 } sections
-                && sections.Contains(SectionNames.CallGraph)
-                && view.MemberCode?.CallGraphRowCount is { } graphRows)
-            {
-                CountOutput.WriteCount(graphRows);
-                ApiOutputFormatter.WriteCallGraphWarning(view);
-                return 0;
-            }
-
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            var sw = new StringWriter { NewLine = "\n" };
-            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-            ApiOutputFormatter.SerializeTypeDocument(
-                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-            writer.Flush();
-            CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            var schema = GetTypeDocumentSchema(options);
+            var projection = CountProjectionFormatter.Capture(
+                writer => ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
+                writerOptions);
+            // A call graph declares directed edges as its row unit. The count formatter observes
+            // the graph as content but deliberately does not infer rows from a rendered lowering,
+            // so add the product-owned, already-windowed edge cardinality to the same projection
+            // used by scalar and multi-section reductions.
+            if (options.IncludeSections?.Contains(SectionNames.CallGraph) == true
+                && ProjectionIncludesSection(
+                    schema, SectionNames.CallGraph, options)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                projection.RecordRows(SectionNames.CallGraph, graphRows);
+            }
+            if (!TryReportEmptyProjection(
+                    projection.WroteAnyContent,
+                    options,
+                    schema))
+                return 1;
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                ApiMemberSectionPipelines.Create(options),
+                options.IncludeSections,
+                fixedOverview: false);
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -3001,7 +3131,7 @@ public class ApiCommand
             SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", null, view.MemberCode?.SourceDiffCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
@@ -3642,7 +3772,9 @@ public class ApiCommand
                     view,
                     requestedSections,
                     memberOptions.MemberSourceTooComplex,
-                    memberOptions.MemberSourceCoordinatesInvalid);
+                    memberOptions.MemberSourceCoordinatesInvalid,
+                    memberOptions.MethodSource,
+                    memberOptions.UserVerbosity < Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
@@ -3799,7 +3931,9 @@ public class ApiCommand
         TypeView view,
         IReadOnlySet<string> requestedSections,
         bool sourceTooComplex,
-        bool sourceCoordinatesInvalid)
+        bool sourceCoordinatesInvalid,
+        MethodSourceContext? source,
+        bool reviewerSized)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -3822,15 +3956,37 @@ public class ApiCommand
             return;
         }
 
-        view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-            "diff",
-            SourceTextDiffRenderer.CreateUnifiedDiff(
+        string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
                 // The unavailable note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
                 view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 SectionNames.PdbSource,
-                "Decompiled Source"));
+                "Decompiled Source",
+                reviewerSized);
+        if (source is { HasChecksumEvidence: true })
+        {
+            string location = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.SourceUrl ?? "portable-PDB source document");
+            string algorithm = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.ChecksumAlgorithm!);
+            string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.Checksum!);
+            string integrity = source.ChecksumVerification switch
+            {
+                SourceChecksumVerification.Exact =>
+                    $"PDB source document bytes match portable-PDB {algorithm} checksum {checksum}.",
+                SourceChecksumVerification.LineEndingNormalized =>
+                    $"PDB source document matches portable-PDB {algorithm} checksum {checksum} "
+                    + "after CR/LF normalization.",
+                _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
+            };
+            diff = $"# PDB source: {location}\n"
+                + $"# Integrity: {integrity}\n"
+                + diff;
+        }
+
+        view.MemberCode.SourceDiffCode = new Markout.CodeSection("diff", diff);
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
