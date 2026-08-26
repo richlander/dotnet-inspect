@@ -389,6 +389,62 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void PreparedJsonSignature_DistinguishesRawParameterNameEscapes()
+    {
+        const string literalName = @"arg\u202E";
+        const string scalarName = "arg\u202E";
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members =
+            [
+                Method("Literal", literalName),
+                Method("Scalar", scalarName),
+            ],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                type,
+                ApiArtifactJson.Type));
+        JsonElement members = document.RootElement.GetProperty("members");
+        string literalSignature =
+            members[0].GetProperty("signature").GetString()!;
+        string scalarSignature =
+            members[1].GetProperty("signature").GetString()!;
+
+        Assert.Contains(@"arg\\u202E", literalSignature);
+        Assert.Contains(@"arg\u202E", scalarSignature);
+        Assert.NotEqual(literalSignature, scalarSignature);
+        Assert.Equal(
+            "string Literal(string arg\\u202E)",
+            type.Members[0].Signature);
+
+        static ApiMember Method(string name, string parameterName)
+            => new()
+            {
+                Name = name,
+                Kind = "method",
+                Signature = $"string {name}(string {parameterName})",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "string",
+                    MemberName = name,
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = parameterName,
+                            Type = "string",
+                        },
+                    ],
+                },
+            };
+    }
+
+    [Fact]
     public void PreparedJsonSignature_DegradedFallbackRemainsVisible()
     {
         const string signature = "Legacy.Type Run(Legacy.Type value)";
@@ -422,6 +478,60 @@ public sealed class SemanticTypeOutputContainmentTests
             "Degraded",
             memberJson.GetProperty("signature_decode_status").GetString());
         Assert.Equal(signature, member.Signature);
+    }
+
+    [Fact]
+    public void PreparedJsonSignature_ModelFreeHazardsRemainDistinctAndVisible()
+    {
+        const string literal = @"Ns.Lit\u202EType";
+        const string scalar = "Ns.Lit\u202EType";
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ReturnsLiteral",
+                    Kind = "method",
+                    Signature = $"{literal} ReturnsLiteral()",
+                },
+                new ApiMember
+                {
+                    Name = "ReturnsScalar",
+                    Kind = "method",
+                    Signature = $"{scalar} ReturnsScalar()",
+                },
+            ],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                type,
+                ApiArtifactJson.Type));
+        JsonElement members = document.RootElement.GetProperty("members");
+        string literalSignature =
+            members[0].GetProperty("signature").GetString()!;
+        string scalarSignature =
+            members[1].GetProperty("signature").GetString()!;
+
+        Assert.Contains(@"Ns.Lit\\u202EType", literalSignature);
+        Assert.Contains(@"Ns.Lit\u202EType", scalarSignature);
+        Assert.NotEqual(literalSignature, scalarSignature);
+        Assert.Equal(
+            "Degraded",
+            members[0].GetProperty("signature_decode_status").GetString());
+        Assert.Equal(
+            "Degraded",
+            members[1].GetProperty("signature_decode_status").GetString());
+        Assert.Equal(
+            $"{literal} ReturnsLiteral()",
+            type.Members[0].Signature);
+        Assert.Equal(
+            $"{scalar} ReturnsScalar()",
+            type.Members[1].Signature);
     }
 
     [Fact]
@@ -523,6 +633,21 @@ public sealed class SemanticTypeOutputContainmentTests
 
         Assert.Equal(
             @"literal \\u0041",
+            restored.Documentation.Summary);
+    }
+
+    [Fact]
+    public void DocumentationPersistence_LegacyLineTokenRemainsLiteral()
+    {
+        const string json =
+            """{"documentation":{"summary":"literal \\^J"}}""";
+
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(
+            @"literal \\^J",
             restored.Documentation.Summary);
     }
 

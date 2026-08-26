@@ -212,7 +212,7 @@ public static class MetadataDeclarationQuery
                 ReturnType = declaration.ReturnType,
                 SignatureModel = declaration.ReturnType is null
                     ? null
-                    : new ApiSignature { ReturnType = declaration.ReturnType, MemberName = declaration.CSharpName },
+                    : new ApiSignature { ReturnType = declaration.ReturnType, MemberName = declaration.MetadataName },
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
                 IsReadOnly = declaration.IsReadOnly,
@@ -373,8 +373,8 @@ public static class MetadataDeclarationQuery
         var typeParameters = MethodTypeParameters(reader, typeDef, method);
         var csharpName = SanitizeIdentifier(name);
         var methodName = typeParameters.Count == 0
-            ? csharpName
-            : $"{csharpName}<{string.Join(", ", typeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>";
+            ? name
+            : $"{name}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
 
         return new MetadataMethodDeclaration(
             name,
@@ -490,7 +490,7 @@ public static class MetadataDeclarationQuery
                 ReturnAttributes = !accessors.Getter.IsNil
                     ? ReturnAttributes(reader, getter.GetParameters()).ToList()
                     : [],
-                MemberName = parameters.Count == 0 ? csharpName : "this[]",
+                MemberName = parameters.Count == 0 ? name : "this[]",
                 Parameters = parameters,
                 Accessors = accessorModels,
             },
@@ -1036,8 +1036,10 @@ public static class MetadataDeclarationQuery
     {
         var parameters = $"({string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))})";
         var returnType = declaration.Signature.ReturnType ?? "void";
-        var name = declaration.Signature.MemberName ?? declaration.MetadataName;
-        return $"{returnType} {SanitizeMemberDisplayName(name)}{parameters}";
+        var name = declaration.Signature.TypeParameters.Count == 0
+            ? declaration.CSharpName
+            : $"{declaration.CSharpName}<{string.Join(", ", declaration.Signature.TypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>";
+        return $"{returnType} {name}{parameters}";
     }
 
     static string PropertySignatureText(MetadataPropertyDeclaration declaration)

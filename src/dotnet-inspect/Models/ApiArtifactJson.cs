@@ -50,12 +50,18 @@ internal static class ApiArtifactJson
                 continue;
             }
 
+            var formatter = new CSharpFormatter();
+            string signature = formatter.FormatCompatibilityMemberSignature(
+                type,
+                member,
+                out bool renderedFromModel);
             PreparedMembers.Add(
                 member,
                 new PreparedMember(
-                    ApiOutputFormatter.FormatMemberSignature(
-                        type,
-                        member)));
+                    signature,
+                    renderedFromModel
+                        ? member.SignatureDecodeStatus
+                        : SignatureDecodeStatus.Degraded));
         }
     }
 
@@ -79,15 +85,23 @@ internal static class ApiArtifactJson
         }
 
         if (member.SignatureModel is not { } signature)
-            return false;
+        {
+            return !string.Equals(
+                member.Signature,
+                CSharpFormatter.ContainCompatibilitySignature(
+                    member.Signature!),
+                StringComparison.Ordinal);
+        }
 
         return ContainsLiteralBackslash(signature.ReturnType)
             || signature.Parameters.Any(
                 static parameter =>
-                    ContainsLiteralBackslash(parameter.Type))
+                    ContainsLiteralBackslash(parameter.Type)
+                    || ContainsLiteralBackslash(parameter.Name))
             || signature.TypeParameters.Any(
                 static parameter =>
-                    parameter.Constraints.Any(
+                    ContainsLiteralBackslash(parameter.Name)
+                    || parameter.Constraints.Any(
                         ContainsLiteralBackslash));
 
         static bool ContainsLiteralBackslash(string? value)
@@ -147,6 +161,7 @@ internal static class ApiArtifactJson
                 "extended_type",
                 "declaring_type");
             SetPreparedMemberSignature(typeInfo);
+            SetPreparedMemberDecodeStatus(typeInfo);
             SetCSharpStringLists(typeInfo, "attributes");
         }
         else if (typeInfo.Type == typeof(ApiSignature))
@@ -263,6 +278,23 @@ internal static class ApiArtifactJson
             ApiArtifactCSharpStringJsonConverter.Instance;
     }
 
+    private static void SetPreparedMemberDecodeStatus(JsonTypeInfo typeInfo)
+    {
+        JsonPropertyInfo property = typeInfo.Properties.Single(
+            property => WireNamesEqual(
+                property.Name,
+                "signature_decode_status"));
+        property.Get = value =>
+        {
+            var member = (ApiMember)value;
+            return PreparedMembers.TryGetValue(
+                member,
+                out PreparedMember? prepared)
+                    ? prepared.DecodeStatus
+                    : member.SignatureDecodeStatus;
+        };
+    }
+
     private static void SetPreparedTypeParameterConstraints(
         JsonTypeInfo typeInfo)
     {
@@ -335,7 +367,9 @@ internal static class ApiArtifactJson
         }
     }
 
-    private sealed record PreparedMember(string Signature);
+    private sealed record PreparedMember(
+        string Signature,
+        SignatureDecodeStatus? DecodeStatus);
 }
 
 /// <summary>

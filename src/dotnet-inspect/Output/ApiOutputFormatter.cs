@@ -758,8 +758,10 @@ public static class ApiOutputFormatter
             string MemberShapeText(ApiMember member) =>
                 member.Signature is not null
                     ? ApiViewText.CSharpField(
-                        CSharpFormatter.ContainCompatibilitySignature(
-                            member.Signature)).ToString()
+                        DefaultCSharpFormatter
+                            .FormatCompatibilityMemberSignature(
+                                declaringType,
+                                member)).ToString()
                     : ApiViewText.Field(
                         OperatorNames.FormatRawDisplayName(member.Name)).ToString();
         }
@@ -3193,8 +3195,10 @@ public static class ApiOutputFormatter
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
         => member.Signature is not null
             ? ApiViewText.CSharpField(
-                CSharpFormatter.ContainCompatibilitySignature(
-                    member.Signature)).ToString()
+                DefaultCSharpFormatter
+                    .FormatCompatibilityMemberSignature(
+                        type,
+                        member)).ToString()
             : ApiViewText.Field(
                 $"{MetadataTypeNameFormatter.FormatFullName(type)}."
                     + OperatorNames.FormatRawDisplayName(member.Name))

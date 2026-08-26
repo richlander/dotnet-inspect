@@ -1462,6 +1462,73 @@ public sealed class CSharpDeclarationWriterTests
             };
     }
 
+    [Fact]
+    public void StructuredOperator_DoesNotRecontainCompatibilityNames()
+    {
+        const string rawParameterName = @"arg\u202E";
+        const string containedParameterName = @"arg\\u202E";
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Holder",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            IsStatic = true,
+            Signature =
+                $@"N.Result op_Implicit(N.Holder value, string {containedParameterName} = ""line\n"")",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "N.Result",
+                MemberName = "op_Implicit",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "N.Holder",
+                    },
+                    new ApiParameter
+                    {
+                        Name = rawParameterName,
+                        Type = "string",
+                        HasDefault = true,
+                        DefaultValueText = "\"line\\n\"",
+                    },
+                ],
+            },
+        };
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+        string compatibility =
+            new CSharpFormatter()
+                .FormatCompatibilityMemberSignature(type, member);
+
+        Assert.Contains(containedParameterName, declaration);
+        Assert.DoesNotContain(@"arg\\\\u202E", declaration);
+        Assert.Contains("= \"line\\n\"", declaration);
+        Assert.StartsWith("N.Result op_Implicit(", compatibility);
+        Assert.Contains(containedParameterName, compatibility);
+        Assert.DoesNotContain(@"arg\\\\u202E", compatibility);
+        Assert.Contains("= \"line\\n\"", compatibility);
+    }
+
+    [Fact]
+    public void UnterminatedMetadataQuote_DoesNotDisableCompatibilityContainment()
+    {
+        const string signature = "N.Bad\"Name\\Path Run()";
+
+        string contained =
+            CSharpFormatter.ContainCompatibilitySignature(signature);
+
+        Assert.Contains(@"Name\\Path", contained);
+        Assert.Contains("Bad\"Name", contained);
+    }
+
     [Theory]
     // MAI-Code round-3 finding: a ')' inside a string default terminated the parameter
     // list early, so the trailing-context rule saw leftover text and declined to escape.

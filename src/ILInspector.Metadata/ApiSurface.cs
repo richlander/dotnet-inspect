@@ -100,6 +100,7 @@ public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
 
         string encoded = reader.GetString()!;
         if (VisualEncoder.TryDecode(encoded, out string? untreated)
+            && !ContainsLineTerminator(untreated)
             && string.Equals(
                 new InertString(TextPolicy.Field, untreated).ToString(),
                 encoded,
@@ -107,6 +108,12 @@ public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
             return untreated;
 
         return encoded;
+
+        static bool ContainsLineTerminator(string value)
+            => !string.Equals(
+                value,
+                value.ReplaceLineEndings(" "),
+                StringComparison.Ordinal);
     }
 
     public override void Write(
@@ -850,17 +857,22 @@ public class ApiMember
     public List<string> Attributes { get; set; } = [];
 
     /// <summary>
-    /// Display spelling of the member's type. Deliberately raw: after a JSON
-    /// round-trip <see cref="SignatureModel"/> is absent, and
-    /// <c>ApiMemberIdentity.GetCanonicalSignature</c> falls back to parsing
-    /// <see cref="Signature"/> to rebuild canonical identity — so containing it
-    /// here would make a round-tripped member's identity diverge from the same
-    /// member read live (issue #3319, found in adversarial review). Containment
-    /// for these belongs at the rendering sites, never on the transfer object.
+    /// Raw metadata spelling of the member's type. After a JSON round-trip
+    /// <see cref="SignatureModel"/> is absent, and
+    /// <c>ApiMemberIdentity.GetCanonicalSignature</c> may use this value to
+    /// rebuild identity, so containment belongs at rendering sites.
     /// </summary>
     public string? ReturnType { get; set; }
 
-    /// <inheritdoc cref="ReturnType"/>
+    /// <summary>
+    /// Legacy compatibility spelling of the member signature.
+    /// </summary>
+    /// <remarks>
+    /// This string combines raw metadata type slots, contained identifier
+    /// spellings, and rendered C# default literals. Consumers must not infer a
+    /// single provenance for the whole value: use <see cref="SignatureModel"/>
+    /// when present and treat a model-free fallback as degraded.
+    /// </remarks>
     public string? Signature { get; set; }
 
     /// <summary>

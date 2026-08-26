@@ -1054,7 +1054,13 @@ internal static class CSharpDeclarationWriter
         {
             signature = $"{EscapeTypeKeywords(member.ReturnType)} {member.Name}";
         }
-        else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
+        else if (TryRenderSignatureModel(
+            type,
+            member,
+            options,
+            methodParameters,
+            compatibilityShape: false,
+            out var modelSignature))
         {
             signature = modelSignature;
             renderedFromModel = true;
@@ -1131,13 +1137,16 @@ internal static class CSharpDeclarationWriter
             }
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);
-            signature = EscapeMemberNameInSignature(signature, member.Name);
+            if (!renderedFromModel)
+                signature = EscapeMemberNameInSignature(signature, member.Name);
         }
         else if (IsEvent(member) && !signature.StartsWith("event ", StringComparison.Ordinal))
         {
             signature = $"event {signature}";
         }
-        if (member.Kind is "property" or "field" or "event" || IsExplicitInterfaceEvent(member))
+        if (!renderedFromModel
+            && (member.Kind is "property" or "field" or "event"
+                || IsExplicitInterfaceEvent(member)))
         {
             signature = EscapeMemberNameInSignature(signature, member.Name);
         }
@@ -1804,6 +1813,13 @@ internal static class CSharpDeclarationWriter
                 continue;
             }
 
+            if (literalEnd == signature.Length
+                && signature[^1] != (signature[index] == '\'' ? '\'' : '"'))
+            {
+                index++;
+                continue;
+            }
+
             builder.Append(
                 CSharpIdentifierCore.ContainRawComposedName(
                     signature[chunkStart..index]));
@@ -1816,6 +1832,41 @@ internal static class CSharpDeclarationWriter
             CSharpIdentifierCore.ContainRawComposedName(
                 signature[chunkStart..]));
         return builder.ToString();
+    }
+
+    internal static string RenderCompatibilityMemberSignature(
+        ApiType type,
+        ApiMember member,
+        CSharpDeclarationOptions options,
+        out bool renderedFromModel)
+    {
+        if (!TryRenderSignatureModel(
+                type,
+                member,
+                options,
+                methodParameters: null,
+                compatibilityShape: true,
+                out string signature))
+        {
+            renderedFromModel = false;
+            return member.Signature is { } compatibilitySignature
+                ? ContainCompatibilitySignature(compatibilitySignature)
+                : member.ReturnType is { } returnType
+                    ? EscapeTypeKeywords(returnType)
+                    : "";
+        }
+
+        renderedFromModel = true;
+        signature = EscapeKnownIdentifiers(
+            signature,
+            type.TypeParameters
+                .Concat(member.SignatureModel?.TypeParameters ?? [])
+                .Select(parameter => parameter.Name));
+        return EscapeQualifiedKeywordSegments(
+            signature,
+            preserveQualifiedIndexerKeyword:
+                IsExplicitInterfaceProperty(member)
+                && member.SignatureModel?.MemberName == "this[]");
     }
 
     static string EscapeReservedKeywordIdentifiers(string text)
@@ -1843,6 +1894,7 @@ internal static class CSharpDeclarationWriter
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters,
+        bool compatibilityShape,
         out string signature)
     {
         signature = "";
@@ -1872,34 +1924,47 @@ internal static class CSharpDeclarationWriter
                 FormatParameter(parameter, options.IncludeSignatureAttributes)));
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type)}()";
+            signature = compatibilityShape
+                ? $"{EscapeTypeKeywords(model.ReturnType ?? "void")} {ContainMemberName(member.Name)}()"
+                : $"{FormatConstructorTypeName(type)}()";
             return true;
         }
 
         if (member.Kind == "constructor")
         {
-            signature = $"{FormatConstructorTypeName(type)}({parameters})";
+            signature = compatibilityShape
+                ? $"{EscapeTypeKeywords(model.ReturnType ?? "void")} {ContainMemberName(member.Name)}({parameters})"
+                : $"{FormatConstructorTypeName(type)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
+        if ((member.Kind is "method" or "extension-method" or "operator" or "finalizer"
+                || member.Kind == "explicit-interface-implementation"
+                    && member.Signature is not null
+                    && model.Accessors.Count == 0
+                    && !IsExplicitInterfaceProperty(member)
+                    && !IsExplicitInterfaceEvent(member)
+                    && model.MemberName is { } explicitName
+                    && explicitName.StartsWith(
+                        member.Name,
+                        StringComparison.Ordinal))
             && methodParameters is not { Count: > 0 }
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
         {
-            if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
-                return false;
-            signature = AppendMemberTypeParameterConstraints(
-                $"{EscapeTypeKeywords(returnType)} {memberName}({parameters})",
-                member,
-                model.TypeParameters);
+            signature =
+                $"{EscapeTypeKeywords(returnType)} {ContainMemberName(memberName)}({parameters})";
+            if (!compatibilityShape)
+            {
+                signature = AppendMemberTypeParameterConstraints(
+                    signature,
+                    member,
+                    model.TypeParameters);
+            }
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
             && model.ReturnType is { Length: > 0 } propertyType
-            && model.Accessors.Count > 0
-            && (member.Kind == "explicit-interface-implementation"
-                || IsOrdinaryPropertyName(member.Name)
-                    && IsOrdinaryPropertyName(model.MemberName)))
+            && model.Accessors.Count > 0)
         {
             string containedPropertyType = EscapeTypeKeywords(propertyType);
             var head = model.IsRequired
@@ -1907,33 +1972,31 @@ internal static class CSharpDeclarationWriter
                 : containedPropertyType;
             var propertyMemberName = model.MemberName == "this[]"
                 ? IsExplicitInterfaceProperty(member)
-                    ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this[{parameters}]"
+                    ? $"{ContainMemberName(member.Name[..member.Name.LastIndexOf('.')])}.this[{parameters}]"
                     : $"this[{parameters}]"
-                : string.IsNullOrWhiteSpace(model.MemberName)
-                    ? member.Name
-                    : model.MemberName!;
+                : ContainMemberName(
+                    string.IsNullOrWhiteSpace(model.MemberName)
+                        ? member.Name
+                        : model.MemberName!);
             signature = options.OmitPropertyAccessors
                 ? $"{head} {propertyMemberName}"
                 : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes)))} }}";
             return true;
         }
         if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
-            && model.ReturnType is { Length: > 0 } eventType
-            && (IsExplicitInterfaceEvent(member)
-                || IsOrdinaryPropertyName(member.Name)
-                    && IsOrdinaryPropertyName(model.MemberName)))
+            && model.ReturnType is { Length: > 0 } eventType)
         {
             var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
                 ? member.Name
                 : model.MemberName!;
             signature =
-                $"{EscapeTypeKeywords(eventType)} {eventMemberName}";
+                $"{EscapeTypeKeywords(eventType)} {ContainMemberName(eventMemberName)}";
             return true;
         }
 
-        // Keep extension projections, explicit implementations, operators, and
-        // unsupported event shapes on compatibility text until the remaining
-        // declaration-level facts are represented in ApiSignature.
+        // Legacy and degraded shapes without enough structured facts retain
+        // compatibility text. That text is an opaque fallback, not a source of
+        // trusted raw-slot/literal provenance.
         return false;
 
         static bool HasStructuredMetadataOnlyDefault(ApiParameter parameter)
@@ -1956,11 +2019,6 @@ internal static class CSharpDeclarationWriter
                 ? $"{attributePrefix}{accessor.Kind};"
                 : $"{attributePrefix}{accessor.Accessibility} {accessor.Kind};";
         }
-
-        static bool IsOrdinaryPropertyName(string? name)
-            => string.IsNullOrWhiteSpace(name)
-               || name == "this[]"
-               || !name.Contains('.', StringComparison.Ordinal);
     }
 
     static bool IsExplicitInterfaceProperty(ApiMember member)

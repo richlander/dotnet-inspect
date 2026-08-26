@@ -149,11 +149,11 @@ public sealed class MetadataDeclarationQueryTests
         var field = Assert.Single(surface.Members, member => member.Name == "event");
 
         Assert.Equal("@class", declaration.CSharpName);
-        Assert.Equal("@class", declaration.Signature.MemberName);
+        Assert.Equal("class", declaration.Signature.MemberName);
         Assert.Contains(surface.Members, member => member.Name == "class" && member.Signature!.Contains("@class", StringComparison.Ordinal));
-        Assert.Equal("@while", property.SignatureModel!.MemberName);
+        Assert.Equal("while", property.SignatureModel!.MemberName);
         Assert.Contains("@while", property.Signature);
-        Assert.Equal("@event", field.SignatureModel!.MemberName);
+        Assert.Equal("event", field.SignatureModel!.MemberName);
     }
 
     [Fact]

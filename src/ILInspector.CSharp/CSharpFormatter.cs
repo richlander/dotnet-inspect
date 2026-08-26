@@ -162,6 +162,33 @@ public sealed class CSharpFormatter
     }
 
     /// <summary>
+    /// Contains a member's legacy signature shape from structured slots when
+    /// available, without applying declaration-only rewrites such as operator
+    /// or constructor spelling.
+    /// </summary>
+    public string FormatCompatibilityMemberSignature(
+        ApiType type,
+        ApiMember member)
+        => FormatCompatibilityMemberSignature(
+            type,
+            member,
+            out _);
+
+    public string FormatCompatibilityMemberSignature(
+        ApiType type,
+        ApiMember member,
+        out bool renderedFromModel)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        return CSharpDeclarationWriter.RenderCompatibilityMemberSignature(
+            type,
+            member,
+            _declarationOptions,
+            out renderedFromModel);
+    }
+
+    /// <summary>
     /// Formats one accessor declaration head, including its return attributes
     /// and accessor-specific accessibility.
     /// </summary>
