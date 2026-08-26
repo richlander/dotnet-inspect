@@ -185,15 +185,29 @@ public static class ApiMemberIdentity
                 authorized
                     ? IntrinsicCoreLibraryForwardedRootEvidence.Authorized
                     : IntrinsicCoreLibraryForwardedRootEvidence.Rejected;
-            if (!_roots.TryAdd(root, evidence)
-                && (_roots[root]
-                        == IntrinsicCoreLibraryForwardedRootEvidence.Authorized
-                    || authorized))
+            if (_roots.TryAdd(root, evidence))
+                return;
+
+            IntrinsicCoreLibraryForwardedRootEvidence current =
+                _roots[root];
+            if (current
+                    == IntrinsicCoreLibraryForwardedRootEvidence.Malformed)
+            {
+                return;
+            }
+            if (current
+                    == IntrinsicCoreLibraryForwardedRootEvidence.Authorized
+                || authorized)
             {
                 _roots[root] =
                     IntrinsicCoreLibraryForwardedRootEvidence.Conflicting;
             }
         }
+
+        internal void RecordMalformed(
+            (string Namespace, string Name) root) =>
+            _roots[root] =
+                IntrinsicCoreLibraryForwardedRootEvidence.Malformed;
 
         internal bool Authorizes(
             (string Namespace, string Name) root)
@@ -210,6 +224,12 @@ public static class ApiMemberIdentity
                 throw new BadImageFormatException(
                     "The intrinsic core-library type has conflicting exported-root evidence.");
             }
+            if (evidence
+                == IntrinsicCoreLibraryForwardedRootEvidence.Malformed)
+            {
+                throw new BadImageFormatException(
+                    "The intrinsic core-library type has malformed exported-root evidence.");
+            }
             return evidence
                 == IntrinsicCoreLibraryForwardedRootEvidence.Authorized;
         }
@@ -220,6 +240,7 @@ public static class ApiMemberIdentity
         Rejected,
         Authorized,
         Conflicting,
+        Malformed,
     }
 
     internal sealed class MethodTypeCorrespondence
@@ -1677,14 +1698,9 @@ public static class ApiMemberIdentity
                     length = AddEncodedComponentEstimate(
                         length,
                         StructuralUtf8Length(reader, reference.Culture));
-                    int keyLength =
-                        reference.PublicKeyOrToken.IsNil
-                            ? 0
-                            : reader.GetBlobReader(
-                                reference.PublicKeyOrToken).Length;
                     length = AddEncodedComponentEstimate(
                         length,
-                        keyLength == 0 ? 0 : 16);
+                        reference.PublicKeyOrToken.IsNil ? 0 : 16);
                     break;
                 }
                 case HandleKind.ModuleReference:
@@ -2091,7 +2107,8 @@ public static class ApiMemberIdentity
                     }
                     catch (Exception ex) when (CanIgnoreMalformedRow(ex))
                     {
-                        authorized = false;
+                        forwardedRoots.RecordMalformed(rootIdentity);
+                        continue;
                     }
                     forwardedRoots.Record(rootIdentity, authorized);
                 }

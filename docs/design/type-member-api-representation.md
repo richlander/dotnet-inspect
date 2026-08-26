@@ -110,7 +110,8 @@ once per reader across signature and forwarder projection, each target method
 name is compared at most once, and each target type name is compared at most
 once per expected source segment. Raw public-key material contributes only to
 that one-time operation charge; each signature occurrence accounts for the
-normalized token that correspondence actually retains.
+normalized token that correspondence actually retains, including a non-nil
+empty full-key blob whose SHA-1-derived token is non-empty.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -122,6 +123,7 @@ identity.
 `ResolveApiMember_UntrustedTargetForwarderDoesNotAuthorizeCurrentTypeDef`,
 `ResolveApiMember_CompetingForwarderForMatchedRootFails`,
 `ResolveApiMember_MalformedForwarderForMatchedRootFails`,
+`ResolveApiMember_OnlyMalformedForwarderForMatchedRootFails`,
 `ResolveApiMember_NestedCurrentTypeDefUsesForwardedRoot`,
 `ResolveApiMember_NestedCurrentTypeDefDoesNotUseLeafForwarder`,
 `ResolveApiMember_TargetForwardersAreChargedOncePerReader`,
@@ -131,6 +133,7 @@ identity.
 `ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains`,
 `ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget`,
+`ResolveApiMember_EmptyFullAssemblyKeyCountsNormalizedTokenInStructuralBudget`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

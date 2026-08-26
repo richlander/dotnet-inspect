@@ -88,7 +88,8 @@ target type-name comparison, extension classification, forwarder projection,
 and identity materialization draws from one operation-wide work budget;
 repeated target-name and assembly-reference projections reuse their charged
 result. Raw assembly public-key material is charged once per reader; repeated
-signature occurrences account only for the normalized token they retain.
+signature occurrences account only for the normalized token they retain,
+including the token derived from a non-nil empty full key.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

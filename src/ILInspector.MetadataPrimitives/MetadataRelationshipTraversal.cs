@@ -8,7 +8,11 @@ public static class MetadataSafetyPolicy
 {
     /// <summary>
     /// Maximum encoded characters in one structural type or method key.
-    /// Gated by <c>OversizedStructuralSignature_FailsClosed</c>.
+    /// Gated by <c>OversizedStructuralSignature_FailsClosed</c>,
+    /// <c>ResolveApiMember_NestedFunctionPointerUsesCorrespondenceLength</c>,
+    /// <c>ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget</c>,
+    /// and
+    /// <c>ResolveApiMember_EmptyFullAssemblyKeyCountsNormalizedTokenInStructuralBudget</c>.
     /// </summary>
     public const int MaxStructuralSignatureChars = 1024 * 1024;
 
@@ -71,12 +75,9 @@ public static class MetadataSafetyPolicy
     /// <c>ResolveApiMember_RepeatedIdentityMaterializationFailsWithinOperationBudget</c>,
     /// <c>ResolveApiMember_TypeExtensionAttributesAreChargedOnce</c>,
     /// <c>ResolveApiMember_MethodExtensionAttributesRespectOperationBudget</c>,
-    /// <c>ResolveApiMember_NestedFunctionPointerCorrespondenceRespectsAnchorLimit</c>,
     /// <c>ResolveApiMember_DistinctNonmatchingNamesFailWithinOperationBudget</c>,
-    /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>,
-    /// <c>ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget</c>,
     /// and
-    /// <c>ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure</c>.
+    /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>
     public const int MaxCorrespondenceAnchorWorkChars =
         MaxAnchorSignatureWorkChars;

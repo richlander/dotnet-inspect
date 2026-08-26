@@ -783,7 +783,24 @@ public sealed class MethodCorrespondenceResolverTests
                 malformedForwarderMatchesRoot: true));
 
         Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
-        Assert.Contains("conflicting exported-root evidence", result.Failure);
+        Assert.Contains("malformed exported-root evidence", result.Failure);
+    }
+
+    [Fact]
+    public void ResolveApiMember_OnlyMalformedForwarderForMatchedRootFails()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: false,
+                includeMalformedForwarder: true,
+                malformedForwarderMatchesRoot: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("malformed exported-root evidence", result.Failure);
     }
 
     [Fact]
@@ -864,6 +881,24 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_EmptyFullAssemblyKeyCountsNormalizedTokenInStructuralBudget()
+    {
+        byte[] image =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 9_000,
+                publicKeyBytes: 16,
+                typeNameLength: 4,
+                reuseTypeReference: true,
+                emptyNonNilPublicKey: true);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(image, image);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("encoded-character budget", result.Failure);
     }
 
     [Fact]
@@ -2967,8 +3002,21 @@ public sealed class MethodCorrespondenceResolverTests
         int parameterCount,
         int publicKeyBytes,
         int typeNameLength,
-        bool distinctAssemblyReferences = false)
+        bool distinctAssemblyReferences = false,
+        bool reuseTypeReference = false,
+        bool emptyNonNilPublicKey = false)
     {
+        if (reuseTypeReference && distinctAssemblyReferences)
+        {
+            throw new ArgumentException(
+                "A shared TypeRef cannot use distinct assembly references.");
+        }
+        if (emptyNonNilPublicKey && publicKeyBytes != 16)
+        {
+            throw new ArgumentException(
+                "The empty full-key fixture requires its 16-byte marker.");
+        }
+
         var metadata =
             CreateSingleTypeMetadata("RepeatedGenericAssemblyScope");
         AssemblyReferenceHandle sharedAssembly = default;
@@ -2981,6 +3029,15 @@ public sealed class MethodCorrespondenceResolverTests
                 new string('a', typeNameLength - 3) + "G`1");
         var types =
             new TypeReferenceHandle[parameterCount];
+        TypeReferenceHandle sharedType = default;
+        if (reuseTypeReference)
+        {
+            sharedType =
+                metadata.AddTypeReference(
+                    sharedAssembly,
+                    typeNamespace,
+                    typeName);
+        }
         for (int i = 0; i < types.Length; i++)
         {
             AssemblyReferenceHandle assembly =
@@ -2988,10 +3045,12 @@ public sealed class MethodCorrespondenceResolverTests
                     ? AddAssemblyReference(i)
                     : sharedAssembly;
             types[i] =
-                metadata.AddTypeReference(
-                    assembly,
-                    typeNamespace,
-                    typeName);
+                reuseTypeReference
+                    ? sharedType
+                    : metadata.AddTypeReference(
+                        assembly,
+                        typeNamespace,
+                        typeName);
         }
 
         var signature = new BlobBuilder();
@@ -3014,13 +3073,33 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.GetOrAddBlob(signature),
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
-        return Serialize(metadata);
+        byte[] image = Serialize(metadata);
+        if (emptyNonNilPublicKey)
+        {
+            ReadOnlySpan<byte> encodedKey =
+                [16, .. EmptyFullKeyMarker()];
+            int offset = image.AsSpan().IndexOf(encodedKey);
+            if (offset < 0
+                || image.AsSpan(offset + 1).IndexOf(encodedKey) >= 0)
+            {
+                throw new InvalidOperationException(
+                    "The full-key marker was not unique in the fixture.");
+            }
+            image[offset] = 0;
+        }
+        return image;
 
         AssemblyReferenceHandle AddAssemblyReference(int index)
         {
-            var publicKey = new byte[publicKeyBytes];
-            publicKey[0] = 1;
-            publicKey[^1] = (byte)index;
+            byte[] publicKey =
+                emptyNonNilPublicKey
+                    ? EmptyFullKeyMarker()
+                    : new byte[publicKeyBytes];
+            if (!emptyNonNilPublicKey)
+            {
+                publicKey[0] = 1;
+                publicKey[^1] = (byte)index;
+            }
             return metadata.AddAssemblyReference(
                 metadata.GetOrAddString($"Dependency{index}"),
                 new Version(1, 0, 0, 0),
@@ -3029,6 +3108,14 @@ public sealed class MethodCorrespondenceResolverTests
                 AssemblyFlags.PublicKey,
                 default);
         }
+
+        static byte[] EmptyFullKeyMarker() =>
+        [
+            0xde, 0xad, 0xbe, 0xef,
+            0x17, 0x42, 0x99, 0xc3,
+            0x5a, 0x61, 0x78, 0x0d,
+            0x2f, 0xb4, 0x83, 0xe9,
+        ];
     }
 
     static byte[] BuildMethodComparisonNameImage(
