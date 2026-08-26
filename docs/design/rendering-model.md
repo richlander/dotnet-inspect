@@ -61,7 +61,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/exact `--out` remove that envelope |
+| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--out` remove that envelope |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 

@@ -265,8 +265,8 @@ acquired, is not omitted. Other rows continue, and any failure makes the command
 exit non-zero. Normal text frames every result with typed row identity; JSONL
 and JSON-array output retain that identity in one complete object per row.
 Plain `--json` retains its unary one-object contract and rejects multiple
-selected rows. Unary `--bare` and exact `--out` report acquisition failures as
-diagnostics with no payload envelope.
+selected rows. Unary `--bare` and unstructured `--out` report acquisition or
+transformation failures as diagnostics with no payload envelope.
 
 A printed document is the document the package shipped. Markdown conventions --
 YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
@@ -463,7 +463,7 @@ one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings; a Markdown scope exports
 that projected text. Terminal-facing output never emits a live control or bidi
 scalar from package content. Multi-item `--print --out` and multi-file or
-multi-package `--content --out` are refused unless a structured table shape
+multi-package `--content --out` are refused unless a structured JSON shape
 owns the destination; global selection cardinality is resolved before any
 selected payload is read, and a unique exact payload is read from the same
 retained package acquisition that supplied its selection metadata. Narrow it
@@ -721,23 +721,23 @@ active exception-handling regions, `Context: Callsite` shows the call-like
 operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
 document path, and `--print --bare` returns the visually encoded payload at the
-location without the normal frame or gutter. Add `--out` for exact payload
-export.
+location without the normal frame or gutter. Use `--print --out <path>` instead
+for exact payload export.
 
 ## Design discipline for future flags
 
 The stable vocabulary is:
 
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
-  single scalar count. It rejects item and line windows rather than silently
-  ignoring them.
+  single scalar count. It rejects row addresses and item/line windows rather
+  than silently ignoring them.
 - `-n N` / bare `-N` select the first N declared items per row set after
   filtering and ordering. `--head` names that direction explicitly and
-  `--tail` reverses it.
+  `--tail` reverses it when the producer can establish a truthful suffix.
 - `--rows` selects absolute stable row ranges and carries no count-only form.
 - Normal `--print` projects every selected row to one framed or structured
-  success/failure result. Unary `--bare` and exact `--out` carry no result
-  envelope. None of these modes invents printability or evaluates new
+  success/failure result. Unary `--bare` and unstructured `--out` carry no
+  result envelope. None of these modes invents printability or evaluates new
   addresses.
 - `--lines` changes the `-n` unit to rendered lines. For multi-item print the
   line window applies independently to each payload.

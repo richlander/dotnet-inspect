@@ -236,10 +236,12 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
 ```
 
 - `--count` reports rows for the selected candidate set, including zero-row
-  sections when category membership is being counted. It rejects item/range
-  and line windows. An upstream-bounded source reports the full count within
-  that candidate set and discloses the bound rather than claiming a corpus
-  total; `package search` retains a fixed default extent of 20 rows.
+  sections when category membership is being counted. It rejects row
+  addresses and item/range or line windows. An upstream-bounded source reports
+  the full count within that candidate set and discloses the bound rather than
+  claiming a corpus total; `package search` requests 20 rows per configured
+  source, deduplicates in configured-source order, and retains at most 20
+  merged rows by default.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
   within each row set after filtering and ordering.
 - `--tail` takes items from the end.
