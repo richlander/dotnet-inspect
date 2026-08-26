@@ -133,7 +133,9 @@ public abstract record PackageDependencyGroupsResult
     public sealed record NoManifest : PackageDependencyGroupsResult;
 
     public sealed record Failed(
-        Exception Error) : PackageDependencyGroupsResult;
+        Exception Error,
+        PackageManifestFailure? ManifestFailure = null) :
+        PackageDependencyGroupsResult;
 }
 
 /// <summary>
@@ -198,7 +200,11 @@ public static class PackageDependencyGroupsQuery
                     manifestBytes,
                     coordinate);
             if (facts is PackageManifestFactsResult.Failed failed)
-                return new PackageDependencyGroupsResult.Failed(failed.Error);
+            {
+                return new PackageDependencyGroupsResult.Failed(
+                    new InvalidDataException(failed.Failure.Message),
+                    failed.Failure);
+            }
 
             string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
                 ? null
