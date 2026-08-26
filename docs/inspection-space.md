@@ -691,8 +691,10 @@ body-production limits remain the visible work controls. It introduces no
 network, source, Research, Finding, Decompiler, or presentation capability.
 `AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
 product-result preservation, type and whole-assembly population behavior,
-exact-member and token selection, ambiguity, limit separation, unsupported
-bodies, malformed acquisition, and same-MVID independent-reader handling.
+exact-member, extension-member, and token selection, ambiguity, limit
+separation, unsupported bodies, seed-before-candidate failure precedence,
+malformed acquisition and metadata-neighbor isolation, and same-MVID
+independent-reader handling.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

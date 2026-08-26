@@ -64,10 +64,11 @@ body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
 Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, group-scoped PDB-mapped-or-decompiled type/member source, immutable
-package-manifest facts, and bounded package-prefix profiles. Package dependency
-selection and package-prefix profiles consume the same validated manifest-facts
-query. The profile's L2 `Packages` section owns package/dependency row grain,
+slices, seeded structural-clone retrieval, group-scoped
+PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
+and bounded package-prefix profiles. Package dependency selection and
+package-prefix profiles consume the same validated manifest-facts query. The
+profile's L2 `Packages` section owns package/dependency row grain,
 schema, projection, and visible failure or truncation evidence; `find` retains
 only request binding, acquisition authorization, diagnostics, and format
 selection. The
