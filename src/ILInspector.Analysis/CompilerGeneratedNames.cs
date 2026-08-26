@@ -10,10 +10,10 @@ namespace ILInspector.Analysis;
 public static class CompilerGeneratedNames
 {
     /// <summary>Closure environment types: <c>&lt;&gt;c__DisplayClass...</c>.</summary>
-    internal const string DisplayClassPrefix = "<>c__DisplayClass";
+    internal const string DisplayClassPrefix = GeneratedNameGrammar.DisplayClassPrefix;
 
     /// <summary>Iterator/async state-machine types: <c>&lt;...&gt;d__...</c>.</summary>
-    internal const string StateMachineInfix = ">d__";
+    internal const string StateMachineInfix = GeneratedNameGrammar.StateMachineInfix;
 
     /// <summary>
     /// The innermost segment of a type's metadata name, with any
@@ -25,8 +25,7 @@ public static class CompilerGeneratedNames
         string name = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType?.Name ?? ""
             : type.Name;
-        int nested = name.LastIndexOf('+');
-        return nested < 0 ? name : name[(nested + 1)..];
+        return GeneratedNameGrammar.LeafSegment(name);
     }
 
     /// <summary>
@@ -36,13 +35,12 @@ public static class CompilerGeneratedNames
     /// </summary>
     internal static bool IsDisplayClass(TypeRef? type)
         => type is not null
-            && LeafName(type)
-                .StartsWith(DisplayClassPrefix, StringComparison.Ordinal);
+            && GeneratedNameGrammar.IsDisplayClassLeaf(LeafName(type));
 
     /// <summary>Source-authored local-function and lambda method bodies.</summary>
     internal static bool IsLocalFunctionOrLambda(string methodName)
-        => methodName.Contains(">g__", StringComparison.Ordinal)
-            || methodName.Contains(">b__", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsLocalFunctionMethodName(methodName)
+            || GeneratedNameGrammar.IsLambdaMethodName(methodName);
 
     /// <summary>
     /// Returns the qualified display name of the immediate containing type for
@@ -101,15 +99,12 @@ public static class CompilerGeneratedNames
     }
 
     static bool IsGeneratedTypeName(string name)
-        => name.StartsWith('<')
-            || name.StartsWith("__", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsGeneratedName(name);
 
     internal static bool RequiresDeclaredOwner(
         MethodIdentity method)
         => IsLocalFunctionOrLambda(method.Name)
             || method.Name == "MoveNext"
-                && LeafName(method.DeclaringType)
-                    .Contains(
-                        StateMachineInfix,
-                        StringComparison.Ordinal);
+                && GeneratedNameGrammar.IsStateMachineLeaf(
+                    LeafName(method.DeclaringType));
 }
