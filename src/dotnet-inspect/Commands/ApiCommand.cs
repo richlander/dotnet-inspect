@@ -4300,7 +4300,7 @@ public class ApiCommand
         if (options is MemberOptions
             {
                 MemberSectionsPreResolved: true,
-                IncludeSections: { } authoritativeSections
+                ExactIncludeSections: { } authoritativeSections
             })
         {
             return authoritativeSections.Contains(SectionNames.Callers)
