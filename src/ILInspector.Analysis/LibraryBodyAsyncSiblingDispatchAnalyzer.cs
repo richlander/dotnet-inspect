@@ -26,13 +26,7 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
             MetadataReader DefiningReader,
             TypeDefinitionHandle Definition)?>
         resolveExternalTypeDefinition,
-    Func<
-        MetadataReader,
-        TypeDefinitionHandle,
-        IReadOnlyDictionary<
-            string,
-            ImmutableArray<MethodDefinitionHandle>>>
-        asyncSiblingMethodsByName,
+    LibraryBodyAsyncSiblingMethodIndex methodIndex,
     Func<MetadataReader, MethodDefinition, bool> hasGenericConstraints)
 {
     readonly MetadataReader _reader = reader;
@@ -45,14 +39,8 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
             TypeDefinitionHandle Definition)?>
         _resolveExternalTypeDefinition =
             resolveExternalTypeDefinition;
-    readonly Func<
-        MetadataReader,
-        TypeDefinitionHandle,
-        IReadOnlyDictionary<
-            string,
-            ImmutableArray<MethodDefinitionHandle>>>
-        _asyncSiblingMethodsByName =
-            asyncSiblingMethodsByName;
+    readonly LibraryBodyAsyncSiblingMethodIndex _methodIndex =
+        methodIndex;
     readonly Func<MetadataReader, MethodDefinition, bool>
         _hasGenericConstraints = hasGenericConstraints;
 
@@ -1434,7 +1422,7 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
         if (callee.GenericArity == 0)
             return false;
 
-        if (!_asyncSiblingMethodsByName(
+        if (!_methodIndex.MethodsByName(
                 declaringReader,
                 declaringTypeHandle)
             .TryGetValue(

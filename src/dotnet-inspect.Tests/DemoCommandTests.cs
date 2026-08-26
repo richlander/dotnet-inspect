@@ -95,11 +95,20 @@ public class DemoCommandTests
         Assert.Equal(
             [SectionNames.CallGraph, SectionNames.Callers],
             ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph));
-        // Tabular single-section path selects Callers so MemberCommand's
-        // caller-scope re-add stays one section (not Call Graph+Callers).
+        // Tabular + caller scope: Callers so MemberCommand's re-add stays one section.
         Assert.Equal(
             [SectionNames.Callers],
-            ProductDemoSections.ExpandRunSections(ProductDemoSections.CallGraph, singleSectionFormat: true));
+            ProductDemoSections.ExpandRunSections(
+                ProductDemoSections.CallGraph,
+                singleSectionFormat: true,
+                hasCallerScope: true));
+        // Tabular without caller scope: Call Graph (no re-add; empty Callers would ship silence).
+        Assert.Equal(
+            [SectionNames.CallGraph],
+            ProductDemoSections.ExpandRunSections(
+                ProductDemoSections.CallGraph,
+                singleSectionFormat: true,
+                hasCallerScope: false));
         Assert.Equal(
             [SectionNames.Methods],
             ProductDemoSections.ExpandRunSections(ProductDemoSections.Methods));
@@ -144,6 +153,46 @@ public class DemoCommandTests
             member.IncludeSections);
         Assert.Contains("Microsoft.Extensions.Logging@10.0.0", member.CallerScopePackages);
         Assert.Contains("Microsoft.Extensions.Http@10.0.0", member.CallerScopePackages);
+    }
+
+    [Fact]
+    public void Runner_LowersSinglePackageCallGraphWithoutCallerPackages()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        Assert.True(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Mermaid, noHeader: false, out var options, out var error),
+            error);
+        var member = Assert.IsType<MemberOptions>(options);
+        Assert.Equal("System.Text.Json.JsonSerializer", member.TypeName);
+        Assert.Equal("System.Text.Json@10.0.0", member.PackagePath);
+        Assert.Equal("1dc14dd1fb", member.MemberDigest);
+        Assert.Contains("Serialize", member.MemberFilter);
+        Assert.True(member.MermaidOutput);
+        Assert.Empty(member.CallerScopePackages);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
+            member.IncludeSections);
+    }
+
+    [Fact]
+    public void Runner_SinglePackageCallGraph_Table_UsesCallGraphSection()
+    {
+        var resolved = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        Assert.True(
+            DemoScenarioRunner.TryCreateOptions(
+                resolved, OutputFormat.Table, noHeader: false, out var options, out var error),
+            error);
+        var member = Assert.IsType<MemberOptions>(options);
+        Assert.Empty(member.CallerScopePackages);
+        // Call Graph alone: no caller-scope re-add, so tabular keeps the graph.
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.CallGraph },
+            member.IncludeSections);
+        Assert.Equal([SectionNames.CallGraph], Assert.IsType<string[]>(member.Select));
+        Assert.True(member.Tabular);
     }
 
     [Fact]
@@ -384,6 +433,53 @@ public class DemoCommandTests
         Assert.Contains("Caller", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Return Type", output, StringComparison.Ordinal);
         Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_EveryCallGraphDemo_Mermaid_EmitsNonEmptyGraph()
+    {
+        foreach (var entry in ProductInspectionDemos.Entries)
+        {
+            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
+            if (!string.Equals(
+                    resolved.View?.Section,
+                    ProductDemoSections.CallGraph,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var (exitCode, output, error) = await RunCliAsync("demo", entry.Id, "--mermaid");
+            Assert.True(exitCode == 0, $"{entry.Id}: {error}\n{output}");
+            Assert.Contains("graph TD", output, StringComparison.Ordinal);
+            Assert.True(
+                output.Length > 80,
+                $"{entry.Id}: mermaid output too short ({output.Length} bytes).");
+        }
+    }
+
+    [Fact]
+    public async Task Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows()
+    {
+        foreach (var entry in ProductInspectionDemos.Entries)
+        {
+            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
+            if (!string.Equals(
+                    resolved.View?.Section,
+                    ProductDemoSections.CallGraph,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var (exitCode, output, error) = await RunCliAsync("demo", entry.Id, "--table");
+            Assert.True(exitCode == 0, $"{entry.Id}: {error}\n{output}");
+            Assert.False(
+                string.IsNullOrWhiteSpace(output),
+                $"{entry.Id}: tabular Call Graph demo produced empty stdout.");
+            // Must not fall through to the member inventory Kind/Name table.
+            Assert.DoesNotContain("Return Type", output, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
