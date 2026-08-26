@@ -296,13 +296,34 @@ AddressedIlOrigin
   MethodAddress          physical evidence MethodDef
   IlOffset               instruction boundary in that MethodDef
 
+ResearchEvidenceLocation
+  Method(MetadataMethodAddress)
+                         method-qualified evidence with no instruction target
+  Instruction(AddressedIlOrigin)
+                         method-qualified physical instruction evidence
+
 IrNode.Provenance        AddressedIlOrigin*
-AddressedAnnotation      AddressedIlOrigin + annotation payload
+AddressedAnnotation      ResearchEvidenceLocation + annotation payload
 AnnotationAnchor         AddressedIlOrigin + printed range
-FactIdentity             subject + fact kind + AddressedIlOrigin
-FactRow                  EvidenceMethodAddress + ILOffset + fact fields
+FactIdentity             subject + fact kind + semantic origin
+                       + ResearchEvidenceLocation
+FactRow                  EvidenceMethodAddress + nullable ILOffset
+                       + AnnotatedSourceFactOrigin + fact fields
 SourceLine               AddressedIlOrigin? + text + line kind
 BoundSourceLine          AddressedIlOrigin? + target line + annotations
+
+FactRowProjectionResult
+  Complete(IReadOnlyList<FactRow>)
+  Failed(FactRowProjectionFailure, Diagnostics)
+
+FactRowProjectionFailure
+  Address(MetadataBodyAddressFailure)
+  Classification
+  Bodyless
+  Import
+  Stage(ClassicAsyncStageState)
+  Render
+  Evidence
 
 IrFunctionSnapshot
   FunctionTree
@@ -667,7 +688,11 @@ no physical instruction has no origin rather than borrowing one.
 the current physical host; it is unavailable for a cross-method node.
 `PrintedBodyMap` replaces its offset-only `provenanceOffsetAllowList` with an
 address-to-instruction-boundaries map and validates every node origin against
-the corresponding physical body.
+the corresponding physical body. Node origins are always instruction-level and
+remain unconditionally boundary-validated. For annotation and fact locations,
+boundary validation applies only to `ResearchEvidenceLocation.Instruction`; a
+method-only evidence location enters the evidence-method table but has no
+instruction boundary or instruction-derived printed range.
 
 The IL stream is addressed too.
 `IlProjection.RenderIlBodyLines(MetadataSource, MetadataMethodAddress)` returns
@@ -683,7 +708,10 @@ typed visible failure: failed `DecompilerResult` for Annotated Source and
 overlays, and `SourceDocumentFailure` with no document for Source Document.
 Neither may use the current final-line fallback.
 `FactsByOrigin` replaces `FactsByOffset` and keys on the full
-`AddressedIlOrigin`.
+`ResearchEvidenceLocation`. Instruction locations from different MethodDefs or
+offsets cannot cross-associate. Method-only body and member-header facts remain
+distinct through their semantic origin and intentionally attach to no printed
+range.
 
 Support-method acknowledgment is part of that same decision path, not a
 pre-decision normalization. Import constructs
@@ -907,40 +935,74 @@ projection:
   line mapping all render clones through `PreparedStageBody`. No
   Research renderer invokes `CSharpPrinter`, pass execution, or classic
   reconstruction directly. `AddressFailed` maps to each request's typed
-  visible resolution failure with no document, overlay, or rows.
+  visible resolution failure with no document or overlay and to
+  `FactRowProjectionResult.Failed(Address(Failure), Diagnostics)` when rows
+  were requested.
   `ClassificationFailed` maps to each
-  request's typed visible failure with no document, overlay, or rows; it
-  never falls back to an unclassified declaration. `Bodyless` produces
+  request's typed visible failure with no document or overlay and to
+  `FactRowProjectionResult.Failed(Classification, Diagnostics)` when rows were
+  requested; it never falls back to an unclassified declaration. `Bodyless`
+  produces
   each request's typed visible absence result carrying the DEC0002
   `ContextUnavailable` "has no IL body" diagnostic, intentionally
   replacing today's Research throw/N/A paths. Requested Annotated Source,
   Cost Overlay, and Semantics Overlay receive their failed result, Source
   Document receives `SourceDocumentFailure` with no document, and a Fact
-  Row request remains an explicit Research failure rather than an empty row
-  set.
+  Row request receives `FactRowProjectionResult.Failed(Bodyless, DEC0002)`
+  rather than an exception or empty row set.
+  `ResearchViews.MemberProjectionResult.Facts` and
+  `MemberCodeProvider.Item.Facts` change from nullable row lists to nullable
+  `FactRowProjectionResult`; `ResearchViews.CollectFactRows` returns the same
+  union instead of throwing. Null means the projection was not requested,
+  `Complete` may contain zero rows, and `Failed` is requested work that did not
+  produce a census. Address, classification, import, stage, render, and
+  evidence failures retain their typed source result and diagnostics in the
+  corresponding `FactRowProjectionFailure`. Research queries, structured
+  serialization, and CLI rendering consume that union directly: they render
+  rows only from `Complete`, render the visible diagnostic from `Failed`, and
+  neither rethrow an expected projection failure nor translate it to null or
+  empty success.
   For an imported body, `ResearchFactContext` receives the declaration
   address plus the distinct physical body-evidence addresses and
   `EvidenceMap`; fact producers query each evidence MethodDef rather than
   assuming `ImportedFunction.MetadataToken`. Producers emit
-  `AddressedAnnotation`; `AnnotationAnchor`, `FactIdentity`, and `FactRow`
-  retain that full address and attach a fact only to a printed range with the
-  same `AddressedIlOrigin`. A reconstructed kickoff therefore acquires
+  `AddressedAnnotation`; `FactIdentity` and `FactRow` retain the complete
+  `ResearchEvidenceLocation` plus semantic Body or MemberHeader origin.
+  `AnnotationAnchor` exists only for an instruction location and attaches a
+  fact only to a printed range with the same `AddressedIlOrigin`. A
+  reconstructed kickoff therefore acquires
   user-body call/allocation facts from `MoveNext`, while same-valued offsets in
-  the kickoff cannot claim them.
+  the kickoff cannot claim them. An unanchored body fact becomes
+  `Method(EvidenceMethodAddress)` with semantic Body origin; a member-header
+  fact uses the same method-only location with semantic MemberHeader origin.
+  Both remain in facts and rows with null `ILOffset` and never invent `-1` as
+  an instruction coordinate. Product anchoring invents no target for either
+  method-only variant. The document model continues to accept an explicitly
+  supplied Body-fact target to an offset-free C# node, but that target carries
+  no instruction-derived range; MemberHeader remains target-ineligible.
+  A method-only `FactRow.CSharpLine` is null; the current negative-offset
+  `AnnotationAnchor.Best` first-line fallback is removed.
+  `FactRow.Anchor` and its structured/CLI column derive from
+  `AnnotatedSourceFactOrigin` plus location presence, never from offset sign
+  alone, so an unanchored Body fact is not mislabeled as MemberHeader.
   `AnnotatedSourceDocument` increments its schema and carries an
   evidence-method table (address plus `PhysicalBodyFingerprint`) and
   address-qualified node origins. Its top-level `Source` remains the
   declaration host.
   Single-method documents may retain the existing compact local-range
-  encoding, but readers normalize both encodings to `AddressedIlOrigin`;
-  cross-method documents never imply that a bare offset belongs to the
-  declaration host. Construction and strict deserialization require the table
-  to equal the exact set containing `Source` plus every distinct method address
-  referenced by node, annotation, fact, target, IL-line, and printed-range origins;
-  every reference must resolve to its table entry, and every entry must be
-  used by `Source` or an origin. Product
-  construction additionally validates each physical fingerprint and
-  instruction boundary against the acquired physical body; strict
+  encoding, but readers normalize both encodings to
+  `ResearchEvidenceLocation`: a compact `-1` fact becomes `Method(Source)` with
+  its recorded semantic origin, while a non-negative bare offset becomes
+  `Instruction(AddressedIlOrigin(Source, Offset))`. Cross-method documents
+  never imply that a bare offset belongs to the declaration host. Construction
+  and strict deserialization require the table to equal the exact set
+  containing `Source` plus every distinct method address referenced by node,
+  annotation, fact, target, IL-line, and printed-range locations. Every
+  reference must resolve to its table entry, and every entry must be used by
+  `Source` or a location. Product
+  construction additionally validates each physical fingerprint against the
+  acquired physical body and validates an instruction boundary only for an
+  `Instruction(AddressedIlOrigin)` location; strict
   deserialization validates the closed serialized graph without claiming
   external reacquisition.
   Omitting a `MoveNext` entry is therefore invalid rather than a way to regain
@@ -1034,9 +1096,13 @@ PhysicalCSharpBodyPreparationResult
 
 PhysicalCSharpBodyPreparation
   Address
-  ComparisonFingerprint
+  RenderEquivalenceKeyResult
   Materialize()          Prepared(PhysicalCSharpBodyDocument)
                        | Failed(Diagnostics, DecompilationFidelity.Failed)
+
+RenderEquivalenceKeyResult
+  Available(RenderEquivalenceKey)
+  Unavailable(UnprovenRenderInput, Detail)
 ```
 
 Only successful lazy materialization carries:
@@ -1044,7 +1110,7 @@ Only successful lazy materialization carries:
 ```text
 PhysicalCSharpBodyDocument
   Address
-  ComparisonFingerprint
+  RenderEquivalenceKeyResult
   PhysicalBodyFingerprint
   Lines
   AnnotatedSourceDocument
@@ -1057,33 +1123,52 @@ PhysicalProjectionProof
 ```
 
 Its constructor is not public; only that factory can mint the wrapper after
-validating its exact address, both fingerprint currencies, local-origin
-document, fidelity, local classic outcome, and physical-projection provenance.
+validating its exact address, render-equivalence result, physical fingerprint,
+local-origin document, fidelity, local classic outcome, and
+physical-projection provenance.
 `CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` /
 `CSharpBodyDiff.CompareMethodIndexes`, and `CSharpBodyDiff.Canonicalize` (as
 called by `CSharpFindings.Inspect`) all consume that total result. Method
 indexes carry identity and selection facts only.
 
-The two fingerprints are different currencies and are never substituted:
+The render-equivalence key and physical fingerprint are different currencies
+and are never substituted:
 
-- `ComparisonFingerprint` is the existing token-resolved render-equivalence
-  key. It covers method and implementation attributes, resolved signature and
-  local-signature identities, max stack, init-locals state, decoded
-  instructions, resolved user strings and entity operands, and exception
-  regions. Only line-diff operations whose result does not expose per-side
-  line inspections may use equality to return no diff without calling
-  `Materialize`.
+- `RenderEquivalenceKey` evolves the existing token-resolved comparison hash
+  into a complete fingerprint of every effective input that can change this
+  physical import and render. It covers method and implementation attributes;
+  max stack and init-locals state; decoded instructions; resolved user strings
+  and scope-qualified entity identities; exception regions; complete recursive
+  method, local, and `InlineSig` encodings including signature headers, calling
+  conventions, generic arity, ref kinds, custom modifiers, and function-pointer
+  conventions; effective module/type/method import policy including
+  `MemorySafetyRulesAttribute` and `SkipLocalsInit`; and the fixed physical
+  projection/printer policy version. Any dependency fact consulted by import
+  is represented by its scope-qualified identity and acquired provenance.
+- The physical path opens without symbols, fixes `SimulateNewRules = false`,
+  and fixes printer options. PDB content is therefore excluded by construction
+  rather than silently omitted. If a future caller makes any such input
+  configurable, it must enter the key before that caller may use the shortcut.
+- `Unavailable(UnprovenRenderInput, Detail)` is a healthy preparation that
+  cannot cheaply prove one of those inputs. Unsupported signature shapes,
+  unresolved or externally acquired facts without stable provenance, and any
+  other incomplete canonicalization take this arm and force materialization;
+  they never hash as equal. Malformed-body decoding remains preparation
+  `Failed`, not `Unavailable`.
+- Only line-diff operations whose result does not expose per-side line
+  inspections may use two equal `Available(RenderEquivalenceKey)` values to
+  return no diff without calling `Materialize`.
 - `PhysicalBodyFingerprint` is the exact attributes, signature bytes, and
   physical method-body bytes hash used by `AnnotatedSourceDocument.Source`,
   the evidence-method table, and same-body `IssueCorrespondence`. It never
   proves render equivalence across artifacts and never drives the
   no-materialization shortcut.
 
-`Decompile` owns body-presence detection and calculation/validation of
-`ComparisonFingerprint` before returning `Ready`; malformed bodies and
-comparison-fingerprint failures cannot escape the total result. A line-diff
-pair must short-circuit two `Ready` values with equal
-`ComparisonFingerprint` without calling `Materialize`.
+`Decompile` owns body-presence detection and construction of
+`RenderEquivalenceKeyResult` before returning `Ready`; malformed bodies cannot
+escape the total result. A line-diff pair must short-circuit two `Ready` values
+whose results are `Available` with equal keys without calling `Materialize`.
+If either result is `Unavailable`, both required sides materialize.
 `PhysicalBodyFingerprint` is still `Decompile`-owned but is computed lazily
 inside `Materialize`, before document construction, so a skipped whole-assembly
 pair pays no unused raw-body hash. Unequal line-diff bodies materialize lazily,
@@ -1092,7 +1177,7 @@ builds the document.
 
 `CSharpFindings.Inspect` always materializes its one successful preparation.
 `CSharpFindings.Compare` materializes both successful preparations even when
-their comparison fingerprints are equal because
+their render-equivalence keys are available and equal because
 `FindingComparison.Complete` exposes both inspections, atoms, matches, and
 pairs. It must not fabricate an empty complete census. Two prepared documents
 then enter the existing finding matcher. The same rule applies to
@@ -1207,14 +1292,19 @@ snapshots with stage-local applications and outcome state. Views own only
 annotation and spelling over the `PreparedStageBody.Render` result;
 the prepared stage owns whether byte-divergent lenses are legal.
 
-This applies to direct Research callers and structured source-body
-artifacts, not only the four familiar text overlays. Fact Row C#
+This applies to direct Research callers and structured source-body artifacts,
+not only the four familiar text overlays. Instruction-located Fact Row C#
 anchors use `AddressedIlOrigin`, so their physical method address and offset
 refer to the same reconstructed statement whose lines the sibling code
-artifact prints. A reconstructed kickoff retains the kickoff as declaration
-host but uses `ClassicAsyncMachine.MoveNextAddress` as its body-evidence
-address. Research fact acquisition queries that address and maps a fact only
-to a node carrying the same address-qualified origin; integer offsets from
+artifact prints. Method-only body and member-header facts keep their
+`ResearchEvidenceLocation.Method`. Product anchoring invents no target, while
+the document model may preserve an explicitly supplied Body-fact target to an
+offset-free C# node; MemberHeader remains target-ineligible, and neither
+variant gains an instruction-derived range. A reconstructed kickoff retains
+the kickoff as declaration host but uses
+`ClassicAsyncMachine.MoveNextAddress` as its body-evidence address. Research
+fact acquisition queries that address and maps an instruction fact only to a
+node carrying the same address-qualified origin; integer offsets from
 different methods can never collide. It does not apply to physical-body
 evidence whose identity contract forbids companion-body import.
 
@@ -1556,7 +1646,7 @@ Decompiler-owned relationship resolver while waiting for them.
 
 | Slice | Claim | Residual after it |
 | --- | --- | --- |
-| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep address, classification, relationship, `Bodyless`, import, stage, and render states distinct, and normalize bodyless CLI/Research failure to DEC0002. Plan one exact-host `ClassicAsyncDecision` on a private canonical clone, then materialize separate applications in the unchanged Raised and Lowered pipelines; keep support acknowledgment local, exact, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Carry per-node, per-IL-line, and per-fact address-qualified Research origins while keeping physical C# evidence seam-free. Keep token-resolved comparison fingerprints separate from exact physical provenance and preserve Findings censuses. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Address, bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and Research-layer Implementation Diff lifecycle remain unchanged; the Decompiler physical chokepoint mints its wrapper internally, and no comparison operation/result enters reconstruction. |
+| 0. Honesty | Add the disjoint guarded runtime/classic/iterator classifier and carry complete `AsyncClassification` through every top-level and foreign import. Resolve body requests through `MetadataBodyProjector` and consume #4669 structural relationships through the thin companion adapter; keep address, classification, relationship, `Bodyless`, import, stage, and render states distinct, and normalize bodyless CLI/Research failure to DEC0002. Plan one exact-host `ClassicAsyncDecision` on a private canonical clone, then materialize separate applications in the unchanged Raised and Lowered pipelines; keep support acknowledgment local, exact, and no-edit. Reset the directive for every foreign pipeline and use one nested embedding policy. Carry method-qualified instruction and unanchored Research evidence while keeping physical C# evidence seam-free. Use fail-closed render-equivalence keys separate from exact physical provenance, preserve Findings censuses, and make Fact Row requests total. Mark every healthy classic decline, preserve non-narrow statements, correlate Debug class allocation and async-void return, leave legacy raise eligibility unchanged, and stop hollowing exact support MethodDefs. | #4472 remains declined but honest. Debug class and custom-builder methods remain unraised. Support MethodDefs remain physical. Address, bodyless, classification-failure, and relationship-failure behavior stays explicit. Lowered Research retains interleaved IL and suppresses cataloged byte-divergent lenses. Unsafe async local/lambda/iterator embedding stays lowered. Runtime-async recovery and Research-layer Implementation Diff lifecycle remain unchanged; the Decompiler physical chokepoint mints its wrapper internally, and no comparison operation/result enters reconstruction. |
 | 1. Void-await then statements then return | Accept `await Task.Yield(); return ReadValue(value);` as the first inverse raise from `AwaitPoints` + `UserRegions`, not as a new `TryBuild*` and not as a `HasUnexpectedStore` allow-list tweak. Must consume void `GetResult` as a statement, following statements, a non-await `SetResult` operand, the Yield operand temp, and an explicit `LoadLocalAddress` decline-then-remap. Hoisted parameter binding is already present. The smaller `await Task.Yield();` (no later statements) is the accepted boundary of the same slice. Blocked until the Correct measurement exists. | General multi-state dispatch, class SM, custom awaiters, broader state-dispatch descriptor, census-defined raises. |
 
 ### Nested embedding fixture family (slice 0)
@@ -1670,7 +1760,7 @@ Decompiler-owned relationship resolver while waiting for them.
 | Nested lambda/local-function embedding disposition | Decompiler `NestedFunctionEmbeddingPolicy` |
 | Public typed-body and whole-type carriers | Decompiler `MemberBodyProductionResult` and internal `DecompiledBodyProjection` |
 | Research source presentation | Research over Decompiler-prepared clones |
-| Address-qualified body evidence, IL lines, and fact mapping | Decompiler `AddressedIlOrigin` / `SourceLine` / `BoundSourceLine` + Research `ResearchFactContext` |
+| Method-qualified body evidence, IL lines, fact mapping, and Fact Row result | Decompiler `AddressedIlOrigin` / `SourceLine` / `BoundSourceLine` + Research `ResearchEvidenceLocation` / `ResearchFactContext` / `FactRowProjectionResult` |
 | Physical C# async behavior, fingerprint domains, fidelity, and local acknowledgment | Decompiler `CSharpBodyDiff`, `PhysicalCSharpBodyPreparation`, and `PhysicalCSharpBodyDocument` over independently selected exact MethodDefs |
 | Optional cross-version endpoint, participant, correspondence, work-item, mechanism, population, budget, completion, and result lifecycle | Independent [Implementation Diff](implementation-diff.md) consumer |
 | CLI presentation | CLI |
@@ -1695,7 +1785,7 @@ gate ordinary reconstruction.
 | Canonical front-door architecture | `MetadataAddressedBodyProjectionUsesCanonicalFrontDoor` | A declared-source consumer emits a body or runs a top-level pass outside `MetadataBodyProjector` / `PreparedStageBody`, except the named physical and diagnostic seams |
 | Classification and body-status ownership | `DeclaredSourceAsyncClassificationUsesProjector` + `DeclaredSourceBodyStatusUsesProjector` | A consumer classifies, catches decode failure, checks RVA/`HasBody`, filters abstract members, or derives a body modifier outside the projector |
 | Resolved-address projection parity | Metadata resolver + Decompiler projector | Requests resolving to the same MethodDef produce different classification, lifecycle state, outcome, render, or diagnostic |
-| Resolved bodyless lifecycle | Decompiler + CLI + Research + typed/whole-member/type + Body Shape | `Bodyless` becomes import/stage failure; `MemberCodeProvider` retains DEC0001; Research throws or returns N/A instead of the adopted DEC0002/`ContextUnavailable` result; it emits a body/marker/modifier, loses its existing absence signal, or counts as inspected |
+| Resolved bodyless lifecycle | Decompiler + CLI + Research + typed/whole-member/type + Body Shape | `Bodyless` becomes import/stage failure; `MemberCodeProvider` retains DEC0001; Research throws, returns N/A, or returns null/empty Fact Rows instead of the adopted DEC0002/`ContextUnavailable` failure; it emits a body/marker/modifier, loses its existing absence signal, or counts as inspected |
 | Resolved classification-failure lifecycle | Decompiler + CLI + Research + typed/whole-member/type + Body Shape | Failure loses `DEC0015`, runs body/import work, emits plausible output, or differs for concrete, abstract, method, or accessor cases |
 | Import observation totality | Decompiler projector | A non-null function is not `Imported`, frozen import diagnostics change, DEC0001 is inferred late, or null import has a stage |
 | Importer-crash preservation | Existing importer-crash surfaces + projector | The marker/DEC0001 disappears, the stage gains a classic outcome, or metadata `async` is lost |
@@ -1712,17 +1802,18 @@ gate ordinary reconstruction.
 | Nested embedding honesty | Runtime, classic, iterator, modifier-fallback, and importer-crash local/lambda fixtures + `NestedFunctionEmbeddingUsesSharedPolicy` | A foreign body needing async syntax or carrying unsupported output is embedded; classic nesting widens the accepted raise set; or lambda/local-function rules diverge |
 | Prepared/canonical pipeline parity | `PipelineStageTests.DumpMethod_FinalCSharp_IsTheShippedProductOutput` | Prepared Raised output/outcome differs from the terminal seam-enabled stage |
 | Raised/Lowered Research contract | Catalog-derived byte-divergent style specimens in both request orders | Lowered observes a divergent option or loses IL; Raised changes output without a typed decision; either result depends on request order; or altitude is caller-relabelled |
-| Addressed provenance transport | Decompiler node/annotation/anchor/`SourceLine`/`BoundSourceLine` + Research fact identity/row + `PrintedBodyMap` | Any cross-method node, annotation, anchor, IL line, bound line, fact identity, row, or serialized origin loses its method address; the evidence-method table is not the exact used-address set; an origin references a missing/wrong-fingerprint entry; the offset-only compatibility projection is used for a cross-method value; or validation checks an offset against the wrong body's instruction boundaries |
-| Reconstructed Research evidence | Research call/allocation and interleaved-IL fixtures whose user operations exist only in `MoveNext` + structured-output round trip | A reconstructed kickoff queries facts or IL only by its declaration token; loses the `MoveNextAddress`; reanchors companion offsets to the kickoff; `FactsByOffset` survives; equal offsets with distinct opcodes/facts cross-associate; an unmatched evidence method falls back to a nearby/final line instead of typed failure; or the evidence-method table/addressed origins are lost in structured output |
+| Method-qualified provenance transport | Decompiler node/annotation/anchor/`SourceLine`/`BoundSourceLine` + Research fact identity/row + `PrintedBodyMap` + existing `FactWithNothingToAnchorToSimplyHasNoTarget`, `MemberHeaderFactsCarryHeaderOriginAndTargetNothing`, and `AnnotatedSourceDocumentRejectsFalseTargetClaims` fixtures | Any cross-method node, annotation, anchor, IL line, bound line, fact identity, row, or serialized location loses its method address; Body versus MemberHeader origin or visible Anchor label collapses; compact `-1` becomes an instruction coordinate; a method-only fact is dropped or boundary-validated; product anchoring invents a method-only target/range; an explicit Body-fact target to an offset-free node is rejected or gains an instruction range; a MemberHeader fact becomes target-eligible; an instruction location avoids boundary validation; the evidence-method table is not the exact used-address set; a location references a missing/wrong-fingerprint entry; the offset-only compatibility projection is used for a cross-method value; or validation checks an offset against the wrong body |
+| Fact Row projection totality | FactRows-only bodyless/address/classification/import/stage/render/evidence fixtures plus body-bearing zero-fact and method-only-fact fixtures through `ProjectMember`, `CollectFactRows`, `MemberCodeProvider`, query, structured serialization, and CLI | A requested failure throws, becomes null, N/A, or empty `Complete`; a typed failure or diagnostic is lost; an unrequested projection is non-null; a legitimate empty census is not `Complete`; a method-only row acquires a C# line; or a consumer renders rows from `Failed` |
+| Reconstructed Research evidence | Research call/allocation and interleaved-IL fixtures whose user operations exist only in `MoveNext` + structured-output round trip | A reconstructed kickoff queries facts or IL only by its declaration token; loses the `MoveNextAddress`; reanchors companion offsets to the kickoff; `FactsByOffset` survives; equal instruction offsets with distinct methods/opcodes/facts cross-associate; product anchoring invents a method-only target; an unmatched evidence method falls back to a nearby/final line instead of typed failure; or the evidence-method table/qualified locations are lost in structured output |
 | Same-body structural admission | Strict document round trip + `IssueCorrespondence` physical-provenance fixtures + non-vacuity rejection test | Construction/deserialization accepts a missing or unused evidence-method entry; either valid document's table is not a singleton equal to `Source`; source address/physical fingerprint differs across documents; a reconstructed kickoff reaches node matching; or unsupported evidence is presented as trusted correspondence |
 | Honesty marker and fidelity cause | Five CLI code views + public typed body + whole-type + Fidelity Causes | A declined classic body lacks its unsupported marker or DEC0004 |
 | Non-narrow preservation | CLI + typed/whole-type over extra call/store fixtures | Any original statement disappears |
 | Declaration modifier by stage-local state | CLI + typed/whole-member/type | Declined classic retains `async`, reconstructed classic omits it, runtime async loses it, or post-classic failure changes the retained decision's modifier |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape | Lifecycle states collapse, failures acquire success-shaped outcomes, or inspection accounting changes |
 | Exact legacy raise population | Existing accepted fixtures + close negatives | Slice 0 widens accepted reconstruction or a new eligibility path escapes set equality |
-| Physical fingerprint separation | Existing `CompareAssemblies_TokenTargetChangeIsNotSkippedByFastPath` + token-renumbering equality fixture + physical-provenance fingerprint tests | A raw physical fingerprint drives a render-equivalence skip; comparison fingerprinting fails to resolve a string, entity, signature, local, or exception-region dependency; token renumbering alone forces line-diff rendering; a changed token target is skipped; or a comparison fingerprint enters `Source`, the evidence-method table, or same-body admission |
-| Findings census preservation | Equal-comparison-fingerprint `CSharpFindings.Compare` / assembly / method-index fixtures with non-empty bodies | Either successful side is not materialized and inspected; `OldAtoms`, `NewAtoms`, matches, or pairs are fabricated empty; either side's atoms differ from standalone `Inspect`; or the comparison is not complete |
-| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures + source-architecture inventory + equal-comparison-fingerprint line-diff render-count spy | `CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` / `CompareMethodIndexes`, or `CSharpBodyDiff.Canonicalize` via `CSharpFindings.Inspect` bypasses the total `Decompile` chokepoint; body detection or either fingerprint happens outside it; a skipped line-diff pair computes the physical fingerprint or materializes either body; Findings suppresses required materialization; `Absent` or either `Failed` phase fabricates a document, loses its typed failure row, or changes its existing fidelity; physical proof loses fidelity or local acknowledgment; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
+| Render-equivalence proof | Existing `CompareAssemblies_TokenTargetChangeIsNotSkippedByFastPath` + token-renumbering equality + module-memory-policy-only + full-signature-header/custom-modifier/function-pointer-convention/ref-kind fixtures + physical-provenance fingerprint fixtures | A raw physical fingerprint drives a render-equivalence skip; an effective import/render input is omitted; a changed token target, policy, or signature semantic skips rendering; token renumbering alone forces rendering; unresolved/unsupported canonicalization hashes as equal instead of `Unavailable`; an available key is produced from symbols or non-production simulation/printer options; or a render-equivalence key enters `Source`, the evidence-method table, or same-body admission |
+| Findings census preservation | Equal-available-render-key `CSharpFindings.Compare` / assembly / method-index fixtures with non-empty bodies | Either successful side is not materialized and inspected; `OldAtoms`, `NewAtoms`, matches, or pairs are fabricated empty; either side's atoms differ from standalone `Inspect`; or the comparison is not complete |
+| Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures + source-architecture inventory + equal-available-render-key line-diff render-count spy | `CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` / `CompareMethodIndexes`, or `CSharpBodyDiff.Canonicalize` via `CSharpFindings.Inspect` bypasses the total `Decompile` chokepoint; body detection, render-key construction, or physical fingerprinting happens outside it; an equal available-key line-diff pair computes the physical fingerprint or materializes either body; an unavailable key skips materialization; Findings suppresses required materialization; `Absent` or either `Failed` phase fabricates a document, loses its typed failure row, or changes its existing fidelity; physical proof loses fidelity or local acknowledgment; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
 | `DecompilerResult` value semantics | Decompiler tests | Outcome, kickoff decline disposition, support-only disposition, or support acknowledgment is omitted from equality/hash/`with` behavior |
 | Corpus A/B | `CorpusSensor` / `IrImporter.ImportAssembly` | Product and corpus policy differ, support methods are hollowed, or fidelity/coverage changes are unrecorded |
 
