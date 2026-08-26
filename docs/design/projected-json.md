@@ -7,20 +7,24 @@ JSON contracts.
 
 **Lowered** names the point where this JSON path joins Markout. The command
 builds the same Markout view used by Markdown, TSV, and JSONL. Product-owned
-section/view adapters resolve section identities and construct display values
-and stable table keys. The resolved writer plan is then passed to Markout,
-which mechanically applies its section/projection/window options while
-serializing the view. A JSON formatter receives the resulting field, table,
-list, and tree callbacks and assembles them into one JSON document. It is a
+section/view adapters resolve section identities, construct Markout inline
+values, and supply stable table keys. The resolved writer plan is then passed
+to Markout, which mechanically applies its section/projection/window options
+while serializing the view. A JSON formatter receives the resulting field,
+table, list, and tree callbacks, renders semantic inline slots with Markout's
+plain-text semantics, and assembles them into one JSON document. It is a
 sibling formatter, not a projection over the typed JSON graph and not a parser
 for rendered Markdown or table text.
 
-The current Markout formatter seam carries field values and table cells as
-display strings. The product adapters own how typed facts become those strings;
-Markout owns serialization mechanics and delivery of the lowered callbacks; the
-JSON formatter owns JSON containers, escaping, and structural loss checks. This
-string-valued seam is why lowered JSON intentionally differs from the
-pre-lowered typed JSON contract described below.
+The current Markout formatter seam carries keys and values as strings, but
+inline value slots can still contain Markout semantic markup such as
+`<code>...</code>` with XML-escaped content. Product adapters own how typed
+facts become those inline representations; Markout owns their interpretation
+and the delivery of lowered callbacks; the JSON formatter owns JSON
+containers, structural loss checks, and JSON escaping after applying Markout's
+public inline-to-plain rendering. This string-valued seam is why lowered JSON
+intentionally differs from the pre-lowered typed JSON contract described
+below.
 
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
@@ -33,7 +37,8 @@ section or route is correct.
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
 keys are still derived from display headings, labeled-array keys are discarded,
-short table rows currently omit trailing properties, and section-scoped
+short table rows currently omit trailing properties, semantic inline markup is
+written verbatim instead of normalized like JSONL, and section-scoped
 projection has not been proven over broad multi-section documents. Issue #4677
 owns the in-progress redesign of semantic item limits versus explicit
 rendered-line limits; this contract does not pre-empt that decision. These are
@@ -234,7 +239,7 @@ The distinct empty outcomes are:
 | A requested name resolves in another selected `Project` section but not this one | Omit this projected-out section. |
 | Every selected section is `Incompatible` for the projection family | Fail before rendering; stdout is empty. |
 | A valid projected name has no runtime data in its section | Emit the section's empty container and preserve the existing no-data note on stderr. |
-| No requested name resolves in any selected `Project` section | Fail before rendering; stdout is empty. |
+| At least one selected section is `Project`, but no requested name resolves in any selected `Project` section | Fail before rendering; stdout is empty. |
 | The command has an established no-result diagnostic before a document/view exists | Preserve that command contract; no JSON document is required. |
 | Selected content is unrepresentable | Fail nonzero; stdout is empty. |
 
@@ -272,11 +277,18 @@ Collision checks cover:
 
 ### Display values
 
-Every lowered leaf value is the display string Markout supplied. The formatter
-must not guess that `"yes"` is a boolean, that `"3"` is a number, or that an
-empty string is null. Display containment has already happened during
-lowering; the JSON writer escapes that string but does not decode or reinterpret
-it.
+Every lowered leaf value is a string. Inline value slots, including field
+values, table cells, list items, and tree text or badges, can arrive with
+Markout semantic inline markup. Before JSON encoding, the formatter must apply
+the same `FormatHelper.RenderInlinePlainText` semantics that JSONL uses: remove
+the semantic tags and decode their escaped text. This is Markout-owned inline
+rendering, not parsing rendered Markdown, TSV, or JSONL.
+
+Literal blob or code payload callbacks are not inline slots and retain their
+payload unchanged. After the slot-specific rendering step, the JSON writer
+escapes the resulting string but does not otherwise decode, reinterpret, or
+infer a type. It must not guess that `"yes"` is a boolean, that `"3"` is a
+number, or that an empty string is null.
 
 Typed JSON remains the path for native booleans, numbers, nulls, enums, and
 typed graph identities.
@@ -300,12 +312,13 @@ Projection is resolved after effective section selection and before lowering.
 It is never applied as one global column set to every table in a multi-section
 document.
 
-For each selected section:
+For each selected section and each active projection family:
 
 1. read that section's declared disposition for `--fields` or `--columns`;
-2. resolve requested names against the schema of every `Project` section;
+2. resolve the family's requested names against the schema of every `Project`
+   section;
 3. preserve requested-name order for names that resolve; and
-4. lower only the sections retained by the resolved projection plan.
+4. compose the family plans into one retained-section plan before lowering.
 
 Each section declares one disposition per projection family:
 
@@ -314,9 +327,9 @@ Each section declares one disposition per projection family:
 - **`PassThrough`** — the family does not address this section, but established
   format behavior keeps the section unchanged.
 - **`Incompatible`** — retaining the section would answer a different question.
-  Omit it when another selected section successfully projects; if every
-  selected section is incompatible or no requested name resolves in a
-  `Project` section, fail the request.
+  It can be omitted only when that family successfully projects another
+  selected section; a family with no `Project` section and at least one
+  `Incompatible` section cannot be answered and fails the request.
 
 The two projection families remain distinct by default:
 
@@ -334,6 +347,30 @@ Ordinary tables are `Project` for `--columns` and may be `PassThrough` for
 is omitted when `--columns` successfully projects a companion facts table, and
 a graph-only column request fails rather than emitting the unprojected graph.
 
+When both projection families are non-empty, each family must be answerable on
+its own:
+
+- a family with at least one selected `Project` section must resolve at least
+  one requested name in that family;
+- a family for which every selected section is `PassThrough` is a no-op; and
+- a family with no `Project` section and at least one `Incompatible` section
+  fails the whole request.
+
+After those checks, a section projected by any active family is retained and
+applies every family for which it is `Project`. An `Incompatible` disposition
+from another active family does not veto that section, because the section is
+answering an explicit projection that addresses its own schema. A section with
+no `Project` disposition is omitted when any active family marks it
+`Incompatible`; it remains unchanged only when every active family is
+`PassThrough`.
+
+For example, a Call Graph plus a facts table under simultaneous `--fields` and
+`--columns` retains both sections: fields project graph cues and columns
+project the table. The same combined request against a graph alone fails
+because the column family has no `Project` section. This composition preserves
+the independent meaning of both flags instead of silently discarding either
+request.
+
 Lowered tree JSON carries graph cue annotations in the resulting `text` or
 `badge` values, exactly as the display adapter produced them. It does not
 reconstruct native annotation properties from those strings. A graph lowering
@@ -347,18 +384,19 @@ accepts `--fields` as an alias for table-column projection, so
 and diagnostics. The alias is resolved by the command before the generic
 section plan and must not spread to other table commands.
 
-Across multiple `Project` sections, a requested name is valid when it resolves
-in at least one. A `Project` section with no resolved names contributes no
-projected section. `PassThrough` sections remain unchanged and do not
-participate in name matching. `Incompatible` sections follow the omit-or-fail
-rule above. A request with only `PassThrough` sections is the same no-op in
-every lowered format rather than an unmatched-name error.
+Within each active family, a requested name is valid when it resolves in at
+least one `Project` section. A `Project` section with no resolved names
+contributes no projected section for that family. `PassThrough` sections do
+not participate in name matching. `Incompatible` sections follow the
+composition rule above. A family with only `PassThrough` sections is the same
+no-op in every lowered format rather than an unmatched-name error.
 
-Partially unknown requests retain the existing diagnostic contract: known names
-render, unknown names produce warnings with discovery guidance. If no requested
-name resolves anywhere it can apply, the request fails before rendering.
-Valid names that have no data may produce a note on stderr; they are not
-reclassified as unknown.
+Partially unknown requests retain the existing diagnostic contract independently
+per family: known names render, and unknown names produce warnings with
+discovery guidance. If a family has at least one `Project` section but none of
+its requested names resolves there, the request fails before rendering. Valid
+names that have no data may produce a note on stderr; they are not reclassified
+as unknown.
 
 This partitioning is required even if the underlying Markout API still exposes
 one global `IncludeColumns` collection. An implementation may serialize
@@ -506,11 +544,12 @@ exception accidentally.
 Adopt one coherent command family at a time.
 
 1. **Harden the shared path.** Add dialect routing, section-scoped projection,
-   lens precedence, labeled-array preservation, pinned machine-key plans,
-   graph-field parity, the pinned `vocabulary --fields` alias,
-   representability preflight, transactional stdout, and integration with the
-   final #4677 limit contract around the existing `find`/`vocabulary`
-   formatter. Move or expose projection decisions at the L2 boundary.
+   combined-family composition, lens precedence, labeled-array preservation,
+   Markout inline-to-plain rendering, pinned machine-key plans, graph-field
+   parity, the pinned `vocabulary --fields` alias, representability preflight,
+   transactional stdout, and integration with the final #4677 limit contract
+   around the existing `find`/`vocabulary` formatter. Move or expose projection
+   decisions at the L2 boundary.
 2. **Audit every projection-capable route.** Prove that each accepted
    `--json --fields/--columns` request is owned by a lens/payload, rendered as
    lowered JSON, or rejected visibly. Add fail-closed routing or an explicit
@@ -556,14 +595,14 @@ implemented:
 | `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
 | `ProjectedJsonLabeledArrayTests` | Labeled-array keys, empty applicable labels, section object type, and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
-| `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections honor each section's `Project`/`PassThrough`/`Incompatible` disposition, including graph-plus-table omission and graph-only failure, and preserve requested ordering. |
+| `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections honor each section's `Project`/`PassThrough`/`Incompatible` disposition, including graph-plus-table omission, graph-only failure, and simultaneous field/column composition without discarding either family, and preserve requested ordering. |
 | `ProjectedJsonGraphFieldTests` | Requested graph/tree cue fields change lowered `text`/`badge` content exactly as in the display view; unrequested cues stay absent and unsupported graph lowerings fail visibly. |
 | `ProjectedJsonLegacyAliasTests` | Shipped `vocabulary --fields` and equivalent `--columns` requests retain decoded row and diagnostic parity without enabling that alias for other table commands. |
 | `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
-| `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior. |
+| `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, all-`PassThrough`, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior; unmatched-name failure requires at least one applicable `Project` section. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
 | `ProjectedJsonWindowingTests` | Under the final #4677 contract, semantic item/row windows happen before encoding and any rendered-line mode emits one complete JSON value or rejects with empty stdout. |
-| `ProjectedJsonFormatParityTests` | Every adopted table section has decoded key/order/value parity with JSONL from the same `-S <section>` shape, including empty-string padding for short rows. |
+| `ProjectedJsonFormatParityTests` | Every adopted table section has decoded key/order/value parity with JSONL from the same `-S <section>` shape, including Markout semantic inline values and empty-string padding for short rows. |
 | `ProjectedJsonNativeAotSmoke` | A published NativeAOT CLI executes both dialects without reflection fallback or trim/AOT warnings on the emit path. |
 
 Every adoption PR adds a command-level non-vacuity test that removes or bypasses
