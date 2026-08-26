@@ -258,13 +258,15 @@ Field semantics:
   reference slots; the query-plan owner defines each payload shape and must
   itself sit at or below the dependency boundary.
 - `view` records — named view presets whose shape this note pins (`lens`,
-  `type`, `memberAnchor` or `memberSignature`, `section`, and `library` — each
-  field individually optional; member selectors require `type`, and
-  `memberAnchor` and `memberSignature` are mutually exclusive).
-  `library` scopes the view to one or more of the context's libraries — a
-  view concern, because scoping is a lens on a context, not a different
-  context. Selection state uses portable identities: `type` is a metadata
-  type name, and members are
+  `type`, `memberAnchor` or `memberSignature`, `section`, and library scope —
+  each field individually optional; member selectors require `type`, and
+  `memberAnchor` and `memberSignature` are mutually exclusive). The singular
+  `library` string is the compatible representation for exactly one identity;
+  `libraries` is the unique, ascending-ordinal string array for two or more
+  identities. They are mutually exclusive, and both are omitted for an
+  unscoped view. Library scope is a view concern, because scoping is a lens on
+  a context, not a different context. Selection state uses portable identities:
+  `type` is a metadata type name, and members are
   addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
   `memberSignature` (a canonical signature), never by overload index.
 - `navigation` records — named ordered tab sets plus one focused tab id. Each
@@ -414,14 +416,16 @@ resolved scenario into its selected context, navigation focus, type/member
 selection, and section; CLI and browser encodings consume that plan rather than
 parsing the member selection independently. **Home demos now bind product
 section display names**
-through `ProductDemoSections` (today: `Methods` for STJ; `Call Graph` primary
-bind for the extensions member, expanded at run via `ExpandRunSections` /
-`DemoScenarioRunner` so the closed preset matches the multi-package
-`--caller-package` companion rule: Markdown keeps `Call Graph` + `Callers`;
-table/tsv/jsonl select `Callers` alone (MemberCommand re-adds Callers under
-caller scope, so Call Graph-only tabular silently fell back to a member
-inventory); standalone `--mermaid` keeps `Call Graph`; document `--json` fails
-closed for Call Graph demos until graph sections project into that payload.
+through `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
+Graph` primary bind for multi-package and package-local graph demos, expanded
+at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
+`Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
+caller scope — MemberCommand re-adds Callers under caller scope, so
+Call Graph-only tabular would silently fall back to a member inventory — and
+select `Call Graph` when it does not, so package-local entry points with empty
+Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
+`--json` fails closed for Call Graph demos until graph sections project into
+that payload.
 `ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
 section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
@@ -719,7 +723,20 @@ reachable v1 session has explicit navigation and context state and must
 transpose without inventing a relationship across groups. An authored record
 set may exceed the packet — per-overlay pins, query presets, multiple
 scenarios, or more than the packet's bounded tables — and the transposition
-layer refuses those with a typed outcome rather than silently flattening them.
+layer refuses those as `NonProjectable` rather than silently flattening them.
+Malformed or internally inconsistent record composition is instead
+`InvalidDefinitionSet`. Reverse projection validates the complete portable
+workspace, navigation, view, and scenario record set — including text,
+coordinates, group grammar and pins, peer references, topology, and source
+relationships — before evaluating packet capacity or representability. It then
+normalizes exact NuGet versions, frameworks, and the supported Platform base
+pin before comparing or emitting them; runtime identifiers remain ordinal
+because they address case-sensitive runtime asset paths. When an unqualified
+and a target-qualified copy of one source coexist, an explicitly unqualified
+packet tuple maps to the unqualified record source rather than inheriting the
+qualified source's target. Distinct valid contexts with identical source
+composition are `NonProjectable`, because v1 forbids duplicate context-index
+arrays and the transposer must not collapse their identities.
 
 - **A format discriminator and strict validation are required.** The
   redesigned packet is the first supported wire contract; today's unversioned
@@ -774,11 +791,14 @@ not supply duplicate-key hardening — current `CorpusManifest.FromJson`
 deserializes directly. The new workspace loader first uses `HardenedJson` to
 reject duplicate properties, then binds through a generated context configured
 to reject unmapped members recursively. A file is limited to 1 MiB of UTF-8
-JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates; a bundle applies
-the same per-record limits and its own aggregate byte/record budget. Stream
-reads and multi-record bundle loads honor cancellation before each record.
-Limit, cancellation, malformed input, duplicate-key, and unknown-property
-failures remain typed and distinct from an empty definition.
+JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates. Catalog-group
+trees have an additional portable limit of 30 levels and 1024 nodes, validated
+iteratively on authored records before recursive text, coordinate, or
+serialization work and after bounded JSON binding on parsed records. A bundle
+applies the same per-record limits and its own aggregate byte/record budget.
+Stream reads and multi-record bundle loads honor cancellation before each
+record. Limit, cancellation, malformed input, duplicate-key, and
+unknown-property failures remain typed and distinct from an empty definition.
 
 `CorpusManifest` remains the corpus-specific persisted recipe; workspace
 definitions subsume neither its corpus ordering nor its population API, and
@@ -883,8 +903,10 @@ Implementation must add, at minimum:
   `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind`,
   `Parse_RejectsDuplicateProperties`, `Parse_RejectsUnknownProperties`, and
   `Parse_RejectsUnknownKindAndSchemaVersion` cover the closed record kinds and
-  hardened bind path; well-known group redefinition, depth/value budgets, and
-  cancellation remain open;
+  hardened bind path;
+  `Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks` gates the
+  portable group-tree bounds; well-known group redefinition, broader JSON
+  depth/value budgets, and cancellation remain open;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
@@ -911,8 +933,32 @@ Implementation must add, at minimum:
   canonical packet semantic identity, including target-bearing group-reference
   focus, canonical emission of inherited context targets, independent
   preservation of `a` navigation focus and `x` binding context, repeated tuple
-  references across contexts, and refusal of non-projectable authored record
-  sets;
+  references across contexts, exact-null target identity beside qualified
+  copies, canonical version/framework/base-pin normalization, and distinct
+  invalid-definition versus non-projectable failures —
+  `WorkspaceSharePacketTransposerTests.Transpose_CanonicalPacket_RoundTripsByteForByte`,
+  `ToPacket_CanonicalizesInheritedContextTargets`,
+  `Transpose_PreservesIndependentFocusAndSelectedContext`,
+  `Transpose_PreservesRepeatedTupleAcrossContexts`,
+  `Transpose_PreservesExplicitNullTargetsBesideQualifiedTargets`,
+  `ToPacket_NormalizesEquivalentVersionsAndFrameworks`,
+  `ToPacket_NormalizesPlatformBasePin`,
+  `ToPacket_ValidatesWholeDefinitionSetBeforeProjectability`,
+  `ToPacket_RejectsMalformedPortableTextBeforeProjectability`,
+  `ToPacket_ValidatesRelationshipsBeforeProjectability`,
+  `ToPacket_ValidatesDocumentLocalGroupsBeforeRefusal`,
+  `ToPacket_ValidatesRicherCoordinatesBeforeRefusal`,
+  `ToPacket_ValidatesRicherCoordinateRelationshipsBeforeRefusal`,
+  `ToPacket_RejectsConflictingCoordinateTabTargetsBeforeRefusal`,
+  `ToPacket_UsesOnlyContextWhenScenarioSelectionIsImplicit`,
+  `ToPacket_RejectsImplicitSelectionAcrossMultipleContexts`,
+  `ToPacket_ReportsExactDuplicateMemberPath`,
+  `ToPacket_ClassifiesNavigationSubsetAsNonProjectable`,
+  `ToPacket_RejectsExcessiveGroupDepthWithTypedFailure`,
+  `ToPacket_OverCapacityPreflightRemainsNearLinear`,
+  `ToPacket_ClassifiesPacketCapacityAsNonProjectable`,
+  `ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable`, and the
+  neighboring `ToPacket_Rejects*` tests gate those properties;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -1002,8 +1048,9 @@ Definition records and product demos (this slice):
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the two home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `RendererRegistry` style) of the product home scenarios (Methods tour plus
+  multiple Call Graph shapes); listing is metadata-only and
+  `ResolveHomeScenario` allocates only that demo's peer records and enforces
   `ProductDemoSections` binding; JSON remains the portable load path for external
   definitions;
 - `ProductDemoRunPlan` lowers the resolved context, focus, type/member
@@ -1011,14 +1058,14 @@ Definition records and product demos (this slice):
 - `ProductDemoSections` is the closed allow list of product section display names
   home demos may select until minted view-facet ids land; `ExpandRunSections`
   expands Call Graph binds format-aware (Markdown: Call Graph + Callers;
-  table/tsv/jsonl: Callers);
+  table/tsv/jsonl: Callers with caller scope, Call Graph without);
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
-  two home demos; inspect-web's generated `RunHomeDemo` binding runs the
+  product home demos; inspect-web's generated `RunHomeDemo` binding runs the
   member-bound Call Graph preset from its product scenario id;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
@@ -1026,7 +1073,26 @@ Definition records and product demos (this slice):
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
-  signatures, and the pinned scalar-escaping rules; and
+  signatures, and the pinned scalar-escaping rules;
+- `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
+  limits and iteratively rejects catalog-group trees over 30 levels or 1024
+  nodes before recursively processing authored records;
+- `WorkspaceSharePacketTransposer` converts that semantic packet to one
+  isolated packet-local workspace, navigation, view, and scenario record set.
+  The reverse projection preserves navigation order, independent focus and
+  selected context, repeated tuples, effective context targets, group base
+  pins, selection, section, and ascending-ordinal multi-library scope. It
+  normalizes equivalent framework and exact-version spellings, preserves
+  explicit null targets beside qualified copies, distinguishes malformed
+  definition sets from valid state outside v1, validates the whole portable
+  definition set before making that distinction, uses target-aware hash indexes
+  so over-capacity validation remains near-linear, and returns a typed
+  projection outcome rather than flattening either. A valid navigation subset
+  and duplicate valid context composition are non-projectable; unmatched,
+  ambiguous, duplicate, or target-conflicting tab sources are invalid. The
+  transposer validates forward input and reverse output through
+  `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
+  bind a query, or execute the scenario; and
 - `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
   already-acquired package descriptors as coordinated surface and
   implementation groups. It owns role-local binding, identity collision
@@ -1038,8 +1104,8 @@ Definition records and product demos (this slice):
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
   `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
   Browser adapter and its unchanged Wasm limits; and
-- **not yet:** packet-to-definition transposition, minted view-facet ids,
-  packet view/query binding, or CLI and browser use of the codec;
+- **not yet:** minted view-facet ids, packet view/query binding, or CLI and
+  browser use of the codec and transposer;
   `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
   package + `--caller-package` encoding, the Browser package path still
   supplies exact already-acquired descriptors to the product role owner, and

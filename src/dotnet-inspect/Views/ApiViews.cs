@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -776,7 +777,13 @@ public record FieldSummaryRow(
 public record EventSummaryRow(string Name, string Type);
 
 [MarkoutSerializable]
-public record MethodAttributeRow(string Name, string Value);
+public record MethodAttributeRow(
+    [property: MarkoutIgnore] InertString NameText,
+    [property: MarkoutIgnore] InertString ValueText)
+{
+    public string Name => NameText.ToString();
+    public string Value => ValueText.ToString();
+}
 
 /// <summary>
 /// View model for constructor emphasis (--ctor mode).

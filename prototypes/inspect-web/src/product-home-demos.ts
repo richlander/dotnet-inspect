@@ -139,7 +139,11 @@ export function productHomeDemoLocationHref(
   const active = Math.min(
     Math.max(demo.focusTabIndex, 0),
     tabs.length - 1);
-  const focusPackage = tabs[active].id;
+  const focusTab = tabs[active];
+  if (!focusTab) {
+    throw new Error(`Product home demo '${demo.id}' has no active navigation tab.`);
+  }
+  const focusPackage = focusTab.id;
   return locationHref(workspaceUrlState({
     package: focusPackage,
     tabs,
@@ -153,7 +157,7 @@ export function productHomeDemoLocationHref(
  * Pending home-row paint while the Wasm engine catalog is not yet installed.
  * Layout-only placeholders — titles come from `ListHomeDemos` after bootstrap.
  */
-export const HOME_DEMO_PENDING_SLOT_COUNT = 2;
+export const HOME_DEMO_PENDING_SLOT_COUNT = 5;
 
 export function homeDemoRowHtml(
   enginePending: boolean,
