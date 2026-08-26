@@ -77,6 +77,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectedConcreteOverload,
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
@@ -2518,7 +2519,9 @@ function maybeAutoLoadVisibleSource() {
   }
   if (kind === "member") {
     const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    const overload = member
+      ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+      : undefined;
     if (!member || !overload) return;
     const signature = memberRequestSignature(type, overload, false, true);
     if (sourceRequestNeedsLoad(
@@ -6535,7 +6538,9 @@ async function loadSelectedMemberSource() {
   }
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : undefined;
   if (!type || !member || !overload) {
     state.memberSourceError = "Select a concrete overload before opening Source.";
     render();
@@ -6622,7 +6627,9 @@ function memberRequestIsCurrent(
   const type = selectedType();
   if (!type) return false;
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : undefined;
   return overload != null
     && memberRequestSignature(type, overload, includeBody, includeTaste)
       === signature;
