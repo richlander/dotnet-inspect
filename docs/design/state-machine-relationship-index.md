@@ -32,10 +32,14 @@ method. Each query returns one closed result:
 `Rejected` is not absence. Its failure identifies unresolved, malformed,
 duplicate, cross-kind, budget-exceeded, or ambiguous metadata and retains the
 available kickoff addresses, state-machine addresses, and parsed claimed type
-names. `StateMachineRelationshipIndex_RejectsMalformedTrustedConstructor`,
-`StateMachineRelationshipIndex_RejectsCompetingKickoffClaims`, and
+names. Ambiguous claimed names remain discoverable from every matching
+`TypeDef`, and a rejection shared by multiple claims retains every contributing
+kickoff. `StateMachineRelationshipIndex_RejectsMalformedTrustedConstructor`,
+`StateMachineRelationshipIndex_RejectsCompetingKickoffClaims`,
+`StateMachineRelationshipIndex_RejectsAmbiguousClaimedType`,
+`StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`, and
 `StateMachineRelationshipIndex_PreservesUnresolvedClaimedType` gate those
-distinctions.
+distinctions and evidence paths.
 
 ## Authentication
 
@@ -71,13 +75,18 @@ The required roles are:
 
 For each role, an exact matching `MethodImpl` declaration wins. Without one,
 the index accepts one implicit public virtual implementation with the exact
-name and signature. The matcher also rejects custom-modified signatures,
-`class`/`valuetype` mismatches, bare or wrong-arity generic interfaces, static
-methods, non-IL methods, and `MethodImpl` bodies declared by another type.
+name and signature. An explicit `IAsyncEnumerator<T>` declaration must use the
+same TypeSpec encoding as the implemented interface, preserving its generic
+argument and custom modifiers instead of accepting an erased interface shape.
+The matcher also rejects custom-modified signatures, `class`/`valuetype`
+mismatches, bare or wrong-arity generic interfaces, static methods, non-IL
+methods, and `MethodImpl` bodies declared by another type.
 `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations`,
 `StateMachineRelationshipIndex_ExplicitMethodImplWinsOverNamedDecoy`, and
 `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` gate these
-positive and negative forms.
+positive and negative forms;
+`StateMachineRelationshipIndex_RejectsMalformedAsyncEnumeratorShape` gates the
+constructed-interface distinction.
 
 ## Bounds and malformed input
 
@@ -86,10 +95,13 @@ Discovery scans at most
 cumulative relationship budget charges every inspected custom-attribute row,
 including the bounded authentication work needed to ignore an unrelated or
 untrusted attribute, plus interface rows, `MethodImpl` rows, and candidate
-implementation methods. State-machine `System.Type` values receive an encoded
-byte-length preflight before SRM materializes their strings. Existing
-signature, custom-attribute, serialized-name, and metadata-relationship guards
-bound recursive or allocated decoding.
+implementation methods. Constructor authentication is cached per metadata
+handle, and a separate cumulative name-work budget bounds the encoded metadata
+names materialized while classifying distinct constructors. State-machine
+`System.Type` values receive an encoded byte-length preflight before SRM
+materializes their strings. Existing signature, custom-attribute,
+serialized-name, and metadata-relationship guards bound recursive or allocated
+decoding.
 
 Exhausting a bound rejects the index with `BudgetExceeded`; malformed SRM data
 rejects it with `Malformed`. Neither becomes an empty successful index.
@@ -98,7 +110,10 @@ rejects it with `Malformed`. Neither becomes an empty successful index.
 visible budget results;
 `StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows` and
 `StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode` gate the
-attribute-row and serialized-name bounds.
+attribute-row and serialized-name bounds;
+`StateMachineRelationshipIndex_BoundsAttributeNameMaterialization` and
+`StateMachineRelationshipIndex_CachesConstructorAuthentication` gate
+cumulative constructor-name work and reuse.
 
 ## Ownership boundaries
 
