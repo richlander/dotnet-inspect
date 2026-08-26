@@ -1223,6 +1223,9 @@ public static class PackageExtractor
             sourceOptions,
             packageId))
         {
+            if (!IsHttpSource(source))
+                continue;
+
             using IPackageSourceClient sourceClient =
                 PackageSourceClientProvider.Create(source, client);
             using var trafficScope =
@@ -1246,16 +1249,32 @@ public static class PackageExtractor
                 is PackageSourceOperationResult<PackageSourceManifest>.Failed
                     failed)
             {
-                PackageSourceClientProvider.RecordFailure(
-                    source,
-                    failed.Failure,
-                    NetworkTrafficKind.PackageManifest);
                 if (failed.Failure.Kind == PackageSourceFailureKind.NotFound)
                 {
                     sawAuthoritativeAbsence = true;
                 }
                 else
                 {
+                    if (validateCoordinate
+                        && failed.Failure.Kind
+                            == PackageSourceFailureKind.InvalidResponse
+                        && await TryProbeNuspecAfterInvalidResponseAsync(
+                            client,
+                            source,
+                            normalizedName,
+                            normalizedVersion,
+                            packageId,
+                            version,
+                            log).ConfigureAwait(false)
+                            is { Status: NuspecProbeStatus.Present } recovered)
+                    {
+                        return recovered;
+                    }
+
+                    PackageSourceClientProvider.RecordFailure(
+                        source,
+                        failed.Failure,
+                        NetworkTrafficKind.PackageManifest);
                     log?.Invoke(
                         $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(source)} "
                         + $"failed: {failed.Failure.Kind}");
@@ -1315,6 +1334,80 @@ public static class PackageExtractor
             sawAuthoritativeAbsence && !sawIndeterminateSource
                 ? NuspecProbeStatus.Absent
                 : NuspecProbeStatus.Indeterminate);
+    }
+
+    private static async Task<NuspecProbeResult?>
+        TryProbeNuspecAfterInvalidResponseAsync(
+            HttpClient client,
+            NuGetSource source,
+            string normalizedName,
+            string normalizedVersion,
+            string packageId,
+            string version,
+            Action<string>? log)
+    {
+        // The typed client rejects any malformed critical resource. Strong RID
+        // probes may still retain positive evidence from another usable entry,
+        // but this path must never turn a failed source answer into absence.
+        foreach (NuGetSource transport in NuGetSourceResolver.Transports(source))
+        {
+            if (!IsHttpSource(transport))
+                continue;
+
+            HttpClient sourceClient =
+                PackageSourceClientProvider.SelectTransport(transport, client);
+            ServiceIndexResourceResult baseAddress =
+                await GetPackageBaseAddressResultAsync(
+                    sourceClient,
+                    transport,
+                    log).ConfigureAwait(false);
+            if (!baseAddress.HasMalformedCriticalResource
+                || PackageResourceUrl.Combine(
+                    baseAddress.Id,
+                    normalizedName,
+                    normalizedVersion,
+                    $"{normalizedName}.nuspec") is not { } url)
+            {
+                continue;
+            }
+
+            HttpRetryHelper.HttpBodyFetchResult body =
+                await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                    sourceClient,
+                    url,
+                    static _ => true,
+                    log: log,
+                    auth: NuGetCredentialScope.AuthFor(
+                        transport,
+                        url,
+                        log),
+                    trafficKind: NetworkTrafficKind.PackageManifest,
+                    maxDownloadSize: MaxNuspecBytes).ConfigureAwait(false);
+            if (body.Status != HttpRetryHelper.HttpBodyFetchStatus.Success
+                || body.Bytes is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            string xml;
+            try
+            {
+                xml = StrictUtf8.GetString(body.Bytes);
+            }
+            catch (DecoderFallbackException)
+            {
+                continue;
+            }
+
+            if (IsExpectedNuspec(xml, packageId, version))
+            {
+                return new NuspecProbeResult(
+                    xml,
+                    NuspecProbeStatus.Present);
+            }
+        }
+
+        return null;
     }
 
     private static async Task<NuspecProbeResult>
@@ -2504,6 +2597,19 @@ public static class PackageExtractor
         if (operation
             is PackageSourceOperationResult<PackageVersionResult>.Failed failed)
         {
+            if (failed.Failure.Kind
+                    == PackageSourceFailureKind.InvalidResponse
+                && await TryFetchVersionsAfterInvalidResponseAsync(
+                    client,
+                    packageName,
+                    source,
+                    log,
+                    cancellationToken).ConfigureAwait(false)
+                    is { Versions: not null } recovered)
+            {
+                return recovered;
+            }
+
             RecordVersionSourceFailure(source, failed.Failure);
             return failed.Failure.Kind switch
             {
@@ -2523,6 +2629,117 @@ public static class PackageExtractor
             : SourceVersionList.Found(
                 [.. versions.Candidates.Select(
                     candidate => candidate.Coordinate.Version)]);
+    }
+
+    private static async Task<SourceVersionList?>
+        TryFetchVersionsAfterInvalidResponseAsync(
+            HttpClient client,
+            string packageName,
+            NuGetSource source,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        // Preserve only positive version evidence from a usable sibling
+        // PackageBaseAddress; malformed critical metadata keeps the list
+        // incomplete and can never prove absence or a latest version.
+        foreach (NuGetSource transport in NuGetSourceResolver.Transports(source))
+        {
+            if (!IsHttpSource(transport))
+                continue;
+
+            HttpClient sourceClient =
+                PackageSourceClientProvider.SelectTransport(transport, client);
+            ServiceIndexResourceResult baseAddress =
+                await GetPackageBaseAddressResultAsync(
+                    sourceClient,
+                    transport,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
+            if (!baseAddress.HasMalformedCriticalResource
+                || GetVersionIndexUrl(baseAddress.Id, packageName)
+                    is not { } indexUrl)
+            {
+                continue;
+            }
+
+            SourceVersionList versions =
+                await FetchVersionListAfterInvalidResponseAsync(
+                    sourceClient,
+                    indexUrl,
+                    transport,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
+            if (versions.Versions is not null)
+                return versions with { Failed = true };
+        }
+
+        return null;
+    }
+
+    private static async Task<SourceVersionList>
+        FetchVersionListAfterInvalidResponseAsync(
+            HttpClient client,
+            string indexUrl,
+            NuGetSource source,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        log?.Invoke(
+            $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
+        int failuresBefore =
+            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            indexUrl,
+            auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
+            cancellationToken: cancellationToken,
+            trafficKind: NetworkTrafficKind.PackageVersionList)
+            .ConfigureAwait(false);
+        if (json is null)
+        {
+            int failuresAfter =
+                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+            return failuresAfter > failuresBefore
+                ? SourceVersionList.Failure
+                : SourceVersionList.Absent;
+        }
+
+        try
+        {
+            using JsonDocument document = HardenedJson.Parse(json);
+            if (!document.RootElement.TryGetProperty(
+                    "versions",
+                    out JsonElement versions)
+                || versions.ValueKind != JsonValueKind.Array)
+            {
+                FeedFailureTelemetry.Record(indexUrl, HttpStatusCode.OK);
+                return SourceVersionList.Failure;
+            }
+
+            List<string> result = [];
+            foreach (JsonElement element in versions.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.String
+                    || NormalizeCandidateVersion(element.GetString())
+                        is not { } candidate)
+                {
+                    FeedFailureTelemetry.Record(indexUrl, HttpStatusCode.OK);
+                    return SourceVersionList.Failure;
+                }
+
+                result.Add(candidate);
+            }
+
+            return result.Count == 0
+                ? SourceVersionList.Absent
+                : SourceVersionList.Found(result);
+        }
+        catch (Exception exception)
+            when (exception is JsonException or InvalidOperationException)
+        {
+            FeedFailureTelemetry.Record(indexUrl, HttpStatusCode.OK);
+            return SourceVersionList.Failure;
+        }
     }
 
     private static void RecordVersionSourceFailure(
