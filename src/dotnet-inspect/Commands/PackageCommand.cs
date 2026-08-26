@@ -2682,7 +2682,9 @@ public class PackageCommand
         => options.Verbosity >= Verbosity.Normal
             || wantsSignals
             || ProjectionRequestsSigned(options.Fields)
-            || ProjectionRequestsSigned(options.Columns)
+            || options.Columns?.Contains(
+                "Signed",
+                StringComparer.OrdinalIgnoreCase) == true
             || options.IncludeSections?.Contains(
                 PackageSections.PackageInfo) == true
             || options.IncludeSections?.Contains(

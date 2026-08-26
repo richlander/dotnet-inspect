@@ -21391,7 +21391,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, actual.Exit);
             Assert.Equal(0, expected.Exit);
-            Assert.Contains("1 field has no data: *", actual.Error, StringComparison.Ordinal);
+            Assert.Empty(actual.Error);
             Assert.Empty(expected.Error);
             Assert.Equal(expected.Output, actual.Output);
         }

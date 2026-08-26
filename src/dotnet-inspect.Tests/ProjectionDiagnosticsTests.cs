@@ -93,4 +93,24 @@ public class ProjectionDiagnosticsTests
             expectsMissingNote,
             error.Contains("field has no data: Sign*", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task DiagnoseRendered_OverlappingPatternsUseResolvedNames()
+    {
+        const string rendered =
+            "| Field | Value |\n"
+            + "| --- | --- |\n"
+            + "| Authors | Example |\n";
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                ["Field", "*"],
+                rendered,
+                ["Field", "Value"]);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
 }
