@@ -96,6 +96,14 @@ export function memberNavTargetIndex(
   return Math.max(0, Math.min(entryCount - 1, currentIndex + delta));
 }
 
+export function selectedConcreteOverload<T>(
+  overloads: readonly T[],
+  selectedIndex: number | null | undefined,
+): T | undefined {
+  if (overloads.length > 1 && selectedIndex == null) return undefined;
+  return overloads[selectedIndex ?? 0];
+}
+
 export interface MemberCallGraphWorkState {
   memberCallGraphLoading: boolean;
   memberCallGraphExpanding: boolean;
