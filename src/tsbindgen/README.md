@@ -79,10 +79,11 @@ Record shapes are therefore discovered from the assembly's authentic,
 framework-signed `JsonSerializerContext`-derived type: each
 `[JsonSerializable(typeof(T))]` on that type compiles to a property whose
 `JsonTypeInfo<T>` definition is likewise authenticated to System.Text.Json.
-The context must also carry the authentic
+The context must also carry the
 `[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
-the STJ generator; a handwritten context cannot inherit generated-contract
-trust from a matching attribute, getter name, and signature alone.
+the STJ generator, and its root getter and default-context initialization must
+match the generated body flow. The marker is publicly constructible and
+therefore cannot grant generated-contract trust by itself.
 The property is accepted only when its metadata property identity is the
 row's `TypeInfoPropertyName`, or STJ's structured default generated name when
 that argument is absent, its `T` identity matches the authenticated row, and
@@ -164,9 +165,9 @@ and
 `ReadJsonSerializableRoots_RetainsFullyMalformedAuthenticRow` plus
 `JsExportSurfaceBuilderTests.Build_BindsUnnamedMalformedRootToReachedTrustedGetter`
 gate primitive provenance, malformed-row retention, and unnamed malformed-root
-reachability. `Build_RejectsReachedHandwrittenSerializerContextGetter` gates
-the source-generator marker boundary against a compiled handwritten context
-carrying a different authentic `GeneratedCode` marker.
+reachability. `Build_RejectsReachedHandwrittenSerializerContextImplementation` gates the
+source-generator implementation boundary against a compiled handwritten
+context even when the marker fact is made to match.
 
 Serialized generic root arguments use a strict structural grammar. Leading,
 doubled, and trailing delimiters are unsupported, and the sum of canonical
@@ -518,11 +519,15 @@ and `DtsEmitterTests.Emit_RefusesEmptyStringConvertedEnumBeforeOutput` gate the
 remaining declaration boundaries. Incomplete metadata extraction and unsafe,
 signature-less, or degraded JS-export/wire signatures stop before declaration
 or file output and report only token-based locations; incomplete extraction is
-rejected before body analysis begins. A recoverable body-analysis diagnostic
+rejected before body analysis begins. Declaration-only generation still accepts
+a manifest-less module, but `--emit-js` requires an assembly manifest identity
+and reports a contained `tsbindgen:` diagnostic before touching its output
+file. A recoverable body-analysis diagnostic
 for a JS export, including its compiler-generated async implementation, is also
 fatal because its JSON envelope evidence may be incomplete; diagnostics for
 unrelated methods remain irrelevant.
-`TsBindGenCommandTests.Invoke_IncompleteExtractionFailsWithoutOutput` and
+`TsBindGenCommandTests.Invoke_IncompleteExtractionFailsWithoutOutput`,
+`Invoke_ManifestlessModuleContainsEmitJsFailure`, and
 `JsExportSurfaceBuilderTests.Build_InvalidExportUsesContainedFailure` plus the
 `Build_RejectsDegraded*` and
 `Build_RejectsOnlyExportScopedBodyDiagnostics` plus
@@ -530,8 +535,9 @@ unrelated methods remain irrelevant.
 `JsonWireContractResolverTests.Build_RejectsRealAsyncStateMachineAnalysisFailure`
 corrupts a compiled `MoveNext` body and gates production source-method
 attribution. `Build_IgnoresLookalikeJsExportAttribute` and
-`Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly` plus
-`Extract_DoesNotTrustMalformedAuthenticJsExportRows` gate the exact,
+`Extract_DoesNotTrustSameNameJsExportFromAnotherAssembly`,
+`Extract_RetainsMalformedAuthenticJsExportRowsAsFailureEvidence`, and
+`Extract_RejectsDuplicateOrMixedAuthenticJsExportRows` gate the exact,
 framework-signed `System.Runtime.InteropServices.JavaScript.JSExport`
 constructor and value contract. Authentic JSExport rows retain a count and
 malformed marker through the `ApiMember` JSON contract: malformed-only,

@@ -159,7 +159,7 @@ without creating an unbounded or success-shaped side channel.
 `ApiSurfaceExtractorBoundsTests.JsonSerializablePropertyNameContributesItsRetainedText`,
 `JsonSerializableAttributeTests.ReadJsonSerializableRoots_RetainsFullyMalformedAuthenticRow`,
 and
-`JsExportSurfaceBuilderTests.Build_RejectsReachedHandwrittenSerializerContextGetter`
+`JsExportSurfaceBuilderTests.Build_RejectsReachedHandwrittenSerializerContextImplementation`
 are the gates.
 
 #### `ILInspector.Analysis`

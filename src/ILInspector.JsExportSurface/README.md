@@ -49,25 +49,31 @@ wrapper candidates; legacy null provenance is accepted only by the
 declaration-only seam.
 
 Serializer-context getters authenticate registered roots only when their
-context carries the authentic
+context carries the
 `[GeneratedCode("System.Text.Json.SourceGeneration", ...)]` marker emitted by
-the System.Text.Json source generator. A handwritten context with matching
-`[JsonSerializable]`, property name, and `JsonTypeInfo<T>` signature remains
-unsupported when reached. A matching property must be an instance,
+the System.Text.Json source generator and Analysis confirms the known generated
+implementation. The root getter must pass its context `Options` and exact
+`typeof(T)` result to trusted `JsonSerializerOptions.GetTypeInfo`; the context
+initializer must create the default options, copy them, and construct the
+context. The publicly constructible marker is classification evidence, not
+publication authority. A handwritten context with matching
+`[JsonSerializable]`, marker, property name, and `JsonTypeInfo<T>` signature
+remains unsupported when reached. A matching property must be an instance,
 parameterless, getter-only property; an indexed or otherwise user-shaped
 sibling is retained as reached failure evidence rather than inheriting the
 registration. The generated getter's receiver must also flow from the same
-context's authenticated `Default` property, whose return carries the same
-structured definition identity as the context. A custom context instance can
-carry runtime `JsonSerializerOptions` that change the wire shape independently
-of source-generation metadata, so an unproven receiver fails.
+context's authenticated `Default` property. Body-backed publication requires
+its return to carry a non-null structured definition identity equal to the
+context; the declaration-only compatibility seam continues to accept legacy
+missing structured names. A custom context instance can carry runtime
+`JsonSerializerOptions` that change the wire shape independently of
+source-generation metadata, so an unproven receiver fails.
 Two matching generated-root PropertyDefs with the same metadata identity also
 fail rather than letting declaration metadata select one while runtime code
 calls the other.
 
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
-`Build_RejectsReachedHandwrittenSerializerContextGetter`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
 `Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
@@ -77,6 +83,8 @@ calls the other.
 `Build_RejectsRuntimeWrapperWithoutModuleIdentity`,
 `Build_RejectsRuntimeWrapperWithNullModuleIdentity`,
 `Build_RejectsRuntimeWrapperWithUnauthenticatedMarshalerArgument`,
+`Build_RejectsRuntimeRegistrationWithUntrustedCoreAlias`,
+`Build_RejectsRuntimeWrapperWithUntrustedCoreVoid`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
@@ -85,6 +93,10 @@ calls the other.
 `Build_RejectsIndexedGetterWithGeneratedRootName`,
 `Build_RejectsDuplicateGeneratedRootPropertyIdentity`,
 `Build_RejectsDefaultContextReturnWithCollidingStructuredIdentity`,
+`Build_RejectsDefaultContextReturnWithoutStructuredIdentity`,
+`Build_RejectsReachedHandwrittenSerializerContextImplementation`,
+`Build_RejectsGeneratedRootGetterWithoutTrustedBodyFlow`,
+`Build_RejectsGeneratedContextWithoutTrustedDefaultInitialization`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
 `TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.
@@ -118,7 +130,7 @@ explicit `Replace` remains supported.
 `Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
 `TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
 are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication`,
-`SourceGeneratedJsExport_EmitsOrdinaryWrapperButNotOperatorWrapper`, and
+`SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers`, and
 `TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` gate the
 ordinary-method boundary.
 

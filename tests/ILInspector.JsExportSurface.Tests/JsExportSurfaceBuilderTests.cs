@@ -828,6 +828,123 @@ public sealed class JsExportSurfaceBuilderTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Build_RejectsRuntimeRegistrationWithUntrustedCoreAlias(
+        int parameterIndex)
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(PopulateExports));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        ImmutableArray<DirectCall> untrustedCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.Callee.Name == "BindManagedFunction"
+                    ? call with
+                    {
+                        Callee = call.Callee with
+                        {
+                            ParameterTypes =
+                                ReplaceRegistrationCoreParameter(
+                                    call.Callee.ParameterTypes,
+                                    parameterIndex),
+                        },
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex untrustedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: untrustedCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    untrustedIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsRuntimeWrapperWithUntrustedCoreVoid()
+    {
+        string path =
+            typeof(PopulateExports).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(PopulateExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name == nameof(PopulateExports.CountValues));
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [exports];
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate candidate =
+            Assert.Single(
+                export.RuntimeJsExportWrapperCandidates!);
+        TypeRef untrustedVoid = TypeRef.Definition(
+            "System.Runtime",
+            "System",
+            "Void",
+            trustedFrameworkAssembly: false);
+        ImmutableArray<DirectCall> untrustedCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                        == candidate.WrapperMethodToken
+                    ? call with
+                    {
+                        EvidenceMethod = call.EvidenceMethod with
+                        {
+                            ReturnType = untrustedVoid,
+                        },
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex untrustedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: untrustedCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    untrustedIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Build_RejectsDuplicatedRuntimeBindingTarget()
     {
@@ -1058,7 +1175,7 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Build_RejectsReachedHandwrittenSerializerContextGetter()
+    public void Build_RejectsReachedHandwrittenSerializerContextImplementation()
     {
         string path =
             typeof(HandwrittenContextExports).Assembly.Location;
@@ -1086,12 +1203,134 @@ public sealed class JsExportSurfaceBuilderTests
                 type => type.Name == nameof(HandwrittenContextExports)),
         ];
         LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        context.HasSystemTextJsonSourceGenerationMarker = true;
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
         Assert.Contains(
-            "no authentic System.Text.Json source-generation marker",
+            "no authentic source-generated implementation",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsGeneratedRootGetterWithoutTrustedBodyFlow()
+    {
+        (
+            ApiSurface apiSurface,
+            ApiType context,
+            ApiMember rootProperty,
+            LibraryBodyIndex bodyIndex) =
+                ExtractSupportedScalarVectorSurface();
+        TypeRef untrustedOptions = TypeRef.Definition(
+            "System.Text.Json",
+            "System.Text.Json.Serialization",
+            "JsonSerializerContext",
+            trustedFrameworkAssembly: false);
+        ImmutableArray<DirectCall> untrustedCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                        == rootProperty.GetterToken
+                    && call.Callee.Name == "get_Options"
+                    ? call with
+                    {
+                        Callee = call.Callee with
+                        {
+                            DeclaringType = untrustedOptions,
+                        },
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex untrustedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: untrustedCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Equal(
+            "int[]",
+            Assert.Single(
+                JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex).Functions)
+                .ReturnWireType);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    untrustedIndex));
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.NotNull(context.DefinitionName);
+    }
+
+    [Fact]
+    public void Build_RejectsGeneratedContextWithoutTrustedDefaultInitialization()
+    {
+        (
+            ApiSurface apiSurface,
+            ApiType context,
+            _,
+            LibraryBodyIndex bodyIndex) =
+                ExtractSupportedScalarVectorSurface();
+        MethodIdentity staticConstructor = Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name == ".cctor"
+                && method.DeclaringType.Resolution?.Type
+                    == context.DefinitionName);
+        TypeRef untrustedOptions = TypeRef.Definition(
+            "System.Text.Json",
+            "System.Text.Json",
+            "JsonSerializerOptions",
+            trustedFrameworkAssembly: false);
+        ImmutableArray<DirectCall> untrustedCalls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                        == staticConstructor.MetadataToken
+                    && call.Kind == CallKind.NewObject
+                    && call.Callee.DeclaringType.Name
+                        == "JsonSerializerOptions"
+                    && call.Callee.ParameterTypes.Length == 1
+                    && call.Callee.ParameterTypes[0].Name
+                        == "JsonSerializerOptions"
+                    ? call with
+                    {
+                        Callee = call.Callee with
+                        {
+                            DeclaringType = untrustedOptions,
+                        },
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex untrustedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: untrustedCalls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        Assert.Equal(
+            "int[]",
+            Assert.Single(
+                JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex).Functions)
+                .ReturnWireType);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    untrustedIndex));
+        Assert.Contains(
+            "no authentic source-generated implementation",
             exception.Message,
             StringComparison.Ordinal);
     }
@@ -2064,6 +2303,75 @@ public sealed class JsExportSurfaceBuilderTests
             authenticReturn with
             {
                 DefinitionName = collision,
+            },
+        ];
+
+        Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                apiSurface).Functions);
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+        Assert.Contains(
+            "no authentic default-instance getter",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDefaultContextReturnWithoutStructuredIdentity()
+    {
+        string path =
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ScalarContextOptionsFixtureExports));
+        ApiMember vectorSerializer = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(
+                    ScalarContextOptionsFixtureExports.SerializeVector));
+        foreach (ApiMember export in exports.Members.Where(
+            member => member.HasRuntimeJsExport
+                && member != vectorSerializer))
+        {
+            export.HasRuntimeJsExport = false;
+            export.RuntimeJsExportAttributeCount = 0;
+            export.HasMalformedRuntimeJsExportAttribute = false;
+        }
+
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(SupportedScalarContextOptions));
+        ApiMember defaultProperty = Assert.Single(
+            context.Members,
+            member => member.Name == "Default");
+        ApiSignature defaultSignature =
+            Assert.IsType<ApiSignature>(
+                defaultProperty.SignatureModel);
+        ApiTypeReferenceIdentity authenticReturn =
+            Assert.Single(defaultSignature.ReturnTypeReferences);
+        LibraryBodyIndex bodyIndex =
+            OpenWireContractBodyIndex(path);
+
+        Assert.Equal(
+            "int[]",
+            Assert.Single(
+                JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex).Functions)
+                .ReturnWireType);
+        context.DefinitionName = null;
+        defaultSignature.ReturnTypeReferences =
+        [
+            authenticReturn with
+            {
+                DefinitionName = null,
             },
         ];
 
@@ -3483,6 +3791,79 @@ public sealed class JsExportSurfaceBuilderTests
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
+
+    static (
+        ApiSurface Surface,
+        ApiType Context,
+        ApiMember RootProperty,
+        LibraryBodyIndex BodyIndex)
+        ExtractSupportedScalarVectorSurface()
+    {
+        string path =
+            typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ScalarContextOptionsFixtureExports));
+        ApiMember vectorSerializer = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(
+                    ScalarContextOptionsFixtureExports.SerializeVector));
+        foreach (ApiMember export in exports.Members.Where(
+            member => member.HasRuntimeJsExport
+                && member != vectorSerializer))
+        {
+            export.HasRuntimeJsExport = false;
+            export.RuntimeJsExportAttributeCount = 0;
+            export.HasMalformedRuntimeJsExportAttribute = false;
+        }
+
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(SupportedScalarContextOptions));
+        ApiMember rootProperty = Assert.Single(
+            context.Members,
+            member => member.Name == "Int32Array");
+        return (
+            apiSurface,
+            context,
+            rootProperty,
+            OpenWireContractBodyIndex(path));
+    }
+
+    static ImmutableArray<TypeRef>
+        ReplaceRegistrationCoreParameter(
+            ImmutableArray<TypeRef> parameters,
+            int parameterIndex)
+    {
+        TypeRef[] replacement = [.. parameters];
+        replacement[parameterIndex] = parameterIndex switch
+        {
+            0 => TypeRef.Definition(
+                "System.Runtime",
+                "System",
+                "String",
+                trustedFrameworkAssembly: false),
+            1 => TypeRef.Definition(
+                "System.Runtime",
+                "System",
+                "Int32",
+                trustedFrameworkAssembly: false),
+            2 => TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "System.Runtime",
+                    "System",
+                    "ReadOnlySpan`1",
+                    trustedFrameworkAssembly: false),
+                parameters[2].TypeArguments),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(parameterIndex)),
+        };
+        return [.. replacement];
     }
 
     static LibraryBodyIndex OpenWireContractBodyIndex(string path) =>

@@ -342,6 +342,59 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
+    public void Invoke_ManifestlessModuleContainsEmitJsFailure()
+    {
+        string modulePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-manifestless.netmodule");
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-manifestless.js");
+        const string existingJavaScript = "// existing JavaScript wrapper";
+        try
+        {
+            File.WriteAllBytes(
+                modulePath,
+                BuildManifestlessModuleImage());
+            File.WriteAllText(
+                emitJsPath,
+                existingJavaScript);
+
+            var declarationOutput = new StringWriter();
+            var declarationError = new StringWriter();
+            Assert.Equal(
+                0,
+                TsBindGenCommand.Invoke(
+                    [modulePath],
+                    declarationOutput,
+                    declarationError));
+            Assert.Empty(declarationError.ToString());
+
+            var output = new StringWriter();
+            var error = new StringWriter();
+            int exitCode = TsBindGenCommand.Invoke(
+                [modulePath, "--emit-js", emitJsPath],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Equal(
+                "tsbindgen: --emit-js requires an assembly manifest identity."
+                    + Environment.NewLine,
+                error.ToString());
+            Assert.Equal(
+                existingJavaScript,
+                File.ReadAllText(emitJsPath));
+        }
+        finally
+        {
+            File.Delete(modulePath);
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
     public void Invoke_PrintsDiagnosticsAndReturnsOneForUnmappedTypes()
     {
         string emitJsPath = Path.Combine(
@@ -557,6 +610,35 @@ public sealed class TsBindGenCommandTests
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildManifestlessModuleImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.netmodule"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

@@ -97,6 +97,14 @@ public static class TsBindGenCommand
                 return 1;
             }
 
+            if (emitJsPath is not null
+                && apiSurface.AssemblyIdentity is null)
+            {
+                stderr.WriteLine(
+                    "tsbindgen: --emit-js requires an assembly manifest identity.");
+                return 1;
+            }
+
             global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
             try
             {

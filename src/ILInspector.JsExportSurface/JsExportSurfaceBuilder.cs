@@ -217,7 +217,9 @@ public static class JsExportSurfaceBuilder
                 surface.AssemblyIdentity is { } currentAssembly
                     ? GetDefaultContextGetterToken(
                         type,
-                        currentAssembly)
+                        currentAssembly,
+                        requireStructuredIdentity:
+                            bodyIndex is not null)
                     : null;
 
             foreach (ApiMember member in type.Members)
@@ -273,6 +275,23 @@ public static class JsExportSurfaceBuilder
                                     unsupportedJsonTypeInfoGetterReasons[
                                         getterToken] =
                                             "serializer context has no authentic default-instance getter";
+                                }
+                                else if (bodyIndex is not null
+                                    && type
+                                        .HasSystemTextJsonSourceGenerationMarker
+                                            == true
+                                    && defaultContextGetterToken is { } generatedDefaultGetter
+                                    && !HasAuthenticatedGeneratedContextImplementation(
+                                        bodyIndex,
+                                        type,
+                                        member,
+                                        getterToken,
+                                        generatedDefaultGetter,
+                                        incompleteBodyTokens))
+                                {
+                                    unsupportedJsonTypeInfoGetterReasons[
+                                        getterToken] =
+                                            "serializer context has no authentic source-generated implementation";
                                 }
                                 else
                                 {
@@ -566,8 +585,13 @@ public static class JsExportSurfaceBuilder
 
     static int? GetDefaultContextGetterToken(
         ApiType context,
-        ApiAssemblyIdentity assembly)
+        ApiAssemblyIdentity assembly,
+        bool requireStructuredIdentity)
     {
+        if (requireStructuredIdentity
+            && context.DefinitionName is null)
+            return null;
+
         var expectedReturnType = new ApiTypeReferenceIdentity(
             assembly,
             context.FullName,
@@ -982,18 +1006,13 @@ public static class JsExportSurfaceBuilder
         && marshalerTypes is
         {
             Kind: TypeRefKind.GenericInstance,
-            ElementType:
-            {
-                Kind: TypeRefKind.Definition,
-                Assembly: TypeRef.CoreLibrary,
-                Namespace: "System",
-                Name: "ReadOnlySpan`1",
-            },
+            ElementType: { } spanType,
             TypeArguments:
             [
                 var marshalerType,
             ],
         }
+        && IsCoreType(spanType, "ReadOnlySpan`1")
         && IsTrustedRuntimeJavaScriptType(
             marshalerType,
             "JSMarshalerType");
@@ -1018,8 +1037,10 @@ public static class JsExportSurfaceBuilder
             Kind: TypeRefKind.Definition,
             Assembly: TypeRef.CoreLibrary,
             Namespace: "System",
+            TrustedFrameworkAssembly: true,
         }
-        && type.Name == name;
+        && type.Name == name
+        && HasExactDefinitionName(type, "System", name);
 
     static bool IsGeneratedRuntimeWrapper(
         MethodIdentity method,
@@ -1050,13 +1071,247 @@ public static class JsExportSurfaceBuilder
             StringComparison.Ordinal);
 
     static bool IsCoreVoid(TypeRef type) =>
+        IsCoreType(type, "Void");
+
+    static bool HasAuthenticatedGeneratedContextImplementation(
+        LibraryBodyIndex bodyIndex,
+        ApiType context,
+        ApiMember rootProperty,
+        int rootGetterToken,
+        int defaultGetterToken,
+        IReadOnlySet<int> incompleteBodyTokens)
+    {
+        if (incompleteBodyTokens.Contains(rootGetterToken)
+            || incompleteBodyTokens.Contains(defaultGetterToken)
+            || context.DefinitionName is null)
+        {
+            return false;
+        }
+
+        MethodIdentity? rootGetter = bodyIndex.Methods.SingleOrDefault(
+            method => method.MetadataToken == rootGetterToken);
+        MethodIdentity? defaultGetter = bodyIndex.Methods.SingleOrDefault(
+            method => method.MetadataToken == defaultGetterToken);
+        MethodIdentity? staticConstructor = bodyIndex.Methods.SingleOrDefault(
+            method => method.Name == ".cctor"
+                && IsContextType(method.DeclaringType, context));
+        if (rootGetter is null
+            || defaultGetter is null
+            || staticConstructor is null
+            || incompleteBodyTokens.Contains(
+                staticConstructor.MetadataToken)
+            || rootGetter.Name != $"get_{rootProperty.Name}"
+            || rootGetter.IsStatic
+            || rootGetter.GenericArity != 0
+            || !rootGetter.ParameterTypes.IsEmpty
+            || !IsContextType(rootGetter.DeclaringType, context)
+            || defaultGetter.Name != "get_Default"
+            || !defaultGetter.IsStatic
+            || defaultGetter.GenericArity != 0
+            || !defaultGetter.ParameterTypes.IsEmpty
+            || !IsContextType(defaultGetter.DeclaringType, context)
+            || !IsContextType(defaultGetter.ReturnType, context)
+            || !staticConstructor.IsStatic
+            || staticConstructor.GenericArity != 0
+            || !staticConstructor.ParameterTypes.IsEmpty
+            || !IsCoreVoid(staticConstructor.ReturnType))
+        {
+            return false;
+        }
+
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> callsByMethod =
+            bodyIndex.GetDirectCallsByEvidenceMethod();
+        if (!callsByMethod.TryGetValue(
+                rootGetterToken,
+                out ImmutableArray<DirectCall> rootCalls)
+            || rootCalls.Length != 3)
+        {
+            return false;
+        }
+
+        DirectCall[] optionsGetters =
+        [
+            .. rootCalls.Where(
+                call => IsJsonSerializerContextOptionsGetter(
+                    call.Callee)),
+        ];
+        DirectCall[] runtimeTypes =
+        [
+            .. rootCalls.Where(
+                call => IsSystemTypeGetTypeFromHandle(
+                    call.Callee)),
+        ];
+        DirectCall[] getTypeInfos =
+        [
+            .. rootCalls.Where(
+                call => IsJsonSerializerOptionsGetTypeInfo(
+                    call.Callee)),
+        ];
+        if (optionsGetters is not [var optionsGetter]
+            || runtimeTypes is not [var runtimeType]
+            || getTypeInfos is not [var getTypeInfo]
+            || getTypeInfo.ReceiverSource is not
+                {
+                    IsComplete: true,
+                    SourceCallOffsets: var receiverOffsets,
+                }
+            || receiverOffsets is not [var receiverOffset]
+            || receiverOffset != optionsGetter.ILOffset
+            || getTypeInfo.ArgumentSources.Count != 1
+            || getTypeInfo.ArgumentSources[0] is not
+                {
+                    ArgumentIndex: 0,
+                    IsComplete: true,
+                    SourceCallOffsets: var argumentOffsets,
+                }
+            || argumentOffsets is not [var argumentOffset]
+            || argumentOffset != runtimeType.ILOffset)
+        {
+            return false;
+        }
+
+        if (!callsByMethod.TryGetValue(
+                staticConstructor.MetadataToken,
+                out ImmutableArray<DirectCall> initializerCalls))
+        {
+            return false;
+        }
+
+        return initializerCalls.Count(call =>
+                call.Kind == CallKind.NewObject
+                && IsJsonSerializerOptionsConstructor(
+                    call.Callee,
+                    copy: false))
+                == 1
+            && initializerCalls.Count(call =>
+                call.Kind == CallKind.NewObject
+                && IsJsonSerializerOptionsConstructor(
+                    call.Callee,
+                    copy: true))
+                == 1
+            && initializerCalls.Count(call =>
+                call.Kind == CallKind.NewObject
+                && call.Callee.Name == ".ctor"
+                && IsContextType(
+                    call.Callee.DeclaringType,
+                    context)
+                && call.Callee.ParameterTypes is [var options]
+                && IsTrustedSystemTextJsonType(
+                    options,
+                    "System.Text.Json",
+                    "JsonSerializerOptions"))
+                == 1;
+    }
+
+    static bool IsJsonSerializerContextOptionsGetter(
+        MemberRef method) =>
+        method.Kind == MemberKind.Method
+        && method.HasThis
+        && method.GenericArity == 0
+        && method.Name == "get_Options"
+        && method.ParameterTypes.IsEmpty
+        && IsTrustedSystemTextJsonType(
+            method.DeclaringType,
+            "System.Text.Json.Serialization",
+            "JsonSerializerContext")
+        && IsTrustedSystemTextJsonType(
+            method.ReturnType,
+            "System.Text.Json",
+            "JsonSerializerOptions");
+
+    static bool IsSystemTypeGetTypeFromHandle(MemberRef method) =>
+        method.Kind == MemberKind.Method
+        && !method.HasThis
+        && method.GenericArity == 0
+        && method.Name == "GetTypeFromHandle"
+        && IsCoreType(method.DeclaringType, "Type")
+        && IsCoreType(method.ReturnType, "Type")
+        && method.ParameterTypes is [var handle]
+        && IsCoreType(handle, "RuntimeTypeHandle");
+
+    static bool IsJsonSerializerOptionsGetTypeInfo(
+        MemberRef method) =>
+        method.Kind == MemberKind.Method
+        && method.HasThis
+        && method.GenericArity == 0
+        && method.Name == "GetTypeInfo"
+        && IsTrustedSystemTextJsonType(
+            method.DeclaringType,
+            "System.Text.Json",
+            "JsonSerializerOptions")
+        && IsTrustedSystemTextJsonType(
+            method.ReturnType,
+            "System.Text.Json.Serialization.Metadata",
+            "JsonTypeInfo")
+        && method.ParameterTypes is [var type]
+        && IsCoreType(type, "Type");
+
+    static bool IsJsonSerializerOptionsConstructor(
+        MemberRef method,
+        bool copy) =>
+        method.Kind == MemberKind.Constructor
+        && method.HasThis
+        && method.GenericArity == 0
+        && method.Name == ".ctor"
+        && IsTrustedSystemTextJsonType(
+            method.DeclaringType,
+            "System.Text.Json",
+            "JsonSerializerOptions")
+        && IsCoreVoid(method.ReturnType)
+        && (copy
+            ? method.ParameterTypes is [var options]
+                && IsTrustedSystemTextJsonType(
+                    options,
+                    "System.Text.Json",
+                    "JsonSerializerOptions")
+            : method.ParameterTypes.IsEmpty
+                || method.ParameterTypes is [var defaults]
+                && IsTrustedSystemTextJsonType(
+                    defaults,
+                    "System.Text.Json",
+                    "JsonSerializerDefaults"));
+
+    static bool IsTrustedSystemTextJsonType(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName) =>
         type is
         {
             Kind: TypeRefKind.Definition,
-            Assembly: TypeRef.CoreLibrary,
-            Namespace: "System",
-            Name: "Void",
-        };
+            Assembly: SystemTextJsonAssemblyName,
+            TrustedFrameworkAssembly: true,
+        }
+        && type.Namespace == expectedNamespace
+        && type.Name == expectedName
+        && HasExactDefinitionName(
+            type,
+            expectedNamespace,
+            expectedName);
+
+    static bool IsContextType(TypeRef type, ApiType context) =>
+        type is
+        {
+            Kind: TypeRefKind.Definition,
+            Resolution:
+            {
+                Origin: TypeReferenceOrigin.CurrentAssembly,
+                Type: { } definitionName,
+            },
+        }
+        && definitionName == context.DefinitionName;
+
+    static bool HasExactDefinitionName(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName) =>
+        type.Resolution?.Type is
+        {
+            Namespace: var actualNamespace,
+            Segments: var segments,
+        }
+        && actualNamespace == expectedNamespace
+        && segments is [var actualName]
+        && actualName == expectedName;
 
     /// <summary>
     /// Compares the root shape captured from the serialized
