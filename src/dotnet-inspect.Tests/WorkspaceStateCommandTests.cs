@@ -319,7 +319,9 @@ public sealed class WorkspaceStateCommandTests
         await process.WaitForExitAsync(cancellationToken);
         string outputText = await output;
         string errorText = await error;
-        Assert.Equal(0, process.ExitCode);
+        Assert.True(
+            process.ExitCode == 0,
+            $"Pipeline exited {process.ExitCode}. stderr: {errorText}");
         Assert.Empty(errorText);
         Assert.Equal(UnicodeVector, outputText.TrimEnd());
     }
