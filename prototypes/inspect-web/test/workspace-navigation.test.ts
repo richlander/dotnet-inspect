@@ -414,6 +414,21 @@ test("legacy workspace packets retain visible-location authority", () => {
   assert.equal(parsed.active, 1);
 });
 
+test("unknown workspace view and member-section tokens are ignored", () => {
+  const unknownLens = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package"
+      + "&section=history#implementation"));
+  assert.equal(unknownLens.lens, null);
+  assert.equal(unknownLens.atPackageRoot, false);
+  assert.equal(unknownLens.packageLens, null);
+  assert.equal(unknownLens.section, null);
+
+  const unknownPackageLens = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?package=Example.Package#pkg:files"));
+  assert.equal(unknownPackageLens.atPackageRoot, true);
+  assert.equal(unknownPackageLens.packageLens, "overview");
+});
+
 test("invalid and oversized workspace packets stay visible", () => {
   const invalid = parseWorkspaceLocation(locationSnapshot(
     "https://inspect.example/?package=Example.Package&w=not-base64"));
@@ -432,6 +447,36 @@ test("invalid and oversized workspace packets stay visible", () => {
     hash: "",
   });
   assert.match(oversized.workspaceNotice, /65536-character limit/);
+});
+
+test("rich workspace packets keep valid member sections and drop invalid ones", () => {
+  function richPacket(section: unknown) {
+    return Buffer.from(JSON.stringify({
+      t: [["Example.Package", "1.0.0", "net10.0"]],
+      a: 0,
+      y: "Example.Widget",
+      m: "method:Serialize",
+      c: section,
+    })).toString("base64url");
+  }
+
+  const valid = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${richPacket("call-graph")}`));
+  assert.equal(valid.section, "call-graph");
+  assert.equal(valid.workspaceNotice, "");
+
+  // The share packet is untrusted input, so an unknown token must not reach the
+  // MemberSection-typed field just because it is a string.
+  for (const hostile of ["history", "", "Overview", "call-graph "]) {
+    const parsed = parseWorkspaceLocation(locationSnapshot(
+      `https://inspect.example/?w=${richPacket(hostile)}`));
+    assert.equal(parsed.section, null, hostile);
+    assert.equal(parsed.type, "Example.Widget", hostile);
+  }
+
+  const nonString = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?w=${richPacket(7)}`));
+  assert.equal(nonString.section, null);
 });
 
 test("malformed rich packet fields cannot override the visible package", () => {
