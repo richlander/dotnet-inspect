@@ -4625,7 +4625,8 @@ public class SectionPipelineTests
     [Fact]
     public void Trace_ExplainsEveryQueryThatRan_AndRendersInertLines()
     {
-        var registry = LibrarySections.CreateQueryRegistry();
+        InspectionQueryCatalog<InspectionQueryContext> queryCatalog =
+            LibrarySections.QueryCatalog;
         var pipeline = LibrarySections.CreatePipeline();
         var trace = new InspectionTrace
         {
@@ -4641,8 +4642,9 @@ public class SectionPipelineTests
             Verbosity.Detailed,
             trace: trace,
             commandDemand: commandDemand);
-        HashSet<InspectionQueryDefinition> closure = registry.ExpandRequired(requested);
-        trace.RecordQueryClosure(closure);
+        InspectionQueryPlan<InspectionQueryContext> plan =
+            queryCatalog.Plan(requested);
+        trace.RecordQueryClosure(plan.Queries);
 
         var claimed = trace.QueryDemand.Select(d => d.Query)
             .Concat(trace.CommandQueryDemand.Select(d => d.Query))
@@ -4651,7 +4653,8 @@ public class SectionPipelineTests
         var queue = new Queue<InspectionQueryDefinition>(claimed);
         while (queue.Count > 0)
         {
-            foreach (InspectionQueryDefinition requirement in registry.RequirementsOf(queue.Dequeue()))
+            foreach (InspectionQueryDefinition requirement in
+                queryCatalog.RequirementsOf(queue.Dequeue()))
             {
                 if (reachable.Add(requirement))
                     queue.Enqueue(requirement);
