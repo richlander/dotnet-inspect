@@ -343,16 +343,34 @@ and passes the entire right-side type population to the product. It consumes
 product ranks, similarity evidence, blockers, receipts, and artifact-scoped
 method addresses without reconstructing portable features.
 
-The seven-query ledger labels every actual top-two row and includes stable,
+The two assembly paths passed on the command line select the A and A-prime
+artifacts, while each ledger entry selects one left-side query method.
+The harness submits every method in the ledger-declared right-side type to
+`RetrieveSimilar`; the product ranks the subset with completed body analysis
+and a query-compatible signature.
+
+The seven-query ledger labels every actual top-two result and includes stable,
 multi-edit, user-string, call-target, branch-target, type-token, and allocation
-regression cases. Its 14 reviewed rows contain six relevant peers, six hard
-negatives, and two semantic hazards. Six of seven relevant labels are recovered
-at K for 42.85% labeled precision and 85.71% labeled recall; the evolved
-allocation-loop member remains an explicit rank-three miss. These figures
-describe only the authored version-pair ledger. They establish retrieval
-behavior, not cross-reader clone relations or semantic equivalence.
+regression cases. Its 14 reviewed results contain six relevant peers, six hard
+negatives, and two semantic lookalikes whose behavior differs. Six of seven
+declared relevant peers are recovered at K for 42.85% precision over reviewed
+labeled results and 85.71% recall at the reviewed depth over declared peers;
+the evolved allocation-loop member remains an explicit relevant peer at rank
+three, beyond the reviewed depth of two.
+
+The text report says **expectations met** when a query satisfies the ledger's
+declared rank, contrast, precision, and recall bounds. That harness result does
+not mean retrieval was perfect. **Hard negative** retains its standard
+information-retrieval meaning: a deliberately plausible but unrelated
+candidate. **Semantic lookalike** and **declared peer not recovered within
+reviewed depth** are harness descriptions of visible retrieval limitations.
+The latter includes a relevant ledger candidate ranked below K or not ranked
+at all; its aggregate count is unavailable when retrieval does not complete
+for a query with declared relevant peers. These figures describe only the
+authored version-pair ledger. They establish retrieval behavior, not
+cross-reader clone relations or semantic equivalence.
 `StructuralCloneCrossAssemblyCorpusTests.CommittedCorpus_GradesVersionPair`
-gates the real fixture run and exact card, while
+gates the real fixture run and exact text report, while
 `CommittedCorpus_PinsNonVacuousReviewCoverage` gates the project/type
 declarations and review-set counts on every host.
 
