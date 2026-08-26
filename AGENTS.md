@@ -258,6 +258,13 @@ exposed the problem, and propose a focused replacement: component-sized efforts
 in priority order, their immediate boundaries, dependencies and parallel work,
 and the claims and non-claims of each.
 
+After that discussion, preserve significant design problems found in other
+components as focused issues rather than dropping them or absorbing them into
+the current design. Each issue names the owning component, concrete evidence
+and consequence, why the problem is outside the current claim, and any boundary
+or sequencing dependency. Filing the issue preserves the finding; it does not
+approve a solution or expand the current effort.
+
 Recommend whether to split or abandon the current design and how to preserve its
 useful analysis as non-normative source material. Then ask the user to choose
 the direction; do not silently narrow the work or infer approval to continue
