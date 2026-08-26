@@ -983,19 +983,6 @@ public static class MemberCommand
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static MemberOptions ExcludeCallersSection(MemberOptions options)
-    {
-        var includeSections = options.IncludeSections is { } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : [];
-        includeSections.Remove(SectionNames.Callers);
-        return options with
-        {
-            IncludeSections = includeSections,
-            CallerScopeSectionImplicitlySelected = false
-        };
-    }
-
     private static bool RequiresCallerScopeResolution(MemberOptions options)
         => !IsWholeDocumentJson(options)
            && options.HasCallerScope
