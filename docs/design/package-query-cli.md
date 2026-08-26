@@ -9,12 +9,14 @@ document's vocabulary as canonical rather than inventing its own.
 ## Status
 
 Design proposal, partially landed. `find --package-prefix`'s corpus-streaming
-mechanism, its typed L1 queries (`PackageProfileQuery`,
-`PackageDependencyGroupsQuery`), and — further than this document originally
-recommended as a follow-up slice — its rendering path already merged in #4551
-onto the shared `Sections`/shape-ladder registry (`PackageProfileSections`,
-`SectionPipeline<PackageProfileView>`), the same registry `library`, `member`,
-and `package` use. See
+mechanism and typed L1 query (`PackageProfileQuery`) — plus, further than
+this document originally recommended as a follow-up slice, its rendering
+path — already merged in #4551 onto the shared `Sections`/shape-ladder
+registry (`PackageProfileSections`, `SectionPipeline<PackageProfileView>`),
+the same registry `library`, `member`, and `package` use. `PackageDependencyGroupsQuery`
+also landed in #4551, in the same L1 layer, but backs the browser's
+single-package dependency view (`InspectionEngine.QueryPackageDependencies`),
+not `find --package-prefix`'s corpus-streaming query. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for what shipped and what did not.
 
