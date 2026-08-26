@@ -970,6 +970,12 @@ public static class OutputFormatter
                 || (columns is { Length: > 0 }
                     && sectionSchema.ItemKind.Equals(
                         "column", StringComparison.OrdinalIgnoreCase)
-                    && schema.ValidateProjection(section, columns).Resolved.Length > 0));
+                    && schema.ValidateProjection(section, columns).Resolved.Length > 0)
+                || (columns is { Length: > 0 }
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && columns.Contains(
+                        "*",
+                        StringComparer.Ordinal)));
     }
 }

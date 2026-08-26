@@ -2227,6 +2227,14 @@ public partial class CommandExecutionTests
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+            var (multiPackageExit, multiPackageOutput, multiPackageError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+            var (mapExit, mapOutput, mapError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info,Target Frameworks",
+                "--count", "--tree", "--tips", "q");
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
@@ -2243,6 +2251,21 @@ public partial class CommandExecutionTests
                     out var packageCount),
                 packageOutput);
             Assert.True(packageCount > 0);
+
+            Assert.Equal(0, multiPackageExit);
+            Assert.Empty(multiPackageError);
+            Assert.Equal(
+                packageCount * 2,
+                int.Parse(
+                    multiPackageOutput.Trim(),
+                    CultureInfo.InvariantCulture));
+
+            Assert.Equal(1, mapExit);
+            Assert.Empty(mapOutput);
+            Assert.Contains(
+                "--tree requires exactly one selected shape",
+                mapError,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -19616,6 +19639,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_IlOffsetCountPreservesStructuralWildcard()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0",
+            "-S", "Context: Member",
+            "--columns", "*",
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetExceptionContextCountsTypedRows()
     {
         var method = typeof(ILOffsetExceptionFixture).GetMethod(
@@ -21477,10 +21515,17 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--json", "--columns", "Package", "--tips", "q");
+            var (multiExit, multiOutput, multiError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "--json", "--columns", "Package", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
             using var _ = JsonDocument.Parse(output);
+            Assert.Equal(0, multiExit);
+            Assert.Empty(multiError);
+            using var multi = JsonDocument.Parse(multiOutput);
+            Assert.Equal(2, multi.RootElement.GetArrayLength());
         }
         finally
         {

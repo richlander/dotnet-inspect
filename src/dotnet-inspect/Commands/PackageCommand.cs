@@ -1438,7 +1438,8 @@ public class PackageCommand
         IReadOnlySet<string>? countSections,
         string? rowSection)
     {
-        if (options.Columns is not { Length: > 0 })
+        if (options.Columns is not { Length: > 0 }
+            || (countSections is null && rowSection is null))
             return true;
 
         var schema = PackageDiscoverySchema();
@@ -1814,7 +1815,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
-        else if (options.Tree && options.Discover == null) conflicts.Add("--tree");
+        else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
