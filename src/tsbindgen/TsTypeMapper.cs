@@ -11,6 +11,9 @@ namespace tsbindgen;
 /// </summary>
 static class TsTypeMapper
 {
+    public const string InertStringTypeName = "InertString";
+    private const string QualifiedInertStringTypeName = "InertText.InertString";
+
     public static bool IsAsyncReturnType(string csharpType)
     {
         string trimmed = csharpType.Trim();
@@ -97,6 +100,33 @@ static class TsTypeMapper
         string? location = null) =>
         Map(csharpType.Trim(), recordNames, diagnostics, location);
 
+    public static bool ContainsInertString(string csharpType)
+    {
+        string trimmed = csharpType.Trim();
+        if (IsInertString(trimmed))
+            return true;
+
+        if (trimmed.EndsWith("[]", StringComparison.Ordinal)
+            || trimmed.EndsWith("?", StringComparison.Ordinal))
+        {
+            return ContainsInertString(
+                trimmed.EndsWith("[]", StringComparison.Ordinal)
+                    ? trimmed[..^2]
+                    : trimmed[..^1]);
+        }
+
+        if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
+            || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
+        {
+            return ContainsInertString(nullableArg!);
+        }
+
+        if (TryGetDictionaryArguments(trimmed, out string? keyType, out string? valueType))
+            return ContainsInertString(keyType!) || ContainsInertString(valueType!);
+
+        return false;
+    }
+
     static string Map(
         string csharpType,
         IReadOnlySet<string> recordNames,
@@ -132,6 +162,19 @@ static class TsTypeMapper
         }
 
         string simpleName = LastSegment(trimmed);
+
+        if (IsInertString(trimmed))
+        {
+            if (recordNames.Contains(InertStringTypeName))
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    $"{trimmed} (TypeScript name collides with a serialized record)");
+                return "unknown";
+            }
+
+            return InertStringTypeName;
+        }
 
         if (recordNames.Contains(simpleName))
         {
@@ -175,20 +218,10 @@ static class TsTypeMapper
         string? location,
         out string? mappedType)
     {
-        if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
-            && !TryUnwrapGeneric(typeName, "Dictionary", out dictionaryArgs)
-            && !TryUnwrapGeneric(typeName, "System.Collections.Generic.IReadOnlyDictionary", out dictionaryArgs)
-            && !TryUnwrapGeneric(typeName, "IReadOnlyDictionary", out dictionaryArgs))
+        if (!TryGetDictionaryArguments(typeName, out string? keyType, out string? valueType))
         {
             mappedType = null;
             return false;
-        }
-
-        if (!TrySplitTopLevelGenericArguments(dictionaryArgs!, out string? keyType, out string? valueType))
-        {
-            diagnostics?.ReportUnmappedType(location ?? typeName, typeName);
-            mappedType = "unknown";
-            return true;
         }
 
         string mappedKey = Map(keyType!, recordNames, diagnostics, location);
@@ -202,6 +235,24 @@ static class TsTypeMapper
 
         mappedType = $"Record<string, {mappedValue}>";
         return true;
+    }
+
+    static bool TryGetDictionaryArguments(
+        string typeName,
+        out string? keyType,
+        out string? valueType)
+    {
+        if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
+            && !TryUnwrapGeneric(typeName, "Dictionary", out dictionaryArgs)
+            && !TryUnwrapGeneric(typeName, "System.Collections.Generic.IReadOnlyDictionary", out dictionaryArgs)
+            && !TryUnwrapGeneric(typeName, "IReadOnlyDictionary", out dictionaryArgs))
+        {
+            keyType = null;
+            valueType = null;
+            return false;
+        }
+
+        return TrySplitTopLevelGenericArguments(dictionaryArgs!, out keyType, out valueType);
     }
 
     static bool TrySplitTopLevelGenericArguments(
@@ -243,6 +294,9 @@ static class TsTypeMapper
         int dot = typeName.LastIndexOf('.');
         return dot >= 0 ? typeName[(dot + 1)..] : typeName;
     }
+
+    static bool IsInertString(string typeName) =>
+        typeName == QualifiedInertStringTypeName;
 
     static bool TryUnwrapGeneric(string typeName, string genericBaseName, out string? argument)
     {

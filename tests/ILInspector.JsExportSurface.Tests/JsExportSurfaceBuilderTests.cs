@@ -20,7 +20,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(14, surface.Functions.Count);
+        Assert.Equal(17, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
@@ -28,6 +28,9 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("GetWidgetOrOwner", names);
         Assert.Contains("GetWidgetArray", names);
         Assert.Contains("GetWidgetSummary", names);
+        Assert.Contains("GetInertWidgetSummary", names);
+        Assert.Contains("GetInertString", names);
+        Assert.Contains("InertStringBrand", names);
         Assert.Contains("GetWidgetPermissionSummary", names);
         Assert.Contains("GetWidgetPrioritySummary", names);
         Assert.Contains("GetWidgetAudit", names);
@@ -60,11 +63,12 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(8, surface.Records.Count);
+        Assert.Equal(9, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
         Assert.Contains("WidgetSummary", recordNames);
+        Assert.Contains("InertWidgetSummary", recordNames);
         Assert.Contains("WidgetPermissionSummary", recordNames);
         Assert.Contains("WidgetPrioritySummary", recordNames);
         Assert.Contains("WidgetAudit", recordNames);

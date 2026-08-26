@@ -33,6 +33,29 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 TypeScript would add its own "personality" layer here without needing to touch
 the OM.
 
+### Inert text
+
+A DTO property whose C# type is `InertText.InertString` generates as the opaque
+TypeScript string brand `InertString`, while an ordinary `System.String`
+property remains `string`. The brand preserves the compiler-visible fact that
+the C# producer applied an inert-text policy without introducing a JavaScript
+runtime wrapper. JSON still carries the encoded value as a string, so normal
+JSON parsing and string-oriented browser APIs continue to work.
+The mapping uses namespace-qualified C# identity, not the display name
+`InertString`; an unrelated application type with that simple name remains an
+ordinary generated record.
+
+The brand deliberately does not name `Field` versus `Prose`: the C# currency
+type records that some policy was applied, not which one, because composition
+may tighten a value under a different policy. It also does not preserve
+`Forms`, `Concerns`, or `IsTruncated`; those facts are not recoverable from the
+string-valued wire representation. A contract that needs them must expose a
+separate typed envelope rather than implying that the brand carries metadata it
+does not.
+
+`InertString` is not HTML-safe text. A browser rendering boundary must still
+apply its sink-specific HTML, attribute, URL, or DOM-text handling.
+
 ### Record shape discovery
 
 A `[JSExport]` method's signature in this ABI style is always a plain
