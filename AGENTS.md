@@ -208,7 +208,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Running a review round, or checking PR status | `docs/round-orchestration.md` |
-| Hosting a network-accessible inspect-web demo | `docs/inspect-web-demo-hosting.md` |
+| Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
 | Release and publishing | `docs/release-workflow.md` |
 | Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
@@ -744,8 +744,8 @@ Validation proves correctness; a demo shows value. Post the intended demo early
 enough to change the implementation.
 
 For a network-accessible inspect-web demo, follow
-[`docs/inspect-web-demo-hosting.md`](docs/inspect-web-demo-hosting.md). A local
-HTTP listener or successful `curl` is not a user-visible demo.
+[`docs/runbooks/inspect-web-demo-hosting.md`](docs/runbooks/inspect-web-demo-hosting.md).
+A local HTTP listener or successful `curl` is not a user-visible demo.
 
 A useful demo:
 

@@ -33,8 +33,18 @@ the release workflow instead.
   network-facing listener.
 - The gateway URL remains stable while the implementation worktree and build
   host can change.
-- Tailscale Serve is tailnet-only. Do not use Tailscale Funnel for a review
-  demo.
+- Tailscale Serve obtains and renews the certificate for the gateway's tailnet
+  DNS name, terminates HTTPS, and proxies to the loopback origin. It remains
+  tailnet-only; do not use Tailscale Funnel for a review demo.
+
+Tailscale Serve is the repository-standard HTTPS terminator, not a technical
+requirement. A gateway operator could instead obtain a certificate with
+`tailscale cert` and configure Caddy, nginx, or another TLS server. That
+alternative adds private-key handling, certificate renewal, and server
+configuration that Serve owns for this workflow. A directly reachable build
+host could also terminate HTTPS under its own tailnet DNS name, but would give
+up the stable gateway URL and change the network-exposure model. Keep those
+alternatives operator decisions rather than improvising them during a demo.
 
 The gateway route is shared infrastructure. It can present only one demo on a
 given origin port at a time. Inspect its current owner before taking it over,
@@ -51,9 +61,9 @@ The build host needs:
 - SSH access to the gateway; and
 - Tailscale connectivity.
 
-The gateway needs Tailscale Serve configured once by its operator. The examples
-below use these variables so hostnames remain environment configuration rather
-than repository policy:
+The gateway needs the repository-standard Tailscale Serve route configured once
+by its operator. The examples below use these variables so hostnames remain
+environment configuration rather than repository policy:
 
 ```bash
 export DEMO_GATEWAY_HOST="<gateway SSH host>"
