@@ -10,6 +10,9 @@ See [overview.md](../overview.md) for subsystem ownership,
 [output-shapes.md](output-shapes.md) for the shape ladder this note builds on.
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
 owns the source-neutral boundary below workspace-backed assembly queries.
+[The package query CLI](package-query-cli.md) applies this split to a
+concrete, not-yet-implemented feature: nuspec/promoted facet predicates over
+`find --package-prefix`.
 
 ## Purpose
 
@@ -148,6 +151,13 @@ acquisition to shared Services while the host supplies trusted symbol and
 SSRF-hardened source clients. The registry supports deterministic synchronous
 and asynchronous execution and passes each query's maximum transitive cost
 into the host execution scope.
+
+`DotnetInspector.Artifacts` now provides the source-neutral floor below these
+layers: generation-scoped identity and registration, adapter-owned typed
+provenance and diagnostics, acquisition outcomes, and owner-issued guarded
+admission/query access. It references no project. No current workspace behavior
+has moved onto that floor yet; `ArtifactSetSession`, local acquisition, and
+Metadata consumption remain later migration steps.
 
 ### L1 — `DotnetInspector.Queries`
 
