@@ -385,6 +385,8 @@ public sealed class BrowserEngineLayeringTests
             "ILInspector.Analysis.CallerResolutionPlan",
             "ILInspector.Analysis.CatalogCallGraphParticipant",
             "ILInspector.Analysis.CatalogMemberCorrespondencePlan",
+            "ILInspector.Metadata.ApiSurface",
+            "ILInspector.Metadata.ApiType",
             "ILInspector.Metadata.AssemblyBindingOrigin",
             "ILInspector.Metadata.AssemblyBindingSelection",
             "ILInspector.Metadata.TypeResolutionRequest",
