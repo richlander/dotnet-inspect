@@ -275,6 +275,109 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.Contains("return 1;", body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AuthoredMemberSource_PreservesCanonicalBlockTextForPrinterComparison()
+    {
+        const string source = """
+            public int M()
+            {
+                if (Value)
+                {
+                    return 1;
+                }
+
+                return 2;
+            }
+            """;
+
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            source,
+            "M",
+            expectedParameterCount: 0,
+            out _,
+            out string? printerBody));
+        Assert.Equal(
+            """
+            if (Value)
+            {
+                return 1;
+            }
+
+            return 2;
+            """,
+            printerBody);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_DoesNotProjectExpressionBodyAsPrinterExact()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            "public int M() => 1;",
+            "M",
+            expectedParameterCount: 0,
+            out string body,
+            out string? printerBody));
+
+        Assert.Equal("return 1;", body);
+        Assert.Null(printerBody);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_BodylessAccessorIsNotExtractable()
+    {
+        Assert.False(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            "public int Value { get; }",
+            "get_Value",
+            expectedParameterCount: 0,
+            out _,
+            out _));
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_RemovesSingleLineBlockEnvelope()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            "public int M() { return 1; }",
+            "M",
+            expectedParameterCount: 0,
+            out _,
+            out string? printerBody));
+
+        Assert.Equal("return 1;", printerBody);
+    }
+
+    [Theory]
+    [InlineData("""
+        public string M()
+        {
+            return @"first
+        second";
+        }
+        """)]
+    [InlineData("""
+        public int M()
+        {
+        #if FEATURE
+            return 1;
+        #else
+            return 0;
+        #endif
+        }
+        """)]
+    public void AuthoredMemberSource_DeclinesNonMechanicalPrinterProjection(
+        string source)
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            source,
+            "M",
+            expectedParameterCount: 0,
+            out string body,
+            out string? printerBody));
+
+        Assert.NotEmpty(body);
+        Assert.Null(printerBody);
+    }
+
     [Theory]
     [InlineData(".ctor", "Value = 1;")]
     [InlineData(".cctor", "Value = 2;")]

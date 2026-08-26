@@ -225,28 +225,44 @@ static class AuthoredRebuildFidelity
         string memberSource,
         string metadataMethodName,
         out string body)
-        => TryExtractTargetBody(
+        => TryExtractTargetBodies(
             memberSource,
             metadataMethodName,
             expectedParameterCount: null,
-            out body);
+            out body,
+            out _);
 
     internal static bool TryExtractTargetBody(
         string memberSource,
         string metadataMethodName,
         int expectedParameterCount,
         out string body)
-        => TryExtractTargetBody(
+        => TryExtractTargetBodies(
             memberSource,
             metadataMethodName,
             (int?)expectedParameterCount,
-            out body);
+            out body,
+            out _);
 
-    static bool TryExtractTargetBody(
+    internal static bool TryExtractTargetBodies(
+        string memberSource,
+        string metadataMethodName,
+        int expectedParameterCount,
+        out string body,
+        out string? printerBody)
+        => TryExtractTargetBodies(
+            memberSource,
+            metadataMethodName,
+            (int?)expectedParameterCount,
+            out body,
+            out printerBody);
+
+    static bool TryExtractTargetBodies(
         string memberSource,
         string metadataMethodName,
         int? expectedParameterCount,
-        out string body)
+        out string body,
+        out string? printerBody)
     {
         ArgumentNullException.ThrowIfNull(memberSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataMethodName);
@@ -258,6 +274,7 @@ static class AuthoredRebuildFidelity
         int bestScore = -1;
         bool ambiguous = false;
         body = "";
+        printerBody = null;
         foreach (var member in root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
             .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
@@ -273,14 +290,20 @@ static class AuthoredRebuildFidelity
             }
 
             bestScore = candidate.Score;
-            body = candidate.Body;
+            body = candidate.Body.Legacy;
+            printerBody = candidate.Body.Printer;
             ambiguous = false;
         }
 
         return bestScore >= 0 && !ambiguous && body.Length > 0;
     }
 
-    static (int Score, string Body) MemberBody(
+    readonly record struct ExtractedBody(string Legacy, string? Printer)
+    {
+        public static ExtractedBody None => new("", Printer: null);
+    }
+
+    static (int Score, ExtractedBody Body) MemberBody(
         MemberDeclarationSyntax member,
         MetadataMethodIdentity identity,
         int? expectedParameterCount)
@@ -357,7 +380,7 @@ static class AuthoredRebuildFidelity
                     eventDeclaration.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration)),
-            _ => (-1, ""),
+            _ => (-1, ExtractedBody.None),
         };
 
     static bool ParameterCountMatches(int actual, int? expected)
@@ -370,10 +393,10 @@ static class AuthoredRebuildFidelity
             ? metadataMethodName == ".cctor"
             : metadataMethodName == ".ctor";
 
-    static (int Score, string Body) ScoredBody(
+    static (int Score, ExtractedBody Body) ScoredBody(
         ExplicitInterfaceSpecifierSyntax? syntax,
         MetadataMethodIdentity identity,
-        string body)
+        ExtractedBody body)
         => (ExplicitInterfaceMatchScore(syntax, identity.ExplicitInterface), body);
 
     static bool AccessorNameMatches(
@@ -510,7 +533,7 @@ static class AuthoredRebuildFidelity
         }
     }
 
-    static string AccessorBodyText(
+    static ExtractedBody AccessorBodyText(
         BasePropertyDeclarationSyntax declaration,
         SyntaxKind accessorKind)
     {
@@ -530,30 +553,95 @@ static class AuthoredRebuildFidelity
             && declaration is PropertyDeclarationSyntax
                 { ExpressionBody: { } expressionBody })
         {
-            return $"return {expressionBody.Expression};";
+            return new($"return {expressionBody.Expression};", Printer: null);
         }
 
-        return "";
+        return ExtractedBody.None;
     }
 
-    static string BodyText(
+    static ExtractedBody BodyText(
         BlockSyntax? block,
         ArrowExpressionClauseSyntax? expressionBody,
         bool returnsVoid)
     {
         if (block is not null)
         {
-            return string.Join(
-                Environment.NewLine,
-                block.Statements.Select(statement => statement.ToFullString()))
+            string legacy = string.Join(
+                    Environment.NewLine,
+                    block.Statements.Select(statement => statement.ToFullString()))
                 .Trim();
+            return new(
+                legacy,
+                PrinterBodyIsMechanicallyComparable(block)
+                    ? PrinterBodyText(block)
+                    : null);
         }
         if (expressionBody is null)
-            return "";
+            return ExtractedBody.None;
 
-        return returnsVoid
+        string projected = returnsVoid
             ? $"{expressionBody.Expression};"
             : $"return {expressionBody.Expression};";
+        // Expression-bodied declarations have a different source envelope than
+        // the block body emitted by the decompiler. They remain valid Correct
+        // evidence, but are deliberately ineligible for byte-for-byte printer
+        // comparison until that projection has its own versioned contract.
+        return new(projected, Printer: null);
+    }
+
+    static bool PrinterBodyIsMechanicallyComparable(BlockSyntax block)
+        => !block.DescendantTokens().Any(token =>
+                token.Text.Contains('\n') || token.Text.Contains('\r'))
+            && !block.DescendantTrivia(descendIntoTrivia: true).Any(trivia =>
+                trivia.GetStructure() is DirectiveTriviaSyntax);
+
+    static string PrinterBodyText(BlockSyntax block)
+    {
+        string text = block.SyntaxTree.GetText()
+            .ToString(Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(
+                block.OpenBraceToken.Span.End,
+                block.CloseBraceToken.SpanStart))
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        string[] lines = text.Split('\n');
+        int start = 0;
+        int end = lines.Length;
+        while (start < end && string.IsNullOrWhiteSpace(lines[start]))
+            start++;
+        while (end > start && string.IsNullOrWhiteSpace(lines[end - 1]))
+            end--;
+        if (start == end)
+            return "";
+
+        bool closeBraceSharesContentLine =
+            end == lines.Length && !string.IsNullOrWhiteSpace(lines[end - 1]);
+        if (closeBraceSharesContentLine)
+            lines[end - 1] = lines[end - 1].TrimEnd(' ', '\t');
+
+        int indentation = int.MaxValue;
+        for (int i = start; i < end; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i]))
+                continue;
+
+            int current = 0;
+            while (current < lines[i].Length
+                && lines[i][current] is ' ' or '\t')
+            {
+                current++;
+            }
+            indentation = Math.Min(indentation, current);
+        }
+
+        if (indentation is int.MaxValue)
+            indentation = 0;
+
+        return string.Join(
+            "\n",
+            lines[start..end].Select(line =>
+                string.IsNullOrWhiteSpace(line)
+                    ? ""
+                    : line[Math.Min(indentation, line.Length)..]));
     }
 
     static bool ReturnsVoid(TypeSyntax type)

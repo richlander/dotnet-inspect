@@ -38,6 +38,7 @@ static class AuthoredCorpusBenchmark
         bool json,
         string? ratchetBaselinePath = null,
         bool integrityOnly = false,
+        string? sourceOracleManifestPath = null,
         TextWriter? output = null)
     {
         output ??= Console.Out;
@@ -92,6 +93,17 @@ static class AuthoredCorpusBenchmark
             return 1;
         }
 
+        AuthoredSourceOracleManifest.Document? sourceOracleManifest = null;
+        if (sourceOracleManifestPath is not null
+            && !AuthoredSourceOracleManifest.TryRead(
+                sourceOracleManifestPath,
+                out sourceOracleManifest,
+                out string? manifestError))
+        {
+            Console.Error.WriteLine(manifestError);
+            return 1;
+        }
+
         var byAssembly = records
             .GroupBy(record => record.Assembly, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<AuthoredSourceHarvest.CorpusRecord>)group.ToArray(), StringComparer.Ordinal);
@@ -116,6 +128,7 @@ static class AuthoredCorpusBenchmark
         }
 
         var results = new List<ReturnToSenderSourceProbeResult>();
+        var evaluatedRows = new List<AuthoredSourceOracleManifest.EvaluatedRow>();
         var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
         for (int i = 0; i < pool.Assemblies.Count; i++)
         {
@@ -142,7 +155,22 @@ static class AuthoredCorpusBenchmark
                 return 1;
             }
             var targets = group.Select(ToTarget).ToArray();
-            results.AddRange(ReturnToSenderSourceProbe.EvaluateWithIndex(assemblyPath, targets, index));
+            var groupResults = ReturnToSenderSourceProbe.EvaluateWithIndex(
+                assemblyPath,
+                targets,
+                index);
+            if (groupResults.Count != group.Count)
+            {
+                Console.Error.WriteLine(
+                    $"Corpus evaluation returned {groupResults.Count} result(s) for "
+                    + $"{group.Count} target(s) in '{assemblyPath}'.");
+                return 1;
+            }
+            results.AddRange(groupResults);
+            evaluatedRows.AddRange(group.Zip(
+                groupResults,
+                static (record, result) =>
+                    new AuthoredSourceOracleManifest.EvaluatedRow(record, result)));
         }
 
         string? poolSha256 = pool.Sha256;
@@ -164,11 +192,14 @@ static class AuthoredCorpusBenchmark
             malformedRows,
             poolSha256,
             corpusSha256);
+        var oracleReport = sourceOracleManifest is null
+            ? null
+            : AuthoredSourceOracleManifest.Evaluate(sourceOracleManifest, evaluatedRows);
 
         if (json)
-            return WriteJson(results, records.Count, inputs, baselines, integrityOnly, provenance!, output);
+            return WriteJson(results, records.Count, inputs, baselines, integrityOnly, provenance!, oracleReport, output);
 
-        return WriteCard(results, records.Count, inputs, baselines, integrityOnly, output);
+        return WriteCard(results, records.Count, inputs, baselines, integrityOnly, oracleReport, output);
     }
 
     /// <summary>
@@ -234,7 +265,8 @@ static class AuthoredCorpusBenchmark
         [property: System.Text.Json.Serialization.JsonRequired] string? SupersededFaultIsolationMethod,
         [property: System.Text.Json.Serialization.JsonRequired] string Reason,
         [property: System.Text.Json.Serialization.JsonRequired] string? Detail,
-        [property: System.Text.Json.Serialization.JsonRequired] string? SourceFile);
+        [property: System.Text.Json.Serialization.JsonRequired] string? SourceFile,
+        [property: System.Text.Json.Serialization.JsonRequired] string PrinterExact);
 
     internal sealed record Report(
         [property: System.Text.Json.Serialization.JsonRequired] string Date,
@@ -254,6 +286,10 @@ static class AuthoredCorpusBenchmark
         [property: System.Text.Json.Serialization.JsonRequired] bool InputsComplete,
         [property: System.Text.Json.Serialization.JsonRequired] string QualityContract,
         [property: System.Text.Json.Serialization.JsonRequired] int Correct,
+        [property: System.Text.Json.Serialization.JsonRequired] int PrinterComparisonVersion,
+        [property: System.Text.Json.Serialization.JsonRequired] int PrinterExact,
+        [property: System.Text.Json.Serialization.JsonRequired] int PrinterDifferent,
+        [property: System.Text.Json.Serialization.JsonRequired] int PrinterNotRecorded,
         [property: System.Text.Json.Serialization.JsonRequired] int ValidDifferent,
         [property: System.Text.Json.Serialization.JsonRequired] ValidBreakdownReport ValidBreakdown,
         [property: System.Text.Json.Serialization.JsonRequired] int Invalid,
@@ -262,6 +298,7 @@ static class AuthoredCorpusBenchmark
         [property: System.Text.Json.Serialization.JsonRequired] int Drift,
         [property: System.Text.Json.Serialization.JsonRequired] int Unsupported,
         [property: System.Text.Json.Serialization.JsonRequired] int UnknownOutcome,
+        [property: System.Text.Json.Serialization.JsonRequired] AuthoredSourceOracleManifest.Report? SourceOracleManifest,
         [property: System.Text.Json.Serialization.JsonRequired] RatchetReport? Ratchet,
         [property: System.Text.Json.Serialization.JsonRequired] IReadOnlyList<RowReport> Rows);
 
@@ -274,7 +311,11 @@ static class AuthoredCorpusBenchmark
             record.SourceUrl ?? "",
             record.AuthoredBody,
             record.MetadataToken,
-            record.ModuleVersionId);
+            record.ModuleVersionId,
+            PrinterBody: record.PrinterBodyVersion
+                == AuthoredSourceOracleManifest.PrinterComparisonVersion
+                    ? record.PrinterBody
+                    : null);
 
     static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
         => new(record.Type, record.Method, record.Overload, record.Signature);
@@ -393,6 +434,7 @@ static class AuthoredCorpusBenchmark
         RunInputs inputs,
         IReadOnlyList<HistoryRun>? baselines,
         bool integrityOnly,
+        AuthoredSourceOracleManifest.Report? oracleReport,
         TextWriter output)
     {
         var census = Census(results);
@@ -418,6 +460,9 @@ static class AuthoredCorpusBenchmark
 
         output.WriteLine();
         output.WriteLine($"  Correct  (valid, matches authored)  : {match}");
+        output.WriteLine($"    Printer exact (pre-normalized)   : {census.PrinterExact}");
+        output.WriteLine($"    Printer different (layout/trivia): {census.PrinterDifferent}");
+        output.WriteLine($"    Printer source not recorded      : {census.PrinterNotRecorded}");
         output.WriteLine($"  Valid    (valid, differs)           : {different}");
         output.WriteLine($"    lowering (inherent, unrecoverable): {census.Lowering}");
         output.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
@@ -454,6 +499,22 @@ static class AuthoredCorpusBenchmark
         WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift, output);
         WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported, output);
 
+        if (oracleReport is not null)
+        {
+            output.WriteLine();
+            output.WriteLine("  Source-oracle files:");
+            output.WriteLine($"    Valid                            : {oracleReport.FilesValid} / {oracleReport.FilesRegistered}");
+            output.WriteLine($"    Correct                          : {oracleReport.FilesCorrect} / {oracleReport.FilesRegistered}");
+            output.WriteLine($"    Printer exact                    : {oracleReport.PrinterExactPassing} / {oracleReport.PrinterExactRequired} required");
+            foreach (string failure in oracleReport.Failures)
+                output.WriteLine($"    BLOCKER                          : {failure}");
+        }
+        else
+        {
+            output.WriteLine();
+            output.WriteLine("  Source-oracle files: NOT JUDGED (no manifest supplied)");
+        }
+
         // Both output modes share one exit contract and one partition check, so a
         // malformed run cannot pass in text mode and fail in --json mode.
         bool frontierPartitionClosed =
@@ -475,7 +536,13 @@ static class AuthoredCorpusBenchmark
         var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
         ReportContract(contract, census.Invalid, output);
 
-        return ExitCode(census, inputs, ratchet, contract, frontierPartitionClosed);
+        return ExitCode(
+            census,
+            inputs,
+            ratchet,
+            contract,
+            frontierPartitionClosed,
+            oracleReport?.Passed ?? true);
     }
 
     /// <summary>
@@ -487,6 +554,9 @@ static class AuthoredCorpusBenchmark
     internal sealed record BucketCensus(
         int Evaluated,
         int Correct,
+        int PrinterExact,
+        int PrinterDifferent,
+        int PrinterNotRecorded,
         int ValidDifferent,
         int Lowering,
         int KnownTaste,
@@ -509,24 +579,41 @@ static class AuthoredCorpusBenchmark
         public long TopLevelSum
             => (long)Correct + ValidDifferent + Invalid + NotFull + Drift + Unsupported + UnknownOutcome;
 
+        public long PrinterSum
+            => (long)PrinterExact + PrinterDifferent + PrinterNotRecorded;
+
         /// <summary>
         /// Both partitions close exactly. A shortfall means a row was counted in a
         /// bucket the schema cannot represent, which is how measurement silently
         /// turns into arithmetic.
         /// </summary>
-        public bool PartitionClosed => ValidDifferentSum == ValidDifferent && TopLevelSum == Evaluated;
+        public bool PartitionClosed
+            => ValidDifferentSum == ValidDifferent
+                && TopLevelSum == Evaluated
+                && PrinterSum == Correct;
 
         public string PartitionFailureMessage
-            => $"BLOCKER: emitted buckets do not partition the run — validDifferent {ValidDifferentSum} vs {ValidDifferent}, top-level {TopLevelSum} vs {Evaluated}.";
+            => $"BLOCKER: emitted buckets do not partition the run — validDifferent {ValidDifferentSum} vs {ValidDifferent}, printer {PrinterSum} vs {Correct}, top-level {TopLevelSum} vs {Evaluated}.";
     }
 
     static BucketCensus Census(IReadOnlyList<ReturnToSenderSourceProbeResult> results)
     {
-        int correct = 0, lowering = 0, knownTaste = 0, frontierIlExact = 0, frontierIlDiff = 0;
+        int correct = 0, printerExact = 0, printerDifferent = 0, printerNotRecorded = 0;
+        int lowering = 0, knownTaste = 0, frontierIlExact = 0, frontierIlDiff = 0;
         int frontierIlNoVerdict = 0, invalid = 0, notFull = 0, drift = 0, unsupported = 0, unknownOutcome = 0;
 
         foreach (var result in results)
         {
+            if (result.Outcome == ReturnToSenderSourceOutcome.ValidMatch)
+            {
+                switch (result.PrinterExact)
+                {
+                    case PrinterExactOutcome.Exact: printerExact++; break;
+                    case PrinterExactOutcome.Different: printerDifferent++; break;
+                    default: printerNotRecorded++; break;
+                }
+            }
+
             switch (ClassifyTaste(result))
             {
                 case TasteBucket.Correct: correct++; break;
@@ -549,6 +636,9 @@ static class AuthoredCorpusBenchmark
         return new BucketCensus(
             Evaluated: results.Count,
             Correct: correct,
+            PrinterExact: printerExact,
+            PrinterDifferent: printerDifferent,
+            PrinterNotRecorded: printerNotRecorded,
             ValidDifferent: results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent),
             Lowering: lowering,
             KnownTaste: knownTaste,
@@ -612,7 +702,8 @@ static class AuthoredCorpusBenchmark
         RunInputs inputs,
         AuthoredCorpusRatchet.Comparison? ratchet,
         AuthoredCorpusExitContract.QualityContract contract,
-        bool frontierPartitionClosed = true)
+        bool frontierPartitionClosed = true,
+        bool sourceOraclePassed = true)
     {
         bool measurementIsSound = AuthoredCorpusExitContract.MeasurementIsSound(
             InputsComplete(census, inputs),
@@ -621,7 +712,9 @@ static class AuthoredCorpusBenchmark
             census.Unsupported,
             census.UnknownOutcome);
 
-        return AuthoredCorpusExitContract.ExitCode(measurementIsSound, census.Invalid, ratchet, contract);
+        return sourceOraclePassed
+            ? AuthoredCorpusExitContract.ExitCode(measurementIsSound, census.Invalid, ratchet, contract)
+            : 1;
     }
 
     /// <summary>
@@ -823,6 +916,7 @@ static class AuthoredCorpusBenchmark
         IReadOnlyList<HistoryRun>? baselines,
         bool integrityOnly,
         AuthoredCorpusHistoryStore.BenchmarkProvenance provenance,
+        AuthoredSourceOracleManifest.Report? oracleReport,
         TextWriter output)
     {
         var census = Census(results);
@@ -859,6 +953,10 @@ static class AuthoredCorpusBenchmark
             // "NotJudged" means no quality claim was made at all.
             contract.ToString(),
             census.Correct,
+            AuthoredSourceOracleManifest.PrinterComparisonVersion,
+            census.PrinterExact,
+            census.PrinterDifferent,
+            census.PrinterNotRecorded,
             census.ValidDifferent,
             new ValidBreakdownReport(
                 census.ValidDifferent,
@@ -882,6 +980,7 @@ static class AuthoredCorpusBenchmark
             census.Drift,
             census.Unsupported,
             census.UnknownOutcome,
+            oracleReport,
             ratchet is null
                 ? null
                 : new RatchetReport(
@@ -911,7 +1010,8 @@ static class AuthoredCorpusBenchmark
                 result.SupersededFaultIsolationMethod?.ToString(),
                 result.Reason,
                 result.Detail,
-                result.SourcePath))]);
+                result.SourcePath,
+                result.PrinterExact.ToString()))]);
 
         output.WriteLine(SerializeReport(payload));
 
@@ -935,7 +1035,13 @@ static class AuthoredCorpusBenchmark
 
         ReportContract(contract, census.Invalid, Console.Error);
 
-        return ExitCode(census, inputs, ratchet, contract, frontierPartitionClosed);
+        return ExitCode(
+            census,
+            inputs,
+            ratchet,
+            contract,
+            frontierPartitionClosed,
+            oracleReport?.Passed ?? true);
     }
 
     internal static string SerializeReport(Report report)
