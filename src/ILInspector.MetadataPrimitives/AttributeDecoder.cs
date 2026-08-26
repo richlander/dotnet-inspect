@@ -219,6 +219,25 @@ public static class AttributeDecoder
         }
     }
 
+    /// <summary>
+    /// Binds a caller enum-width resolver to the same local-TypeDef-first,
+    /// <see cref="EnumUnderlyingPrimitive.Normalize"/> oracle
+    /// <see cref="ArgTypeProvider.GetUnderlyingEnumType"/> uses so a direct
+    /// <c>IsSafeToDecode(..., resolver)</c> skip cannot diverge from
+    /// <c>DecodeValue</c>.
+    /// </summary>
+    internal static Func<string, PrimitiveTypeCode> BindEnumWidthResolver(
+        MetadataReader reader,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode> enumUnderlyingType)
+        => enumUnderlyingType.Target is ArgTypeProvider
+            ? enumUnderlyingType
+            : new ArgTypeProvider(
+                reader,
+                preserveSerializedTypeNames: false,
+                beforeMaterialize,
+                enumUnderlyingType).GetUnderlyingEnumType;
+
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
     sealed class ArgTypeProvider(
         MetadataReader reader,

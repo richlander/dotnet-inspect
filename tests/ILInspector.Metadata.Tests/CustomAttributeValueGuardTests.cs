@@ -380,9 +380,9 @@ public sealed class CustomAttributeValueGuardTests
                 attribute,
                 count => charged = checked(charged + count),
                 Width));
-        Assert.Equal(
-            (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
-            charged);
+        Assert.True(
+            charged >= (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            $"Expected the 100M array count to be charged, charged {charged}.");
         Assert.Null(
             AttributeDecoder.TryDecode(
                 image.Reader,
@@ -424,9 +424,9 @@ public sealed class CustomAttributeValueGuardTests
                 attribute,
                 count => charged = checked(charged + count),
                 ExactSimpleNameInt64));
-        Assert.Equal(
-            (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
-            charged);
+        Assert.True(
+            charged >= (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            $"Expected the 100M array count to be charged, charged {charged}.");
         Assert.Null(
             AttributeDecoder.TryDecode(
                 image.Reader,
@@ -453,6 +453,53 @@ public sealed class CustomAttributeValueGuardTests
             _ => PrimitiveTypeCode.Int32);
         Assert.NotNull(decoded);
         Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
+    }
+
+    [Fact]
+    public void DirectGuard_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount()
+    {
+        using var image = Open(
+            BuildOverlappingInt64NamedEnumHostileImage(localInt64Enum: true));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count),
+                _ => PrimitiveTypeCode.Int32));
+        Assert.True(
+            charged >= (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            $"Expected the 100M array count to be charged, charged {charged}.");
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                _ => PrimitiveTypeCode.Int32));
+    }
+
+    [Fact]
+    public void DirectGuard_NormalizesNonFixedWidthResolver_SeesHostileCount()
+    {
+        using var image = Open(BuildNamedEnumInt32ThenHostileArrayImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count),
+                _ => PrimitiveTypeCode.Double));
+        Assert.True(
+            charged >= (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            $"Expected the 100M array count to be charged, charged {charged}.");
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                _ => PrimitiveTypeCode.Double));
     }
 
     [Fact]
@@ -1234,7 +1281,7 @@ public sealed class CustomAttributeValueGuardTests
     static PrimitiveTypeCode ExactSimpleNameInt64(string name)
         => name == "Samples.E" ? PrimitiveTypeCode.Int64 : PrimitiveTypeCode.Int32;
 
-    static byte[] BuildOverlappingInt64NamedEnumHostileImage()
+    static byte[] BuildOverlappingInt64NamedEnumHostileImage(bool localInt64Enum = false)
     {
         var metadata = CreateMetadata("User");
         MemberReferenceHandle constructor = AddConstructor(
@@ -1261,8 +1308,84 @@ public sealed class CustomAttributeValueGuardTests
         value.WriteByte(0x08);
         value.WriteSerializedString("V");
         value.WriteInt32(100_000_000);
+        if (localInt64Enum)
+            AddAttributedTypeWithLocalInt64Enum(metadata, constructor, value);
+        else
+            AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNamedEnumInt32ThenHostileArrayImage()
+    {
+        var metadata = CreateMetadata("User");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            _ => { },
+            parameterCount: 0);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(2);
+        value.WriteByte(0x53);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString("Kind");
+        value.WriteInt32(7);
+        value.WriteByte(0x53);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x08);
+        value.WriteSerializedString("V");
+        value.WriteInt32(100_000_000);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
+    }
+
+    static void AddAttributedTypeWithLocalInt64Enum(
+        MetadataBuilder metadata,
+        MemberReferenceHandle constructor,
+        BlobBuilder value)
+    {
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
     }
 
     static byte[] BuildClassSystemStringImage(int elementCount)

@@ -14,11 +14,12 @@ namespace ILInspector.Metadata;
 /// name to a local <see cref="TypeDefinition"/> the same way. A name that is
 /// not a TypeDef in the current image falls back to
 /// <see cref="PrimitiveTypeCode.Int32"/> so the skip stays aligned, unless a
-/// caller-supplied resolver found the defining image first. Guard and SRM
-/// both consult that resolver with
-/// <see cref="NormalizeSerializedName"/> of the blob name so an
-/// assembly-qualified SerString cannot select a different width than the
-/// stripped name SRM later supplies.
+/// caller-supplied resolver found the defining image first. A local TypeDef
+/// still wins over that resolver. Guard and SRM both consult the resolver
+/// with <see cref="NormalizeSerializedName"/> of the blob name and
+/// <see cref="Normalize"/> the returned code so an assembly-qualified
+/// SerString or a non-fixed-width callback cannot select a different skip
+/// than SRM.
 /// </summary>
 static class EnumUnderlyingPrimitive
 {
