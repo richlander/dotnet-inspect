@@ -203,9 +203,8 @@ count. Constructed generic nodes recover assembly identity from their
 definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
 body selector even when the graph has no `MethodDef` token. That exact body
-enables Call graph and Annotated source; Facts retains the engine's explicit
-unavailable response, and whole-member Source remains hidden because its product
-query intentionally rejects accessor bodies.
+enables Call graph, Annotated source, and Facts; whole-member Source remains
+hidden because its product query intentionally rejects accessor bodies.
 The call-graph legend explains the independent border vocabulary: solid nodes
 receive no platform lookup, while dashed nodes are unresolved external
 assemblies that receive a .NET platform lookup on click.
@@ -477,8 +476,18 @@ rather than making the lens fail, and any bounded-surface notice remains visible
 beside the Analysis result. A 201st navigable ranked member produces a visible
 truncation notice instead of making the top 200 look complete. Accessor evidence
 is aggregated under its owning property or event with every body token retained.
-Rows open the supported member Overview; Facts remains unavailable in the
-browser. Non-public opportunities remain visible in the aggregate count.
+Rows open the supported member Overview. Non-public opportunities remain visible
+in the aggregate count.
+
+`QueryMemberFacts` resolves the selected reference-preferred member to its exact
+implementation body through the product's opaque member correspondence, then
+invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
+MethodDef token. The query owns retained-image, metadata-context, and Analysis
+index lifetime. The browser only formats signals, allocation and call
+occurrences, unsafe evidence, exception regions, opportunities, and visible
+diagnostics. Selected graph-only accessor bodies use their body selector and
+token, and ref/lib MethodDef row numbers are validated rather than treated as
+cross-image identities.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
@@ -531,7 +540,6 @@ rather than fixture results or success-shaped empty output.
 
 | Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
 | `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
@@ -539,8 +547,8 @@ rather than fixture results or success-shaped empty output.
 Package-backed type Metadata/Source and member Source/Annotated Source exports
 do not accept platform coordinates. The Platform UI therefore withholds those
 type lenses and member sections rather than routing `Microsoft.NETCore.App`
-through NuGet package acquisition. Platform call graphs and the explicit
-method-Facts refusal remain available.
+through NuGet package acquisition. Platform call graphs remain available;
+method Facts remains package-backed.
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.

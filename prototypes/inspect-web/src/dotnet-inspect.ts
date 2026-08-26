@@ -849,16 +849,17 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
     validateAnnotatedSourceDocument(document);
     return { ...result, document };
   },
-  queryFacts: async request =>
-    parseEngineJson<MemberFacts>(
-      await inspectMemberFacts(
-        request.packageId,
-        request.version,
-        request.framework,
-        request.assembly,
-        request.type,
-        request.member,
-        request.memberSignature)),
+  queryFacts: request =>
+    inspectMemberFacts(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -3960,15 +3961,19 @@ function renderMemberFacts(
   const signals = facts.signals;
   const allocOffsets = facts.allocations.map(a => a.offset);
   const callOffsets = facts.calls.map(c => c.offset);
-  const safetyOffsets = facts.safety.map(s => s.offset);
+  const safetyOffsets = facts.safety
+    .map(s => s.offset)
+    .filter((offset): offset is string => offset != null);
   const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
+  const bodyMetadataToken =
+    state.selectedBodyTarget?.metadataToken ?? overload.metadataToken;
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
       ${factRows([
         ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
         ["Kind", overload.kind],
-        ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
+        ["Metadata token", bodyMetadataToken == null ? "not exposed" : `0x${bodyMetadataToken.toString(16).padStart(8, "0")}`],
         ["Declaring type", type.id],
         ["Allocations", String(signals.allocations), allocOffsets],
         ["Calls", String(facts.calls.length), callOffsets],
@@ -4009,7 +4014,10 @@ function renderMemberFacts(
             <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
           </article>`).join("")
         : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>`;
+    </section>
+    ${facts.diagnostics.length
+      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
+      : ""}`;
 }
 
 type FactTableColumn<T> =
@@ -8011,7 +8019,7 @@ async function loadSelectedMemberFacts() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
   return memberDetailInspection.loadFacts({
     signature,
@@ -8020,9 +8028,14 @@ async function loadSelectedMemberFacts() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
-    member: overload.name,
+    typeIdentity: type.definitionId ?? type.id,
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
     memberSignature: overload.signature,
-    isCurrent: () => memberRequestIsCurrent(signature),
+    selectorKey:
+      state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    metadataToken:
+      state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    isCurrent: () => memberRequestIsCurrent(signature, true),
   });
 }
 

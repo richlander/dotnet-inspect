@@ -2,6 +2,7 @@ import { sourceRequestNeedsLoad } from "./data.ts";
 import type { AnnotatedSourceResult } from "./annotated-source.ts";
 import type {
   BrowserMemberDocumentation,
+  BrowserMemberFacts,
   BrowserMemberSurface,
 } from "./inspect-web-engine.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
@@ -10,37 +11,7 @@ export interface DocumentableMemberSurface extends BrowserMemberSurface {
   documentationLoaded?: boolean;
 }
 
-export interface MemberFactRow {
-  offset: string;
-  [key: string]: unknown;
-}
-
-export interface MemberFacts {
-  signals: {
-    allocations: number;
-    copies: number;
-    reflection: number;
-    throws: number;
-    catches: number;
-    finallys: number;
-    unsafe: boolean;
-    allocatesInLoop: boolean;
-  };
-  allocations: Array<MemberFactRow & { inLoop?: boolean }>;
-  calls: MemberFactRow[];
-  safety: MemberFactRow[];
-  exceptionRegions: MemberFactRow[];
-  performanceOpportunities: Array<{
-    shape: string;
-    confidence: string;
-    offset?: string;
-    evidence: string;
-    fix: string;
-    caveat?: string;
-    provenance?: string;
-    finding?: string;
-  }>;
-}
+export type MemberFacts = BrowserMemberFacts;
 
 interface MemberCoordinates {
   packageId: string;
@@ -74,6 +45,9 @@ export interface MemberAnnotatedRequest extends MemberCoordinates {
 
 export interface MemberFactsRequest extends MemberCoordinates {
   signature: string;
+  typeIdentity: string;
+  selectorKey: string;
+  metadataToken: number;
   isCurrent(): boolean;
 }
 

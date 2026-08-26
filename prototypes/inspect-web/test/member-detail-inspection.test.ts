@@ -66,12 +66,15 @@ function factsResult(): MemberFacts {
       finallys: 0,
       unsafe: false,
       allocatesInLoop: false,
+      evidenceOffsets: [],
+      exceptionTypes: [],
     },
     allocations: [],
     calls: [],
     safety: [],
     exceptionRegions: [],
     performanceOpportunities: [],
+    diagnostics: [],
   };
 }
 
@@ -166,8 +169,11 @@ function factsRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     type: "Example.Widget",
+    typeIdentity: "T:Example.Widget",
     member: "Run",
     memberSignature: "void Run(string value)",
+    selectorKey: "Run|System.String",
+    metadataToken: 0x06000001,
     isCurrent: () => true,
     ...overrides,
   };

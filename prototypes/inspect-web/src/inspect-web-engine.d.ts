@@ -16,6 +16,19 @@ export interface BrowserAccessibilityDescriptor {
   count: number;
 }
 
+export interface BrowserAllocationFact {
+  kind: string;
+  type: string | null;
+  offset: string;
+  frequency: string;
+  multiplicity: string;
+  path: string;
+  escape: string;
+  inLoop: boolean;
+  estimatedSizeBytes: number | null;
+  detail: string | null;
+}
+
 export interface BrowserAnnotatedSource {
   document: unknown;
   provenance: string;
@@ -46,6 +59,16 @@ export interface BrowserBuildIdentity {
   commit: string | null;
   builtAtUtc: string | null;
   commitUrl: string | null;
+}
+
+export interface BrowserCallFact {
+  callee: string;
+  offset: string;
+  opcode: string;
+  kind: string;
+  multiplicity: string;
+  inLoop: boolean;
+  exactTarget: boolean;
 }
 
 export interface BrowserCallGraph {
@@ -115,6 +138,15 @@ export interface BrowserDependencyCoordinateCandidate {
 export interface BrowserDependencyCoordinateMatch {
   outcome: BrowserDependencyCoordinateMatchOutcome;
   candidateKey: string | null;
+}
+
+export interface BrowserExceptionRegion {
+  region: number;
+  clause: string;
+  tryRange: string;
+  handlerRange: string;
+  filterRange: string | null;
+  caughtType: string | null;
 }
 
 export interface BrowserExceptionSurface {
@@ -211,6 +243,16 @@ export interface BrowserMemberDocumentation {
   exceptions: BrowserExceptionSurface[];
 }
 
+export interface BrowserMemberFacts {
+  signals: BrowserMethodSignals;
+  allocations: BrowserAllocationFact[];
+  calls: BrowserCallFact[];
+  safety: BrowserSafetyFact[];
+  exceptionRegions: BrowserExceptionRegion[];
+  performanceOpportunities: BrowserPerformanceOpportunity[];
+  diagnostics: string[];
+}
+
 export interface BrowserMemberSurface {
   name: string;
   kind: string;
@@ -236,6 +278,19 @@ export interface BrowserMemberSurface {
   canonicalSignature: string;
   graphSelectorKey: string;
   bodySelectors: BrowserMemberBodySelector[];
+}
+
+export interface BrowserMethodSignals {
+  allocations: number;
+  copies: number;
+  unsafe: boolean;
+  reflection: number;
+  throws: number;
+  catches: number;
+  finallys: number;
+  allocatesInLoop: boolean;
+  evidenceOffsets: string[];
+  exceptionTypes: string[];
 }
 
 export interface BrowserOpportunityCategory {
@@ -359,6 +414,24 @@ export interface BrowserPerformanceMember {
   inLoopCount: number;
   shapes: string[];
   confidence: string;
+}
+
+export interface BrowserPerformanceOpportunity {
+  shape: string;
+  evidence: string;
+  fix: string;
+  confidence: string;
+  offset: string | null;
+  inLoop: boolean;
+  caveat: string | null;
+  finding: string | null;
+  provenance: string;
+}
+
+export interface BrowserSafetyFact {
+  kind: string;
+  offset: string | null;
+  detail: string;
 }
 
 export interface BrowserSource {
@@ -503,7 +576,7 @@ export declare function queryGraphMemberSurface(packageId: string, version: stri
 export declare function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource>;
 export declare function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string): Promise<BrowserCallGraph>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
-export declare function queryMemberFacts(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, memberName: string, memberSignature: string): Promise<string>;
+export declare function queryMemberFacts(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number): Promise<BrowserMemberFacts>;
 export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;

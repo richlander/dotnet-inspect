@@ -309,6 +309,176 @@ public static partial class InspectionEngine
                 AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
 
     /// <summary>
+    /// Exact method-body Analysis and metadata evidence for one implementation
+    /// participant. The product query owns the retained snapshot and Analysis
+    /// index; this adapter only resolves ref/lib identity and formats the wire
+    /// model.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryMemberFacts(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken)
+    {
+        _ = memberSignature;
+        (
+            BrowserInspectionScope scope,
+            BrowserWorkspaceParticipant participant,
+            Analysis.CallGraphMemberResolution resolution
+        ) = await ImplementationMemberAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken);
+
+        AssemblyMethodAnalysis analysis = BrowserSurfaceProjection.Require(
+            scope.UseImplementationParticipant(
+                participant,
+                (group, member) =>
+                    AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                        group,
+                        member,
+                        resolution.BodyToken)),
+            $"Facts for '{typeIdentity}.{memberName}'");
+
+        var result = new BrowserMemberFacts(
+            new BrowserMethodSignals(
+                analysis.Signals.Allocations,
+                analysis.Signals.Copies,
+                analysis.Signals.Unsafe,
+                analysis.Signals.Reflection,
+                analysis.Signals.Throws,
+                analysis.Signals.Catches,
+                analysis.Signals.Finallys,
+                analysis.Signals.AllocInLoop,
+                [.. analysis.Signals.Evidence.Select(FormatOffset)],
+                [.. analysis.Signals.ExceptionTypes]),
+            [
+                .. analysis.Allocations.Select(
+                    allocation => new BrowserAllocationFact(
+                        allocation.Kind.ToString(),
+                        allocation.AllocatedType?.ToDisplayString()
+                            ?? allocation.RuntimeAllocationType,
+                        FormatOffset(allocation.ILOffset),
+                        allocation.Frequency.ToString(),
+                        allocation.Multiplicity.ToString(),
+                        allocation.PathContext.ToString(),
+                        allocation.EscapeKind
+                            != Analysis.AllocationEscapeKind.None
+                                ? allocation.EscapeKind.ToString()
+                                : allocation.Escape.ToString(),
+                        allocation.InLoop,
+                        allocation.EstimatedSizeBytes,
+                        allocation.Detail)),
+            ],
+            [
+                .. analysis.DirectCalls.Select(
+                    call => new BrowserCallFact(
+                        $"{call.Callee.DeclaringType.ToDisplayString()}."
+                            + $"{call.Callee.Name}("
+                            + string.Join(
+                                ", ",
+                                call.Callee.ParameterTypes.Select(
+                                    parameter =>
+                                        parameter.ToDisplayString()))
+                            + ")",
+                        FormatOffset(call.ILOffset),
+                        string.IsNullOrEmpty(call.Opcode)
+                            ? FormatCallKind(call.Kind)
+                            : call.Opcode,
+                        call.Kind.ToString(),
+                        call.Multiplicity.ToString(),
+                        call.InLoop,
+                        call.ExactTarget)),
+            ],
+            [
+                .. analysis.UnsafetyOccurrences.Select(
+                    operation => new BrowserSafetyFact(
+                        operation.Kind.ToString(),
+                        FormatOffset(operation.ILOffset),
+                        operation.Detail ?? "Unsafe IL operation")),
+                .. analysis.UnsafeEvidence.Select(
+                    evidence => new BrowserSafetyFact(
+                        evidence.Kind,
+                        evidence.ILOffset is int offset
+                            ? FormatOffset(offset)
+                            : null,
+                        $"{evidence.Reason}: {evidence.Detail}")),
+            ],
+            [
+                .. analysis.ExceptionRegions.Select(
+                    region => new BrowserExceptionRegion(
+                        region.Region,
+                        region.Clause,
+                        FormatRange(region.TryStart, region.TryEnd),
+                        FormatRange(
+                            region.HandlerStart,
+                            region.HandlerEnd),
+                        region.FilterStart is int filterStart
+                            && region.FilterEnd is int filterEnd
+                                ? FormatRange(filterStart, filterEnd)
+                                : null,
+                        region.CaughtType)),
+            ],
+            [
+                .. analysis.OptimizationOpportunities.Select(
+                    opportunity =>
+                        new BrowserPerformanceOpportunity(
+                            opportunity.Shape,
+                            opportunity.Evidence,
+                            opportunity.SafeFixDirection,
+                            opportunity.Confidence,
+                            opportunity.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            opportunity.InLoop,
+                            opportunity.Caveat,
+                            opportunity.SourceFinding,
+                            opportunity.Provenance.ToString()
+                                .ToLowerInvariant())),
+            ],
+            [
+                .. analysis.Diagnostics.Select(
+                    diagnostic =>
+                        $"{diagnostic.Method}: {diagnostic.Message}"),
+            ]);
+
+        return JsonSerializer.Serialize(
+            result,
+            BrowserJsonContext.Default.BrowserMemberFacts);
+    }
+
+    static string FormatOffset(int offset) => $"IL_{offset:X4}";
+
+    static string FormatRange(int start, int end) =>
+        $"{FormatOffset(start)}..{FormatOffset(end)}";
+
+    static string FormatCallKind(Analysis.CallKind kind) =>
+        kind switch
+        {
+            Analysis.CallKind.Call => "call",
+            Analysis.CallKind.CallVirtual => "callvirt",
+            Analysis.CallKind.NewObject => "newobj",
+            Analysis.CallKind.LoadFunction => "ldftn",
+            Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+            Analysis.CallKind.CallIndirect => "calli",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown direct-call kind."),
+        };
+
+    /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
     /// Package parsing and exact-framework selection belong to
     /// <see cref="PackageDependencyGroupsQuery"/>; the assembly-context query owns the metadata

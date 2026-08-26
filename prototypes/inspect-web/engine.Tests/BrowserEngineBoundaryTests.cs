@@ -28,6 +28,8 @@ public sealed class BrowserEngineBoundaryTests
 
     public static object PerformanceBoxingProbe(int value) => value;
 
+    public static int PerformanceNoAllocationProbe(int value) => value;
+
     public static object PerformanceBoxingProperty => 42;
 
     public static class PerformanceNestedProbe
@@ -2977,6 +2979,75 @@ public sealed class BrowserEngineBoundaryTests
             $"{typeof(BrowserEngineBoundaryTests).FullName}+"
                 + nameof(PerformanceNestedProbe),
             nested.GetProperty("typeId").GetString());
+    }
+
+    [Fact]
+    public async Task MemberFacts_UsesStructuralFallbackForTokenMismatch()
+    {
+        const string PackageId = "Browser.Member.Facts";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await InspectionEngine.QueryPackage(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceBoxingProbe));
+
+        string json = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            member.GetProperty("name").GetString()!,
+            member.GetProperty("signature").GetString()!,
+            member.GetProperty("graphSelectorKey").GetString()!,
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceNoAllocationProbe))!
+                .MetadataToken);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.True(
+            root.GetProperty("signals")
+                .GetProperty("allocations")
+                .GetInt32() > 0);
+        Assert.Contains(
+            root.GetProperty("allocations").EnumerateArray(),
+            allocation =>
+                allocation.GetProperty("kind").GetString()
+                == nameof(AllocationKind.Box));
+        Assert.Contains(
+            root.GetProperty("performanceOpportunities")
+                .EnumerateArray(),
+            opportunity =>
+                opportunity.GetProperty("shape").GetString()
+                == "box-value-type");
+        Assert.Empty(
+            root.GetProperty("diagnostics").EnumerateArray());
     }
 
     [Fact]

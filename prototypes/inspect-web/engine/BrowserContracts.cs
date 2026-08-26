@@ -508,6 +508,72 @@ public sealed record BrowserPerformanceMember(
     string[] Shapes,
     string Confidence);
 
+public sealed record BrowserMemberFacts(
+    BrowserMethodSignals Signals,
+    BrowserAllocationFact[] Allocations,
+    BrowserCallFact[] Calls,
+    BrowserSafetyFact[] Safety,
+    BrowserExceptionRegion[] ExceptionRegions,
+    BrowserPerformanceOpportunity[] PerformanceOpportunities,
+    string[] Diagnostics);
+
+public sealed record BrowserMethodSignals(
+    int Allocations,
+    int Copies,
+    bool Unsafe,
+    int Reflection,
+    int Throws,
+    int Catches,
+    int Finallys,
+    bool AllocatesInLoop,
+    string[] EvidenceOffsets,
+    string[] ExceptionTypes);
+
+public sealed record BrowserAllocationFact(
+    string Kind,
+    string? Type,
+    string Offset,
+    string Frequency,
+    string Multiplicity,
+    string Path,
+    string Escape,
+    bool InLoop,
+    int? EstimatedSizeBytes,
+    string? Detail);
+
+public sealed record BrowserCallFact(
+    string Callee,
+    string Offset,
+    string Opcode,
+    string Kind,
+    string Multiplicity,
+    bool InLoop,
+    bool ExactTarget);
+
+public sealed record BrowserSafetyFact(
+    string Kind,
+    string? Offset,
+    string Detail);
+
+public sealed record BrowserExceptionRegion(
+    int Region,
+    string Clause,
+    string TryRange,
+    string HandlerRange,
+    string? FilterRange,
+    string? CaughtType);
+
+public sealed record BrowserPerformanceOpportunity(
+    string Shape,
+    string Evidence,
+    string Fix,
+    string Confidence,
+    string? Offset,
+    bool InLoop,
+    string? Caveat,
+    string? Finding,
+    string Provenance);
+
 /// <summary>
 /// One progressively acquired member call graph, projected through
 /// <c>ILInspector.CallGraph.CallGraphProjection</c>. Graph identity, direction, cycles,
@@ -590,6 +656,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserSource))]
