@@ -215,7 +215,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+        Assert.Contains(CountOutput.SectionRequiredMessage, result.Error);
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+        Assert.Contains(CountOutput.SectionRequiredMessage, result.Error);
         Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
