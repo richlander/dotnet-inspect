@@ -8632,7 +8632,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   state.error = "";
   state.errorDetail = "";
   state.retryAction = null;
-  state.loadingMessage = "Loading cross-package call graph demo…";
+  state.loadingMessage = "Loading call graph demo…";
   state.loadingSubtitle =
     "Resolving the product workspace and anchored member…";
   render();

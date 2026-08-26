@@ -57,6 +57,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | -------- | ----------- |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
+| [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
 | [Inspection Graph Modes](design/inspection-graph-modes.md) | Single-seed, peer-seed, and induced-set requests over member, type, assembly, and package subjects. |
 | [Call Graph Characteristics](design/call-graph-characteristics.md) | Mapping current call nodes, edges, occurrences, signals, and loop state into the inspection-graph descriptor model. |
