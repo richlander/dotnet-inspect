@@ -778,17 +778,21 @@ binding context, portable member anchors/signatures, section, and sorted library
 scope cross the generated bridge as long-form records. The selected context,
 not every open tab, bounds package Call Graph expansion. Browser-created Call
 Graph state composes only package tabs with the active tab's framework and RID;
-incompatible tabs remain separate contexts.
+incompatible tabs remain separate contexts. Product-run Call Graph demos install
+their exact executed package order as the selected context, and expanded queries
+send that complete ordered context to the product engine.
 
 Browser activation supports package tabs and one exact or floating `:Platform`
 group tab without RIDs. Canonical activation is atomic: any unavailable tab,
 library, type, member, or applicable member section leaves the original URL
-intact and reports the failed restore rather than activating a partial
-workspace. Unsupported groups, multiple Platform tabs, runtime identifiers,
+intact, retains the prior workbench when one exists, and reports the failed
+restore rather than activating a partial workspace. Unsupported groups, multiple
+Platform tabs, runtime identifiers,
 multiple selected libraries, unknown lenses or sections, package-root facets,
 unresolved graph targets,
-ambiguous overloads, and members without a portable product identity fail
-visibly rather than producing lossy state. Filters and browse presentation stay
+ambiguous overloads, accessor-specific bodies, and members without a portable
+product identity fail visibly rather than producing lossy state. Filters and
+browse presentation stay
 session-local. A package-root view drops stale `w=` state and uses the ordinary
 Browser package route for address-bar synchronization and explicit Share until
 product facet ids exist. Other transient,

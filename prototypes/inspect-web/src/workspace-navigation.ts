@@ -167,13 +167,20 @@ export function createNavigationSequence(): NavigationSequence {
   };
 }
 
-export interface NavigationHistory {
+export interface NavigationHistorySnapshot<TView> {
+  stack: Array<{ sig: string; view: TView }>;
+  index: number;
+}
+
+export interface NavigationHistory<TView> {
   record(): void;
   normalizeCurrent(): void;
   canBack(): boolean;
   canForward(): boolean;
   back(): boolean;
   forward(): boolean;
+  snapshot(): NavigationHistorySnapshot<TView>;
+  restore(snapshot: NavigationHistorySnapshot<TView>): void;
 }
 
 export interface NavigationHistoryDependencies<TView> {
@@ -190,7 +197,7 @@ interface NavigationEntry<TView> {
 
 export function createNavigationHistory<TView>(
   dependencies: NavigationHistoryDependencies<TView>,
-): NavigationHistory {
+): NavigationHistory<TView> {
   const navigation = {
     stack: [] as NavigationEntry<TView>[],
     index: -1,
@@ -251,6 +258,16 @@ export function createNavigationHistory<TView>(
       dependencies.onExhausted();
       return false;
     },
+    snapshot() {
+      return {
+        stack: navigation.stack.map(entry => ({ ...entry })),
+        index: navigation.index,
+      };
+    },
+    restore(snapshot) {
+      navigation.stack = snapshot.stack.map(entry => ({ ...entry }));
+      navigation.index = snapshot.index;
+    },
   };
 }
 
@@ -291,6 +308,44 @@ export interface WorkspaceShareCaptureTopology {
   selectedContextId: string;
 }
 
+export function callGraphCaptureTopology(
+  tabs: readonly BrowserWorkspaceShareTab[],
+  activeIndex: number,
+  participantTabIds: readonly string[],
+): WorkspaceShareCaptureTopology {
+  const contexts = tabs.map((tab, index) => ({
+    id: `g${index}`,
+    tabIds: [tab.id],
+  }));
+  const activeTab = tabs[activeIndex];
+  if (!activeTab || !participantTabIds.includes(activeTab.id)) {
+    throw new Error(
+      "The active package is not part of the Call Graph workspace context.");
+  }
+  const knownIds = new Set(tabs.map(tab => tab.id));
+  if (new Set(participantTabIds).size !== participantTabIds.length
+    || participantTabIds.some(id => !knownIds.has(id))) {
+    throw new Error(
+      "The Call Graph workspace context contains invalid tab identities.");
+  }
+  if (participantTabIds.length <= 1) {
+    return {
+      contexts,
+      selectedContextId: contexts[activeIndex]?.id ?? "",
+    };
+  }
+
+  const context = {
+    id: `g${contexts.length}`,
+    tabIds: [...participantTabIds],
+  };
+  contexts.push(context);
+  return {
+    contexts,
+    selectedContextId: context.id,
+  };
+}
+
 export function browserCreatedCallGraphTabIds(
   tabs: readonly BrowserWorkspaceShareTab[],
   activeIndex: number,
@@ -298,11 +353,15 @@ export function browserCreatedCallGraphTabIds(
   const activeTab = tabs[activeIndex];
   if (activeTab?.kind !== "package") return [];
   const framework = activeTab.framework?.toLowerCase() ?? null;
-  return tabs.filter(tab =>
+  const compatible = tabs.filter(tab =>
     tab.kind === "package"
     && (tab.framework?.toLowerCase() ?? null) === framework
     && tab.runtimeIdentifier === activeTab.runtimeIdentifier)
     .map(tab => tab.id);
+  return [
+    activeTab.id,
+    ...compatible.filter(id => id !== activeTab.id),
+  ];
 }
 
 export function workspaceShareCaptureTopology(
@@ -331,22 +390,37 @@ export function workspaceShareCaptureTopology(
 
   if (!preservesBasis && callGraph) {
     const packageTabIds = browserCreatedCallGraphTabIds(tabs, activeIndex);
-    if (packageTabIds.length > 1) {
-      const activeTabId = tabs[activeIndex]!.id;
-      const rootFirst = [
-        activeTabId,
-        ...packageTabIds.filter(id => id !== activeTabId),
-      ];
-      const context = {
-        id: `g${contexts.length}`,
-        tabIds: rootFirst,
-      };
-      contexts.push(context);
-      selectedContextId = context.id;
+    if (packageTabIds.length > 0) {
+      return callGraphCaptureTopology(
+        tabs,
+        activeIndex,
+        packageTabIds);
     }
   }
 
   return { contexts, selectedContextId };
+}
+
+export function retainedPlatformTargetVersion(
+  tab: BrowserWorkspaceShareTab | null | undefined,
+  runtimePack: {
+    version: string;
+    activeFramework: string;
+  } | null | undefined,
+  framework: string,
+): string {
+  if (!tab
+    || tab.kind !== "group"
+    || tab.source !== ":Platform"
+    || !runtimePack
+    || runtimePack.activeFramework.toLowerCase() !== framework.toLowerCase()
+    || (tab.framework
+      && tab.framework.toLowerCase() !== framework.toLowerCase())
+    || (tab.version
+      && tab.version.toLowerCase() !== runtimePack.version.toLowerCase())) {
+    return "";
+  }
+  return tab.version ?? "";
 }
 
 export interface DecodedShareState {

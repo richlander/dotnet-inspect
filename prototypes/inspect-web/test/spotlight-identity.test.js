@@ -488,7 +488,10 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*currentPackage\(\)\.activeFramework\) \?\? ""/);
+    /retainedPlatformTargetVersion\(\s*captured\.preservesBasis && runtimeIndex >= 0[\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
+  assert.doesNotMatch(
+    appSource,
+    /platformVersion:\s*currentPackage\(\)\.version/);
   assert.match(
     appSource,
     /platformType:\s*type\.definitionId\s*\?\?\s*type\.metadataId[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
@@ -2167,6 +2170,9 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.match(
     capture,
     /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
+  assert.match(
+    capture,
+    /overload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
   assert.match(capture, /package: state\.package\.id/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);
@@ -2174,13 +2180,13 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.doesNotMatch(capture, /memberTraitFilter:/);
   assert.match(
     deepLink,
-    /deep\.memberAnchor \|\| deep\.memberSignature[\s\S]*portableMatches\.length === 1[\s\S]*state\.selectedOverloadIndex = selection\.overloadIndex/);
+    /deep\.memberAnchor \|\| deep\.memberSignature[\s\S]*portableMatches\.length === 1[\s\S]*solePortableBodyTarget\(selection\.overload\)[\s\S]*state\.selectedBodyTarget = portableBodyTarget/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
   assert.match(
     appSource,
-    /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
+    /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot\)/);
 });
 
 test("the frontend delegates compact packet syntax to the product codec", () => {
@@ -2208,13 +2214,15 @@ test("the selected canonical context bounds call graph workspace membership", ()
   assert.match(
     selection,
     /context\.id === basis\.selectedContextId/);
-  assert.match(selection, /const selectedIds = new Set\(selected\.tabIds\)/);
   assert.match(
     selection,
-    /selectedIds\.has\(basis\.tabs\[index\]!\.id\)/);
+    /packageTabIds\.includes\(activeTab\.id\)/);
   assert.match(
     loader,
-    /const workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
+    /workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
+  assert.match(
+    appSource,
+    /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
 });
 
 test("canonical restoration is atomic and history adopts the active packet basis", () => {
@@ -2238,8 +2246,17 @@ test("canonical restoration is atomic and history adopts the active packet basis
     restore,
     /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
+    restore,
+    /canonicalSnapshot = loc\.shareState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
+  assert.match(
     history,
-    /state\.workspaceShareBasis = loc\.shareState/);
+    /canonicalSnapshot = loc\.shareState[\s\S]*state\.workspaceShareBasis = loc\.shareState/);
+  assert.match(
+    appSource,
+    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*preserveUrlThroughNextRender = true;\s*render\(\);\s*preserveUrlThroughNextRender = false/);
+  assert.match(
+    appSource,
+    /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
   assert.match(
     appSource,
     /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);

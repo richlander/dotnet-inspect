@@ -990,7 +990,7 @@ Implementation must add, at minimum:
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
-  `BrowserWorkspaceShareOperationsTests.CanonicalPacket_RoundTripsByteForByte`
+  `BrowserWorkspaceShareOperationsTests.CanonicalPacket_RoundTripsThroughLongFormBrowserTransport`
   gates the Browser JS-export adapter against the same product-owned codec and
   transposer rather than a second packet implementation;
 - a session-closure gate asserting the packet grammar covers every
@@ -1143,14 +1143,18 @@ Definition records and product demos (this slice):
   independent; the selected context bounds cross-package Call Graph expansion.
   Browser-created Call Graph contexts compose only package tabs with the active
   tab's framework and RID; incompatible targets remain separate contexts.
+  Product-run Call Graph demos install their exact executed package order as the
+  selected context, and expanded queries send that complete ordered context to
+  the product engine.
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
   while an absent pin remains floating. Browser activation accepts at most one
   Platform tab and is atomic: an unavailable coordinate, selected library,
-  type, member, or applicable section restores no partial workspace and leaves
-  the source URL intact. Unsupported groups, RIDs, multi-library Browser views,
-  unknown lenses or sections, package facets, pending graph targets, and
-  members without portable anchor/signature identity fail visibly instead of
-  being flattened. Package-root navigation and explicit Share use the ordinary
+  type, member, or applicable section restores no partial workspace, retains a
+  prior workbench when present, and leaves the source URL intact. Unsupported
+  groups, RIDs, multi-library Browser views, unknown lenses or sections, package
+  facets, pending graph targets, accessor-specific bodies, and members without
+  portable anchor/signature identity fail visibly instead of being flattened.
+  Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI
   use of the codec/transposer for executable `-W`, or

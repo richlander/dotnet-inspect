@@ -83,11 +83,14 @@ import {
   bindWorkspaceLinkNavigation,
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
+  callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  retainedPlatformTargetVersion,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
+  type NavigationHistorySnapshot,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
   type WorkspaceUrlState,
@@ -750,6 +753,63 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+let preserveUrlThroughNextRender = false;
+
+interface CanonicalWorkspaceRestoreSnapshot {
+  state: AppState;
+  hasWorkspace: boolean;
+  navigation: NavigationHistorySnapshot<WorkspaceView>;
+}
+
+function captureCanonicalWorkspaceRestoreSnapshot():
+CanonicalWorkspaceRestoreSnapshot {
+  const packages = structuredClone(state.packages);
+  const activeKey = state.package
+    ? packageIdentityKey(state.package)
+    : null;
+  return {
+    state: {
+      ...state,
+      packages,
+      package: activeKey
+        ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
+        : null,
+      workspaceDependencies: structuredClone(state.workspaceDependencies),
+      workspaceDependencyErrors:
+        structuredClone(state.workspaceDependencyErrors),
+      workspaceDependencyLoads: new Set(state.workspaceDependencyLoads),
+      packageVersions: structuredClone(state.packageVersions),
+      packageVersionsLoading:
+        structuredClone(state.packageVersionsLoading),
+      libraryScope: state.libraryScope
+        ? new Set(state.libraryScope)
+        : null,
+      accessibilityFilter: new Set(state.accessibilityFilter),
+      memberAnnotatedMedia: { ...state.memberAnnotatedMedia },
+      memberAnnotatedNodeIds: [...state.memberAnnotatedNodeIds],
+      platformStack: structuredClone(state.platformStack),
+      platformRecent: structuredClone(state.platformRecent),
+      recentPackages: structuredClone(state.recentPackages),
+      spotlightPkgHits: structuredClone(state.spotlightPkgHits),
+      history: [...state.history],
+    },
+    hasWorkspace: state.package !== null,
+    navigation: navigationHistory.snapshot(),
+  };
+}
+
+function restoreCanonicalWorkspaceRestoreSnapshot(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+) {
+  clearWorkspacePackages();
+  Object.assign(state, snapshot.state);
+  navigationHistory.restore(snapshot.navigation);
+  spotlightCache = null;
+  persistRecentPackages();
+  persistPlatformRecent();
+  refreshPackageStats();
+}
+
 const keybindings = createWorkbenchKeybindings();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
@@ -5119,6 +5179,10 @@ function recordPlatformRecent(assembly: string, pack: string | null) {
   if (!normPack) return;
   const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
   state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
+  persistPlatformRecent();
+}
+
+function persistPlatformRecent() {
   try {
     localStorage.setItem("inspect-platform-recent", JSON.stringify(state.platformRecent));
   } catch {
@@ -5137,6 +5201,10 @@ function recordRecentPackage(id: string, version: string, framework: string) {
     { id, version: version || "latest", framework: framework || "" },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
+  persistRecentPackages();
+}
+
+function persistRecentPackages() {
   try {
     localStorage.setItem("inspect-recent-packages", JSON.stringify(state.recentPackages));
   } catch {
@@ -5887,17 +5955,26 @@ function capturedShareTabs() {
 }
 
 function selectedCallGraphWorkspacePackages(): AppPackage[] {
+  if (state.package?.isRuntimePack) return [];
   const basis = state.workspaceShareBasis;
   const { tabs, preservesBasis } = capturedShareTabs();
+  const activeIndex = state.package
+    ? state.packages.indexOf(state.package)
+    : -1;
+  const activeTab = tabs[activeIndex];
+  if (!activeTab) {
+    throw new Error(
+      "The active package is no longer part of the Browser workspace.");
+  }
+  const packageForTabId = (id: string) => {
+    const index = tabs.findIndex(tab => tab.id === id);
+    return index >= 0 ? state.packages[index] ?? null : null;
+  };
   if (!preservesBasis || !basis) {
-    const activeIndex = state.package
-      ? state.packages.indexOf(state.package)
-      : -1;
-    const selectedIds = new Set(
-      browserCreatedCallGraphTabIds(tabs, activeIndex));
-    return state.packages.filter((packageItem, index) =>
-      !packageItem.isRuntimePack
-      && selectedIds.has(tabs[index]!.id));
+    return browserCreatedCallGraphTabIds(tabs, activeIndex)
+      .map(packageForTabId)
+      .filter((pkg): pkg is AppPackage =>
+        pkg !== null && !pkg.isRuntimePack);
   }
 
   const selected = basis.contexts.find(
@@ -5906,10 +5983,16 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
     throw new Error(
       "The selected workspace context is no longer available.");
   }
-  const selectedIds = new Set(selected.tabIds);
-  return state.packages.filter((packageItem, index) =>
-    !packageItem.isRuntimePack
-    && selectedIds.has(basis.tabs[index]!.id));
+  const packageTabIds = selected.tabIds.filter(id =>
+    basis.tabs.some(tab => tab.id === id && tab.kind === "package"));
+  if (!packageTabIds.includes(activeTab.id)) {
+    throw new Error(
+      "The active package is not part of the selected Call Graph context.");
+  }
+  return packageTabIds
+    .map(packageForTabId)
+    .filter((pkg): pkg is AppPackage =>
+      pkg !== null && !pkg.isRuntimePack);
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -5959,6 +6042,11 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
       throw new Error(
         "The selected overload has no portable product identity and cannot be shared.");
     }
+    if (state.memberSection !== "overview"
+      && overload.bodySelectors.length > 1) {
+      throw new Error(
+        "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
+    }
   }
 
   if (state.libraryScope && state.libraryScope.size > 1) {
@@ -6007,6 +6095,10 @@ function buildStateUrl(base = location.href) {
 // the URL is always shareable. replaceState (not pushState) keeps the app's own
 // back/forward buttons authoritative and avoids flooding browser history on every render.
 function syncUrl() {
+  if (preserveUrlThroughNextRender) {
+    preserveUrlThroughNextRender = false;
+    return;
+  }
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
@@ -6025,6 +6117,21 @@ function syncUrl() {
 // Apply a parsed URL selection onto the currently loaded package, validating that the
 // type/member/overload/section still exist.
 type DeepLink = WorkspaceDeepLink;
+
+function solePortableBodyTarget(
+  overload: AppMemberSurface,
+): BodyTarget | null {
+  const selector = overload.bodySelectors.length === 1
+    ? overload.bodySelectors[0]
+    : null;
+  return selector
+    ? {
+        memberName: selector.memberName,
+        selectorKey: selector.selectorKey,
+        metadataToken: selector.token,
+      }
+    : null;
+}
 
 function canonicalViewRestorationFailure(
   pkg: AppPackage,
@@ -6081,8 +6188,8 @@ function canonicalViewRestorationFailure(
   }
 
   const selection = matches[0]!;
-  const hasSelectedBody = selection.overload.bodySelectors.length > 0
-    || selection.overload.metadataToken != null;
+  const hasSelectedBody =
+    solePortableBodyTarget(selection.overload) !== null;
   if (deep.section
     && !memberSectionIdsFor(
       selection.group,
@@ -6197,8 +6304,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         state.memberBrowseTypeId = type.id;
         state.selectedMemberKey = selection.group.key;
         state.selectedOverloadIndex = selection.overloadIndex;
-        const hasSelectedBody = selection.overload.bodySelectors.length > 0
-          || selection.overload.metadataToken != null;
+        const portableBodyTarget =
+          solePortableBodyTarget(selection.overload);
+        const hasSelectedBody = portableBodyTarget !== null;
         if (deep.section
           && isMemberSection(deep.section)
           && memberSectionIdsFor(
@@ -6206,6 +6314,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
             state.package?.isRuntimePack,
             hasSelectedBody).includes(deep.section)) {
           state.memberSection = deep.section;
+          state.selectedBodyTarget = portableBodyTarget;
         }
         restoredPortableMember = true;
       } else {
@@ -7174,9 +7283,15 @@ async function loadSelectedMemberCallGraph() {
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
-  const workspacePackages = selectedCallGraphWorkspacePackages();
-  const hasOtherLibraries =
-    workspacePackages.some(packageItem => packageItem !== state.package);
+  let workspacePackages: AppPackage[];
+  try {
+    workspacePackages = selectedCallGraphWorkspacePackages();
+  } catch (error) {
+    state.memberCallGraphError = errorMessage(error);
+    render();
+    return;
+  }
+  const hasOtherLibraries = workspacePackages.length > 1;
   return callGraphInspection.load({
     signature,
     isRuntimePack: Boolean(state.package?.isRuntimePack),
@@ -7743,9 +7858,23 @@ async function drillPlatformNode(
       "the target does not carry a complete navigable identity");
     return;
   }
+  const framework = currentPackage().activeFramework;
+  const runtimePack = runtimePackForFramework(
+    runtimePackPackage(),
+    framework);
+  const runtimeIndex = runtimePack
+    ? state.packages.indexOf(runtimePack)
+    : -1;
+  const captured = capturedShareTabs();
+  const platformVersion = retainedPlatformTargetVersion(
+    captured.preservesBasis && runtimeIndex >= 0
+      ? captured.tabs[runtimeIndex]
+      : null,
+    runtimePack,
+    framework);
   return callGraphInspection.drill({
-    framework: currentPackage().activeFramework,
-    platformVersion: currentPackage().version,
+    framework,
+    platformVersion,
     assembly: node.assembly,
     pack: platformPackForGraphAssembly(
       node.assembly,
@@ -8647,6 +8776,37 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
     state.selectedMemberKey = member.key;
     state.selectedOverloadIndex = overloadIndex;
     state.memberSection = "call-graph";
+    const captured = capturedShareTabs();
+    const activeIndex = state.packages.indexOf(targetPackage);
+    const participantTabIds = packages.map(packageModel => {
+      const index = state.packages.findIndex(candidate =>
+        packageIdentityEquals(candidate, packageModel));
+      const tab = captured.tabs[index];
+      if (!tab) {
+        throw new Error(
+          "The product demo package is no longer part of the Browser workspace.");
+      }
+      return tab.id;
+    });
+    const topology = callGraphCaptureTopology(
+      captured.tabs,
+      activeIndex,
+      participantTabIds);
+    const activeTab = captured.tabs[activeIndex]!;
+    state.workspaceShareBasis = {
+      tabs: captured.tabs,
+      contexts: topology.contexts,
+      activeTabId: activeTab.id,
+      selectedContextId: topology.selectedContextId,
+      view: {
+        lens: "api",
+        type: type.id,
+        memberAnchor: overload.anchorDigest,
+        memberSignature: null,
+        section: "call-graph",
+        libraries: [],
+      },
+    };
     // This graph is scoped to the product-defined demo workspace, not any
     // unrelated tabs the user may already have open.
     state.memberCallGraph = result.callGraph;
@@ -8673,6 +8833,9 @@ async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq = navigationSequence.begin(),
+  canonicalSnapshot = loc.shareState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!loc.package) return;
@@ -8765,7 +8928,8 @@ async function restoreWorkspaceFromLocation(
       loc,
       deep,
       state.queryNotice
-        || "The shared workspace could not be restored completely.");
+        || "The shared workspace could not be restored completely.",
+      canonicalSnapshot);
     return;
   }
 
@@ -8789,7 +8953,8 @@ async function restoreWorkspaceFromLocation(
           failCanonicalWorkspaceRestore(
             loc,
             deep,
-            `The shared Platform library '${loc.library}' could not be restored.`);
+            `The shared Platform library '${loc.library}' could not be restored.`,
+            canonicalSnapshot);
         }
         return;
       }
@@ -8799,7 +8964,11 @@ async function restoreWorkspaceFromLocation(
         targetModel,
         loc.library);
       if (loc.shareState && libraryFailure) {
-        failCanonicalWorkspaceRestore(loc, deep, libraryFailure);
+        failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          libraryFailure,
+          canonicalSnapshot);
         return;
       }
     }
@@ -8807,7 +8976,11 @@ async function restoreWorkspaceFromLocation(
       ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
       : null;
     if (loc.shareState && viewFailure) {
-      failCanonicalWorkspaceRestore(loc, deep, viewFailure);
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        viewFailure,
+        canonicalSnapshot);
       return;
     }
     applyDeepLink(deep);
@@ -8842,7 +9015,23 @@ function failCanonicalWorkspaceRestore(
   loc: ParsedLocation,
   deep: DeepLink,
   message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
 ) {
+  if (snapshot?.hasWorkspace) {
+    restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    appendQueryNotice(
+      `Workspace restore failed: ${message}`,
+      () => restoreWorkspaceFromLocation(loc, deep));
+    preserveUrlThroughNextRender = true;
+    render();
+    preserveUrlThroughNextRender = false;
+    return;
+  }
   clearWorkspacePackages();
   state.loading = false;
   state.home = false;
@@ -9437,6 +9626,9 @@ window.addEventListener("popstate", () => {
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
+  const canonicalSnapshot = loc.shareState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   if (isCreditsPath(location.pathname)) {
@@ -9462,13 +9654,21 @@ window.addEventListener("popstate", () => {
   const deep = loc;
   if (!state.package) {
     observeAsync(
-      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      restoreWorkspaceFromLocation(
+        loc,
+        deep,
+        navigationSeq,
+        canonicalSnapshot),
       "Restoring workspace history");
     return;
   }
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
     observeAsync(
-      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      restoreWorkspaceFromLocation(
+        loc,
+        deep,
+        navigationSeq,
+        canonicalSnapshot),
       "Restoring workspace history");
     return;
   }
@@ -9477,7 +9677,11 @@ window.addEventListener("popstate", () => {
       packageCoordinateMatchesLocation(candidate, loc));
     if (!target) {
       observeAsync(
-        restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+        restoreWorkspaceFromLocation(
+          loc,
+          deep,
+          navigationSeq,
+          canonicalSnapshot),
         "Restoring workspace history");
       return;
     }
@@ -9491,7 +9695,10 @@ window.addEventListener("popstate", () => {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
       observeAsync(
-        restorePlatformScopeThenDeepLink(loc, navigationSeq),
+        restorePlatformScopeThenDeepLink(
+          loc,
+          navigationSeq,
+          canonicalSnapshot),
         "Restoring platform history");
     } else {
       const libraryFailure = applyLoadedPackageLibraryScope(
@@ -9505,7 +9712,8 @@ window.addEventListener("popstate", () => {
         failCanonicalWorkspaceRestore(
           loc,
           deep,
-          restorationFailure);
+          restorationFailure,
+          canonicalSnapshot);
         return;
       }
       state.workspaceShareBasis = loc.shareState;
@@ -9517,7 +9725,11 @@ window.addEventListener("popstate", () => {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
     observeAsync(
-      restoreRuntimePackFromHistory(loc, deep, navigationSeq),
+      restoreRuntimePackFromHistory(
+        loc,
+        deep,
+        navigationSeq,
+        canonicalSnapshot),
       "Restoring runtime-pack history");
   } else {
     observeAsync(
@@ -9536,6 +9748,7 @@ window.addEventListener("popstate", () => {
 async function restorePlatformScopeThenDeepLink(
   loc: ParsedLocation,
   navigationSeq: number,
+  canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
 ) {
   const scoped = await applyPlatformLibraryScope(
     loc.library,
@@ -9543,14 +9756,16 @@ async function restorePlatformScopeThenDeepLink(
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(
       loc,
-      navigationSequence.current()));
+      navigationSequence.current(),
+      canonicalSnapshot));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!scoped) {
     if (loc.shareState) {
       failCanonicalWorkspaceRestore(
         loc,
         loc,
-        `The shared Platform library '${loc.library}' could not be restored.`);
+        `The shared Platform library '${loc.library}' could not be restored.`,
+        canonicalSnapshot);
     }
     return;
   }
@@ -9559,7 +9774,11 @@ async function restorePlatformScopeThenDeepLink(
     ? canonicalViewRestorationFailure(pkg, loc, loc.lens)
     : null;
   if (loc.shareState && viewFailure) {
-    failCanonicalWorkspaceRestore(loc, loc, viewFailure);
+    failCanonicalWorkspaceRestore(
+      loc,
+      loc,
+      viewFailure,
+      canonicalSnapshot);
     return;
   }
   state.workspaceShareBasis = loc.shareState;
@@ -9625,6 +9844,7 @@ async function restoreRuntimePackFromHistory(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq: number,
+  canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
 ) {
   const runtimeResult = await loadRuntimePack(
     loc.framework || "",
@@ -9644,14 +9864,16 @@ async function restoreRuntimePackFromHistory(
       () => restoreRuntimePackFromHistory(
         loc,
         deep,
-        navigationSequence.current()));
+        navigationSequence.current(),
+        canonicalSnapshot));
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!scoped) {
       if (loc.shareState) {
         failCanonicalWorkspaceRestore(
           loc,
           deep,
-          `The shared Platform library '${loc.library}' could not be restored.`);
+          `The shared Platform library '${loc.library}' could not be restored.`,
+          canonicalSnapshot);
       }
       return;
     }
@@ -9659,7 +9881,11 @@ async function restoreRuntimePackFromHistory(
       ? canonicalViewRestorationFailure(pack, deep, loc.lens)
       : null;
     if (loc.shareState && viewFailure) {
-      failCanonicalWorkspaceRestore(loc, deep, viewFailure);
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        viewFailure,
+        canonicalSnapshot);
       return;
     }
     state.workspaceShareBasis = loc.shareState;
@@ -9672,7 +9898,8 @@ async function restoreRuntimePackFromHistory(
       deep,
       `The shared Platform could not be restored: ${runtimeResult.failureMessage
         || state.runtimePackError
-        || "runtime pack acquisition failed."}`);
+        || "runtime pack acquisition failed."}`,
+      canonicalSnapshot);
     return;
   } else {
     appendQueryNotice(

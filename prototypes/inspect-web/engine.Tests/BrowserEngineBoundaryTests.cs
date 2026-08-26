@@ -2088,6 +2088,115 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void MemberCallGraphRequests_PreserveContextOrderAndLocateNonFirstRoot()
+    {
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            InspectionEngine.MemberCallGraphRequests(
+                "Root.Package",
+                "1.0.0",
+                "net11.0",
+                """
+                [
+                  {
+                    "package": "Binding.First",
+                    "version": "2.0.0",
+                    "framework": "net11.0"
+                  },
+                  {
+                    "package": "Root.Package",
+                    "version": "1.0.0",
+                    "framework": "net11.0"
+                  }
+                ]
+                """);
+
+        Assert.Equal(1, rootIndex);
+        Assert.Collection(
+            requests,
+            first => Assert.Equal("Binding.First", first.PackageId),
+            root => Assert.Equal("Root.Package", root.PackageId));
+    }
+
+    [Fact]
+    public void MemberCallGraphRequests_RequireOneRootInExpandedContext()
+    {
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => InspectionEngine.MemberCallGraphRequests(
+                "Root.Package",
+                "1.0.0",
+                "net11.0",
+                """
+                [
+                  {
+                    "package": "Other.Package",
+                    "version": "2.0.0",
+                    "framework": "net11.0"
+                  }
+                ]
+                """));
+
+        Assert.Contains(
+            "active package coordinate exactly once",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task QueryMemberCallGraph_RejectsCollapsedContextCoordinates()
+    {
+        byte[] rootImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] duplicateImage =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        _ = Coordinate(
+            "CallGraph.Root",
+            Package(rootImage, "lib/net11.0/CallGraph.Root.dll"));
+        _ = Coordinate(
+            "CallGraph.Duplicate",
+            Package(
+                duplicateImage,
+                "lib/net11.0/CallGraph.Duplicate.dll"));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => InspectionEngine.QueryMemberCallGraph(
+                    "CallGraph.Root",
+                    "1.0.0",
+                    "net11.0",
+                    "CallGraph.Root.dll",
+                    "T:Example.Root",
+                    "T:Example.Root",
+                    "Run",
+                    "void Run()",
+                    "Run|",
+                    0,
+                    """
+                    [
+                      {
+                        "package": "CallGraph.Root",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "CallGraph.Duplicate",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "CallGraph.Duplicate",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      }
+                    ]
+                    """));
+
+        Assert.Contains(
+            "distinct package coordinates",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration()
     {
         const int maxEntries = 4_096;

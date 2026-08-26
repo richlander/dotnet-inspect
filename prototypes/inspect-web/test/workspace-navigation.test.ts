@@ -5,11 +5,13 @@ import {
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
+  callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
+  retainedPlatformTargetVersion,
   resolveWorkspaceRoute,
   shouldInterceptLinkClick,
   workspaceShareCaptureTopology,
@@ -286,6 +288,28 @@ test("navigation history normalizes the current captured view", () => {
   ]);
 });
 
+test("navigation history restores a pre-activation transaction snapshot", () => {
+  let current: TestView | null = { id: "stable", revision: 1 };
+  const history = createNavigationHistory({
+    capture: () => current && { ...current },
+    signature: view => `${view.id}:${view.revision}`,
+    apply: view => {
+      current = { ...view };
+      return true;
+    },
+    onExhausted() {},
+  });
+
+  history.record();
+  const snapshot = history.snapshot();
+  current = { id: "partial", revision: 1 };
+  history.record();
+  history.restore(snapshot);
+
+  assert.equal(history.canBack(), false);
+  assert.equal(history.canForward(), false);
+});
+
 test("navigation sequence has one monotonic cancellation authority", () => {
   const sequence = createNavigationSequence();
   assert.equal(sequence.current(), 0);
@@ -464,6 +488,63 @@ test("Browser-created Call Graph contexts include only binding-compatible tabs",
       ],
       selectedContextId: "g0",
     });
+});
+
+test("executed Call Graph topology preserves exact product order and excludes unrelated tabs", () => {
+  const tabs = workspaceState().tabs.concat({
+    id: "t2",
+    kind: "package",
+    source: "Unrelated.Package",
+    version: "1.0.0",
+    framework: "net10.0",
+    runtimeIdentifier: null,
+  });
+
+  assert.deepEqual(
+    callGraphCaptureTopology(tabs, 1, ["t0", "t1"]),
+    {
+      contexts: [
+        { id: "g0", tabIds: ["t0"] },
+        { id: "g1", tabIds: ["t1"] },
+        { id: "g2", tabIds: ["t2"] },
+        { id: "g3", tabIds: ["t0", "t1"] },
+      ],
+      selectedContextId: "g3",
+    });
+  assert.throws(
+    () => callGraphCaptureTopology(tabs, 1, ["t0", "t2"]),
+    /active package is not part/);
+});
+
+test("Platform drill target version preserves exact versus floating packet identity", () => {
+  const runtimePack = {
+    version: "10.0.10",
+    activeFramework: "net10.0",
+  };
+  const tab = {
+    id: "t0",
+    kind: "group",
+    source: ":Platform",
+    version: "10.0.10",
+    framework: "net10.0",
+    runtimeIdentifier: null,
+  };
+
+  assert.equal(
+    retainedPlatformTargetVersion(tab, runtimePack, "net10.0"),
+    "10.0.10");
+  assert.equal(
+    retainedPlatformTargetVersion(
+      { ...tab, version: null },
+      runtimePack,
+      "net10.0"),
+    "");
+  assert.equal(
+    retainedPlatformTargetVersion(tab, runtimePack, "net9.0"),
+    "");
+  assert.equal(
+    retainedPlatformTargetVersion(null, runtimePack, "net10.0"),
+    "");
 });
 
 test("package-root URLs discard stale workspace state and restore the package lens", () => {
