@@ -1187,9 +1187,18 @@ Definition records and product demos (this slice):
   These Browser boundaries are gated by `canonical tabs must remain distinct
   and ordered after resolution`, `missing Platform reacquisition retains only
   an aligned canonical pin`, and `canonical restoration is atomic and history
-  adopts the active packet basis`. `canonical transitions cancel visible source
-  work before snapshot` and `canonical transitions settle annotated source
-  before snapshot` specifically gate source-request settlement.
+  adopts the active packet basis`. A present `w=` remains authoritative even
+  when product decoding or Browser adaptation rejects it; courtesy route fields
+  never become fallback state. Successful packet activation discards any prior
+  graph-source modal, while rollback retains settled prior source state.
+  User-authored version or framework changes discard a floating packet basis
+  before URL capture. `an empty workspace parameter remains authoritative`,
+  `canonical packets without a lens discard legacy hash state`, `explicit
+  coordinate changes discard a floating canonical basis`, and `canonical
+  commit clears a settled graph source without rendering` gate these
+  boundaries. `canonical transitions cancel visible source work before
+  snapshot` and `canonical transitions settle annotated source before snapshot`
+  specifically gate source-request settlement.
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI

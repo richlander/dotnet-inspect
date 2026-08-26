@@ -817,10 +817,17 @@ members without a portable product identity fail visibly rather than producing
 lossy state. These boundaries are gated by `canonical tabs must remain distinct
 and ordered after resolution`, `missing Platform reacquisition retains only an
 aligned canonical pin`, and `canonical restoration is atomic and history adopts
-the active packet basis`. `canonical transitions cancel visible source work
-before snapshot` and `canonical transitions settle annotated source before
-snapshot` specifically gate source-request settlement. Filters and browse
-presentation stay
+the active packet basis`. A present `w=` remains authoritative even when
+decoding or Browser adaptation rejects it; the visible package label is never a
+fallback workspace. Successful packet activation discards any prior graph-source
+modal, and explicit version or framework changes discard a floating packet basis
+before URL capture. `an empty workspace parameter remains authoritative`,
+`canonical packets without a lens discard legacy hash state`, `explicit
+coordinate changes discard a floating canonical basis`, and `canonical commit
+clears a settled graph source without rendering` gate those boundaries.
+`canonical transitions cancel visible source work before snapshot` and
+`canonical transitions settle annotated source before snapshot` specifically
+gate source-request settlement. Filters and browse presentation stay
 session-local. A package-root view drops stale `w=` state and uses the ordinary
 Browser package route for address-bar synchronization and explicit Share until
 product facet ids exist. Other transient,

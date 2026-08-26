@@ -139,6 +139,39 @@ test("canonical transitions cancel visible source work before snapshot", () => {
   assert.equal(cancellations, 1);
 });
 
+test("canonical commit clears a settled graph source without rendering", () => {
+  let renders = 0;
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+  const state = inspectionState({
+    graphSourceOpen: true,
+    graphSource: source("old workspace"),
+    graphSourceTitle: "Old workspace",
+    graphSourceRequest: { request, title: "Old workspace" },
+    graphSourceSeq: 4,
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      render: () => renders++,
+    }));
+
+  coordinator.clearGraphSource();
+
+  assert.equal(state.graphSourceOpen, false);
+  assert.equal(state.graphSource, null);
+  assert.equal(state.graphSourceRequest, null);
+  assert.equal(state.graphSourceSeq, 5);
+  assert.equal(renders, 0);
+});
+
 test("member source publishes only for the current member selection", async () => {
   const query = deferred<BrowserSource>();
   const focusRenders: Array<string | null> = [];

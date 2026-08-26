@@ -746,6 +746,26 @@ test("typed package bar owns package framework and version selection bindings", 
     /document\.querySelector(?:<HTMLSelectElement>)?\("#(?:framework|package-version)"\)/);
 });
 
+test("explicit coordinate changes discard a floating canonical basis", () => {
+  const packageVersion = appSource.match(
+    /async function switchPackageVersion\([\s\S]*?\n}/)?.[0] ?? "";
+  const packageFramework = appSource.match(
+    /async function switchPackageFramework\([\s\S]*?\n}/)?.[0] ?? "";
+  const platformVersion = appSource.match(
+    /async function switchPlatformVersion\([\s\S]*?\n}/)?.[0] ?? "";
+  const packageLoader = appSource.match(
+    /async function loadPackage\([\s\S]*?\n}(?=\n\nfunction )/)?.[0] ?? "";
+
+  assert.match(packageVersion, /invalidateWorkspaceShareBasis: true/);
+  assert.match(packageFramework, /invalidateWorkspaceShareBasis: true/);
+  assert.match(
+    packageLoader,
+    /if \(options\.invalidateWorkspaceShareBasis\)\s*state\.workspaceShareBasis = null;\s*activatePackage/);
+  assert.match(
+    platformVersion,
+    /if \(!loaded\)[\s\S]*return;[\s\S]*state\.workspaceShareBasis = null;\s*activatePackage/);
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
@@ -2248,6 +2268,8 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /async function openPlatformLibrary\([\s\S]*?\n}/)?.[0] ?? "";
   const validateView = appSource.match(
     /function canonicalViewRestorationFailure\([\s\S]*?\n}/)?.[0] ?? "";
+  const initialRestore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}/)?.[0] ?? "";
 
   assert.match(
     restore,
@@ -2257,13 +2279,28 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
-    /canonicalSnapshot = loc\.shareState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
+    /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     history,
-    /canonicalSnapshot = loc\.shareState[\s\S]*state\.workspaceShareBasis = loc\.shareState/);
+    /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\)/);
+  assert.match(
+    restore,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*failCanonicalWorkspaceRestore\(/);
+  assert.match(
+    history,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*failCanonicalWorkspaceRestore\(/);
+  assert.match(
+    initialRestore,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*preserveUrlThroughNextRender = true;\s*render\(\);\s*return/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*state\.credits = false;[\s\S]*preserveUrlThroughNextRender = true;\s*render\(\);\s*return/);
+  assert.match(
+    restore,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
+  assert.match(
+    history,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
   assert.doesNotMatch(
     appSource,
     /render\(\);\s*preserveUrlThroughNextRender = false/);
@@ -2273,6 +2310,9 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(
     appSource,
     /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*cancelAnnotatedSourceRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);
+  assert.match(
+    appSource,
+    /function commitWorkspaceShareBasis\([\s\S]*state\.workspaceShareBasis = basis;[\s\S]*sourceInspection\.clearGraphSource\(\)/);
   assert.match(
     history,
     /invalidateMemberCallGraphWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);

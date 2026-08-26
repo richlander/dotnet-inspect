@@ -695,6 +695,15 @@ test("workspace route preflight defers packet decoding", () => {
       + "The product decoder rejected this packet.");
 });
 
+test("an empty workspace parameter remains authoritative", () => {
+  const route = parseWorkspaceRoute(locationSnapshot(
+    "https://inspect.example/?package=Visible.Package&w=#metadata"));
+
+  assert.equal(route.encodedWorkspaceState, "");
+  assert.equal(route.hasWorkspaceState, true);
+  assert.equal(route.visible.hasWorkspaceState, true);
+});
+
 test("workspace route resolution skips the decoder without packet state", () => {
   const route = parseWorkspaceRoute(locationSnapshot(
     "https://inspect.example/packages/Example.Package/1.0.0#source"));
@@ -807,8 +816,23 @@ test("product decoder failures preserve visible location authority", () => {
     () => rejected("Legacy packets are not supported."));
 
   assert.equal(parsed.package, "Visible.Package");
+  assert.equal(parsed.hasWorkspaceState, true);
   assert.deepEqual(parsed.tabs, []);
   assert.match(parsed.workspaceNotice, /Legacy packets are not supported/);
+});
+
+test("canonical packets without a lens discard legacy hash state", () => {
+  const state = workspaceState();
+  state.view.lens = null;
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Visible.Package&w=canonical#metadata"),
+    () => decoded(state));
+
+  assert.equal(parsed.shareState?.view.lens, null);
+  assert.equal(parsed.lens, null);
+  assert.equal(parsed.atPackageRoot, false);
 });
 
 test("unsupported canonical Browser views fail visibly without partial state", () => {
@@ -824,6 +848,7 @@ test("unsupported canonical Browser views fail visibly without partial state", (
     () => decoded(unsupported));
 
   assert.equal(parsed.package, "Visible.Package");
+  assert.equal(parsed.hasWorkspaceState, true);
   assert.deepEqual(parsed.tabs, []);
   assert.match(parsed.workspaceNotice, /not supported by this browser/);
 });

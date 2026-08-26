@@ -688,6 +688,7 @@ function resolveWorkspaceLocation(
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
+  const hasWorkspaceState = params.has("w");
   const workspaceNotice = share && "error" in share ? share.error : "";
 
   if (share && !("error" in share)) {
@@ -702,7 +703,7 @@ function resolveWorkspaceLocation(
       version = target.version;
       framework = target.framework;
     }
-    if (share.view) viewToken = share.view;
+    viewToken = share.view;
     type = share.type;
     member = null;
     memberAnchor = share.memberAnchor;
@@ -756,6 +757,7 @@ function resolveWorkspaceLocation(
     memberTraitFilter,
     graphTarget,
     shareState,
+    hasWorkspaceState,
     workspaceNotice,
   };
 }
@@ -765,11 +767,12 @@ export type ParsedWorkspaceLocation = ReturnType<typeof resolveWorkspaceLocation
 export function parseWorkspaceRoute(
   location: WorkspaceLocationSnapshot,
 ): WorkspaceLocationRoute {
-  const encodedWorkspaceState = new URLSearchParams(location.search).get("w");
+  const params = new URLSearchParams(location.search);
+  const encodedWorkspaceState = params.get("w");
   return {
     location,
     encodedWorkspaceState,
-    hasWorkspaceState: Boolean(encodedWorkspaceState),
+    hasWorkspaceState: params.has("w"),
     visible: resolveWorkspaceLocation(location, null),
   };
 }

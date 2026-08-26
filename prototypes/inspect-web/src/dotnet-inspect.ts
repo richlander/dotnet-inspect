@@ -5503,6 +5503,7 @@ async function switchPlatformVersion(
     render();
     return;
   }
+  state.workspaceShareBasis = null;
   activatePackage(loaded, { resetAccessibility: true });
   state.loading = false;
   state.atPackageRoot = true;
@@ -5546,7 +5547,10 @@ async function switchPackageVersion(newVersion: string) {
   const oldVersion = pkg.version;
   if (!newVersion || newVersion.toLowerCase() === oldVersion.toLowerCase()) return;
   const framework = pkg.activeFramework;
-  await loadPackage(id, newVersion, framework, { replacePackage: pkg });
+  await loadPackage(id, newVersion, framework, {
+    replacePackage: pkg,
+    invalidateWorkspaceShareBasis: true,
+  });
 }
 
 async function switchPackageFramework(newFramework: string) {
@@ -5558,7 +5562,10 @@ async function switchPackageFramework(newFramework: string) {
     pkg.id,
     pkg.version,
     newFramework,
-    { replacePackage: pkg });
+    {
+      replacePackage: pkg,
+      invalidateWorkspaceShareBasis: true,
+    });
 }
 
 
@@ -5945,6 +5952,13 @@ function capturedShareTabs() {
       ? basis.tabs.map(tab => ({ ...tab }))
       : resolvedTabs;
   return { tabs, preservesBasis };
+}
+
+function commitWorkspaceShareBasis(
+  basis: BrowserWorkspaceShareState | null,
+) {
+  state.workspaceShareBasis = basis;
+  sourceInspection.clearGraphSource();
 }
 
 function selectedCallGraphWorkspacePackages(): AppPackage[] {
@@ -8404,6 +8418,7 @@ interface LoadPackageOptions {
   replacePackage?: AppPackage | null;
   deepLink?: DeepLink | null;
   retryAction?: RetryAction;
+  invalidateWorkspaceShareBasis?: boolean;
 }
 
 async function loadPackage(
@@ -8454,6 +8469,8 @@ async function loadPackage(
     });
     if (!packageModel) return null;
     if (background) return packageModel;
+    if (options.invalidateWorkspaceShareBasis)
+      state.workspaceShareBasis = null;
     activatePackage(packageModel, { resetAccessibility: true });
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -8843,11 +8860,21 @@ async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq = navigationSequence.begin(),
-  canonicalSnapshot = loc.shareState
+  canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (loc.hasWorkspaceState && !loc.shareState) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      deep,
+      loc.workspaceNotice
+        || "The shared workspace packet could not be restored.",
+      canonicalSnapshot,
+      null);
+    return;
+  }
   if (!loc.package) return;
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
@@ -9003,7 +9030,7 @@ async function restoreWorkspaceFromLocation(
       return;
     }
     applyDeepLink(deep);
-    state.workspaceShareBasis = loc.shareState;
+    commitWorkspaceShareBasis(loc.shareState);
     state.loading = false;
     render();
     await loadSelectionData();
@@ -9035,9 +9062,12 @@ function failCanonicalWorkspaceRestore(
   deep: DeepLink,
   message: string,
   snapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
+  retryAction: RetryAction =
+    () => restoreWorkspaceFromLocation(loc, deep),
 ) {
   if (snapshot?.hasWorkspace) {
     restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+    state.credits = false;
     state.loading = false;
     state.error = "";
     state.errorTitle = "";
@@ -9045,17 +9075,18 @@ function failCanonicalWorkspaceRestore(
     state.retryAction = null;
     appendQueryNotice(
       `Workspace restore failed: ${message}`,
-      () => restoreWorkspaceFromLocation(loc, deep));
+      retryAction);
     preserveUrlThroughNextRender = true;
     render();
     return;
   }
   clearWorkspacePackages();
+  state.credits = false;
   state.loading = false;
   state.home = false;
   state.errorTitle = "Workspace restore failed";
   state.error = message;
-  state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
+  state.retryAction = retryAction;
   render();
 }
 
@@ -9070,6 +9101,10 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const loc = initialWorkspace.resolve();
+  if (loc.hasWorkspaceState && !loc.shareState) {
+    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    return;
+  }
   const packageId = loc.package;
   if (!packageId) {
     state.loading = false;
@@ -9643,7 +9678,7 @@ window.addEventListener("popstate", () => {
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
-  const canonicalSnapshot = loc.shareState
+  const canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   state.queryNotice = loc.workspaceNotice || "";
@@ -9654,6 +9689,16 @@ window.addEventListener("popstate", () => {
     state.home = true;
     spotlight.reset();
     render();
+    return;
+  }
+  if (loc.hasWorkspaceState && !loc.shareState) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      loc,
+      loc.workspaceNotice
+        || "The shared workspace packet could not be restored.",
+      canonicalSnapshot,
+      null);
     return;
   }
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
@@ -9733,7 +9778,7 @@ window.addEventListener("popstate", () => {
           canonicalSnapshot);
         return;
       }
-      state.workspaceShareBasis = loc.shareState;
+      commitWorkspaceShareBasis(loc.shareState);
       applyDeepLink(loc);
       render();
       observeAsync(loadSelectionData(), "Loading selection data");
@@ -9798,7 +9843,7 @@ async function restorePlatformScopeThenDeepLink(
       canonicalSnapshot);
     return;
   }
-  state.workspaceShareBasis = loc.shareState;
+  commitWorkspaceShareBasis(loc.shareState);
   applyLocationView(loc);
   applyDeepLink(loc);
   state.loading = false;
@@ -9905,7 +9950,7 @@ async function restoreRuntimePackFromHistory(
         canonicalSnapshot);
       return;
     }
-    state.workspaceShareBasis = loc.shareState;
+    commitWorkspaceShareBasis(loc.shareState);
     applyLocationView(loc);
     applyDeepLink(deep);
     state.loading = false;
