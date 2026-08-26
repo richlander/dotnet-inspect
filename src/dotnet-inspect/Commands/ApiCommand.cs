@@ -367,6 +367,7 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
+        options = options with { UserVerbosityOverride = options.UserVerbosity };
         if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
             options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
 
@@ -1992,11 +1993,17 @@ public class ApiCommand
             // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
             // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
+            SourceChecksumVerification checksumVerification =
+                SourceChecksumVerification.Unavailable;
             var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    localBytes);
                 content = NormalizePdbSourceLineEndings(
                     DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
             }
@@ -2008,6 +2015,10 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    repoBytes);
                 content = NormalizePdbSourceLineEndings(
                     DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
             }
@@ -2022,6 +2033,7 @@ public class ApiCommand
                 content = fetch.Text is null
                     ? null
                     : NormalizePdbSourceLineEndings(fetch.Text);
+                checksumVerification = fetch.ChecksumVerification;
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
@@ -2041,7 +2053,10 @@ public class ApiCommand
                 methodName,
                 methodInfo.SourceUrl ?? methodInfo.FilePath,
                 pdbPath,
-                methodInfo.SequencePointStartLines);
+                methodInfo.SequencePointStartLines,
+                methodInfo.ChecksumAlgorithm,
+                methodInfo.Checksum,
+                checksumVerification);
         }
         catch (Exception ex)
         {
@@ -2112,7 +2127,11 @@ public class ApiCommand
         string methodName,
         string sourceLocation,
         string? pdbPath,
-        IReadOnlyList<int>? visibleSequencePointStartLines = null)
+        IReadOnlyList<int>? visibleSequencePointStartLines = null,
+        string? checksumAlgorithm = null,
+        byte[]? checksum = null,
+        SourceChecksumVerification checksumVerification =
+            SourceChecksumVerification.Unavailable)
     {
         try
         {
@@ -2131,7 +2150,12 @@ public class ApiCommand
                     pdbPath,
                     MemberHasNoPdbDeclaration: true)
                 : new ResolvedMethodSource(
-                    new MethodSourceContext(sourceCode, sourceLocation),
+                    new MethodSourceContext(
+                        sourceCode,
+                        sourceLocation,
+                        checksumAlgorithm,
+                        checksum is null ? null : Convert.ToHexString(checksum),
+                        checksumVerification),
                     pdbPath);
         }
         catch (CSharpTextComplexityException)
@@ -2475,7 +2499,9 @@ public class ApiCommand
                 view,
                 GetRequestedMemberSections(type, options),
                 options is MemberOptions { MemberSourceTooComplex: true },
-                options is MemberOptions { MemberSourceCoordinatesInvalid: true });
+                options is MemberOptions { MemberSourceCoordinatesInvalid: true },
+                (options as MemberOptions)?.MethodSource,
+                options.UserVerbosity < Verbosity.Detailed);
 
         }
 
@@ -2755,7 +2781,7 @@ public class ApiCommand
             SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", null, view.MemberCode?.SourceDiffCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
@@ -3341,7 +3367,9 @@ public class ApiCommand
                     view,
                     requestedSections,
                     memberOptions.MemberSourceTooComplex,
-                    memberOptions.MemberSourceCoordinatesInvalid);
+                    memberOptions.MemberSourceCoordinatesInvalid,
+                    memberOptions.MethodSource,
+                    memberOptions.UserVerbosity < Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
@@ -3501,7 +3529,9 @@ public class ApiCommand
         TypeView view,
         IReadOnlySet<string> requestedSections,
         bool sourceTooComplex,
-        bool sourceCoordinatesInvalid)
+        bool sourceCoordinatesInvalid,
+        MethodSourceContext? source,
+        bool reviewerSized)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -3524,15 +3554,37 @@ public class ApiCommand
             return;
         }
 
-        view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-            "diff",
-            SourceTextDiffRenderer.CreateUnifiedDiff(
+        string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
                 // The unavailable note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
                 view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 SectionNames.PdbSource,
-                "Decompiled Source"));
+                "Decompiled Source",
+                reviewerSized);
+        if (source is { HasChecksumEvidence: true })
+        {
+            string location = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.SourceUrl ?? "portable-PDB source document");
+            string algorithm = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.ChecksumAlgorithm!);
+            string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.Checksum!);
+            string integrity = source.ChecksumVerification switch
+            {
+                SourceChecksumVerification.Exact =>
+                    $"PDB source document bytes match portable-PDB {algorithm} checksum {checksum}.",
+                SourceChecksumVerification.LineEndingNormalized =>
+                    $"PDB source document matches portable-PDB {algorithm} checksum {checksum} "
+                    + "after CR/LF normalization.",
+                _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
+            };
+            diff = $"# PDB source: {location}\n"
+                + $"# Integrity: {integrity}\n"
+                + diff;
+        }
+
+        view.MemberCode.SourceDiffCode = new Markout.CodeSection("diff", diff);
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
