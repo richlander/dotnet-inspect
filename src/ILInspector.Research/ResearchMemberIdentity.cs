@@ -218,7 +218,7 @@ public static class ResearchMemberIdentity
                 : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
             TypeRefKind.GenericInstance => $"{BodyTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(BodyTypeName))}>",
             TypeRefKind.SzArray => $"{BodyTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{BodyTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
+            TypeRefKind.Array => $"{BodyTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.Rank))}]",
             TypeRefKind.ByRef => $"{BodyTypeName(type.ElementType!)}&",
             TypeRefKind.Pointer => $"{BodyTypeName(type.ElementType!)}*",
             TypeRefKind.Pinned => $"pinned {BodyTypeName(type.ElementType!)}",

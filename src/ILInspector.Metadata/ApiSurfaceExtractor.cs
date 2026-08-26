@@ -174,6 +174,10 @@ public static class ApiSurfaceExtractor
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
+            ? ApiAssemblyIdentity.FromDefinition(reader)
+            : null;
+        surface.AssemblyIdentity = currentAssemblyIdentity;
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
 
@@ -470,6 +474,8 @@ public static class ApiSurfaceExtractor
 
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        Guid moduleVersionId = reader.GetGuid(
+            reader.GetModuleDefinition().Mvid);
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
         budget?.AdmitMetadataRows(reader);
@@ -483,6 +489,144 @@ public static class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
+        ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
+            ? ApiAssemblyIdentity.FromDefinition(
+                reader,
+                observeDecodeWork)
+            : null;
+        if (currentAssemblyIdentity is not null && budget is not null)
+        {
+            budget.RetainCommittedText(
+                currentAssemblyIdentity.Name);
+            if (currentAssemblyIdentity.Culture is not null)
+            {
+                budget.RetainCommittedText(
+                    currentAssemblyIdentity.Culture);
+            }
+            if (currentAssemblyIdentity.PublicKeyToken is not null)
+            {
+                budget.RetainCommittedText(
+                    currentAssemblyIdentity.PublicKeyToken);
+            }
+        }
+        surface.AssemblyIdentity = currentAssemblyIdentity;
+        var registeredRuntimeJsExportWrapperNames =
+            new Dictionary<
+                (string AssemblyName, string TypeName),
+                List<(
+                    string MemberName,
+                    int RegistrationMethodToken,
+                    int RegistrationCount)>>();
+        if (!typesOnly)
+        {
+            var registrationMethods = new List<(
+                MethodDefinitionHandle Handle,
+                MethodDefinition Definition)>();
+            foreach (MethodDefinitionHandle methodHandle
+                in reader.MethodDefinitions)
+            {
+                try
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(methodHandle);
+                    if ((method.Attributes
+                            & (MethodAttributes.MemberAccessMask
+                                | MethodAttributes.Static))
+                            != (MethodAttributes.Private
+                                | MethodAttributes.Static)
+                        || !reader.StringComparer.Equals(
+                            method.Name,
+                            "__Register_"))
+                    {
+                        continue;
+                    }
+
+                    if (method.RelativeVirtualAddress == 0
+                        || !HasVoidNullaryStaticSignature(
+                            reader,
+                            method))
+                    {
+                        continue;
+                    }
+
+                    TypeDefinition type = reader.GetTypeDefinition(
+                        method.GetDeclaringType());
+                    if (!reader.StringComparer.Equals(
+                            type.Namespace,
+                            "System.Runtime.InteropServices.JavaScript")
+                        || !reader.StringComparer.Equals(
+                            type.Name,
+                            "__GeneratedInitializer"))
+                    {
+                        continue;
+                    }
+
+                    registrationMethods.Add((
+                        methodHandle,
+                        method));
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    // Registration evidence is optional and fails closed.
+                }
+            }
+
+            if (registrationMethods is
+                [
+                    (
+                        MethodDefinitionHandle registrationHandle,
+                        MethodDefinition registrationMethod),
+                ])
+            {
+                try
+                {
+                    IReadOnlyList<RuntimeJsExportWrapperRegistration>
+                        registrations = AttributeReader
+                            .ReadRuntimeJsExportWrapperRegistrations(
+                                reader,
+                                registrationMethod.GetCustomAttributes(),
+                                observeDecodeWork);
+                    int registrationCount = registrations.Count;
+                    foreach (RuntimeJsExportWrapperRegistration
+                        registration in registrations)
+                    {
+                        var key = (
+                            registration.TargetAssemblyName,
+                            registration.TargetTypeName);
+                        if (!registeredRuntimeJsExportWrapperNames
+                                .TryGetValue(
+                                    key,
+                                    out List<(
+                                        string MemberName,
+                                        int RegistrationMethodToken,
+                                        int RegistrationCount)>?
+                                            candidates))
+                        {
+                            candidates = [];
+                            registeredRuntimeJsExportWrapperNames.Add(
+                                key,
+                                candidates);
+                        }
+
+                        candidates.Add((
+                            registration.MemberName,
+                            MetadataTokens.GetToken(
+                                registrationHandle),
+                            registrationCount));
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                    or InvalidOperationException
+                    or ArgumentOutOfRangeException)
+                {
+                    // Registration evidence is optional and fails closed.
+                    registeredRuntimeJsExportWrapperNames.Clear();
+                }
+            }
+        }
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -499,13 +643,6 @@ public static class ApiSurfaceExtractor
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             var attributes = typeDef.Attributes;
 
-            // Only include public types by default. --all (includeAll) also surfaces
-            // non-public types, including nested private/internal types, so ranking/triage rows
-            // that already surface non-public IL can be copied into type/member drill commands.
-            // Compiler-generated types are still skipped below regardless.
-            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
-                continue;
-
             budget?.BeginTypeCandidate();
             observeDecodeWork?.Invoke(
                 reader.GetBlobReader(typeDef.Name).Length
@@ -516,6 +653,21 @@ public static class ApiSurfaceExtractor
             // surfaces closure/display/state-machine types and their real fields so
             // tooling (and compile-back reconstruction) can enumerate captured state.
             if (TypeFilters.IsCompilerGenerated(leafMetadataName) && !includeCompilerGenerated)
+            {
+                RetainFilteredRuntimeJsExportFacts(
+                    reader,
+                    typeDef,
+                    surface,
+                    budget,
+                    observeDecodeWork);
+                continue;
+            }
+
+            // Only include public types by default. The filtered-export scan
+            // above intentionally precedes this visibility check: an authentic
+            // row on a private compiler-generated lambda type remains relevant
+            // failure evidence even though the type is not an API declaration.
+            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision
@@ -610,6 +762,13 @@ public static class ApiSurfaceExtractor
                     baseTypeName,
                     observeText,
                     observeDecodeWork);
+                apiType.BaseTypeReference =
+                    DecodeTypeDefinitionReference(
+                        reader,
+                        typeDef.BaseType,
+                        typeContext,
+                        observeText,
+                        observeDecodeWork);
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -646,29 +805,68 @@ public static class ApiSurfaceExtractor
             }
 
             // Capture the wire-fidelity-relevant facts for an enum's JSON serialization: whether
-            // it is [Flags] (STJ serializes a combination as a comma-joined string, not a single
-            // declared name) and whether it carries a JsonStringEnumConverter (STJ serializes by
-            // declared name rather than by numeric value only when this converter is present).
+            // it is [Flags] (STJ serializes named combinations as comma-joined strings, while
+            // undefined combinations can remain numeric) and whether it carries a
+            // JsonStringEnumConverter (declared values serialize by name, while the default
+            // converter can still emit undefined values numerically).
             var jsonTypeAttributes = typeDef.GetCustomAttributes();
+            apiType.JsonConverterAttributeCount =
+                AttributeReader.CountJsonConverterAttributes(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
+            apiType.HasUnsupportedJsonWireAttributes =
+                AttributeReader.HasUnsupportedJsonTypeWireAttributes(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
+            apiType.JsonSerializableRoots =
+                AttributeReader.ReadJsonSerializableRoots(
+                    reader,
+                    jsonTypeAttributes,
+                    currentAssemblyIdentity,
+                    out int jsonSerializableAttributeCount,
+                    observeDecodeWork);
+            apiType.JsonSerializableAttributeCount =
+                jsonSerializableAttributeCount;
+            if (jsonSerializableAttributeCount > 0)
+            {
+                apiType.HasSystemTextJsonSourceGenerationMarker =
+                    AttributeReader
+                        .HasSystemTextJsonSourceGenerationMarker(
+                            reader,
+                            jsonTypeAttributes,
+                            observeDecodeWork);
+            }
             if (apiType.Kind == "enum")
             {
-                apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
-                    reader,
-                    jsonTypeAttributes,
-                    observeDecodeWork);
-                apiType.HasJsonStringEnumConverter = AttributeReader.HasJsonStringEnumConverterAttribute(
-                    reader,
-                    jsonTypeAttributes,
-                    observeDecodeWork);
+                FlagsAttributeEvidence flagsEvidence =
+                    AttributeReader.ReadFlagsAttributes(
+                        reader,
+                        jsonTypeAttributes,
+                        observeDecodeWork);
+                apiType.IsFlagsEnum = flagsEvidence.Count > 0;
+                apiType.FlagsAttributeCount = flagsEvidence.Count;
+                apiType.HasMalformedFlagsAttribute =
+                    flagsEvidence.HasMalformedRow;
+                apiType.HasJsonStringEnumConverter =
+                    AttributeReader.HasJsonStringEnumConverterAttribute(
+                        reader,
+                        jsonTypeAttributes,
+                        definitionName,
+                        currentAssemblyIdentity,
+                        observeDecodeWork);
             }
 
-            if (AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+            if (AttributeReader.TryGetJsonSourceGenerationOptions(
                     reader,
                     jsonTypeAttributes,
                     out JsonWireNamingPolicy? namingPolicy,
+                    out JsonSourceGenerationMode generationMode,
                     observeDecodeWork))
             {
                 apiType.JsonPropertyNamingPolicy = namingPolicy;
+                apiType.JsonSourceGenerationMode = generationMode;
             }
 
             // Check if this is an extension class (static class with [Extension] attribute)
@@ -740,20 +938,52 @@ public static class ApiSurfaceExtractor
             // property or event rows. Raiser and Other semantic methods have no
             // ApiMember token slots, so they stay methods.
             var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+            var runtimeJsExportWrapperCandidateMethods =
+                new Dictionary<string, List<int>>(
+                    StringComparer.Ordinal);
 
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
-                    continue;
-
+                var methodCustomAttributes =
+                    method.GetCustomAttributes();
                 string methodName = DecodeString(
                     reader,
                     method.Name,
                     observeDecodeWork);
+                RuntimeJsExportAttributeEvidence jsExportEvidence =
+                    AttributeReader.ReadRuntimeJsExportAttributes(
+                        reader,
+                        methodCustomAttributes,
+                        observeDecodeWork);
+                if (methodName.StartsWith(
+                    "__Wrapper_",
+                    StringComparison.Ordinal))
+                {
+                    if (!runtimeJsExportWrapperCandidateMethods
+                            .TryGetValue(
+                                methodName,
+                                out List<int>? tokens))
+                    {
+                        tokens = [];
+                        runtimeJsExportWrapperCandidateMethods.Add(
+                            methodName,
+                            tokens);
+                    }
+                    tokens.Add(MetadataTokens.GetToken(methodHandle));
+                }
+                var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
+                    continue;
+                }
 
                 // Ordinary MethodSemantics accessors are omitted from the method
                 // list. A private MethodImpl accessor is the C#/VB explicit-
@@ -764,24 +994,45 @@ public static class ApiSurfaceExtractor
                 if (accessorMethods.Contains(methodHandle)
                     && !(isExplicitInterfaceImplementation
                         && methodAccess == MethodAttributes.Private))
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
                     continue;
+                }
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<"))
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
                     continue;
+                }
 
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
                 if (!includeAll
                     && !isExplicitInterfaceImplementation
                     && AttributeReader.HasEditorBrowsableNeverAttribute(
                         reader,
-                        method.GetCustomAttributes(),
+                        methodCustomAttributes,
                         observeDecodeWork))
+                {
+                    RetainFilteredRuntimeJsExportFact(
+                        apiType,
+                        methodName,
+                        methodHandle,
+                        jsExportEvidence);
                     continue;
+                }
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
                     reader,
-                    method.GetCustomAttributes(),
+                    methodCustomAttributes,
                     out var obsoleteMessage,
                     observeDecodeWork);
 
@@ -790,7 +1041,7 @@ public static class ApiSurfaceExtractor
                     && (methodAttributes & MethodAttributes.Static) != 0
                     && AttributeReader.HasExtensionAttribute(
                         reader,
-                        method.GetCustomAttributes(),
+                        methodCustomAttributes,
                         observeDecodeWork);
                 var signature = GetMethodSignature(
                     reader,
@@ -896,17 +1147,27 @@ public static class ApiSurfaceExtractor
                     // retain the canonical-signature fallback.
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
+                    GenericArity =
+                        method.GetGenericParameters().Count,
+                    HasMethodBody =
+                        method.RelativeVirtualAddress != 0,
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
-                            method.GetCustomAttributes(),
+                            methodCustomAttributes,
                             observeDecodeWork),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    HasRuntimeJsExport =
+                        jsExportEvidence.HasValidRow,
+                    RuntimeJsExportAttributeCount =
+                        jsExportEvidence.Count,
+                    HasMalformedRuntimeJsExportAttribute =
+                        jsExportEvidence.HasMalformedRow,
                     Attributes = RenderMemberAttributes(
                         reader,
-                        method.GetCustomAttributes(),
+                        methodCustomAttributes,
                         observeText,
                         observeAttributeMaterialize)
                 };
@@ -936,6 +1197,72 @@ public static class ApiSurfaceExtractor
                 budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicMethodCount++;
+            }
+
+            foreach (IGrouping<string, ApiMember> exports in
+                apiType.Members
+                    .Where(member =>
+                        member.HasRuntimeJsExport
+                        || member.RuntimeJsExportAttributeCount > 0
+                        || member.HasMalformedRuntimeJsExportAttribute)
+                    .GroupBy(
+                        member => member.Name,
+                        StringComparer.Ordinal))
+            {
+                List<(
+                    string MemberName,
+                    int RegistrationMethodToken,
+                    int RegistrationCount)>? registrations = null;
+                if (currentAssemblyIdentity is not null)
+                {
+                    registeredRuntimeJsExportWrapperNames.TryGetValue(
+                        (
+                            currentAssemblyIdentity.Name,
+                            apiType.FullName),
+                        out registrations);
+                }
+                List<RuntimeJsExportWrapperCandidate> candidates =
+                    registrations?
+                        .Where(registration =>
+                            RuntimeJsExportWrapperName.IsCandidateFor(
+                                registration.MemberName,
+                                exports.Key)
+                            && runtimeJsExportWrapperCandidateMethods
+                                .ContainsKey(
+                                    registration.MemberName))
+                        .SelectMany(registration =>
+                            runtimeJsExportWrapperCandidateMethods[
+                                registration.MemberName]
+                                .Select(wrapperToken =>
+                                    new RuntimeJsExportWrapperCandidate(
+                                        wrapperToken,
+                                        registration
+                                            .RegistrationMethodToken,
+                                        registration
+                                            .RegistrationCount)
+                                    {
+                                        ModuleVersionId =
+                                            moduleVersionId,
+                                    }))
+                        .Distinct()
+                        .ToList()
+                    ?? [];
+                int wrapperCount = candidates
+                    .Select(candidate =>
+                        candidate.WrapperMethodToken)
+                    .Distinct()
+                    .Count();
+                bool hasWrapperCandidates =
+                    wrapperCount >= exports.Count();
+                foreach (ApiMember member in exports)
+                {
+                    member.HasRuntimeJsExportWrapperCandidate =
+                        hasWrapperCandidates;
+                    member.RuntimeJsExportWrapperCandidates =
+                        candidates.Count == 0
+                            ? null
+                            : candidates;
+                }
             }
 
             // Properties
@@ -1006,6 +1333,26 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork,
                     observeAttributeMaterialize);
+                List<string?> jsonPropertyNames =
+                    AttributeReader.ReadJsonPropertyNames(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
+                int jsonConverterAttributeCount =
+                    AttributeReader.CountJsonConverterAttributes(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
+                JsonIncludeAttributeEvidence propertyJsonInclude =
+                    AttributeReader.ReadJsonIncludeAttributes(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
+                List<JsonWireIgnoreCondition?> propertyJsonIgnoreConditions =
+                    AttributeReader.ReadJsonIgnoreConditions(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -1013,8 +1360,12 @@ public static class ApiSurfaceExtractor
                         prop.Name,
                         observeDecodeWork),
                     Kind = "property",
+                    DeclarationMetadataToken =
+                        MetadataTokens.GetToken(propHandle),
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
+                    IndexParameterCount =
+                        propertySignature.Model?.ParameterCount,
                     SignatureDecodeStatus = propertySignature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
@@ -1032,28 +1383,43 @@ public static class ApiSurfaceExtractor
                         prop.GetCustomAttributes(),
                         KnownAttributeNames.CompilerGeneratedAttribute,
                         observeDecodeWork),
-                    HasJsonInclude = AttributeReader.HasJsonIncludeAttribute(
-                        reader,
-                        prop.GetCustomAttributes(),
-                        observeDecodeWork),
-                    HasJsonIgnore = AttributeReader.HasJsonIgnoreAttribute(
-                        reader,
-                        prop.GetCustomAttributes(),
-                        observeDecodeWork),
-                    JsonPropertyName = AttributeReader.TryGetJsonPropertyName(
-                        reader,
-                        prop.GetCustomAttributes(),
-                        out string? jsonPropertyName,
-                        observeDecodeWork)
-                        ? jsonPropertyName
+                    HasJsonInclude = propertyJsonInclude.Count > 0,
+                    HasMalformedJsonInclude =
+                        propertyJsonInclude.HasMalformedRow,
+                    JsonIgnoreConditions = propertyJsonIgnoreConditions,
+                    JsonPropertyName = jsonPropertyNames.Count == 1
+                        ? jsonPropertyNames[0]
                         : null,
+                    JsonPropertyNameAttributeValues = jsonPropertyNames,
+                    JsonConverterAttributeCount =
+                        jsonConverterAttributeCount,
+                    HasUnsupportedJsonWireAttributes =
+                        AttributeReader
+                            .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                prop.GetCustomAttributes(),
+                                observeDecodeWork),
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),
                         observeText,
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
-                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
+                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    HasGetter = !accessors.Getter.IsNil,
+                    GetterAccessibility = accessors.Getter.IsNil
+                        ? null
+                        : GetAccessibility(
+                            reader.GetMethodDefinition(accessors.Getter)
+                                .Attributes
+                                & MethodAttributes.MemberAccessMask),
+                    HasSetter = !accessors.Setter.IsNil,
+                    SetterAccessibility = accessors.Setter.IsNil
+                        ? null
+                        : GetAccessibility(
+                            reader.GetMethodDefinition(accessors.Setter)
+                                .Attributes
+                                & MethodAttributes.MemberAccessMask),
                 };
 
                 budget?.RetainMember(member);
@@ -1090,8 +1456,11 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
-                if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
-                    continue; // Skip compiler-generated (<...>) fields unless opted in
+                List<string?> jsonPropertyNames =
+                    AttributeReader.ReadJsonPropertyNames(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
 
                 if (IsAutoPropertyBackingField(
                     reader,
@@ -1101,7 +1470,34 @@ public static class ApiSurfaceExtractor
                     typeContext,
                     observeText,
                     observeDecodeWork))
-                    continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
+                {
+                    if (jsonPropertyNames.Count > 0
+                        && autoPropertyBackingFields is not null
+                        && autoPropertyBackingFields.TryGetValue(
+                            fieldName,
+                            out AutoPropertyBackingField backingField))
+                    {
+                        apiType.FilteredJsonPropertyNameFacts.Add(
+                            new FilteredJsonPropertyNameFact(
+                                FilteredJsonPropertyNameKind
+                                    .AutoPropertyBackingField,
+                                backingField.PropertyName,
+                                MetadataTokens.GetToken(fieldHandle),
+                                jsonPropertyNames));
+                    }
+                    continue;
+                }
+
+                if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
+                {
+                    AddFilteredJsonPropertyNameFact(
+                        apiType,
+                        FilteredJsonPropertyNameKind.CompilerNamedField,
+                        associatedMemberName: null,
+                        MetadataTokens.GetToken(fieldHandle),
+                        jsonPropertyNames);
+                    continue; // Skip compiler-generated (<...>) fields unless opted in
+                }
 
                 if (IsFieldLikeEventBackingField(
                         reader,
@@ -1109,7 +1505,15 @@ public static class ApiSurfaceExtractor
                         fieldName,
                         fieldLikeEventBackingFieldNames,
                         observeDecodeWork))
+                {
+                    AddFilteredJsonPropertyNameFact(
+                        apiType,
+                        FilteredJsonPropertyNameKind.EventBackingField,
+                        fieldName,
+                        MetadataTokens.GetToken(fieldHandle),
+                        jsonPropertyNames);
                     continue; // Skip a field-like event's private, compiler-generated backing field
+                }
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
                 if (!includeAll
@@ -1124,12 +1528,18 @@ public static class ApiSurfaceExtractor
                     field.GetCustomAttributes(),
                     out var obsoleteMessage,
                     observeDecodeWork);
+                List<string?> jsonStringEnumMemberNames =
+                    AttributeReader.ReadJsonStringEnumMemberNames(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
 
                 // Decode field type. For enums the special value__ field carries
                 // the underlying type; literal fields are constants, not fields in
                 // source, so they do not need a field declaration type.
                 string? fieldType = null;
                 bool fieldSignatureDegraded = false;
+                List<ApiTypeReferenceIdentity> fieldTypeReferences = [];
                 if (isEnum)
                 {
                     if (fieldName == "value__")
@@ -1143,7 +1553,8 @@ public static class ApiSurfaceExtractor
                 }
                 else
                 {
-                    (fieldType, fieldSignatureDegraded) = DecodeFieldType(
+                    (fieldType, fieldSignatureDegraded, fieldTypeReferences) =
+                        DecodeFieldType(
                         reader,
                         typeContext,
                         field,
@@ -1152,15 +1563,28 @@ public static class ApiSurfaceExtractor
                         observeDecodeWork);
                 }
 
+                JsonIncludeAttributeEvidence fieldJsonInclude =
+                    AttributeReader.ReadJsonIncludeAttributes(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
+                List<JsonWireIgnoreCondition?> fieldJsonIgnoreConditions =
+                    AttributeReader.ReadJsonIgnoreConditions(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = fieldName,
                     Kind = "field",
+                    DeclarationMetadataToken =
+                        MetadataTokens.GetToken(fieldHandle),
                     ReturnType = fieldType,
                     SignatureModel = fieldType is null ? null : new ApiSignature
                     {
                         ReturnType = fieldType,
-                        MemberName = fieldName
+                        MemberName = fieldName,
+                        ReturnTypeReferences = fieldTypeReferences,
                     },
                     SignatureDecodeStatus = fieldSignatureDegraded
                         ? SignatureDecodeStatus.Degraded
@@ -1171,6 +1595,32 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    IsCompilerGenerated = AttributeReader.HasAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute,
+                        observeDecodeWork),
+                    HasJsonInclude = fieldJsonInclude.Count > 0,
+                    HasMalformedJsonInclude =
+                        fieldJsonInclude.HasMalformedRow,
+                    JsonIgnoreConditions = fieldJsonIgnoreConditions,
+                    JsonPropertyName = jsonPropertyNames.Count == 1
+                        ? jsonPropertyNames[0]
+                        : null,
+                    JsonPropertyNameAttributeValues = jsonPropertyNames,
+                    JsonConverterAttributeCount =
+                        AttributeReader.CountJsonConverterAttributes(
+                            reader,
+                            field.GetCustomAttributes(),
+                            observeDecodeWork),
+                    HasUnsupportedJsonWireAttributes =
+                        AttributeReader
+                            .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                field.GetCustomAttributes(),
+                                observeDecodeWork),
+                    JsonStringEnumMemberNameAttributeValues =
+                        jsonStringEnumMemberNames,
                     Attributes = RenderMemberAttributes(
                         reader,
                         field.GetCustomAttributes(),
@@ -1893,7 +2343,10 @@ public static class ApiSurfaceExtractor
                 reader.GetString(reader.GetTypeDefinition(current).Name)));
     }
 
-    private static (string Text, bool IsDegraded) DecodeFieldType(
+    private static (
+        string Text,
+        bool IsDegraded,
+        List<ApiTypeReferenceIdentity> References) DecodeFieldType(
         MetadataReader reader,
         GenericContext context,
         FieldDefinition field,
@@ -1927,7 +2380,10 @@ public static class ApiSurfaceExtractor
                 reader,
                 field.GetCustomAttributes(),
                 beforeDecodeWork));
-        return (fieldNode.Render(), fieldNode.IsDegraded);
+        return (
+            fieldNode.Render(),
+            fieldNode.IsDegraded,
+            [.. fieldNode.ReferencedTypes().Distinct()]);
     }
 
     /// <summary>
@@ -2216,6 +2672,30 @@ public static class ApiSurfaceExtractor
         catch (BadImageFormatException)
         {
             // A truncated or otherwise malformed signature blob is not the object.Finalize slot.
+            return false;
+        }
+    }
+
+    private static bool HasVoidNullaryStaticSignature(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        try
+        {
+            BlobReader blob = reader.GetBlobReader(method.Signature);
+            SignatureHeader header = blob.ReadSignatureHeader();
+            return header.Kind == SignatureKind.Method
+                && header.CallingConvention
+                    == SignatureCallingConvention.Default
+                && !header.IsGeneric
+                && !header.IsInstance
+                && !header.HasExplicitThis
+                && blob.ReadCompressedInteger() == 0
+                && blob.ReadSignatureTypeCode()
+                    == SignatureTypeCode.Void;
+        }
+        catch (BadImageFormatException)
+        {
             return false;
         }
     }
@@ -2561,11 +3041,15 @@ public static class ApiSurfaceExtractor
                beforeDecodeWork);
 
     /// <summary>
-    /// A declared auto-property's backing-field descriptor: the property's decoded return type and
-    /// whether its accessors are static. A genuine backing field must agree with both, so a merely
-    /// same-named compiler-generated field of a different type or staticness is not folded.
+    /// A declared auto-property's backing-field descriptor: the property name, decoded return type,
+    /// and whether its accessors are static. A genuine backing field must agree with the latter two,
+    /// so a merely same-named compiler-generated field of a different type or staticness is not
+    /// folded.
     /// </summary>
-    readonly record struct AutoPropertyBackingField(string PropertyType, bool IsStatic);
+    readonly record struct AutoPropertyBackingField(
+        string PropertyName,
+        string PropertyType,
+        bool IsStatic);
 
     /// <summary>
     /// Maps each of a type's auto-property backing-field names (<c>&lt;Prop&gt;k__BackingField</c>)
@@ -2633,7 +3117,10 @@ public static class ApiSurfaceExtractor
 
             (descriptors ??= new Dictionary<string, AutoPropertyBackingField>(StringComparer.Ordinal))
                 [$"<{propertyName}{GeneratedNameGrammar.BackingFieldSuffix}"]
-                    = new AutoPropertyBackingField(propertyType, isStatic);
+                    = new AutoPropertyBackingField(
+                        propertyName,
+                        propertyType,
+                        isStatic);
         }
 
         return descriptors;
@@ -2991,6 +3478,8 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                TypeReferences =
+                    [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -3043,6 +3532,13 @@ public static class ApiSurfaceExtractor
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeReferences =
+                [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeDefinitionReference =
+                treeSignature.ReturnType.DefinitionReference(),
+            ReturnTypeShape =
+                ApiTypeShapeFactory.FromTypeNode(
+                    treeSignature.ReturnType),
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -3704,6 +4200,39 @@ public static class ApiSurfaceExtractor
         return resolved;
     }
 
+    static ApiTypeReferenceIdentity? DecodeTypeDefinitionReference(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext context,
+        Action<string>? beforeRetainText,
+        Action<int>? beforeDecodeWork)
+    {
+        var provider = new TypeNodeProvider(
+            beforeRetainText,
+            beforeDecodeWork);
+        TypeNode node = handle.Kind switch
+        {
+            HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeReference => provider.GetTypeFromReference(
+                reader,
+                (TypeReferenceHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+                reader,
+                (TypeSpecificationHandle)handle,
+                provider,
+                context,
+                (TypeNode)new DegradedTypeNode()),
+            _ => new DegradedTypeNode(),
+        };
+        return node.IsDegraded
+            ? null
+            : node.DefinitionReference();
+    }
+
     private static void AddInspectionFailure(
         ApiSurface surface,
         ExtractionBudget? budget,
@@ -4118,6 +4647,8 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                TypeReferences =
+                    [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -4144,6 +4675,13 @@ public static class ApiSurfaceExtractor
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeReferences =
+                [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeDefinitionReference =
+                treeSignature.ReturnType.DefinitionReference(),
+            ReturnTypeShape =
+                ApiTypeShapeFactory.FromTypeNode(
+                    treeSignature.ReturnType),
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
@@ -4460,6 +4998,74 @@ public static class ApiSurfaceExtractor
                 : null;
     }
 
+    static void AddFilteredJsonPropertyNameFact(
+        ApiType type,
+        FilteredJsonPropertyNameKind kind,
+        string? associatedMemberName,
+        int metadataToken,
+        List<string?> propertyNames)
+    {
+        if (propertyNames.Count > 0)
+        {
+            type.FilteredJsonPropertyNameFacts.Add(
+                new FilteredJsonPropertyNameFact(
+                    kind,
+                    associatedMemberName,
+                    metadataToken,
+                    propertyNames));
+        }
+    }
+
+    static void RetainFilteredRuntimeJsExportFact(
+        ApiType type,
+        string methodName,
+        MethodDefinitionHandle methodHandle,
+        RuntimeJsExportAttributeEvidence evidence)
+    {
+        if (evidence.Count == 0 && !evidence.HasMalformedRow)
+            return;
+
+        type.FilteredRuntimeJsExportFacts.Add(new(
+            methodName,
+            MetadataTokens.GetToken(methodHandle),
+            evidence.Count,
+            evidence.HasValidRow,
+            evidence.HasMalformedRow));
+    }
+
+    static void RetainFilteredRuntimeJsExportFacts(
+        MetadataReader reader,
+        TypeDefinition type,
+        ApiSurface surface,
+        ExtractionBudget? budget,
+        Action<int>? observeDecodeWork)
+    {
+        foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+        {
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            RuntimeJsExportAttributeEvidence evidence =
+                AttributeReader.ReadRuntimeJsExportAttributes(
+                    reader,
+                    method.GetCustomAttributes(),
+                    observeDecodeWork);
+            if (evidence.Count == 0 && !evidence.HasMalformedRow)
+                continue;
+
+            string methodName = DecodeString(
+                reader,
+                method.Name,
+                observeDecodeWork);
+            var fact = new FilteredRuntimeJsExportFact(
+                methodName,
+                MetadataTokens.GetToken(methodHandle),
+                evidence.Count,
+                evidence.HasValidRow,
+                evidence.HasMalformedRow);
+            budget?.RetainSurfaceFilteredRuntimeJsExportFact(fact);
+            surface.FilteredRuntimeJsExportFacts.Add(fact);
+        }
+    }
+
     /// <summary>
     /// Checks if a method signature contains unsafe constructs (pointers). This
     /// catches members whose signature renders a pointer; members declared
@@ -4476,7 +5082,7 @@ public static class ApiSurfaceExtractor
         return signature.Contains('*');
     }
 
-    static long CountRetainedTypeText(ApiType type)
+    internal static long CountRetainedText(ApiType type)
     {
         long count = 0;
         AddText(ref count, type.Namespace);
@@ -4488,7 +5094,32 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.Attributes);
         AddText(ref count, type.EnumUnderlyingType);
         AddText(ref count, type.BaseType);
+        AddText(ref count, type.BaseTypeReference?.Assembly);
+        AddText(ref count, type.BaseTypeReference?.FullName);
+        AddText(ref count, type.BaseTypeReference?.DefinitionName);
+        foreach (ApiJsonSerializableRoot root
+            in type.JsonSerializableRoots)
+        {
+            AddText(ref count, root.ElementType?.Assembly);
+            AddText(ref count, root.ElementType?.FullName);
+            AddText(ref count, root.ElementType?.DefinitionName);
+            AddText(ref count, root.Type);
+            AddText(ref count, root.UnsupportedReason);
+            AddText(ref count, root.TypeInfoPropertyName);
+        }
         AddText(ref count, type.Interfaces);
+        foreach (FilteredJsonPropertyNameFact fact
+            in type.FilteredJsonPropertyNameFacts)
+        {
+            AddText(ref count, fact.AssociatedMemberName);
+            foreach (string? propertyName in fact.PropertyNames)
+                AddText(ref count, propertyName);
+        }
+        foreach (FilteredRuntimeJsExportFact fact
+            in type.FilteredRuntimeJsExportFacts)
+        {
+            AddText(ref count, fact.MethodName);
+        }
         foreach (TypeParameter parameter in type.TypeParameters)
             AddText(ref count, parameter);
         return count;
@@ -4510,6 +5141,19 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringType);
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.EnumValueLiteral);
+        AddText(ref count, member.JsonPropertyName);
+        AddText(ref count, member.GetterAccessibility);
+        AddText(ref count, member.SetterAccessibility);
+        foreach (string? propertyName
+            in member.JsonPropertyNameAttributeValues)
+        {
+            AddText(ref count, propertyName);
+        }
+        foreach (string? enumMemberName
+            in member.JsonStringEnumMemberNameAttributeValues)
+        {
+            AddText(ref count, enumMemberName);
+        }
         return count;
     }
 
@@ -4560,6 +5204,60 @@ public static class ApiSurfaceExtractor
         return reader.GetString(handle);
     }
 
+    static ApiAssemblyIdentity? ResolveTypeAssemblyIdentity(
+        MetadataReader reader,
+        EntityHandle type,
+        ApiAssemblyIdentity? currentAssembly,
+        Action<int>? beforeDecodeWork)
+    {
+        if (type.Kind == HandleKind.TypeDefinition)
+            return currentAssembly;
+        if (type.Kind != HandleKind.TypeReference)
+            return null;
+
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    (TypeReferenceHandle)type,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
+        {
+            return null;
+        }
+
+        return terminal.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                ApiAssemblyIdentity.FromReference(
+                    reader,
+                    (AssemblyReferenceHandle)terminal,
+                    beforeDecodeWork),
+            HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
+                currentAssembly,
+            _ when terminal.IsNil => currentAssembly,
+            _ => null,
+        };
+    }
+
+    static void RetainAssemblyIdentity(
+        ApiAssemblyIdentity? identity,
+        Action<string>? observeText)
+    {
+        if (identity is null || observeText is null)
+            return;
+
+        observeText(identity.Name);
+        if (identity.Culture is not null)
+            observeText(identity.Culture);
+        if (identity.PublicKeyToken is not null)
+            observeText(identity.PublicKeyToken);
+    }
+
     static void AddText(ref long count, ApiSignature? signature)
     {
         if (signature is null)
@@ -4567,6 +5265,23 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.StructuralReturnType);
+        AddText(ref count, signature.ReturnTypeShape);
+        AddText(
+            ref count,
+            signature.ReturnTypeDefinitionReference?.Assembly);
+        AddText(
+            ref count,
+            signature.ReturnTypeDefinitionReference?.FullName);
+        AddText(
+            ref count,
+            signature.ReturnTypeDefinitionReference?.DefinitionName);
+        foreach (ApiTypeReferenceIdentity reference
+            in signature.ReturnTypeReferences)
+        {
+            AddText(ref count, reference.Assembly);
+            AddText(ref count, reference.FullName);
+            AddText(ref count, reference.DefinitionName);
+        }
         AddText(ref count, signature.ReturnAttributes);
         AddText(ref count, signature.MemberName);
         AddText(ref count, signature.ExtensionReceiverType);
@@ -4579,6 +5294,13 @@ public static class ApiSurfaceExtractor
             AddText(ref count, parameter.Type);
             AddText(ref count, parameter.CanonicalType);
             AddText(ref count, parameter.StructuralType);
+            foreach (ApiTypeReferenceIdentity reference
+                in parameter.TypeReferences)
+            {
+                AddText(ref count, reference.Assembly);
+                AddText(ref count, reference.FullName);
+                AddText(ref count, reference.DefinitionName);
+            }
             AddText(ref count, parameter.Modifier);
             AddText(ref count, parameter.DefaultValueText);
         }
@@ -4589,6 +5311,33 @@ public static class ApiSurfaceExtractor
             AddText(ref count, accessor.ReturnAttributes);
             AddText(ref count, accessor.Name);
             AddText(ref count, accessor.StructuralReturnType);
+        }
+    }
+
+    static void AddText(ref long count, ApiTypeShape? shape)
+    {
+        if (shape is null)
+            return;
+
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(shape);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            if (current.Definition is { } definition)
+            {
+                AddText(ref count, definition.Assembly);
+                AddText(ref count, definition.FullName);
+                AddText(ref count, definition.DefinitionName);
+            }
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
         }
     }
 
@@ -4617,6 +5366,18 @@ public static class ApiSurfaceExtractor
     {
         foreach (string value in values)
             AddText(ref count, value);
+    }
+
+    static void AddText(
+        ref long count,
+        ApiAssemblyIdentity? identity)
+    {
+        if (identity is null)
+            return;
+        count = count > long.MaxValue
+                - identity.RetainedCharacterCount
+            ? long.MaxValue
+            : count + identity.RetainedCharacterCount;
     }
 
     static void AddText(ref long count, string? value)
@@ -5261,7 +6022,7 @@ public static class ApiSurfaceExtractor
         {
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
-            RetainPendingText(CountRetainedTypeText(type));
+            RetainPendingText(CountRetainedText(type));
             _types++;
             _members += _pendingMembers;
             _retainedTextCharacters += _pendingTextCharacters;
@@ -5278,6 +6039,10 @@ public static class ApiSurfaceExtractor
             RetainCommittedText(CountRetainedText(member));
             _members++;
         }
+
+        public void RetainSurfaceFilteredRuntimeJsExportFact(
+            FilteredRuntimeJsExportFact fact) =>
+            RetainCommittedText(fact.MethodName);
 
         /// <summary>Counts one retained metadata-row rejection.</summary>
         public void RetainInspectionFailure(ApiSurfaceInspectionFailure failure)

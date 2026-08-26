@@ -1073,7 +1073,9 @@ raise code.
 When the decision is **Go** and all merge-blocking validation, CI, and required
 review are complete, post a PR comment that clearly says `Ready to merge`. If
 extra tests or review continue after that point, mark them as non-blocking
-follow-up work so the PR state remains unambiguous.
+follow-up work so the PR state remains unambiguous. Keep the `ready-to-merge`
+and `carry-forward` PR labels synchronized with
+[repository guidance](../AGENTS.md#keep-pr-readiness-labels-current).
 
 ## Naming the harnesses by role
 

@@ -396,6 +396,501 @@ public sealed record DirectCall(
     public int? ReturnAddress { get; init; }
     public AllocationMultiplicity Multiplicity { get; init; }
     public bool ExactTarget { get; init; }
+    /// <summary>
+    /// Conservative use of the value produced by this call.
+    /// <c>MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults</c>
+    /// gates direct uses when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested; plain MethodEvidence leaves this
+    /// <see cref="DirectCallResultUse.Unknown"/>.
+    /// </summary>
+    public DirectCallResultUse ResultUse { get; init; }
+    /// <summary>
+    /// IL offset of the return, discard, or consuming call identified by
+    /// <see cref="ResultUse"/>.
+    /// </summary>
+    public int? ResultConsumerOffset { get; init; }
+    /// <summary>
+    /// Direct-call provenance for each declared argument when Analysis can
+    /// interpret the body evaluation stack. Unknown, raw, or merged values
+    /// have <see cref="CallArgumentSource.IsComplete"/> set to false.
+    /// <c>MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources</c>
+    /// gates the fail-closed boundary. The collection is materialized only by
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/>.
+    /// </summary>
+    public CallArgumentSources ArgumentSources { get; init; } =
+        CallArgumentSources.Empty;
+
+    /// <summary>
+    /// The first declared argument when Analysis proves that every reaching
+    /// path supplies the same <c>ldstr</c> literal. Null means absent,
+    /// non-literal, ambiguous, or incomplete.
+    /// </summary>
+    /// <remarks>
+    /// <c>MethodCallAnalysisTests.CollectsFirstArgumentStringLiteral</c> gates
+    /// direct and local-carried literals plus the ambiguous boundary.
+    /// </remarks>
+    public string? FirstArgumentStringLiteral { get; init; }
+
+    /// <summary>
+    /// Direct-call provenance for an instance call's receiver when Analysis can
+    /// interpret the body evaluation stack. Null for static calls and when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is not
+    /// requested.
+    /// </summary>
+    /// <remarks>
+    /// <c>MethodCallAnalysisTests.CollectsInstanceReceiverCallSources</c>
+    /// gates direct-call and unresolved-raw receiver evidence.
+    /// </remarks>
+    public CallReceiverSource? ReceiverSource { get; init; }
+
+    /// <summary>
+    /// Whether the block containing this call is reachable from the body entry.
+    /// Null when the EH-aware block graph is incomplete or
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> was not
+    /// requested, so an unknown answer never reads as "reachable".
+    /// </summary>
+    /// <remarks>
+    /// Computed from the shared EH-aware block graph through the
+    /// <c>ForwardDataflow</c> kernel, not from evaluation-stack visitation, so a
+    /// call the interpreter happens not to walk is still classified.
+    /// <c>MethodCallResolvedValueTests.MarksCallsAfterUnconditionalBranchUnreachable</c>
+    /// gates it.
+    /// </remarks>
+    public bool? IsReachable { get; init; }
+
+    /// <summary>
+    /// Whether this reachable call's block dominates every reachable ordinary
+    /// <c>ret</c> and the body has no reachable <c>jmp</c> completion.
+    /// </summary>
+    /// <remarks>
+    /// False is the fail-closed answer when flow facts were not requested, the
+    /// graph is incomplete, there is no reachable return, or any normal
+    /// completion can bypass the call.
+    /// <c>MethodCallResolvedValueTests.DoesNotCreditCallThatCanBeSkippedByNormalReturn</c>
+    /// gates it.
+    /// </remarks>
+    public bool DominatesEveryNormalReturn { get; init; }
+
+    /// <summary>
+    /// Resolved provenance for each declared argument, indexed by position.
+    /// This is the newer union described on <see cref="ResolvedValueSet"/>; it
+    /// coexists with <see cref="ArgumentSources"/> rather than reinterpreting
+    /// it. Materialized for <c>call</c>, <c>callvirt</c>, and <c>newobj</c> by
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/>.
+    /// </summary>
+    public ResolvedValueSets ResolvedArgumentValues { get; init; } =
+        ResolvedValueSets.Empty;
+
+    /// <summary>
+    /// Resolved provenance for an instance call's receiver. Null for static
+    /// calls, <c>newobj</c>, and when the feature is not requested.
+    /// </summary>
+    public ResolvedValueSet? ResolvedReceiverValue { get; init; }
+
+    /// <summary>
+    /// Ordered element provenance for span-shaped arguments the C# compiler
+    /// built from a recognized inline-array or single-element
+    /// <c>ReadOnlySpan&lt;T&gt;</c> lowering.
+    /// </summary>
+    public SpanArgumentSources SpanArgumentSources { get; init; } =
+        SpanArgumentSources.Empty;
+}
+
+/// <summary>Conservative disposition of a direct call's produced value.</summary>
+public enum DirectCallResultUse
+{
+    Unknown,
+    MethodReturn,
+    CallArgument,
+    Discarded,
+}
+
+/// <summary>
+/// Conservative provenance for one declared direct-call argument.
+/// </summary>
+/// <param name="ArgumentIndex">Zero-based declared parameter position.</param>
+/// <param name="SourceCallOffsets">
+/// Physical IL offsets of every directly proven non-void call-result source.
+/// Empty is valid only when <paramref name="IsComplete"/> is false.
+/// </param>
+/// <param name="IsComplete">
+/// Whether every control-flow and evaluation-stack source of the argument was
+/// proven to be a direct non-void call result.
+/// </param>
+public sealed class CallArgumentSource :
+    IEquatable<CallArgumentSource>
+{
+    public CallArgumentSource(
+        int argumentIndex,
+        ImmutableArray<int> sourceCallOffsets,
+        bool isComplete)
+    {
+        ArgumentIndex = argumentIndex;
+        SourceCallOffsets =
+            ImmutableArrayValueEquality.RequireInitialized(
+                sourceCallOffsets,
+                nameof(sourceCallOffsets));
+        IsComplete = isComplete;
+    }
+
+    public int ArgumentIndex { get; }
+
+    public ImmutableArray<int> SourceCallOffsets { get; }
+
+    public bool IsComplete { get; }
+
+    public bool Equals(CallArgumentSource? other)
+        => other is not null
+            && ArgumentIndex == other.ArgumentIndex
+            && IsComplete == other.IsComplete
+            && ImmutableArrayValueEquality.SequenceEqual(
+                SourceCallOffsets,
+                other.SourceCallOffsets);
+
+    public override bool Equals(object? obj)
+        => obj is CallArgumentSource other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ArgumentIndex);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            SourceCallOffsets);
+        hash.Add(IsComplete);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Equality-stable collection of <see cref="CallArgumentSource"/> values.
+/// </summary>
+public sealed class CallArgumentSources :
+    IReadOnlyList<CallArgumentSource>,
+    IEquatable<CallArgumentSources>
+{
+    readonly ImmutableArray<CallArgumentSource> _sources;
+
+    public static CallArgumentSources Empty { get; } = new([]);
+
+    public CallArgumentSources(
+        ImmutableArray<CallArgumentSource> sources)
+    {
+        _sources = ImmutableArrayValueEquality.RequireInitialized(
+            sources,
+            nameof(sources));
+    }
+
+    public int Count => _sources.Length;
+
+    public CallArgumentSource this[int index] => _sources[index];
+
+    public IEnumerator<CallArgumentSource> GetEnumerator()
+        => ((IEnumerable<CallArgumentSource>)_sources).GetEnumerator();
+
+    System.Collections.IEnumerator
+        System.Collections.IEnumerable.GetEnumerator()
+        => GetEnumerator();
+
+    public bool Equals(CallArgumentSources? other)
+        => other is not null
+            && ImmutableArrayValueEquality.SequenceEqual(
+                _sources,
+                other._sources);
+
+    public override bool Equals(object? obj)
+        => obj is CallArgumentSources other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            _sources);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Conservative provenance for an instance direct-call receiver.
+/// </summary>
+public sealed class CallReceiverSource :
+    IEquatable<CallReceiverSource>
+{
+    public CallReceiverSource(
+        ImmutableArray<int> sourceCallOffsets,
+        bool isComplete)
+    {
+        SourceCallOffsets =
+            ImmutableArrayValueEquality.RequireInitialized(
+                sourceCallOffsets,
+                nameof(sourceCallOffsets));
+        IsComplete = isComplete;
+    }
+
+    public ImmutableArray<int> SourceCallOffsets { get; }
+
+    public bool IsComplete { get; }
+
+    public bool Equals(CallReceiverSource? other)
+        => other is not null
+            && IsComplete == other.IsComplete
+            && ImmutableArrayValueEquality.SequenceEqual(
+                SourceCallOffsets,
+                other.SourceCallOffsets);
+
+    public override bool Equals(object? obj)
+        => obj is CallReceiverSource other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            SourceCallOffsets);
+        hash.Add(IsComplete);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// The terminal consumer of a value returned by a direct call.
+/// </summary>
+public enum MethodResultSinkKind
+{
+    /// <summary>A physical <c>ret</c> instruction.</summary>
+    MethodReturn,
+
+    /// <summary>The single argument supplied to a direct call.</summary>
+    SingleArgumentCall,
+}
+
+/// <summary>
+/// Conservative, physical-body evidence for the direct-call producers of a
+/// method-result sink.
+/// </summary>
+/// <param name="Caller">
+/// Declared method attributed to the body. This can differ from
+/// <paramref name="EvidenceMethod"/> for an async state-machine body.
+/// </param>
+/// <param name="EvidenceMethod">Physical method body containing the sink.</param>
+/// <param name="ILOffset">Physical IL offset of the sink instruction.</param>
+/// <param name="Kind">Whether the sink is a return or a single-argument call.</param>
+/// <param name="SourceCallOffsets">
+/// Physical IL offsets of every directly proven call-result source. Empty is
+/// valid only when <paramref name="IsComplete"/> is false.
+/// </param>
+/// <param name="IsComplete">
+/// Whether every reaching definition and evaluation-stack source of the sink
+/// value was proven to be a direct non-void call result. Unknown, raw, or
+/// merged stack values remain false.
+/// </param>
+public sealed record MethodResultSink(
+    MethodIdentity Caller,
+    MethodIdentity EvidenceMethod,
+    int ILOffset,
+    MethodResultSinkKind Kind,
+    ImmutableArray<int> SourceCallOffsets,
+    bool IsComplete)
+{
+    /// <summary>
+    /// Direct async source method authenticated by Analysis for this physical
+    /// state-machine body. Null when the body is not a proven async
+    /// state-machine execution body.
+    /// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c>
+    /// gates the consumer boundary.
+    /// </summary>
+    public MethodIdentity? AsyncStateMachineSource { get; init; }
+
+    /// <summary>
+    /// The resolved provenance union for the sink value, independent of the
+    /// call-only <see cref="SourceCallOffsets"/>/<see cref="IsComplete"/> pair.
+    /// Null when the body was analyzed without call value flow.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a separate fact: <see cref="IsComplete"/> keeps its existing
+    /// "every source is a direct non-void call result" meaning for current
+    /// consumers, while this union also proves literals, field loads, arguments,
+    /// and <c>newobj</c> results.
+    /// <c>MethodCallResolvedValueTests.ResolvesResultSinkValues</c> gates it.
+    /// </remarks>
+    public ResolvedValueSet? ResolvedValue { get; init; }
+}
+
+/// <summary>
+/// The complete set of proven producers one non-void method body can return, merged across
+/// every reachable <c>ret</c>.
+/// </summary>
+/// <param name="Caller">
+/// Declared method attributed to the body, which can differ from
+/// <paramref name="EvidenceMethod"/> for a synthesized body.
+/// </param>
+/// <param name="EvidenceMethod">Physical method body containing the returns.</param>
+/// <param name="ReturnOffsets">
+/// Physical IL offsets of every reachable <c>ret</c> this fact covers, ascending.
+/// </param>
+/// <param name="Value">
+/// The union of proven producers across those returns. <see cref="ResolvedValueSet.IsResolved"/>
+/// is true only when every reachable return was attributed; a single unproven return, an
+/// incomplete block graph or evaluation stack, or a body with no reachable value return leaves
+/// it unresolved with no sources.
+/// </param>
+/// <remarks>
+/// <para>
+/// A method that caches a value returns it from two paths that merge at a shared <c>ret</c>,
+/// where the evaluation stack join collapses to <see cref="Instructions.StackValue.NoProducer"/>.
+/// Per-<c>ret</c> resolution therefore cannot see the alternatives at all, and a per-sink answer
+/// cannot say whether some *other* return path exists. This fact answers the whole-body question
+/// instead: "which values can this body hand back?" It is deliberately separate from
+/// <see cref="MethodResultSink"/>, whose <see cref="MethodResultSink.IsComplete"/> keeps its
+/// historical call-only meaning.
+/// </para>
+/// <para>
+/// Alternatives are recovered by walking block predecessors over the interpreter's recorded
+/// per-block exit stacks, and only while the merged slot was untouched by the predecessor, so a
+/// value that entered the stack for any other reason fails closed rather than being attributed to
+/// the wrong producer. Exception-handler entry stacks are injected independently and are never
+/// recovered from protected-block exits.
+/// <c>MethodCallResolvedValueTests.ResolvesReturnAlternativesAcrossControlFlowMerge</c>,
+/// <c>LeavesUnprovenReturnAlternativeUnresolved</c>, and
+/// <c>LeavesExceptionHandlerEntryValueUnresolved</c> gate it.
+/// </para>
+/// </remarks>
+public sealed record MethodReturnFlow(
+    MethodIdentity Caller,
+    MethodIdentity EvidenceMethod,
+    ImmutableArray<int> ReturnOffsets,
+    ResolvedValueSet Value);
+
+/// <summary>
+/// The semantic identity of a field an IL instruction touches.
+/// </summary>
+/// <remarks>
+/// Local field access sites canonicalize a <c>MemberRef</c> alias to the
+/// reader-local <c>FieldDef</c> token. This preserves exact field identity even
+/// when duplicate names or colliding external assembly spellings exist.
+/// Non-local fields retain declaring-type origin and name.
+/// Construction fails closed: an unresolvable declaring type or missing name produces no identity
+/// at all, and a consumer must reject rather than guess.
+/// <c>MethodCallResolvedValueTests.LinksAliasedFieldAccessesByIdentity</c>,
+/// <c>MethodCallResolvedValueTests.LeavesUnresolvableFieldAccessesWithoutIdentity</c>, and
+/// <c>JsExportSurfaceBuilderTests.Build_RejectsAliasedSecondWriteToGeneratedDefaultInstanceField</c>
+/// gate it.
+/// </remarks>
+public sealed class FieldIdentity : IEquatable<FieldIdentity>
+{
+    FieldIdentity(
+        TypeRef declaringType,
+        string name,
+        int localDefinitionToken)
+    {
+        DeclaringType = declaringType;
+        Name = name;
+        LocalDefinitionToken = localDefinitionToken;
+    }
+
+    public TypeRef DeclaringType { get; }
+    public string Name { get; }
+    public int LocalDefinitionToken { get; }
+
+    /// <summary>
+    /// The identity of a resolved field access, or null when the declaring type or name could
+    /// not be resolved.
+    /// </summary>
+    public static FieldIdentity? TryCreate(TypeRef? declaringType, string? name)
+        => declaringType is null
+            || declaringType.Kind == TypeRefKind.Unsupported
+            || string.IsNullOrEmpty(name)
+                ? null
+                : new FieldIdentity(
+                    declaringType,
+                    name,
+                    localDefinitionToken: 0);
+
+    internal static FieldIdentity CreateLocal(
+        TypeRef declaringType,
+        string name,
+        int localDefinitionToken)
+    {
+        if (localDefinitionToken == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(localDefinitionToken));
+        }
+        return new FieldIdentity(
+            declaringType,
+            name,
+            localDefinitionToken);
+    }
+
+    public bool Equals(FieldIdentity? other)
+    {
+        if (other is null || Name != other.Name)
+            return false;
+        if (LocalDefinitionToken != 0
+            || other.LocalDefinitionToken != 0)
+        {
+            return LocalDefinitionToken != 0
+                && LocalDefinitionToken
+                    == other.LocalDefinitionToken;
+        }
+
+        return DeclaringTypeMatches(other);
+    }
+
+    /// <summary>
+    /// True when <paramref name="other"/> could name the same field as this one.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Equals(FieldIdentity)"/> answers "is this provably the same field"; a consumer
+    /// counting writes to a field needs the weaker "might this be the same field", because a
+    /// write it cannot rule out has to fail closed the same way a proven duplicate does. Two
+    /// identities that both canonicalized to a local definition are compared by that definition,
+    /// so distinct local fields sharing a name stay distinct. When either side was never
+    /// canonicalized, the declaring-type spelling and name are all the evidence there is, and
+    /// agreement on both is treated as "might be". A null <paramref name="other"/> is an
+    /// unresolved access, which might be any field at all.
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsUnprovenSecondStaticWriteNamingTheSameField</c>
+    /// and <c>LibraryBodyIndexTests.FieldIdentity_DistinguishesUnprovenForeignFields</c> gate it.
+    /// </remarks>
+    public bool MightBeSameFieldAs(FieldIdentity? other)
+    {
+        if (other is null)
+            return true;
+        if (Name != other.Name)
+            return false;
+        return LocalDefinitionToken != 0 && other.LocalDefinitionToken != 0
+            ? LocalDefinitionToken == other.LocalDefinitionToken
+            : DeclaringTypeMatches(other);
+    }
+
+    bool DeclaringTypeMatches(FieldIdentity other)
+    {
+        ResolvableTypeReference? left = DeclaringType.Resolution;
+        ResolvableTypeReference? right = other.DeclaringType.Resolution;
+        return left is not null || right is not null
+            ? left is not null && left.Equals(right)
+            : DeclaringType.Equals(other.DeclaringType);
+    }
+
+    public override bool Equals(object? obj)
+        => obj is FieldIdentity other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Name);
+        hash.Add(LocalDefinitionToken);
+        if (LocalDefinitionToken != 0)
+            return hash.ToHashCode();
+
+        if (DeclaringType.Resolution is { } resolution)
+            hash.Add(resolution);
+        else
+            hash.Add(DeclaringType);
+        return hash.ToHashCode();
+    }
 }
 
 public sealed record CalledTypeSummary(
