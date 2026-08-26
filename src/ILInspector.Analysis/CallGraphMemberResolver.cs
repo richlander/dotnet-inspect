@@ -360,7 +360,7 @@ public static class CallGraphMemberResolver
         TypeRefKind.SzArray when type.ElementType is { } element =>
             $"{TypeIdentity(element, structural)}[]",
         TypeRefKind.Array when type.ElementType is { } element =>
-            $"{TypeIdentity(element, structural)}[{new string(',', Math.Max(0, type.Rank - 1))}]",
+            $"{TypeIdentity(element, structural)}[{ArrayShapeText.FormatDimensions(type.Rank)}]",
         TypeRefKind.ByRef when type.ElementType is { } element =>
             $"{TypeIdentity(element, structural)}@",
         TypeRefKind.Pointer when type.ElementType is { } element =>
