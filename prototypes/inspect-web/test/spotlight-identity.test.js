@@ -2194,19 +2194,24 @@ test("shared member views retain scope and filter state", () => {
 test("initial workspace packet resolution waits for the engine phase", () => {
   assert.match(
     appSource,
-    /const initialRoute = workspaceLocation\.routeCurrent\(\);\s*const initialLocation = initialRoute\.visible/);
+    /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialRoute\.hasWorkspaceState\)/);
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
   assert.match(
     restore,
-    /const loc = workspaceLocation\.resolve\(initialRoute\);[\s\S]*restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\)/);
-  assert.match(
-    appSource,
-    /await initializeEngine\(reportEngineStatus\);[\s\S]*await restoreInitialWorkspace\(\)/);
+    /const loc = initialWorkspace\.resolve\(\);[\s\S]*restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\)/);
+  const bootstrap = appSource.match(
+    /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
+    ?? "";
+  const initializeAt = bootstrap.indexOf("await initializeEngine(reportEngineStatus);");
+  const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
+  assert.notEqual(initializeAt, -1);
+  assert.notEqual(restoreAt, -1);
+  assert.ok(initializeAt < restoreAt);
 });
 
 test("member entry controls move focus into the resulting member navigation", () => {

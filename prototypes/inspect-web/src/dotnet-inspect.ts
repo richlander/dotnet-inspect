@@ -1144,14 +1144,14 @@ function parseLocation() {
 
 type ParsedLocation = ParsedWorkspaceLocation;
 
-const initialRoute = workspaceLocation.routeCurrent();
-const initialLocation = initialRoute.visible;
+const initialWorkspace = workspaceLocation.preflightCurrent();
+const initialLocation = initialWorkspace.visible;
 // A bare visit (no package, no shared workspace packet) lands on the intro/home page
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !initialRoute.hasWorkspaceState);
+  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
 state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -8559,7 +8559,7 @@ function applyLocationView(loc: ParsedLocation) {
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
-  const loc = workspaceLocation.resolve(initialRoute);
+  const loc = initialWorkspace.resolve();
   if (!loc.package) {
     state.loading = false;
     state.home = true;

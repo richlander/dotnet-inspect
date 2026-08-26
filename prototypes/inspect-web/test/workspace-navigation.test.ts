@@ -337,6 +337,38 @@ test("workspace route resolution skips the decoder without packet state", () => 
   assert.equal(resolved.workspaceNotice, "");
 });
 
+test("location preflight snapshots once and defers decoding", () => {
+  let currentCalls = 0;
+  let decodeCalls = 0;
+  const persistence = createWorkspaceLocationPersistence({
+    current() {
+      currentCalls++;
+      return locationSnapshot(
+        "https://inspect.example/?package=Visible.Package&w=opaque");
+    },
+    replace() {},
+    push() {},
+  });
+
+  const preflight = persistence.preflightCurrent();
+  assert.equal(currentCalls, 1);
+  assert.equal(decodeCalls, 0);
+  assert.equal(preflight.visible.package, "Visible.Package");
+  assert.equal(preflight.hasWorkspaceState, true);
+
+  const resolved = preflight.resolve(value => {
+    decodeCalls++;
+    assert.equal(value, "opaque");
+    return { error: "The product decoder rejected this packet." };
+  });
+
+  assert.equal(currentCalls, 1);
+  assert.equal(decodeCalls, 1);
+  assert.equal(
+    resolved.workspaceNotice,
+    "The product decoder rejected this packet.");
+});
+
 test("graph member URLs retain exact identity instead of a lossy body target", () => {
   const graphTarget = {
     assembly: "Example.Second",

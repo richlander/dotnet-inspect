@@ -677,14 +677,18 @@ export function buildWorkspaceStateUrl(
 
 export interface WorkspaceLocationPersistence {
   parseCurrent(): ParsedWorkspaceLocation;
-  routeCurrent(): WorkspaceLocationRoute;
-  resolve(
-    route: WorkspaceLocationRoute,
-    decode?: WorkspaceShareDecoder,
-  ): ParsedWorkspaceLocation;
+  preflightCurrent(): WorkspaceLocationPreflight;
   build(state: WorkspaceUrlState, base?: string): URL;
   sync(state: WorkspaceUrlState): void;
   push(url: string): void;
+}
+
+export interface WorkspaceLocationPreflight {
+  visible: ParsedWorkspaceLocation;
+  hasWorkspaceState: boolean;
+  resolve(
+    decode?: WorkspaceShareDecoder,
+  ): ParsedWorkspaceLocation;
 }
 
 export interface WorkspaceLocationDependencies {
@@ -704,10 +708,7 @@ export function createWorkspaceLocationPersistence(
     parseCurrent() {
       return parseWorkspaceLocation(dependencies.current());
     },
-    routeCurrent() {
-      return parseWorkspaceRoute(dependencies.current());
-    },
-    resolve,
+    preflightCurrent,
     build,
     sync(state) {
       try {
@@ -725,10 +726,14 @@ export function createWorkspaceLocationPersistence(
     },
   };
 
-  function resolve(
-    route: WorkspaceLocationRoute,
-    decode?: WorkspaceShareDecoder,
-  ) {
-    return resolveWorkspaceRoute(route, decode);
+  function preflightCurrent(): WorkspaceLocationPreflight {
+    const route = parseWorkspaceRoute(dependencies.current());
+    return {
+      visible: route.visible,
+      hasWorkspaceState: route.hasWorkspaceState,
+      resolve(decode?: WorkspaceShareDecoder) {
+        return resolveWorkspaceRoute(route, decode);
+      },
+    };
   }
 }
