@@ -10,9 +10,12 @@
 ## Status
 
 Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
-This is a standalone design. [#4684](https://github.com/richlander/dotnet-inspect/issues/4684)
+This is a standalone design that targets `main`.
+[#4684](https://github.com/richlander/dotnet-inspect/issues/4684)
 decouples classic-async reconstruction from the structured Implementation Diff
-design in [#4560](https://github.com/richlander/dotnet-inspect/pull/4560).
+design in [#4560](https://github.com/richlander/dotnet-inspect/pull/4560) and
+owns the resulting ownership and parallelization plan. This work is related to
+but no longer stacked on #4560.
 Implementing slice 0 depends on the shared Metadata state-machine relationship
 substrate tracked by
 [#4669](https://github.com/richlander/dotnet-inspect/issues/4669), not on
@@ -21,6 +24,12 @@ reconstruction, projection, and honesty. Implementation Diff is an independent
 downstream integration and optional measurement consumer; its participant,
 correspondence, population, work-item, budget, query-lifetime, completion, and
 result currencies never enter ordinary reconstruction.
+
+Reconstruction and Implementation Diff share a lower substrate rather than a
+dependency edge: exact body addressing through Decompiler
+`MetadataBodyProjector` over canonical Metadata resolution, the Metadata
+state-machine relationship index, and the Decompiler stage-result contracts.
+Each consumer sits above that substrate independently.
 
 Not implemented. `ClassicAsyncReconstructionPass` remains the current
 fixture-shaped raise.
@@ -1112,8 +1121,8 @@ the decompiler library and corpus.
 7. **Every declared source-body path consumes the canonical projector.**
    `MemberCodeProvider`, direct Research, Research queries,
    `MemberBodyProducer.ProduceBody`, whole-member/whole-type composition, and
-   Body Shape call `MetadataBodyProjector` after the prerequisite identity
-   owner resolves the request. Classification precedes body status, which
+   Body Shape call `MetadataBodyProjector` after the canonical Metadata
+   address owner resolves the request. Classification precedes body status, which
    precedes import and stage preparation. Address failure,
    `ClassificationFailed`, `Bodyless`, `ImportFailed`, stage failure, and a
    decided body remain distinct. Abstract methods and accessors are not
@@ -1279,7 +1288,7 @@ Decompiler-owned relationship resolver while waiting for them.
 | Disjoint runtime/classic/iterator evidence scan | Metadata, with collapsed `StateMachineAsync` retained only as compatibility inventory |
 | Kickoff/state-machine/support-method relationships and reverse lookup | Metadata `StateMachineRelationshipIndex`, tracked by #4669 |
 | Complete async classification transport | Guarded Metadata classifier to every exact top-level and foreign import |
-| Canonical address/classification/body/import union | Decompiler `MetadataBodyProjector`, consuming prerequisite-resolved requests |
+| Canonical address/classification/body/import union | Decompiler `MetadataBodyProjector`, over shared-substrate Metadata address resolution |
 | `ClassicAsyncMachine`, decision, and application | Decompiler `ClassicAsyncReconstructionPass` |
 | Exact classic companion resolution | Metadata index; Decompiler sibling-import adapter correlates kickoff IR and consumes exact addresses |
 | Slice-0 accepted-raise boundary | Decompiler `LegacyRaiseEligibility`, separate from broader recognition |
