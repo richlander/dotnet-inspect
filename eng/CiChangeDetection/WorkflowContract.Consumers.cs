@@ -159,6 +159,8 @@ internal static partial class WorkflowContract
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run CSharpText tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
+            ["test-windows/Run artifact contract tests"] =
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run decompiler unit tests (fast)"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run NuGetFetch tests (offline)"] =
