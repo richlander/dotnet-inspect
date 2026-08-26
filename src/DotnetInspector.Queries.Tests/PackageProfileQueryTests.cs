@@ -44,7 +44,7 @@ public sealed class PackageProfileQueryTests
         Assert.Equal("Contoso.First", first.PackageId);
         Assert.Equal(["Contoso", "Partner"], first.Owners);
         DeclaredPackageDependency dependency = Assert.Single(
-            Assert.Single(first.DependencyGroups.Groups).Dependencies);
+            Assert.Single(first.Manifest.DependencyGroups).Dependencies);
         Assert.Equal("Third.Party", dependency.Id);
         Assert.Equal("[3.0.0]", dependency.VersionRange);
         Assert.Equal(["contoso.first@1.0.0"], source.ManifestRequests);
@@ -54,9 +54,7 @@ public sealed class PackageProfileQueryTests
         PackageProfileMatch second = Assert.IsType<PackageProfileEvent.Match>(
             events.Current).Value;
         Assert.Equal("Contoso.Second", second.PackageId);
-        Assert.Equal(
-            PackageDependencyGroupSelectionStatus.NoDependencyGroups,
-            second.DependencyGroups.SelectionStatus);
+        Assert.Empty(second.Manifest.DependencyGroups);
         Assert.Equal(
             ["contoso.first@1.0.0", "contoso.second@2.0.0"],
             source.ManifestRequests);
@@ -241,6 +239,35 @@ public sealed class PackageProfileQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RejectsEnumeratedSearchOverReturnBeforeManifestFetch()
+    {
+        var matches = new MisreportingReadOnlyList<PackageSearchMatch>(
+            [
+                Match("Contoso.First", "1.0.0"),
+                Match("Contoso.Second", "2.0.0"),
+            ],
+            reportedCount: 1);
+        var source = new FakePackageSource(
+            matches,
+            new Dictionary<string, byte[]>());
+
+        List<PackageProfileEvent> events = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest(
+                    "Contoso.",
+                    MaximumPackages: 1),
+                TestContext.Current.CancellationToken));
+
+        PackageProfileFailure failure =
+            Assert.IsType<PackageProfileEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageProfileFailureKind.SearchContract,
+            failure.Kind);
+        Assert.Empty(source.ManifestRequests);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_RejectsInconsistentSearchCoordinateBeforeManifestFetch()
     {
         var source = new FakePackageSource(
@@ -344,6 +371,22 @@ public sealed class PackageProfileQueryTests
         await foreach (PackageProfileEvent item in source)
             events.Add(item);
         return events;
+    }
+
+    private sealed class MisreportingReadOnlyList<T>(
+        T[] items,
+        int reportedCount)
+        : IReadOnlyList<T>
+    {
+        public int Count => reportedCount;
+        public T this[int index] => items[index];
+
+        public IEnumerator<T> GetEnumerator() =>
+            ((IEnumerable<T>)items).GetEnumerator();
+
+        System.Collections.IEnumerator
+            System.Collections.IEnumerable.GetEnumerator() =>
+            items.GetEnumerator();
     }
 
     private sealed class FakePackageSource(

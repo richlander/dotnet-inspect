@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
-using DotnetInspector.Services;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
@@ -19,12 +18,11 @@ public sealed record PackagePrefixProfileRequest(
 public sealed record PackageProfileMatch(
     string PackageId,
     string Version,
-    string? Authors,
     ImmutableArray<string> Owners,
     long TotalDownloads,
     bool Verified,
     PackageSourceIdentity Producer,
-    PackageDependencyGroups DependencyGroups);
+    PackageManifestFacts Manifest);
 
 /// <summary>The stage at which one package-profile item failed.</summary>
 public enum PackageProfileFailureKind
@@ -134,7 +132,13 @@ public static class PackageProfileQuery
         PackageSearchResult searchResult =
             ((PackageSourceOperationResult<PackageSearchResult>.Succeeded)search)
             .Value;
-        if (searchResult.Matches.Count > request.MaximumPackages)
+        PackageSearchMatch[] searchMatches =
+        [
+            .. searchResult.Matches.Take(request.MaximumPackages + 1),
+        ];
+        if (searchResult.Matches.Count > request.MaximumPackages
+            || searchMatches.Length > request.MaximumPackages
+            || searchMatches.Length != searchResult.Matches.Count)
         {
             yield return new PackageProfileEvent.Failure(
                 new PackageProfileFailure(
@@ -157,7 +161,7 @@ public static class PackageProfileQuery
         int candidates = 0;
         int matches = 0;
         int failures = 0;
-        foreach (PackageSearchMatch candidate in searchResult.Matches)
+        foreach (PackageSearchMatch candidate in searchMatches)
         {
             cancellationToken.ThrowIfCancellationRequested();
             candidates++;
@@ -240,58 +244,36 @@ public static class PackageProfileQuery
                 continue;
             }
 
-            if (manifest.Content.Length
-                > PackageDependencyGroupsQuery.MaxManifestBytes)
+            PackageManifestFactsResult manifestFacts =
+                PackageManifestFactsQuery.Execute(
+                    manifest.Content,
+                    coordinate);
+            if (manifestFacts is PackageManifestFactsResult.Failed
+                manifestFailureResult)
             {
                 failures++;
                 yield return Failure(
                     candidate,
                     PackageProfileFailureKind.InvalidManifest,
-                    "The package manifest exceeded the package-profile byte limit.");
+                    manifestFailureResult.Error.Message);
                 continue;
             }
 
-            PackageProfileEvent projected;
-            try
-            {
-                NuspecData nuspec = PackageManifestProjection.ParseAndValidate(
-                    manifest.Content,
+            matches++;
+            yield return new PackageProfileEvent.Match(
+                new PackageProfileMatch(
                     candidate.Metadata.Id,
-                    candidate.Metadata.Version);
-                PackageDependencyGroups dependencyGroups =
-                    PackageManifestProjection.ProjectDependencyGroups(
-                        nuspec,
-                        requestedTargetFramework: null);
-                projected = new PackageProfileEvent.Match(
-                    new PackageProfileMatch(
-                        candidate.Metadata.Id,
-                        candidate.Metadata.Version,
-                        nuspec.Authors,
-                        [
-                            .. (candidate.Metadata.Owners ?? [])
-                                .Where(owner =>
-                                    !string.IsNullOrWhiteSpace(owner)),
-                        ],
-                        candidate.Metadata.TotalDownloads,
-                        candidate.Metadata.Verified,
-                        candidate.Candidate.Producer,
-                        dependencyGroups));
-            }
-            catch (Exception exception) when (
-                exception is InvalidDataException
-                    or NuspecParseException)
-            {
-                projected = Failure(
-                    candidate,
-                    PackageProfileFailureKind.InvalidManifest,
-                    exception.Message);
-            }
-
-            if (projected is PackageProfileEvent.Match)
-                matches++;
-            else
-                failures++;
-            yield return projected;
+                    candidate.Metadata.Version,
+                    [
+                        .. (candidate.Metadata.Owners ?? [])
+                            .Where(owner =>
+                                !string.IsNullOrWhiteSpace(owner)),
+                    ],
+                    candidate.Metadata.TotalDownloads,
+                    candidate.Metadata.Verified,
+                    candidate.Candidate.Producer,
+                    ((PackageManifestFactsResult.Available)manifestFacts)
+                        .Value));
         }
 
         yield return new PackageProfileEvent.Completed(

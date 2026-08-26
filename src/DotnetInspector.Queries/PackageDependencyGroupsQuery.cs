@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
@@ -21,7 +22,8 @@ public sealed record DeclaredPackageDependency(
 /// <summary>One target-framework dependency group exactly as declared in a package manifest.</summary>
 public sealed record DeclaredPackageDependencyGroup(
     string TargetFramework,
-    ImmutableArray<DeclaredPackageDependency> Dependencies);
+    ImmutableArray<DeclaredPackageDependency> Dependencies,
+    bool IsImplicitManifestGroup = false);
 
 /// <summary>A package manifest's dependency groups and exact-framework selection outcome.</summary>
 public sealed record PackageDependencyGroups(
@@ -147,9 +149,6 @@ public abstract record PackageDependencyGroupsResult
 /// </remarks>
 public static class PackageDependencyGroupsQuery
 {
-    internal const int MaxManifestBytes = 1024 * 1024;
-    internal const int MaxManifestCharacters = 512 * 1024;
-
     public static InspectionQuery<PackageDependencyGroupsResult> Definition { get; } =
         new("Package dependency groups", InspectionCost.NetworkFree);
 
@@ -172,7 +171,7 @@ public static class PackageDependencyGroupsQuery
 
             if (!content.TryOpenEntry(
                     manifestPath,
-                    MaxManifestBytes,
+                    PackageManifestFactsQuery.MaxManifestBytes,
                     out Stream? manifestStream))
             {
                 return new PackageDependencyGroupsResult.Failed(
@@ -185,19 +184,28 @@ public static class PackageDependencyGroupsQuery
             {
                 manifestBytes = await BoundedContentReader.ReadAllBytesAsync(
                         manifestStream,
-                        MaxManifestBytes,
+                        PackageManifestFactsQuery.MaxManifestBytes,
                         cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
             }
+
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(
+                    packageId,
+                    packageVersion);
+            PackageManifestFactsResult facts =
+                PackageManifestFactsQuery.Execute(
+                    manifestBytes,
+                    coordinate);
+            if (facts is PackageManifestFactsResult.Failed failed)
+                return new PackageDependencyGroupsResult.Failed(failed.Error);
 
             string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
                 ? null
                 : requestedTargetFramework;
             return new PackageDependencyGroupsResult.Available(
-                PackageManifestProjection.ParseDependencyGroups(
-                    manifestBytes,
-                    packageId,
-                    packageVersion,
+                ProjectDependencyGroups(
+                    ((PackageManifestFactsResult.Available)facts).Value,
                     requested));
         }
         catch (Exception ex) when (
@@ -252,79 +260,29 @@ public static class PackageDependencyGroupsQuery
         };
     }
 
-    internal static bool VersionsEqual(
-        string? declaredVersion,
-        string requestedVersion)
-        => NuGetVersion.TryParse(declaredVersion, out NuGetVersion? declared)
-            && NuGetVersion.TryParse(
-                requestedVersion,
-                out NuGetVersion? requested)
-            && declared.ToNormalizedString().Equals(
-                requested.ToNormalizedString(),
-                StringComparison.OrdinalIgnoreCase);
-}
-
-internal static class PackageManifestProjection
-{
-    public static PackageDependencyGroups ParseDependencyGroups(
-        ReadOnlyMemory<byte> manifestBytes,
-        string packageId,
-        string packageVersion,
+    internal static PackageDependencyGroups ProjectDependencyGroups(
+        PackageManifestFacts facts,
         string? requestedTargetFramework)
     {
-        NuspecData nuspec = ParseAndValidate(
-            manifestBytes,
-            packageId,
-            packageVersion);
-        return ProjectDependencyGroups(nuspec, requestedTargetFramework);
-    }
-
-    public static NuspecData ParseAndValidate(
-        ReadOnlyMemory<byte> manifestBytes,
-        string packageId,
-        string packageVersion)
-    {
-        using var buffer = new MemoryStream(
-            manifestBytes.ToArray(),
-            writable: false);
-        NuspecData nuspec = NuspecParser.Parse(
-            buffer,
-            PackageDependencyGroupsQuery.MaxManifestCharacters);
-
-        if (string.IsNullOrWhiteSpace(nuspec.PackageName)
-            || !nuspec.PackageName.Equals(
-                packageId,
-                StringComparison.OrdinalIgnoreCase)
-            || !PackageDependencyGroupsQuery.VersionsEqual(
-                nuspec.Version,
-                packageVersion))
-        {
-            throw new InvalidDataException(
-                "The package manifest identity does not match the requested package.");
-        }
-
-        foreach (DependencyGroup group in nuspec.DependencyGroups ?? [])
-        {
-            foreach (PackageDependency dependency in group.Dependencies)
-            {
-                if (!PackageCoordinateResolver.IsCanonicalPackageId(dependency.Id))
+        List<DependencyGroup> mutableGroups =
+        [
+            .. facts.DependencyGroups.Select(group =>
+                new DependencyGroup
                 {
-                    throw new InvalidDataException(
-                        "The package manifest contains an invalid dependency id.");
-                }
-
-                PackageDependencyVersionRange.Validate(dependency.Version);
-            }
-        }
-
-        return nuspec;
-    }
-
-    public static PackageDependencyGroups ProjectDependencyGroups(
-        NuspecData nuspec,
-        string? requestedTargetFramework)
-    {
-        List<DependencyGroup>? mutableGroups = nuspec.DependencyGroups;
+                    TargetFramework = group.TargetFramework,
+                    IsImplicitManifestGroup =
+                        group.IsImplicitManifestGroup,
+                    Dependencies =
+                    [
+                        .. group.Dependencies.Select(dependency =>
+                            new PackageDependency
+                            {
+                                Id = dependency.Id,
+                                Version = dependency.VersionRange,
+                            }),
+                    ],
+                }),
+        ];
         DependencyResolutionService.DependencyGroupSelection selection =
             DependencyResolutionService.SelectDependencyGroup(
                 mutableGroups,
@@ -340,20 +298,7 @@ internal static class PackageManifestProjection
         }
 
         return new PackageDependencyGroups(
-            mutableGroups is null
-                ? []
-                :
-                [
-                    .. mutableGroups.Select(group =>
-                        new DeclaredPackageDependencyGroup(
-                            group.TargetFramework,
-                            [
-                                .. group.Dependencies.Select(dependency =>
-                                    new DeclaredPackageDependency(
-                                        dependency.Id,
-                                        dependency.Version)),
-                            ])),
-                ],
+            facts.DependencyGroups,
             requestedTargetFramework,
             selection.Group?.TargetFramework,
             selectedGroupIndex,

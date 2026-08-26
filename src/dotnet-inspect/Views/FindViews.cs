@@ -112,9 +112,9 @@ public record FindMemberRow(
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),
     FieldLayout = FieldLayout.Table)]
-public sealed class PackageProfileFindView
+public sealed class PackageProfileView
 {
-    public PackageProfileFindView(
+    public PackageProfileView(
         InertString title,
         InertString prefix,
         InertString? description = null)
@@ -140,13 +140,13 @@ public sealed class PackageProfileFindView
     public bool Truncated { get; init; }
 
     [MarkoutSection(Name = "Packages")]
-    public List<PackageProfileFindRow>? Results { get; init; }
+    public List<PackageProfileRow>? Results { get; init; }
 }
 
 [MarkoutSerializable]
-public sealed class PackageProfileFindRow
+public sealed class PackageProfileRow
 {
-    public PackageProfileFindRow(
+    public PackageProfileRow(
         string package,
         string dependency,
         string version,
@@ -211,8 +211,8 @@ public sealed class PackageProfileFindRow
 [MarkoutContext(typeof(FindRow))]
 [MarkoutContext(typeof(FindMembersResultView))]
 [MarkoutContext(typeof(FindMemberRow))]
-[MarkoutContext(typeof(PackageProfileFindView))]
-[MarkoutContext(typeof(PackageProfileFindRow))]
+[MarkoutContext(typeof(PackageProfileView))]
+[MarkoutContext(typeof(PackageProfileRow))]
 [MarkoutContext(typeof(ImplementsResultView))]
 [MarkoutContext(typeof(ImplementerRow))]
 [MarkoutContext(typeof(ExtensionsResultView))]

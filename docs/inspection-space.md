@@ -52,9 +52,14 @@ Patternless `find --package-prefix` is a package-space query rather than an
 assembly workspace query. It streams bounded typed match, failure, and
 completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors
-and declared dependency groups. The query does not acquire package archives or
-assemblies, and hosts may present each match incrementally before any later
-package drill-in.
+and declared dependency groups. A network-free `PackageManifestFactsQuery`
+validates each bounded manifest and projects one immutable fact model that both
+package-profile and package-content dependency queries consume. The
+query-bound `Packages` section owns package/dependency row expansion, schema,
+projection, and visible failure or truncation rows; the CLI owns acquisition
+authorization and format selection. The profile does not acquire package
+archives or assemblies, and hosts may present each L1 match incrementally
+before any later package drill-in.
 
 The Integration graph now accepts finite explicit-subject induced-set requests
 over one realized context group. Workspace scope still decides which

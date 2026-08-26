@@ -1,18 +1,37 @@
 using System.Globalization;
+using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Views;
 using InertText;
+using Markout;
 using NuGetFetch;
 
-namespace DotnetInspector.Output;
+namespace DotnetInspector.Sections;
 
-public static class PackageProfileFindOutputFormatter
+/// <summary>
+/// Sections and row projection for a package-prefix profile.
+/// </summary>
+public static class PackageProfileSections
 {
-    public static PackageProfileFindView BuildView(
+    public const string Packages = "Packages";
+
+    public static SectionPipeline<PackageProfileView> CreatePipeline() =>
+        new SectionPipeline<PackageProfileView>()
+            .UseCuratedCatalog()
+            .UseQueryCosts(static query => query.Cost)
+            .WithoutComputedPoles()
+            .Add<PackageRows>(PackageProfileQuery.Definition);
+
+    public static DocumentSchema CreateSchema() =>
+        SearchViewContext.Default
+            .GetSchemaInfo<PackageProfileView>()!
+            .ToDocumentSchema();
+
+    public static PackageProfileView CreateDocument(
         string prefix,
         IReadOnlyList<PackageProfileEvent> events)
     {
-        var rows = new List<PackageProfileFindRow>();
+        var rows = new List<PackageProfileRow>();
         PackageProfileSummary? summary = null;
         foreach (PackageProfileEvent profileEvent in events)
         {
@@ -32,7 +51,7 @@ public static class PackageProfileFindOutputFormatter
 
         if (summary?.Truncated == true)
         {
-            rows.Add(new PackageProfileFindRow(
+            rows.Add(new PackageProfileRow(
                 package: "",
                 dependency: "",
                 version: "",
@@ -47,7 +66,7 @@ public static class PackageProfileFindOutputFormatter
                 error: TruncationMessage(summary)));
         }
 
-        return new PackageProfileFindView(
+        return new PackageProfileView(
             new InertString(TextPolicy.Prose, $"Find packages: {prefix}"),
             new InertString(TextPolicy.Prose, prefix),
             rows.Count == 0
@@ -64,25 +83,37 @@ public static class PackageProfileFindOutputFormatter
     }
 
     public static int CountRows(
-        PackageProfileFindView view,
+        PackageProfileView view,
         RowWindow? rows) =>
         RowWindow.Apply(
             rows,
-            (IReadOnlyList<PackageProfileFindRow>?)view.Results
+            (IReadOnlyList<PackageProfileRow>?)view.Results
                 ?? []).Count;
 
+    public sealed class PackageRows : ISectionDescriptor<PackageProfileView>
+    {
+        public static string Name => Packages;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static string? ScannerKey => null;
+        public static bool CanRender(PackageProfileView model) =>
+            model.Results is { Count: > 0 };
+    }
+
     private static void AddMatchRows(
-        List<PackageProfileFindRow> rows,
+        List<PackageProfileRow> rows,
         PackageProfileMatch match)
     {
-        if (match.DependencyGroups.Groups.IsEmpty)
+        if (match.Manifest.DependencyGroups.IsEmpty)
         {
             rows.Add(MatchRow(match, targetFramework: "", dependency: null));
             return;
         }
 
         foreach (DeclaredPackageDependencyGroup group
-            in match.DependencyGroups.Groups)
+            in match.Manifest.DependencyGroups)
         {
             if (group.Dependencies.IsEmpty)
             {
@@ -104,7 +135,7 @@ public static class PackageProfileFindOutputFormatter
         }
     }
 
-    private static PackageProfileFindRow MatchRow(
+    private static PackageProfileRow MatchRow(
         PackageProfileMatch match,
         string targetFramework,
         DeclaredPackageDependency? dependency) =>
@@ -115,14 +146,14 @@ public static class PackageProfileFindOutputFormatter
             string.Join(", ", match.Owners),
             targetFramework,
             dependency?.VersionRange ?? "",
-            match.Authors ?? "",
+            match.Manifest.Authors ?? "",
             match.Verified ? "yes" : "no",
             match.TotalDownloads.ToString(CultureInfo.InvariantCulture),
             match.Producer.Value,
             "matched",
             "");
 
-    private static PackageProfileFindRow FailureRow(
+    private static PackageProfileRow FailureRow(
         PackageProfileFailure failure) =>
         new(
             failure.PackageId ?? "",
@@ -151,5 +182,4 @@ public static class PackageProfileFindOutputFormatter
             _ => throw new InvalidOperationException(
                 "A truncation row requires a truncation reason."),
         };
-
 }

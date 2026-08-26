@@ -4,6 +4,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using Markout;
 using NuGetFetch;
@@ -28,24 +29,25 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                var schema = options.IsPackageProfile
-                    ? new DocumentSchema()
-                        .Add(
-                            "Packages",
-                            "column",
-                            "Package",
-                            "Dependency",
-                            "Version",
-                            "Owners",
-                            "TFM",
-                            "Dependency Version",
-                            "Authors",
-                            "Verified",
-                            "Downloads",
-                            "Source",
-                            "Status",
-                            "Error")
-                    : options.Members
+                if (options.IsPackageProfile)
+                {
+                    SectionPipeline<PackageProfileView> pipeline =
+                        PackageProfileSections.CreatePipeline();
+                    return DiscoverOutput.Execute(
+                        options.Discover,
+                        PackageProfileSections.CreateSchema(),
+                        tree: options.Tree,
+                        json: options.JsonOutput,
+                        tsv: options.Tsv,
+                        jsonl: options.Jsonl,
+                        sectionCostAnnotations:
+                            pipeline.GetCostAnnotations(),
+                        sectionCategories:
+                            pipeline.GetCategoryMap(),
+                        projection: options);
+                }
+
+                var schema = options.Members
                     ? new DocumentSchema()
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
                     : new DocumentSchema()
@@ -203,7 +205,7 @@ public class FindCommand
             .OfType<PackageProfileEvent.Completed>()
             .Single()
             .Value;
-        var view = PackageProfileFindOutputFormatter.BuildView(
+        var view = PackageProfileSections.CreateDocument(
             request.Prefix,
             events);
         WritePackageProfileOutput(view, options);
@@ -231,13 +233,20 @@ public class FindCommand
     }
 
     internal static void WritePackageProfileOutput(
-        PackageProfileFindView view,
+        PackageProfileView view,
         FindOptions options)
     {
+        SectionPipeline<PackageProfileView> pipeline =
+            PackageProfileSections.CreatePipeline();
+        HashSet<string> includeSections =
+            pipeline.GetCandidateSections(
+                Verbosity.Normal,
+                [PackageProfileSections.Packages]);
+
         if (options.Count)
         {
             CountOutput.WriteCount(
-                PackageProfileFindOutputFormatter.CountRows(
+                PackageProfileSections.CountRows(
                     view,
                     options.Rows));
         }
@@ -248,12 +257,15 @@ public class FindCommand
                 options.Columns,
                 options.Fields,
                 (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = includeSections;
                     MarkoutSerializer.Serialize(
                         view,
                         writer,
                         formatter,
                         SearchViewContext.Default,
-                        writerOptions),
+                        writerOptions);
+                },
                 !options.CompactJson,
                 options.Rows);
         }
@@ -267,12 +279,15 @@ public class FindCommand
                 options.Columns,
                 options.Fields,
                 (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = includeSections;
                     MarkoutSerializer.Serialize(
                         view,
                         writer,
                         formatter,
                         SearchViewContext.Default,
-                        writerOptions),
+                        writerOptions);
+                },
                 options.Rows);
         }
         else
@@ -280,10 +295,14 @@ public class FindCommand
             OutputFormatter.WriteWindowedMarkdown(
                 Console.Out,
                 options.Rows,
-                writerOptions => MarkoutSerializer.Serialize(
-                    view,
-                    SearchViewContext.Default,
-                    writerOptions),
+                writerOptions =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    return MarkoutSerializer.Serialize(
+                        view,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
                 options.Columns,
                 options.Fields);
         }

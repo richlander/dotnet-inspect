@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Commands;
@@ -6,6 +7,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using InertText;
 using Markout;
@@ -257,21 +259,30 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void PackageProfileFormatter_ProjectsDependencyAsSecondColumnAcrossFormats()
+    public void PackageProfileSection_BindsProfileQueryAndProjectsDependencySecond()
     {
-        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+        SectionPipeline<PackageProfileView> pipeline =
+            PackageProfileSections.CreatePipeline();
+        (string Name, InspectionQueryDefinition Query) binding =
+            Assert.Single(pipeline.QueryBoundSections);
+        Assert.Equal(PackageProfileSections.Packages, binding.Name);
+        Assert.Same(PackageProfileQuery.Definition, binding.Query);
+
+        PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
             [
                 new PackageProfileEvent.Match(
                     new PackageProfileMatch(
                         "Contoso.Package",
                         "1.2.3",
-                        "Contoso",
                         ["Contoso"],
                         42,
                         true,
                         PackageSourceIdentity.NuGetOrg,
-                        new PackageDependencyGroups(
+                        ManifestFacts(
+                            "Contoso.Package",
+                            "1.2.3",
+                            "Contoso",
                             [
                                 new DeclaredPackageDependencyGroup(
                                     "net8.0",
@@ -280,12 +291,7 @@ public class FindCommandTests
                                             "Third.Party",
                                             "[2.0.0, 3.0.0)"),
                                     ]),
-                            ],
-                            RequestedTargetFramework: null,
-                            SelectedTargetFramework: null,
-                            SelectedGroupIndex: null,
-                            PackageDependencyGroupSelectionStatus
-                                .NoMatchingTargetFramework))),
+                            ]))),
                 new PackageProfileEvent.Completed(
                     new PackageProfileSummary(
                         "Contoso.",
@@ -343,9 +349,9 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void PackageProfileFormatter_KeepsFailuresAndTruncationVisible()
+    public void PackageProfileSection_KeepsFailuresAndTruncationVisible()
     {
-        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+        PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
             [
                 new PackageProfileEvent.Failure(
@@ -377,12 +383,12 @@ public class FindCommandTests
             view.Results[1].Source);
         Assert.Equal(
             2,
-            PackageProfileFindOutputFormatter.CountRows(
+            PackageProfileSections.CountRows(
                 view,
                 rows: null));
         Assert.Equal(
             1,
-            PackageProfileFindOutputFormatter.CountRows(
+            PackageProfileSections.CountRows(
                 view,
                 RowWindow.Head(1)));
     }
@@ -423,29 +429,26 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void PackageProfileFormatter_ContainsHostileCellsAcrossFormats()
+    public void PackageProfileSection_ContainsHostileCellsAcrossFormats()
     {
         const string hostileOwner = "Own\u202E\nINJECTEDOWNER";
         const string hostileAuthor = "Auth\tINJECTEDAUTHOR";
-        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+        PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
             [
                 new PackageProfileEvent.Match(
                     new PackageProfileMatch(
                         "Contoso.Package",
                         "1.0.0",
-                        hostileAuthor,
                         [hostileOwner],
                         0,
                         false,
                         PackageSourceIdentity.NuGetOrg,
-                        new PackageDependencyGroups(
-                            [],
-                            RequestedTargetFramework: null,
-                            SelectedTargetFramework: null,
-                            SelectedGroupIndex: null,
-                            PackageDependencyGroupSelectionStatus
-                                .NoDependencyGroups))),
+                        ManifestFacts(
+                            "Contoso.Package",
+                            "1.0.0",
+                            hostileAuthor,
+                            []))),
                 new PackageProfileEvent.Completed(
                     new PackageProfileSummary(
                         "Contoso.",
@@ -500,6 +503,26 @@ public class FindCommandTests
         }
     }
 
+    private static PackageManifestFacts ManifestFacts(
+        string packageId,
+        string version,
+        string? authors,
+        DeclaredPackageDependencyGroup[] dependencyGroups) =>
+        new(
+            PackageSourceCoordinate.Create(packageId, version),
+            ManifestVersion: "nuspec",
+            Description: null,
+            authors,
+            Repository: null,
+            RepositoryType: null,
+            RepositoryCommit: null,
+            License: null,
+            LicenseUrl: null,
+            PackageTypes: [],
+            IsToolPackage: false,
+            ReadmeFile: null,
+            dependencyGroups.ToImmutableArray());
+
     private static string RenderFindTable(
         FindResultView view,
         bool tsv,
@@ -521,7 +544,7 @@ public class FindCommandTests
                     jsonl)));
 
     private static string RenderPackageProfileTable(
-        PackageProfileFindView view,
+        PackageProfileView view,
         bool tsv,
         bool showHeader,
         bool jsonl = false) =>
@@ -606,6 +629,30 @@ public class FindCommandIntegrationTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("-t")]
+    [InlineData("--type")]
+    public void PackageProfileSeparatedNegativeLimit_RemainsProfileInput(
+        string option)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Azure",
+                option,
+                "-5",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "-t must be between 1 and 10000 for a package-prefix profile",
+            error);
+        Assert.DoesNotContain("Attempted:", error);
+    }
+
     [Fact]
     public void PackageProfileExplicitEmptyPrefix_UsesProfileDiagnostic()
     {
@@ -623,19 +670,21 @@ public class FindCommandIntegrationTests
     [Fact]
     public async Task PackageProfileMarkdown_HonorsColumnProjection()
     {
-        PackageProfileFindView view = PackageProfileFindOutputFormatter.BuildView(
+        PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
             [
                 new PackageProfileEvent.Match(
                     new PackageProfileMatch(
                         "Contoso.Package",
                         "1.0.0",
-                        "Contoso",
                         ["Contoso"],
                         42,
                         true,
                         PackageSourceIdentity.NuGetOrg,
-                        new PackageDependencyGroups(
+                        ManifestFacts(
+                            "Contoso.Package",
+                            "1.0.0",
+                            "Contoso",
                             [
                                 new DeclaredPackageDependencyGroup(
                                     "net8.0",
@@ -644,12 +693,7 @@ public class FindCommandIntegrationTests
                                             "Third.Party",
                                             "2.0.0"),
                                     ]),
-                            ],
-                            RequestedTargetFramework: null,
-                            SelectedTargetFramework: null,
-                            SelectedGroupIndex: null,
-                            PackageDependencyGroupSelectionStatus
-                                .NoMatchingTargetFramework))),
+                            ]))),
             ]);
         var options = new FindOptions
         {
@@ -668,6 +712,26 @@ public class FindCommandIntegrationTests
         Assert.Contains("| Package | Dependency |", output);
         Assert.DoesNotContain("| Version |", output);
     }
+
+    private static PackageManifestFacts ManifestFacts(
+        string packageId,
+        string version,
+        string? authors,
+        DeclaredPackageDependencyGroup[] dependencyGroups) =>
+        new(
+            PackageSourceCoordinate.Create(packageId, version),
+            ManifestVersion: "nuspec",
+            Description: null,
+            authors,
+            Repository: null,
+            RepositoryType: null,
+            RepositoryCommit: null,
+            License: null,
+            LicenseUrl: null,
+            PackageTypes: [],
+            IsToolPackage: false,
+            ReadmeFile: null,
+            dependencyGroups.ToImmutableArray());
 
     private static (int Exit, string Output, string Error) RunCli(
         string[] args)

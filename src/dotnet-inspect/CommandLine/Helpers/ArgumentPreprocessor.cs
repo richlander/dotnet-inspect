@@ -143,6 +143,7 @@ public static class ArgumentPreprocessor
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
+                && !IsFollowingOptionValue(args, i)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
             {
                 HeadLines = headN;
@@ -214,6 +215,17 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    private static bool IsFollowingOptionValue(string[] args, int index)
+    {
+        if (index == 0)
+            return false;
+
+        string precedingToken = args[index - 1];
+        string optionName = precedingToken.Split('=', 2)[0];
+        return !precedingToken.Contains('=', StringComparison.Ordinal)
+            && OptionsWithFollowingValue.Contains(optionName);
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
