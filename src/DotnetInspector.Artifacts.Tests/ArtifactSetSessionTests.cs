@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 using DotnetInspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Artifacts.Tests;
@@ -100,6 +102,25 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactSetSession_DisposalReleasesOwnerHeldState()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        (
+            ArtifactSetSession session,
+            WeakReference<object> provenanceMarker) =
+            await CreateDisposedSessionWithTrackedProvenance(
+                cancellationToken);
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        Assert.False(provenanceMarker.TryGetTarget(out _));
+        GC.KeepAlive(session);
+    }
+
+    [Fact]
     public async Task ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease()
     {
         CancellationToken cancellationToken =
@@ -177,6 +198,44 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactSetSession_DisposalDuringSealCannotPublish()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("gated"),
+                    () => new GatedReadStream(
+                        [1],
+                        entered,
+                        release));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        Task<ArtifactSetPublicationOutcome> publication =
+            session.SealAsync(cancellationToken).AsTask();
+        await entered.Task.WaitAsync(cancellationToken);
+        await session.DisposeAsync();
+        release.SetResult();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await publication);
+        Assert.Throws<ObjectDisposedException>(
+            session.CreateQueryAuthorization);
+    }
+
+    [Fact]
     public async Task ArtifactSetSession_SealedGenerationCannotMutate()
     {
         CancellationToken cancellationToken =
@@ -242,6 +301,40 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactSetSession_SourceObjectDisposalIsMaterializationFailure()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("disposed-source"),
+                    () => throw new ObjectDisposedException(
+                        "source stream"));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        var rejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await session.SealAsync(cancellationToken));
+
+        ArtifactSetAdmissionFailure failure =
+            Assert.Single(rejected.Failures);
+        Assert.Equal(
+            ArtifactSetAdmissionFailureKind.Failed,
+            failure.Kind);
+        Assert.Equal(
+            "artifact.session.materialization-failed",
+            failure.Diagnostic.Code);
+    }
+
+    [Fact]
     public async Task ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails()
     {
         CancellationToken cancellationToken =
@@ -275,6 +368,32 @@ public sealed class ArtifactSetSessionTests
         Assert.Equal("source.missing", failure.Diagnostic.Code);
         Assert.IsType<IOException>(
             Assert.Single(rejected.CleanupFailures));
+
+        var disposalSession = new ArtifactSetSession();
+        await disposalSession.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("dispose"),
+                [1],
+                new ThrowingLease()),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await disposalSession.SealAsync(cancellationToken));
+
+        InvalidDataException primary =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                async () =>
+                {
+                    await using (disposalSession)
+                    {
+                        throw new InvalidDataException(
+                            "primary failure");
+                    }
+                });
+
+        Assert.Equal("primary failure", primary.Message);
+        Assert.IsType<IOException>(
+            Assert.Single(disposalSession.CleanupFailures));
     }
 
     [Fact]
@@ -427,7 +546,37 @@ public sealed class ArtifactSetSessionTests
         return destination.ToArray();
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<(
+        ArtifactSetSession Session,
+        WeakReference<object> ProvenanceMarker)>
+        CreateDisposedSessionWithTrackedProvenance(
+            CancellationToken cancellationToken)
+    {
+        var session = new ArtifactSetSession();
+        WeakReference<object>? markerReference = null;
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                var marker = new object();
+                markerReference = new WeakReference<object>(marker);
+                return Acquired(
+                    scope,
+                    new TrackedProvenance(marker),
+                    [1],
+                    ArtifactAcquisitionLeases.None);
+            },
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        await session.DisposeAsync();
+        return (session, markerReference!);
+    }
+
     private sealed record Provenance(string Source) :
+        IArtifactProvenance;
+
+    private sealed record TrackedProvenance(object Marker) :
         IArtifactProvenance;
 
     private sealed record Diagnostic(
@@ -453,5 +602,23 @@ public sealed class ArtifactSetSessionTests
         public ValueTask DisposeAsync() =>
             ValueTask.FromException(
                 new IOException("cleanup failed"));
+    }
+
+    private sealed class GatedReadStream(
+        byte[] content,
+        TaskCompletionSource entered,
+        TaskCompletionSource release) :
+        MemoryStream(content, writable: false)
+    {
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return await base.ReadAsync(
+                buffer,
+                cancellationToken);
+        }
     }
 }

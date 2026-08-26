@@ -799,8 +799,9 @@ materialization.
 The target is complete only when tests equivalent to these exist:
 
 - `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
+- `ArtifactWorkspaceClosure_ExcludesMetadataPackagesAndStorageImplementations`
+- `LocalArtifactAdapterClosure_ExcludesMetadataPackagesAndStorageImplementations`
 - `PackagesClosure_ExcludesMetadata`
-- `AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations`
 - `LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations`
 - `MetadataClosure_ExcludesPackageAndStorageImplementations`
 - `CoreAssemblyQueries_ExcludePackageImplementations`
@@ -824,8 +825,10 @@ The target is complete only when tests equivalent to these exist:
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `LeaseScopedPath_IsNotADesignationGrant`
 - `ArtifactSetSession_DisposesEveryContributingLease`
+- `ArtifactSetSession_DisposalReleasesOwnerHeldState`
 - `ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease`
 - `ArtifactSetSession_SealRejectsAcquisitionInProgress`
+- `ArtifactSetSession_DisposalDuringSealCannotPublish`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
 - `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
@@ -854,7 +857,7 @@ The target is complete only when tests equivalent to these exist:
 - `CrossProviderCiArtifacts_CompareAcrossSealedAuthorizedContexts`
 - `BrowserWorkspace_ComposesSequentiallyWithoutFilesystemOrThreads`
 
-The first nine are structural edge/closure gates derived from the actual project
+The first ten are structural edge/closure gates derived from the actual project
 graph, not a hand-maintained allow list. The remainder are behavior and lifetime
 gates. The local-only query gate covers metadata and authored-source query
 families so a metadata-only success cannot hide package-owned source
@@ -864,21 +867,16 @@ site inventory and asserts coverage equality, so adding or reshaping an entry
 point cannot escape the migration. The browser gate runs the same composition
 sequentially without threads, blocking waits, or a filesystem.
 
-`AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations` and
-`MetadataClosure_ExcludesPackageAndStorageImplementations` are enforced by
-`LayeringTests` from Release-evaluated project references and each closure
-project's resolved Release assets graph. They witness the required package-free
-local-only variant; they do not claim that every configuration-specific
-full-host graph is package-free. The remaining gates are migration targets and
-remain unverified.
-
 `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`,
 `ArtifactWorkspaceClosure_ExcludesMetadataPackagesAndStorageImplementations`,
 `LocalArtifactAdapterClosure_ExcludesMetadataPackagesAndStorageImplementations`,
 and
 `LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations` are
 enforced from the Release project and resolved-assets graphs by
-`LayeringTests`. `ArtifactContractTests` enforce generation-scoped identity,
+`LayeringTests`. They witness the required package-free local-only variant; they
+do not claim that every configuration-specific full-host graph is package-free.
+The remaining gates are migration targets and remain unverified.
+`ArtifactContractTests` enforce generation-scoped identity,
 closed acquisition outcome arms, catalog descriptors without an unguarded
 content route, admission expiry, atomic query-authorization replacement,
 revocation of new opens without invalidating an already-issued stream, and
@@ -887,8 +885,9 @@ one retained snapshot for every minted registration.
 `ArtifactSetSessionTests` enforce multi-source contribution, sealed-generation
 immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
-late-outcome lease disposal, seal exclusion during acquisition, query revocation,
-and role assignment separate from provenance.
+owner-held state release, late-outcome lease disposal, seal exclusion during
+acquisition and disposal, query revocation, non-masking disposal, and role
+assignment separate from provenance.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`

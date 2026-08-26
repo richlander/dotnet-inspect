@@ -88,7 +88,10 @@ public abstract class ArtifactSetPublicationOutcome
 /// interleaving is gated by
 /// <c>ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease</c>, while
 /// seal exclusion is gated by
-/// <c>ArtifactSetSession_SealRejectsAcquisitionInProgress</c>.
+/// <c>ArtifactSetSession_SealRejectsAcquisitionInProgress</c> and
+/// <c>ArtifactSetSession_DisposalDuringSealCannotPublish</c>. Owner-held
+/// content release is gated by
+/// <c>ArtifactSetSession_DisposalReleasesOwnerHeldState</c>.
 /// </remarks>
 public sealed class ArtifactSetSession : IAsyncDisposable
 {
@@ -103,6 +106,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         new(ReferenceEqualityComparer.Instance);
     private IReadOnlyList<ArtifactDescriptor>? _catalog;
     private Dictionary<ArtifactIdentity, PublishedArtifact>? _artifacts;
+    private IReadOnlyList<Exception> _cleanupFailures = [];
     private SessionState _state;
     private bool _acquisitionInProgress;
 
@@ -115,6 +119,24 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     }
 
     public ArtifactGenerationIdentity Generation => _authority.Generation;
+
+    /// <summary>
+    /// Gets cleanup failures observed while ending this session.
+    /// </summary>
+    /// <remarks>
+    /// Disposal does not throw cleanup failures because doing so can replace a
+    /// primary exception from an <c>await using</c> body. The failures remain
+    /// visible here. This behavior is gated by
+    /// <c>ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails</c>.
+    /// </remarks>
+    public IReadOnlyList<Exception> CleanupFailures
+    {
+        get
+        {
+            lock (_gate)
+                return _cleanupFailures;
+        }
+    }
 
     public async ValueTask AddRequiredAcquisitionAsync(
         Func<
@@ -344,16 +366,25 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 new ReadOnlyCollection<ArtifactDescriptor>(
                     descriptors);
 
-            _authority.CompleteAdmission(_admission);
             lock (_gate)
             {
+                ObjectDisposedException.ThrowIf(
+                    _state == SessionState.Disposed,
+                    this);
+                if (_state != SessionState.Sealing)
+                {
+                    throw new InvalidOperationException(
+                        "Artifact publication requires an active sealing operation.");
+                }
+
+                _authority.CompleteAdmission(_admission);
                 _artifacts = published;
                 _catalog = catalog;
+                _acquired.Clear();
+                _failures.Clear();
                 _state = SessionState.Published;
             }
 
-            _acquired.Clear();
-            _failures.Clear();
             return new ArtifactSetPublicationOutcome.Published();
         }
         catch (OperationCanceledException ex)
@@ -367,6 +398,10 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                     cleanupFailures;
             }
 
+            throw;
+        }
+        catch (ObjectDisposedException) when (IsDisposed())
+        {
             throw;
         }
         catch (ArtifactMaterializationLimitException)
@@ -487,27 +522,20 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         return retained.OpenRead(lease);
     }
 
+    /// <summary>
+    /// Ends this generation and releases its owner-held content and acquisition
+    /// leases.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        lock (_gate)
-        {
-            if (_state == SessionState.Disposed)
-                return;
-            _state = SessionState.Disposed;
-        }
+        if (!TryBeginDisposal())
+            return;
 
         _authority.EndGeneration();
         _admissionLease.Dispose();
         IReadOnlyList<Exception> failures =
             await DisposeLeasesAsync().ConfigureAwait(false);
-        if (failures.Count == 1)
-            throw failures[0];
-        if (failures.Count > 1)
-        {
-            throw new AggregateException(
-                "Multiple artifact acquisition leases failed to dispose.",
-                failures);
-        }
+        RecordCleanupFailures(failures);
     }
 
     private async ValueTask<byte[]> MaterializeAsync(
@@ -557,16 +585,45 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
     private async ValueTask<IReadOnlyList<Exception>> AbortAsync()
     {
-        lock (_gate)
-        {
-            if (_state == SessionState.Disposed)
-                return [];
-            _state = SessionState.Disposed;
-        }
+        if (!TryBeginDisposal())
+            return CleanupFailures;
 
         _authority.EndGeneration();
         _admissionLease.Dispose();
-        return await DisposeLeasesAsync().ConfigureAwait(false);
+        IReadOnlyList<Exception> failures =
+            await DisposeLeasesAsync().ConfigureAwait(false);
+        RecordCleanupFailures(failures);
+        return failures;
+    }
+
+    private bool TryBeginDisposal()
+    {
+        lock (_gate)
+        {
+            if (_state == SessionState.Disposed)
+                return false;
+
+            _state = SessionState.Disposed;
+            _catalog = null;
+            _artifacts = null;
+            _acquired.Clear();
+            _failures.Clear();
+            return true;
+        }
+    }
+
+    private void RecordCleanupFailures(
+        IReadOnlyList<Exception> failures)
+    {
+        if (failures.Count == 0)
+            return;
+
+        lock (_gate)
+        {
+            _cleanupFailures =
+                new ReadOnlyCollection<Exception>(
+                    [.. _cleanupFailures, .. failures]);
+        }
     }
 
     private async ValueTask<IReadOnlyList<Exception>>
@@ -621,6 +678,12 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             throw new InvalidOperationException(
                 "Artifact content is available only after the session is published.");
         }
+    }
+
+    private bool IsDisposed()
+    {
+        lock (_gate)
+            return _state == SessionState.Disposed;
     }
 
     private static ArtifactWorkspaceRole[] SnapshotRoles(
