@@ -17,20 +17,20 @@ carried forward.
 
 The rule is enforced by the compiler, not by a convention.
 `engine/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
-`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, and the group's image and
-retained-descriptor accessors in this project, and `Directory.Build.targets`
-already escalates `RS0030` to an error for every project.
+`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
+factories, and the group's image and retained-descriptor accessors in this
+project, and `Directory.Build.targets` already escalates `RS0030` to an error
+for every project.
 `BrowserEngineLayeringTests` in `engine.Tests` pins that wiring and
 resolves every complete banned documentation id, including generic arity and
 parameter types — a renamed or malformed entry bans nothing and fails the gate.
-It also bans opening a retained descriptor or invoking `AssemblyReader` in the
-host; descriptors may carry typed identity into a product query, but their image
-content remains query-owned.
-The narrow `acquisition` project decodes a healthy entry's real metadata identity;
-the engine receives only that typed identity and cannot open a raw reader.
-A selected malformed entry receives a path-derived identity only as a rejection
-carrier, so the workspace returns its typed failure instead of silently
-shortening the selected assembly set.
+It also bans opening a retained descriptor, minting one, or invoking
+`AssemblyReader` in the host; descriptors may carry typed identity into a
+product query, but package selection, identity decoding, descriptor creation,
+and image content remain product-owned. A selected malformed entry receives an
+artifact-neutral, role-unique identity only as a rejection carrier, so the
+workspace returns its typed failure instead of silently shortening the
+selected assembly set.
 
 ## How a workspace is opened
 
@@ -45,20 +45,19 @@ shortening the selected assembly set.
    source, transport, and archive policy. The Gallery payload carries its
    advertised length into the Browser reservation policy before body
    materialization.
-   `PackageCompileAssetSelector` adds reference-group semantics around the
-   implementation universe selected by `PackageAssetSelector`. The narrow
-   Browser acquisition adapter decodes each healthy entry's real metadata
-   identity and creates one
-   `ResolvedAssemblyReference` per selected compile asset and, when the roles
-   differ, per matching implementation asset. Malformed selected entries remain
-   participants so queries report their rejection. Acquisition never inspects
-   one.
-   `InspectionWorkspace.CreatePackageAssemblyContextRoles` then owns the
-   coordinated surface and implementation binding snapshots, equivalent-
-   identity rejection, group construction, reference-only surfaces, and exact
-   surface-to-implementation participant correspondence. Browser retains the
-   selected package/asset provenance used by source and navigation operations,
-   but does not implement assembly binding or group composition.
+   `PackageAssemblyContextSelection` applies
+   `PackageCompileAssetSelector`'s reference-group semantics around the
+   implementation universe selected by `PackageAssetSelector`.
+   `InspectionWorkspace.RealizePackageAssemblyContextRoles` decodes each
+   healthy entry's real metadata identity, mints the descriptors, retains
+   malformed/native/module entries as rejection carriers, applies the
+   Browser-supplied admission policy, and creates the coordinated surface and
+   implementation roles. It owns equivalent-identity rejection,
+   reference-only surfaces, exact asset/participant associations, and exact
+   surface-to-implementation correspondence. Browser retains transport,
+   cache/deadline/lifetime policy, the 64 MB and 256-assembly limit values, and
+   its coordinate/asset provenance adapter; it does not select package assets,
+   decode identities, mint descriptors, or compose groups.
    The Browser adapter places one 30-second operation deadline around coordinate
    resolution and payload acquisition. The deadline token flows through the
    shared resolver, retry, response-body, archive-validation, and store paths;
@@ -116,8 +115,9 @@ A scope carries a 64 MB aggregate retained-image budget. Two distinct
 compile/implementation groups receive 32 MB each; a shared or reference-only
 single group receives the full 64 MB. Before decoding any identity, the host
 rejects a role whose declared expanded assembly total exceeds its group budget
-or whose selected set exceeds 256 assemblies. This keeps acquisition itself
-inside the same bound rather than relying on the later retained-snapshot check.
+or whose selected set exceeds 256 assemblies. Product realization enforces
+those Browser-supplied values, keeping identity decoding itself inside the same
+bound rather than relying on the later retained-snapshot check.
 Failures after the role passes that preflight remain typed participant outcomes
 beside healthy results.
 
@@ -216,14 +216,13 @@ assemblies that receive a .NET platform lookup on click.
 
 | File | Owns |
 | --- | --- |
-| `acquisition/BrowserAssemblyIdentityDecoder.cs` | the isolated raw metadata read needed to mint an exact participant identity |
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, descriptor minting, and the bounded workspace registry |
+| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, and the bounded workspace registry |
 | `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
-| `engine/BrowserInspectionScope.cs` | package/asset provenance over product-owned surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
+| `engine/BrowserInspectionScope.cs` | Browser coordinate/asset provenance over product-realized surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
@@ -636,6 +635,11 @@ either preserve sequencing or surface unexpected rejection visibly. The exact
 `node:test` `test` call is the only configured safe promise-returning call
 because the test runner owns and observes that returned promise.
 
+Closed workspace scopes, type and package lenses, member sections, and
+Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
+tokens are decoded before they reach typed state or actions; the scope-bar and
+workspace-navigation tests gate rejection of unknown values.
+
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
@@ -678,6 +682,35 @@ at their use sites, with malformed decoded coordinates ignored and missing
 decoded assembly descriptors reported through the existing visible failure
 paths. Close-negative tests cover those boundaries rather than relying on
 non-null assertions.
+
+The scope, lens, and member-section vocabularies are closed union types derived
+from the catalogs that render them. `data.ts` and `spotlight.ts` own those
+catalogs; narrower typed subsets such as the platform library picker may repeat
+only the values that surface exposes, with assignment back to catalog-derived
+state checked by TypeScript. Values arriving from `dataset` attributes, URL
+query parameters, hashes, and share packets are admitted through `isTypeLens`,
+`isPackageLens`, `isMemberSection`, `isWorkspaceScope`, and `availableScope`;
+an unrecognized value is rejected at that boundary rather than cast into typed
+state.
+
+Because those catalogs also render the choices a user can pick, adding an entry
+widens the union *and* immediately offers the new value. Every dispatch named by
+the exhaustiveness gate therefore ends in `assertNever`, so adding a catalog
+entry fails compilation until each such dispatch says what the new value does.
+The gate derives its vocabulary roster from every exported type alias in
+`data.ts` and `spotlight.ts` that queries a catalog; it is not tied to one
+formatting or indexing shape.
+
+Nothing at runtime can observe that property — an unhandled value would simply
+take whichever branch the consumer fell through to — so the gate is the compiler, and
+`widening a UI vocabulary catalog fails compilation until every consumer handles it`
+in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
+in a throwaway copy of the real TypeScript source graph and asserts `tsc`
+reports the expected `assertNever` location in every named dispatch, with no
+unrelated diagnostic. Deleting any one exhaustive dispatch turns it red.
+`packageLensBody` is exhaustive too: an unwired package lens used to render a
+placeholder that was indistinguishable from an empty lens, but now fails
+compilation until its behavior is explicit.
 
 ## Test
 
@@ -740,12 +773,17 @@ state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
-navigation generation, share-packet encoding and decoding, URL parsing and
+navigation generation, share-packet encoding and decoding, URL routing and
 building, the browser-history port, and the single delegated click listener
 that intercepts same-origin in-app anchor clicks
 (`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
 `target`-scoped link, `download` link, or cross-origin href keeps native
-browser behavior. `dotnet-inspect.ts` remains the sole mutable
+browser behavior. Initial routing records the opaque `w=` value without decoding
+it, which preserves the bare-home paint before WebAssembly while allowing shared
+workspace resolution to run only after the engine is ready.
+`test/workspace-navigation.test.ts` gates that the route preflight cannot decode
+the packet and that later resolution invokes exactly one decoder.
+`dotnet-inspect.ts` remains the sole mutable
 application-state owner: it supplies typed snapshots and explicit transition
 callbacks, calls the one link-navigation binder instead of adding its own
 click listener, and registers application-level gestures and context

@@ -174,12 +174,18 @@ test("isProductHomeDemoId uses the installed engine catalog", () => {
     { id: "stj-serialize-callgraph", title: "Serialize call graph", summary: "Dense package-local STJ graph" },
     { id: "config-bind-callgraph", title: "Configuration Bind", summary: "Recursive binder call graph" },
     { id: "options-add-callgraph", title: "Options hub", summary: "Inbound fan-in at AddOptions" },
+    { id: "di-tryadd-callgraph", title: "DI TryAdd hub", summary: "Keyed/scoped Try* fan-in" },
+    { id: "http-addhttpclient-callgraph", title: "AddHttpClient", summary: "HttpClient factory registration" },
+    { id: "stj-getdecimal-callgraph", title: "JsonElement.GetDecimal", summary: "STJ number parse path" },
   ]);
   assert.equal(isProductHomeDemoId("stj-serializer"), true);
   assert.equal(isProductHomeDemoId("extensions-callgraph"), true);
   assert.equal(isProductHomeDemoId("stj-serialize-callgraph"), true);
   assert.equal(isProductHomeDemoId("config-bind-callgraph"), true);
   assert.equal(isProductHomeDemoId("options-add-callgraph"), true);
+  assert.equal(isProductHomeDemoId("di-tryadd-callgraph"), true);
+  assert.equal(isProductHomeDemoId("http-addhttpclient-callgraph"), true);
+  assert.equal(isProductHomeDemoId("stj-getdecimal-callgraph"), true);
   assert.equal(isProductHomeDemoId("platform-list"), false);
   assert.equal(isProductHomeDemoId("stj"), false);
   assert.equal(isProductHomeDemoId("runtime"), false);

@@ -9,6 +9,14 @@ namespace InspectWeb.Engine;
 /// <see cref="Accessibility"/> comes from the product's own
 /// <c>ApiAccessibilityBucket</c> values; the host restates none of them.
 /// </summary>
+/// <param name="InspectionErrors">
+/// The whole entries rendered into <paramref name="InspectionError"/>. The browser uses these
+/// product-owned boundaries when cumulative platform loads deduplicate notices. This transport
+/// pairing is gated by
+/// <c>BrowserEngineBoundaryTests.QueryPackage_FirstTransportTruncationReturnsTypedNotice</c>;
+/// browser accumulation is gated by <c>platform inspection notices survive cumulative surface
+/// loads</c>.
+/// </param>
 /// <param name="InspectionError">
 /// The participants the workspace could not project, if any. A partial surface says so rather
 /// than reading as a complete one.
@@ -24,6 +32,7 @@ public sealed record BrowserPackageSurface(
     BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents,
+    string[] InspectionErrors,
     string? InspectionError);
 
 /// <summary>

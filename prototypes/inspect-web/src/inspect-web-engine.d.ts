@@ -335,6 +335,7 @@ export interface BrowserPackageSurface {
   accessibility: BrowserAccessibilityDescriptor[];
   totalMembers: number;
   documents: BrowserPackageDocument[];
+  inspectionErrors: string[];
   inspectionError: string | null;
 }
 
