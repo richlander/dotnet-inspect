@@ -210,7 +210,7 @@ for (const [name, project] of [
 // report itself, and excluding this file would leave a hole in the one test that closes
 // the per-file vector. Assembling keeps this file in scope and the scan exactly as
 // strict, which is why the prose above names the directives only in the abstract.
-test("no source file suppresses type checking", () => {
+function checkedSourceFiles(extensions: readonly string[]): string[] {
   const root = new URL("../", import.meta.url);
   const files: string[] = [];
   for (const directory of ["src", "test"]) {
@@ -218,11 +218,18 @@ test("no source file suppresses type checking", () => {
       recursive: true,
       withFileTypes: true,
     })) {
-      if (entry.isFile() && entry.name.endsWith(".ts")) {
+      if (entry.isFile()
+          && extensions.some(extension => entry.name.endsWith(extension))) {
         files.push(join(entry.parentPath, entry.name));
       }
     }
   }
+  return files;
+}
+
+test("no source file suppresses type checking", () => {
+  const root = new URL("../", import.meta.url);
+  const files = checkedSourceFiles([".ts"]);
 
   assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
   const suppressionPattern = new RegExp(
@@ -239,6 +246,23 @@ test("no source file suppresses type checking", () => {
     suppressed.map(file => file.slice(fileURLToPath(root).length)),
     [],
     "these files opt out of type checking; use a narrowing guard or @ts-expect-error");
+});
+
+// The third way out of type checking is to not write TypeScript at all. The oxlint config
+// turns the `no-unsafe-*` family off for `**/*.js`, which is right for the build script,
+// the generated engine wrapper, and the Vite config, but would silently exempt a new
+// JavaScript file dropped into the application or its tests. Both directories are now
+// wholly TypeScript, so the cheapest way to keep the exemption scoped to the files that
+// need it is to assert that neither directory has any JavaScript to exempt.
+test("the application and its tests are wholly TypeScript", () => {
+  const root = new URL("../", import.meta.url);
+  const unchecked = checkedSourceFiles([".js", ".jsx", ".mjs", ".cjs"]);
+
+  assert.deepEqual(
+    unchecked.map(file => file.slice(fileURLToPath(root).length)),
+    [],
+    "src and test are TypeScript-only; the oxlint `**/*.js` override would exempt these "
+      + "files from the no-unsafe rules that the rest of the application is held to");
 });
 
 test("static hosting serves credits links through the application entry point", () => {

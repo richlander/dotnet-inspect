@@ -6,6 +6,21 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parseSync, visitorKeys } from "oxc-parser";
+import type {
+  Argument,
+  ArrowFunctionExpression,
+  CallExpression,
+  Directive,
+  Expression,
+  Function as SyntaxFunction,
+  FunctionBody,
+  ImportDeclaration,
+  Node,
+  ObjectExpression,
+  ObjectProperty,
+  Span,
+  Statement,
+} from "oxc-parser";
 
 import {
   accessibilityFilterIncludingType,
@@ -85,12 +100,19 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.ts";
+import type {
+  CallGraphDiagnostics,
+  CallGraphTarget,
+  GraphMemberShareIdentity,
+  NavigationState,
+  SourceWorkbenchState,
+} from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "../src/graph-mermaid.ts";
 
-const packageAt = (version, framework, types = 1) => ({
+const packageAt = (version: string, framework: string, types = 1) => ({
   id: "Example.Package",
   version,
   activeFramework: framework,
@@ -138,7 +160,7 @@ test("dependency graph keys preserve complete coordinates and declared ranges", 
 });
 
 test("dependency graph node insertion is bounded", () => {
-  const nodes = new Map();
+  const nodes = new Map<string, { index: number }>();
   let truncated = false;
   for (let index = 0; index < 8000; index++) {
     const result = ensureBoundedGraphNode(
@@ -199,84 +221,226 @@ const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.u
 const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
 const appSyntax = parsedAppSource.program;
 
-function walkSyntax(node, visit) {
-  if (!node) return;
+// The helpers below read `dotnet-inspect.ts` as syntax rather than as text, so the tests
+// can assert on structure. `Node` is oxc's discriminated union over every AST shape, so
+// narrowing through `node.type` keeps each helper checked against the real grammar rather
+// than against `any`.
+type SyntaxVisitor = (node: Node) => void;
+
+// `visitorKeys` is a runtime map from a node type to that node's child keys, which is
+// what makes the walk data-driven instead of a switch over a union with hundreds of
+// members. Indexing a node by a key chosen at runtime is the one operation the union
+// cannot express, so the assertion is confined to this helper and every caller below
+// stays narrowed.
+const syntaxChildren = (node: Node): Record<string, unknown> =>
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  node as unknown as Record<string, unknown>;
+
+// The walk only relies on a node carrying a string `type`, which is what `visitorKeys` is
+// keyed by; anything else reached through a child key is skipped rather than trusted.
+function isSyntaxNode(value: unknown): value is Node {
+  return typeof value === "object"
+    && value !== null
+    && "type" in value
+    && typeof value.type === "string";
+}
+
+function walkSyntax(node: Node, visit: SyntaxVisitor): void {
   visit(node);
+  const children = syntaxChildren(node);
   for (const key of visitorKeys[node.type] ?? []) {
-    const child = node[key];
+    const child = children[key];
     if (Array.isArray(child)) {
-      for (const item of child) walkSyntax(item, visit);
-    } else if (child) {
+      for (const item of child as readonly unknown[]) {
+        if (isSyntaxNode(item)) walkSyntax(item, visit);
+      }
+    } else if (isSyntaxNode(child)) {
       walkSyntax(child, visit);
     }
   }
 }
 
-function syntaxNodes(root, predicate) {
-  const matches = [];
+function syntaxNodes(root: Node, predicate: (node: Node) => boolean): Node[] {
+  const matches: Node[] = [];
   walkSyntax(root, node => {
     if (predicate(node)) matches.push(node);
   });
   return matches;
 }
 
-function onlySyntaxNode(nodes, description) {
+function onlySyntaxNode<T>(nodes: readonly T[], description: string): T {
   assert.equal(nodes.length, 1, description);
-  return nodes[0];
+  const only = nodes[0];
+  assert.ok(only !== undefined, description);
+  return only;
 }
 
-function functionDeclaration(name) {
-  return onlySyntaxNode(
+// oxc models every function form with one `Function` interface whose `type` is a union,
+// so a declaration is that interface with the `type` narrowed. These aliases add the two
+// facts the tests below rely on and the union cannot state: a declaration that was found
+// has a body, and a callback property holds an arrow function with a block body.
+type DeclaredFunction = SyntaxFunction & { body: FunctionBody };
+type BlockArrowFunction = ArrowFunctionExpression & { body: FunctionBody };
+
+function hasFunctionBody(declaration: SyntaxFunction): declaration is DeclaredFunction {
+  return declaration.body !== null && declaration.body !== undefined;
+}
+
+function isBlockArrowFunction(value: Expression): value is BlockArrowFunction {
+  return value.type === "ArrowFunctionExpression"
+    && value.body.type === "BlockStatement";
+}
+
+function functionDeclaration(name: string): DeclaredFunction {
+  const declaration = onlySyntaxNode(
     appSyntax.body.filter(
-      node => node.type === "FunctionDeclaration" && node.id?.name === name),
+      (node): node is SyntaxFunction =>
+        node.type === "FunctionDeclaration" && node.id?.name === name),
     `${name} declaration`);
+  // `assert.fail` returns `never`, so this narrows the declaration rather than merely
+  // reporting; `assert.ok` on a predicate call would assert the boolean, not the value.
+  if (!hasFunctionBody(declaration)) assert.fail(`${name} declaration must have a body`);
+  return declaration;
 }
 
-function callExpressionsNamed(root, name) {
-  return syntaxNodes(
-    root,
-    node => node.type === "CallExpression"
-      && node.callee?.type === "Identifier"
-      && node.callee.name === name);
+function onlyCallExpressionNamed(root: Node, name: string): CallExpression {
+  return onlySyntaxNode(callExpressionsNamed(root, name), `${name} call`);
 }
 
-function sourceText(node) {
+function callArgument(
+  call: CallExpression,
+  index: number,
+  description: string,
+): Argument {
+  const argument = call.arguments[index];
+  assert.ok(argument !== undefined, `${description} argument ${index}`);
+  return argument;
+}
+
+function objectArgument(
+  call: CallExpression,
+  index: number,
+  description: string,
+): ObjectExpression {
+  const argument = callArgument(call, index, description);
+  assert.ok(
+    argument.type === "ObjectExpression",
+    `${description} argument ${index} must be an object literal, `
+      + `found ${argument.type}`);
+  return argument;
+}
+
+function statementAt(
+  statements: readonly (Statement | Directive)[],
+  index: number,
+  description: string,
+): Statement | Directive {
+  const statement = statements[index];
+  assert.ok(statement !== undefined, `${description} statement ${index}`);
+  return statement;
+}
+
+// Several tests pin that a binder is handed a specific identifier, such as `document`.
+function assertIdentifierArgument(
+  call: CallExpression,
+  index: number,
+  name: string,
+  description: string,
+): void {
+  const argument = callArgument(call, index, description);
+  assert.ok(
+    argument.type === "Identifier",
+    `${description} argument ${index} must be an identifier, `
+      + `found ${argument.type}`);
+  assert.equal(argument.name, name);
+}
+
+function callExpressionsNamed(root: Node, name: string): CallExpression[] {
+  const matches: CallExpression[] = [];
+  walkSyntax(root, node => {
+    if (node.type === "CallExpression"
+      && node.callee.type === "Identifier"
+      && node.callee.name === name) {
+      matches.push(node);
+    }
+  });
+  return matches;
+}
+
+// Every AST node extends `Span`, so this accepts the span rather than the node union and
+// works for expressions, statements and arguments alike.
+function sourceText(node: Span): string {
   return appSource.slice(node.start, node.end).replace(/\s+/g, " ");
 }
 
-function callbackProperty(actions, name) {
-  const property = onlySyntaxNode(
+function namedProperty(actions: ObjectExpression, name: string): ObjectProperty {
+  return onlySyntaxNode(
     actions.properties.filter(
-      item => item.type === "Property"
+      (item): item is ObjectProperty =>
+        item.type === "Property"
         && item.key.type === "Identifier"
         && item.key.name === name),
-    `${name} callback`);
-  assert.equal(property.value.type, "ArrowFunctionExpression");
-  assert.equal(property.value.body.type, "BlockStatement");
-  return property.value;
+    `${name} property`);
 }
 
-function directCallExpression(statement, name) {
+function callbackProperty(actions: ObjectExpression, name: string): BlockArrowFunction {
+  const value = namedProperty(actions, name).value;
+  if (!isBlockArrowFunction(value)) {
+    assert.fail(
+      `${name} callback must be an arrow function with a block body, `
+        + `found ${value.type}`);
+  }
+  return value;
+}
+
+function directCallExpression(
+  statement: Statement | Directive,
+  name: string,
+): CallExpression | null {
   if (statement.type !== "ExpressionStatement") return null;
   const expression = statement.expression;
   return expression.type === "CallExpression"
-    && expression.callee?.type === "Identifier"
+    && expression.callee.type === "Identifier"
     && expression.callee.name === name
     ? expression
     : null;
 }
 
-function statementSignatures(statements) {
-  return statements.map(statementSignature);
+// The name of a statement's direct call, or `null` when the statement is not a bare call.
+// Three tests compare the order of binder calls and each carried its own copy of this.
+function directCallName(statement: Statement | Directive): string | null {
+  if (statement.type !== "ExpressionStatement") return null;
+  const expression = statement.expression;
+  return expression.type === "CallExpression"
+    && expression.callee.type === "Identifier"
+    ? expression.callee.name
+    : null;
 }
 
-function branchSignatures(branch) {
+interface IfSignature {
+  readonly if: string;
+  readonly whenTrue: readonly StatementSignature[];
+  readonly whenFalse: readonly StatementSignature[];
+}
+
+// A statement is summarised either as a single line of text or, for a branch, as the
+// condition plus the summaries of each arm, so the tests can compare control flow without
+// depending on formatting.
+type StatementSignature = string | IfSignature;
+
+function statementSignatures(
+  statements: readonly (Statement | Directive)[],
+): StatementSignature[] {
+  return statements.map(statement => statementSignature(statement));
+}
+
+function branchSignatures(branch: Statement): StatementSignature[] {
   return branch.type === "BlockStatement"
     ? statementSignatures(branch.body)
     : [statementSignature(branch)];
 }
 
-function statementSignature(statement) {
+function statementSignature(statement: Statement | Directive): StatementSignature {
   if (statement.type === "ExpressionStatement") {
     const expression = statement.expression;
     if (expression.type === "AssignmentExpression") {
@@ -297,7 +461,7 @@ function statementSignature(statement) {
   if (statement.type === "VariableDeclaration"
       && statement.declarations.length === 1) {
     const declaration = statement.declarations[0];
-    if (declaration.id.type === "Identifier" && declaration.init) {
+    if (declaration && declaration.id.type === "Identifier" && declaration.init) {
       return `declare:${statement.kind} ${declaration.id.name} = ${sourceText(declaration.init)}`;
     }
   }
@@ -305,7 +469,12 @@ function statementSignature(statement) {
 }
 
 const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
-const productionTypeScriptSources = readdirSync(sourceRoot, { recursive: true })
+// `readdirSync` without an encoding is typed as returning buffers as well as strings, so
+// the encoding is explicit here to keep the entries `string`.
+const productionTypeScriptSources = readdirSync(sourceRoot, {
+  recursive: true,
+  encoding: "utf8",
+})
   .filter(path => path.endsWith(".ts"))
   .map(path => ({
     path,
@@ -447,7 +616,6 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     platformPackFromAcquiredProvenance(
       "Microsoft.AspNetCore.Http",
       null,
-      [],
       []),
     null);
   const acquiredRuntime = {
@@ -809,7 +977,7 @@ test("typed package view owns package navigation bindings", () => {
   const dependencyPatch =
     appSource.match(/function patchDependenciesGroup\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
-  const actionSource = name =>
+  const actionSource = (name: string) =>
     binding.match(
       new RegExp(`  ${name}: [\\s\\S]*?(?=\\n  on[A-Z])`))?.[0]
       ?? "";
@@ -1217,7 +1385,7 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     binding,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
-  const callbackSource = name =>
+  const callbackSource = (name: string) =>
     binding.match(
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
       ?? "";
@@ -1225,7 +1393,7 @@ test("typed type panel owns its rendered control bindings", () => {
     ["onMemberCompositionAccessibilitySelect", "memberAccessibilityFilter"],
     ["onMemberCompositionKindSelect", "memberKindFilter"],
     ["onMemberCompositionTraitSelect", "memberTraitFilter"],
-  ]) {
+  ] as const) {
     const source = callbackSource(name);
     assert.match(
       source,
@@ -1262,7 +1430,7 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     binding,
     /bindTypePanel\(document, \{[\s\S]*}, keybindings\);/);
-  const selectorCount = selector =>
+  const selectorCount = (selector: string) =>
     appSource.split(selector).length - 1;
   assert.deepEqual(
     Object.fromEntries([
@@ -1293,38 +1461,28 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(parsedAppSource.errors, []);
   const rootEventBinder = functionDeclaration("bindEvents");
   const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
-  const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
-  const innerScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBar");
-  assert.equal(rootScopeCalls.length, 1);
-  assert.equal(rootScopeCalls[0].arguments.length, 0);
-  assert.equal(innerScopeCalls.length, 1);
-  const innerScopeCall = innerScopeCalls[0];
+  const rootScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBarEvents");
+  assert.equal(rootScopeCall.arguments.length, 0);
+  const innerScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBar");
   assert.equal(innerScopeCall.arguments.length, 2);
-  assert.equal(innerScopeCall.arguments[0].type, "Identifier");
-  assert.equal(innerScopeCall.arguments[0].name, "document");
-  assert.equal(innerScopeCall.arguments[1].type, "ObjectExpression");
+  assertIdentifierArgument(innerScopeCall, 0, "document", "bindScopeBar");
   assert.equal(
     callExpressionsNamed(scopeEventBinder, "bindScopeBar").length,
     1);
-  assert.equal(scopeEventBinder.body.body.length, 1);
   assert.equal(
-    directCallExpression(scopeEventBinder.body.body[0], "bindScopeBar"),
+    directCallExpression(
+      onlySyntaxNode(scopeEventBinder.body.body, "bindScopeBarEvents body"),
+      "bindScopeBar"),
     innerScopeCall);
   assert.equal(
     callExpressionsNamed(rootEventBinder, "bindScopeBarEvents").length,
     1);
-  const directCallName = statement =>
-    statement.type === "ExpressionStatement"
-      && statement.expression.type === "CallExpression"
-      && statement.expression.callee?.type === "Identifier"
-      ? statement.expression.callee.name
-      : null;
   const directRootCalls = rootEventBinder.body.body.map(directCallName);
   const typePanelIndex = directRootCalls.indexOf("bindTypePanelEvents");
   assert.notEqual(typePanelIndex, -1);
   assert.equal(directRootCalls[typePanelIndex + 1], "bindScopeBarEvents");
 
-  const actions = innerScopeCall.arguments[1];
+  const actions = objectArgument(innerScopeCall, 1, "bindScopeBar");
   const memberSection = callbackProperty(actions, "onMemberSectionSelect");
   assert.deepEqual(
     statementSignatures(memberSection.body.body),
@@ -1411,11 +1569,12 @@ test("typed settings panel owns its rendered control bindings", () => {
   const settingsEventBinder = functionDeclaration("bindSettingsPanelEvents");
   const settingsPanelImport = onlySyntaxNode(
     appSyntax.body.filter(
-      node => node.type === "ImportDeclaration"
+      (node): node is ImportDeclaration =>
+        node.type === "ImportDeclaration"
         && node.source.value === "./settings-panel.ts"),
     "settings panel import");
   assert.equal(
-    settingsPanelImport.specifiers.filter(
+    (settingsPanelImport.specifiers ?? []).filter(
       specifier => specifier.type === "ImportSpecifier"
         && specifier.imported.type === "Identifier"
         && specifier.imported.name === "bindSettingsPanel"
@@ -1435,11 +1594,16 @@ test("typed settings panel owns its rendered control bindings", () => {
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
     4);
-  for (const [owner, description, predecessor] of [
+  const settingsBinders: readonly (readonly [
+    DeclaredFunction,
+    string,
+    string | null,
+  ])[] = [
     [bindEvents, "workbench settings binder", "bindScopeBarEvents"],
     [bindHomeEvents, "home settings binder", "bindStatusBarEvents"],
     [renderSettings, "settings view binder", null],
-  ]) {
+  ];
+  for (const [owner, description, predecessor] of settingsBinders) {
     assert.equal(
       callExpressionsNamed(owner, "bindSettingsPanelEvents").length,
       1,
@@ -1452,73 +1616,62 @@ test("typed settings panel owns its rendered control bindings", () => {
       1,
       `${description} direct call`);
     if (predecessor) {
-      const directCallNames = owner.body.body.map(statement => {
-        if (statement.type !== "ExpressionStatement") return null;
-        const expression = statement.expression;
-        return expression.type === "CallExpression"
-          && expression.callee?.type === "Identifier"
-          ? expression.callee.name
-          : null;
-      });
+      const directCallNames = owner.body.body.map(directCallName);
       assert.equal(
         directCallNames.indexOf("bindSettingsPanelEvents"),
         directCallNames.indexOf(predecessor) + 1,
         `${description} order`);
     }
   }
-  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
-    if (statement.type !== "ExpressionStatement") return null;
-    const expression = statement.expression;
-    return expression.type === "CallExpression"
-      && expression.callee?.type === "Identifier"
-      ? expression.callee.name
-      : null;
-  });
+  const directWorkbenchCalls = bindEvents.body.body.map(directCallName);
   assert.equal(
     directWorkbenchCalls.indexOf("bindSettingsPanelEvents"),
     directWorkbenchCalls.indexOf("bindScopeBarEvents") + 1);
   assert.equal(renderSettings.body.body.length, 2);
-  const renderStatement = renderSettings.body.body[0];
-  assert.equal(renderStatement.type, "ExpressionStatement");
-  assert.equal(renderStatement.expression.type, "AssignmentExpression");
-  assert.equal(renderStatement.expression.operator, "=");
-  assert.equal(sourceText(renderStatement.expression.left), "app.innerHTML");
-  assert.equal(renderStatement.expression.right.type, "CallExpression");
-  assert.equal(renderStatement.expression.right.callee.type, "Identifier");
-  assert.equal(renderStatement.expression.right.callee.name, "renderSettingsView");
+  const [renderStatement, bindStatement] = renderSettings.body.body;
+  assert.ok(renderStatement !== undefined && bindStatement !== undefined);
   assert.ok(
-    directCallExpression(
-      renderSettings.body.body[1],
-      "bindSettingsPanelEvents"));
+    renderStatement.type === "ExpressionStatement",
+    `settings view must render first, found ${renderStatement.type}`);
+  const renderExpression = renderStatement.expression;
+  assert.ok(
+    renderExpression.type === "AssignmentExpression",
+    `settings view render must be an assignment, found ${renderExpression.type}`);
+  assert.equal(renderExpression.operator, "=");
+  assert.equal(sourceText(renderExpression.left), "app.innerHTML");
+  const renderCall = renderExpression.right;
+  assert.ok(
+    renderCall.type === "CallExpression",
+    `settings view must assign a call, found ${renderCall.type}`);
+  assert.ok(
+    renderCall.callee.type === "Identifier",
+    `settings view call must name a function, found ${renderCall.callee.type}`);
+  assert.equal(renderCall.callee.name, "renderSettingsView");
+  assert.ok(directCallExpression(bindStatement, "bindSettingsPanelEvents"));
 
-  const innerSettingsCalls = callExpressionsNamed(appSyntax, "bindSettingsPanel");
-  assert.equal(innerSettingsCalls.length, 1);
-  const innerSettingsCall = innerSettingsCalls[0];
-  assert.equal(settingsEventBinder.body.body.length, 1);
+  const innerSettingsCall = onlyCallExpressionNamed(appSyntax, "bindSettingsPanel");
   assert.equal(
-    directCallExpression(settingsEventBinder.body.body[0], "bindSettingsPanel"),
+    directCallExpression(
+      onlySyntaxNode(settingsEventBinder.body.body, "bindSettingsPanelEvents body"),
+      "bindSettingsPanel"),
     innerSettingsCall);
   assert.equal(innerSettingsCall.arguments.length, 2);
-  assert.equal(innerSettingsCall.arguments[0].type, "Identifier");
-  assert.equal(innerSettingsCall.arguments[0].name, "document");
-  const actions = innerSettingsCall.arguments[1];
-  assert.equal(actions.type, "ObjectExpression");
+  assertIdentifierArgument(innerSettingsCall, 0, "document", "bindSettingsPanel");
+  const actions = objectArgument(innerSettingsCall, 1, "bindSettingsPanel");
   assert.equal(actions.properties.length, 6);
-  for (const [name, value] of [
+  const settingsActions: readonly (readonly [string, string])[] = [
     ["onClose", "closeSettings"],
     ["onOpen", "openSettings"],
     ["onTasteClear", "clearTaste"],
     ["onTasteToggle", "toggleTaste"],
     ["onThemeSelect", "setTheme"],
-  ]) {
-    const property = onlySyntaxNode(
-      actions.properties.filter(
-        item => item.type === "Property"
-          && item.key.type === "Identifier"
-          && item.key.name === name),
-      `${name} settings action`);
-    assert.equal(property.value.type, "Identifier");
-    assert.equal(property.value.name, value);
+  ];
+  for (const [name, value] of settingsActions) {
+    const target = namedProperty(actions, name).value;
+    assert.ok(
+      target.type === "Identifier",
+      `${name} settings action must be an identifier, found ${target.type}`);
+    assert.equal(target.name, value);
   }
   const tasteOpenToggle = callbackProperty(actions, "onTasteOpenToggle");
   assert.deepEqual(
@@ -1590,10 +1743,11 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
       node => node.type === "Identifier"
         && node.name === "bindMetadataViewerEvents").length,
     3);
-  for (const [owner, description] of [
+  const metadataBinders: readonly (readonly [DeclaredFunction, string])[] = [
     [bindEvents, "workbench metadata binder"],
     [renderMetadata, "metadata explorer binder"],
-  ]) {
+  ];
+  for (const [owner, description] of metadataBinders) {
     assert.equal(
       callExpressionsNamed(owner, "bindMetadataViewerEvents").length,
       1,
@@ -1606,14 +1760,7 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
       1,
       `${description} direct call`);
   }
-  const directWorkbenchCalls = bindEvents.body.body.map(statement => {
-    if (statement.type !== "ExpressionStatement") return null;
-    const expression = statement.expression;
-    return expression.type === "CallExpression"
-      && expression.callee?.type === "Identifier"
-      ? expression.callee.name
-      : null;
-  });
+  const directWorkbenchCalls = bindEvents.body.body.map(directCallName);
   assert.equal(
     directWorkbenchCalls.indexOf("bindMetadataViewerEvents"),
     directWorkbenchCalls.indexOf("bindSettingsPanelEvents") + 1);
@@ -1628,9 +1775,7 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
   assert.notEqual(replacementIndex, -1);
   assert.equal(binderIndex, replacementIndex + 1);
 
-  const innerCalls = callExpressionsNamed(appSyntax, "bindMetadataExplorer");
-  assert.equal(innerCalls.length, 1);
-  const innerCall = innerCalls[0];
+  const innerCall = onlyCallExpressionNamed(appSyntax, "bindMetadataExplorer");
   assert.equal(
     metadataEventBinder.body.body
       .map(statement => directCallExpression(statement, "bindMetadataExplorer"))
@@ -1641,7 +1786,9 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
     statementSignatures(metadataEventBinder.body.body.slice(0, 1)),
     ["declare:const ex = state.explorer"]);
   assert.equal(
-    directCallExpression(metadataEventBinder.body.body[1], "bindMetadataExplorer"),
+    directCallExpression(
+      statementAt(metadataEventBinder.body.body, 1, "bindMetadataExplorerEvents"),
+      "bindMetadataExplorer"),
     innerCall);
   assert.deepEqual(
     statementSignatures(metadataEventBinder.body.body.slice(2, 3)),
@@ -1653,12 +1800,9 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
       },
     ]);
   assert.equal(innerCall.arguments.length, 3);
-  assert.equal(innerCall.arguments[0].type, "Identifier");
-  assert.equal(innerCall.arguments[0].name, "document");
-  assert.equal(innerCall.arguments[1].type, "Identifier");
-  assert.equal(innerCall.arguments[1].name, "ex");
-  const actions = innerCall.arguments[2];
-  assert.equal(actions.type, "ObjectExpression");
+  assertIdentifierArgument(innerCall, 0, "document", "bindMetadataExplorer");
+  assertIdentifierArgument(innerCall, 1, "ex", "bindMetadataExplorer");
+  const actions = objectArgument(innerCall, 2, "bindMetadataExplorer");
   assert.equal(actions.properties.length, 11);
   const rowFocus = callbackProperty(actions, "onRowFocus");
   assert.deepEqual(
@@ -1782,7 +1926,7 @@ test("modal viewers own their rendered close bindings", () => {
     ["bindDocViewerEvents", 2],
     ["bindGraphSource", 2],
     ["bindDocViewer", 2],
-  ]) {
+  ] as const) {
     assert.equal(
       appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
       count,
@@ -1819,7 +1963,7 @@ test("annotated source owns its rendered control bindings", () => {
   for (const [identifier, count] of [
     ["bindAnnotatedSourceEvents", 2],
     ["bindAnnotatedSource", 2],
-  ]) {
+  ] as const) {
     assert.equal(
       appSource.match(new RegExp(`\\b${identifier}\\b`, "g"))?.length,
       count,
@@ -1988,6 +2132,8 @@ test("dependency graph render identity includes truncation and navigation", () =
   assert.notEqual(
     signature,
     dependencyGraphRenderSignature({ ...graph, truncated: true }));
+  const rootNodeInfo = graph.nodeInfoById.get("d0");
+  assert.ok(rootNodeInfo, "the graph fixture must describe node d0");
   assert.notEqual(
     signature,
     dependencyGraphRenderSignature({
@@ -1995,7 +2141,7 @@ test("dependency graph render identity includes truncation and navigation", () =
       nodeInfoById: new Map([[
         "d0",
         {
-          ...graph.nodeInfoById.get("d0"),
+          ...rootNodeInfo,
           packageKey: "Example.Package|2.0.0|net8.0"
         }
       ]])
@@ -2757,9 +2903,13 @@ test("annotated source request identity includes the selected body", () => {
     "Example.Outer+Inner",
     "M:Run"
   ];
+  // The product stringifies the metadata token before building the key
+  // (`dotnet-inspect.ts` pushes `String(state.selectedBodyTarget?.metadataToken ?? "")`),
+  // so the fixture spells the token the same way rather than relying on `join` to coerce
+  // a raw number.
   assert.notEqual(
-    memberRequestKey([...request, 0x06000001, "M:Run"]),
-    memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
+    memberRequestKey([...request, String(0x06000001), "M:Run"]),
+    memberRequestKey([...request, String(0x06000002), "M:<Run>b__0_0"]));
 });
 
 test("member detail adapters preserve exact engine coordinates", () => {
@@ -2873,7 +3023,9 @@ test("source operations cancel when superseded or hidden", () => {
     memberDetailInspectionSource,
     /async loadAnnotated\(request\)[\s\S]*sourceRequestNeedsLoad\([\s\S]*state\.memberAnnotatedLoading[\s\S]*state\.memberAnnotatedError/);
 
-  const visible = {
+  // Annotating the fixture contextually types `lens` and `memberSection` against their
+  // literal unions instead of widening them to `string`.
+  const visible: SourceWorkbenchState = {
     settings: false,
     explorer: null,
     loading: false,
@@ -2887,7 +3039,7 @@ test("source operations cancel when superseded or hidden", () => {
     memberSection: "overview"
   };
   assert.equal(sourceSurfaceIsVisible(visible), true);
-  for (const hidden of [
+  const hiddenOverrides: readonly SourceWorkbenchState[] = [
     { home: true },
     { atPackageRoot: true },
     { settings: true },
@@ -2895,7 +3047,8 @@ test("source operations cancel when superseded or hidden", () => {
     { error: "failed" },
     { explorer: { open: true } },
     { package: null }
-  ]) {
+  ];
+  for (const hidden of hiddenOverrides) {
     assert.equal(sourceSurfaceIsVisible({ ...visible, ...hidden }), false);
   }
   assert.equal(
@@ -2986,7 +3139,7 @@ test("generated browser engine module is syntactically valid", () => {
 });
 
 test("generated source wrappers parse their JSON envelopes", () => {
-  const wrapper = name => {
+  const wrapper = (name: string) => {
     const start = generatedEngineSource.search(
       new RegExp(`\\nexport (?:async )?function ${name}\\(`));
     assert.notEqual(start, -1, `missing generated wrapper ${name}`);
@@ -3129,15 +3282,25 @@ test("history restores the complete saved workspace coordinate set", () => {
   assert.equal(workspaceCoordinatesMatch([second, first], tabs), false);
 });
 
+// A real call-graph node carries more than the identity view in `data.ts` declares:
+// `typeFullName` is part of the engine's own DTO in `inspect-web-engine.d.ts`. Passing the
+// wider payload is exactly what the product does, so the fixtures below keep the field --
+// it is what makes "prefers metadata identity over the display name" a real claim -- and
+// this widening keeps the excess property check, which only fires on fresh object
+// literals, from rejecting it.
+const engineCallGraphTarget = (
+  fixture: CallGraphTarget & { typeFullName?: string },
+): CallGraphTarget => fixture;
+
 test("call graph navigation prefers exact metadata type identity", () => {
   assert.equal(
-    callGraphTargetTypeId({
+    callGraphTargetTypeId(engineCallGraphTarget({
       typeFullName: "Example.Outer.Inner",
       typeMetadataId: "Example.Outer`1+Inner`1"
-    }),
+    })),
     "Example.Outer`1+Inner`1");
   assert.equal(
-    callGraphTargetTypeId({ typeFullName: "Example.Legacy" }),
+    callGraphTargetTypeId(engineCallGraphTarget({ typeFullName: "Example.Legacy" })),
     "");
 });
 
@@ -3232,6 +3395,7 @@ test("graph-only member targets round-trip through shared URLs", () => {
     metadataToken: 0x06000001
   };
   const encoded = graphMemberShareTarget(target);
+  assert.ok(encoded, "the fixture target must encode to a share tuple");
 
   assert.deepEqual(graphMemberTargetFromShare(encoded), target);
   assert.equal(graphMemberShareTarget({
@@ -3281,14 +3445,14 @@ test("graph-only member targets round-trip through shared URLs", () => {
       m: "method:Run",
       o: 0,
       g: [...encoded.slice(0, 8), "not-a-token"]
-    }).error,
+    }).error ?? "",
     /shared graph member target is invalid/);
   assert.match(
     graphMemberTargetFromPacket({
       y: "Example.Widget",
       m: "method:Run",
       g: encoded
-    }).error,
+    }).error ?? "",
     /shared graph member target is invalid/);
 });
 
@@ -3318,10 +3482,10 @@ test("shared graph targets require explicit assembly version provenance", () => 
     ...target,
     assemblyVersion: null
   };
-  assert.equal(
-    graphMemberTargetFromShare(
-      graphMemberShareTarget(explicitUnknown)).assemblyVersion,
-    null);
+  const explicitUnknownRoundTrip = graphMemberTargetFromShare(
+    graphMemberShareTarget(explicitUnknown));
+  assert.ok(explicitUnknownRoundTrip, "an explicit unknown version must round-trip");
+  assert.equal(explicitUnknownRoundTrip.assemblyVersion, null);
 });
 
 test("graph-only members open through the typed member surface", () => {
@@ -3351,11 +3515,20 @@ test("graph-only members open through the typed member surface", () => {
 test("graph-only deep links win over colliding public member groups", () => {
   const selectedType = { id: "Example.Widget" };
   const publicGroup = { key: "method:Run", overloads: [{ name: "Run" }] };
+  const deepLinkGraphTarget = (
+    selectorKey: string,
+  ): GraphMemberShareIdentity => ({
+    assembly: "Example.dll",
+    typeDefinitionId: "Example.Widget",
+    memberName: "Run",
+    selectorKey,
+    metadataToken: 0x06000001
+  });
   assert.equal(
     graphMemberDeepLinkDisposition(
       {
         member: publicGroup.key,
-        graphTarget: { memberName: "Run", selectorKey: "private-overload" }
+        graphTarget: deepLinkGraphTarget("private-overload")
       },
       { status: "unique", type: selectedType },
       selectedType,
@@ -3366,7 +3539,7 @@ test("graph-only deep links win over colliding public member groups", () => {
       {
         member: publicGroup.key,
         overload: "99",
-        graphTarget: { memberName: "Run", selectorKey: "public-overload" }
+        graphTarget: deepLinkGraphTarget("public-overload")
       },
       { status: "unique", type: selectedType },
       selectedType,
@@ -3940,10 +4113,8 @@ test("member filters retain an exact selected graph target", () => {
       /memberSelectionIsAvailable\(type, visible\)/);
   }
 
-  const typePanelCalls = callExpressionsNamed(appSyntax, "bindTypePanel");
-  assert.equal(typePanelCalls.length, 1);
-  const actions = typePanelCalls[0].arguments[1];
-  assert.equal(actions.type, "ObjectExpression");
+  const typePanelCall = onlyCallExpressionNamed(appSyntax, "bindTypePanel");
+  const actions = objectArgument(typePanelCall, 1, "bindTypePanel");
   for (const name of [
     "onMemberAccessibilityFilterSelect",
     "onMemberFilterChange",
@@ -3976,11 +4147,13 @@ test("pending graph restoration replaces its current history entry", () => {
   assert.equal(navigation.index, 0);
   assert.equal(navigation.stack.length, 2);
   assert.deepEqual(navigation.stack[0], resolved);
-  assert.equal(navigation.stack[1].sig, "forward");
+  assert.deepEqual(
+    navigation.stack.map(entry => entry.sig),
+    ["resolved", "forward"]);
 });
 
 test("history normalization preserves the current index and forward entries", () => {
-  const navigation = {
+  const navigation: NavigationState<{ selectedOverloadIndex?: number }> = {
     stack: [
       { sig: "older", view: {} },
       { sig: "recorded", view: { selectedOverloadIndex: 0 } },
@@ -4223,7 +4396,7 @@ test("an exact resident runtime target wins over package identity skew", () => {
   assert.equal(
     combinedGraphTargetNavigationDisposition(
       { status: "skew" },
-      { status: "unique" },
+      { status: "unique", pkg: null, type: null },
       target,
       true),
     "resident");
@@ -4256,7 +4429,7 @@ test("an exact resident runtime target wins over package identity skew", () => {
   assert.equal(
     combinedGraphTargetNavigationDisposition(
       { status: "missing" },
-      { status: "unique" },
+      { status: "unique", pkg: null, type: null },
       { ...target, assemblyVersion: null },
       true),
     "none");
@@ -4574,37 +4747,50 @@ test("relationship navigation rejects ambiguous dotted identities", () => {
   assert.equal(uniqueTypeByQueryId([], "N.T"), null);
 });
 
+// Same widening as `engineCallGraphTarget`: the engine's diagnostics payload also carries
+// `isIncomplete` and `hasUnexploredTraversalBoundary`, which the message view in `data.ts`
+// deliberately ignores in favour of the counted evidence. Keeping them in the fixtures is
+// what proves the message is driven by the counts rather than by the summary flag.
+const engineCallGraphDiagnostics = (
+  fixture: CallGraphDiagnostics & {
+    isIncomplete?: boolean;
+    hasUnexploredTraversalBoundary?: boolean;
+  },
+): CallGraphDiagnostics => fixture;
+
 test("call graph diagnostics distinguish failures from expected bounds", () => {
-  assert.equal(callGraphDiagnosticsMessage({
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     incompleteNodes: 2,
     incompleteEdges: 1,
     bindingIdentityConflicts: 3,
     hasUnexploredTraversalBoundary: true
-  }), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
-  assert.equal(callGraphDiagnosticsMessage({
+  })), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     incompleteNodes: 0,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
     hasUnexploredTraversalBoundary: true
-  }), "");
-  assert.equal(callGraphDiagnosticsMessage({
+  })), "");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     incompleteNodes: 0,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
     hasAnalysisFailureBoundary: true
-  }), "Partial call graph: one or more method bodies could not be analyzed.");
-  assert.equal(callGraphDiagnosticsMessage({
+  })), "Partial call graph: one or more method bodies could not be analyzed.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     incompleteNodes: 1,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
     hasUnexploredTraversalBoundary: true,
     hasAnalysisFailureBoundary: true
-  }), "Partial call graph: 1 incomplete node and one or more method bodies could not be analyzed.");
-  assert.equal(callGraphDiagnosticsMessage({ isIncomplete: false }), "");
+  })), "Partial call graph: 1 incomplete node and one or more method bodies could not be analyzed.");
+  assert.equal(
+    callGraphDiagnosticsMessage(engineCallGraphDiagnostics({ isIncomplete: false })),
+    "");
 });
 
 test("parameter titles preserve generic identities and contain metadata text", () => {
@@ -4653,6 +4839,7 @@ test("workspace package models retain the active and newest coordinates within t
     { length: MAX_WORKSPACE_PACKAGES },
     (_, index) => packageAt(`${index}.0.0`, "net10.0"));
   const active = packages[0];
+  assert.ok(active, "the workspace fixture must hold at least one package");
   const incoming = packageAt("13.0.0", "net10.0");
 
   const retained = retainWorkspacePackage(packages, active, incoming);
@@ -4668,6 +4855,7 @@ test("workspace package replacement reuses its slot at the package limit", () =>
     { length: MAX_WORKSPACE_PACKAGES },
     (_, index) => packageAt(`${index}.0.0`, "net10.0"));
   const active = packages[0];
+  assert.ok(active, "the workspace fixture must hold at least one package");
   const replacement = packageAt("99.0.0", "net10.0");
 
   const retained = retainWorkspacePackage(
@@ -4810,6 +4998,7 @@ test("missing exact dependency groups never create graph edges", () => {
   const data = {
     dependencyGroupError: "No exact dependency group.",
     dependencyGroups: [{
+      index: 0,
       framework: "net9.0",
       isActive: false,
       dependencies: [{ id: "Wrong.Dependency", versionRange: "1.0.0" }]
@@ -4912,6 +5101,7 @@ test("type graph rendering contains artifact labels", () => {
     ],
     graphEdges: [{ fromId: "self", toId: "base" }]
   });
+  assert.ok(definition, "the fixture graph must render a mermaid definition");
 
   assert.match(
     definition,
@@ -4942,6 +5132,7 @@ test("dependency graph rendering contains artifact labels", () => {
       workspaceDependencies: {}
     },
     () => null);
+  assert.ok(definition, "the fixture graph must render a mermaid definition");
 
   assert.match(
     definition.definition,
