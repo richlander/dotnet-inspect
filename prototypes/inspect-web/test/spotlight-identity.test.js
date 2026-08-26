@@ -1052,7 +1052,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
-    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*\} else \{[\s\S]*startPlatformDrill\(target\)/);
+    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*runtimeSection\);[\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\(target, runtimeSection\)[\s\S]*\} else if \(destination === "member"\) \{[\s\S]*navigateOrDrillPlatform\(target, runtimeSection\)[\s\S]*\} else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -1061,7 +1061,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\)/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\) \{[\s\S]*navigateToGraphMember\(loaded, target\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\(target\)/);
+    /if \(loaded\) \{[\s\S]*navigateToGraphMember\(loaded, target, loadedSection\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\(target, runtimeSection\)/);
   assert.match(
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
@@ -3266,7 +3266,9 @@ test("graph-only members open through the typed member surface", () => {
   const openMember =
     appSource.match(/function openMemberGroup\([\s\S]*?\n}(?=\n\nfunction enterMemberScope)/)?.[0]
     ?? "";
-  assert.match(binding, /navigateToGraphMember\(loaded, target\)/);
+  assert.match(
+    binding,
+    /navigateToGraphMember\(loaded, target, loadedSection\)/);
   assert.doesNotMatch(binding, /openGraphSource\(/);
   assert.match(
     openMember,
@@ -3527,7 +3529,7 @@ test("platform graph borders reflect actual resident lookup", () => {
     /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     appSource,
-    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{\s*await drillPlatformNode\(/);
+    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{\s*if \(section === "overview"\) \{[\s\S]*?showPlatformTargetError\([\s\S]*?return;\s*}\s*await drillPlatformNode\(/);
 });
 
 test("runtime graph nodes separate member, drill, and lookup disposition", () => {
