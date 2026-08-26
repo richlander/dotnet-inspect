@@ -845,6 +845,29 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains()
+    {
+        byte[] source =
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false);
+        byte[] target =
+            BuildNestedForwarderFanoutImage(leafCount: 55_000);
+
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        timer.Stop();
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+        Assert.InRange(
+            timer.Elapsed,
+            TimeSpan.Zero,
+            TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public void ResolveApiMember_NestedCurrentTypeDefUsesForwardedRoot()
     {
         MethodCorrespondenceResult result = ResolveApiMember(
@@ -992,6 +1015,33 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ClassAndValueTypeSignaturesAreAbsentInEitherDirection()
+    {
+        byte[] classImage =
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                rawTypeKind: 0x12);
+        byte[] valueTypeImage =
+            BuildScopedTypeMethodImage(
+                "Dependency",
+                rawTypeKind: 0x11);
+
+        MethodCorrespondenceResult classToValueType =
+            ResolveApiMember(classImage, valueTypeImage);
+        MethodCorrespondenceResult valueTypeToClass =
+            ResolveApiMember(valueTypeImage, classImage);
+
+        Assert.Equal(
+            MethodCorrespondenceStatus.Absent,
+            classToValueType.Status);
+        Assert.Empty(classToValueType.Candidates);
+        Assert.Equal(
+            MethodCorrespondenceStatus.Absent,
+            valueTypeToClass.Status);
+        Assert.Empty(valueTypeToClass.Candidates);
     }
 
     [Fact]
@@ -1234,6 +1284,54 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_ReusedOversizedTargetMethodNameIsComparedOnce()
+    {
+        byte[] source =
+            BuildMethodComparisonNameImage(
+                methodCount: 1,
+                methodName: "é");
+        byte[] target =
+            BuildMethodComparisonNameImage(
+                methodCount: 256,
+                methodName:
+                    "é" + new string('a', 128 * 1024 - 1));
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ResolveApiMember_ReusedOversizedTargetTypeNameIsComparedOnce()
+    {
+        byte[] source =
+            BuildTypeComparisonNameImage(
+                typeCount: 1,
+                leafName: "é");
+        byte[] target =
+            BuildTypeComparisonNameImage(
+                typeCount: 256,
+                leafName:
+                    "é" + new string('a', 128 * 1024 - 1));
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+    }
+
+    [Fact]
     public void ResolveApiMember_MethodExtensionAttributesRespectOperationBudget()
     {
         byte[] sourceImage =
@@ -1449,7 +1547,7 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
-    public void ResolveApiMember_RepeatedNonmatchingNamesFailWithinOperationBudget()
+    public void ResolveApiMember_DistinctNonmatchingNamesFailWithinOperationBudget()
     {
         int nameLength =
             MetadataSafetyPolicy.MaxStructuralSignatureChars / 2;
@@ -1463,7 +1561,8 @@ public sealed class MethodCorrespondenceResolverTests
             "C",
             prefix + "B",
             [0x00, 0x00, 0x01],
-            methodCount: 16);
+            methodCount: 16,
+            distinguishMethodNames: true);
 
         long allocatedBefore =
             GC.GetAllocatedBytesForCurrentThread();
@@ -2256,7 +2355,8 @@ public sealed class MethodCorrespondenceResolverTests
         string @namespace = "N",
         string typeName = "T",
         string? culture = null,
-        byte[]? publicKeyToken = null)
+        byte[]? publicKeyToken = null,
+        byte rawTypeKind = 0x12)
     {
         var metadata =
             CreateSingleTypeMetadata("ScopedType");
@@ -2283,7 +2383,7 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.GetOrAddBlob(
                 new byte[]
                 {
-                    0x00, 0x01, 0x01, 0x12, 0x05,
+                    0x00, 0x01, 0x01, rawTypeKind, 0x05,
                 }),
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
@@ -2677,6 +2777,172 @@ public sealed class MethodCorrespondenceResolverTests
         }
     }
 
+    static byte[] BuildNestedForwarderFanoutImage(
+        int leafCount)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("NestedForwarderFanout");
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    }),
+                default,
+                default);
+        TypeReferenceHandle signatureType =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("T"));
+        ExportedTypeHandle parent =
+            metadata.AddExportedType(
+                TypeAttributes.Public | (TypeAttributes)0x00200000,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("T"),
+                coreLibrary,
+                typeDefinitionId: 0);
+        for (int i = 0;
+            i < MetadataSafetyPolicy.MaxRelationshipNodes - 2;
+            i++)
+        {
+            parent =
+                metadata.AddExportedType(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString($"P{i}"),
+                    parent,
+                    typeDefinitionId: 0);
+        }
+        for (int i = 0; i < leafCount; i++)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString($"L{i}"),
+                parent,
+                typeDefinitionId: 0);
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(signatureType) << 2) | 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodComparisonNameImage(
+        int methodCount,
+        string methodName)
+    {
+        var metadata =
+            CreateSingleTypeMetadata("MethodComparisonNames");
+        StringHandle name =
+            metadata.GetOrAddString(methodName);
+        for (int i = 0; i < methodCount; i++)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(i);
+            signature.WriteByte(0x01);
+            for (int parameter = 0; parameter < i; parameter++)
+                signature.WriteByte(0x08);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                name,
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTypeComparisonNameImage(
+        int typeCount,
+        string leafName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("TypeComparisonNames.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("TypeComparisonNames"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle nestedName =
+            metadata.GetOrAddString(leafName);
+        for (int i = 0; i < typeCount; i++)
+        {
+            MethodDefinitionHandle firstMethod =
+                MetadataTokens.MethodDefinitionHandle(i + 1);
+            TypeDefinitionHandle parent =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    default,
+                    metadata.GetOrAddString($"P{i}"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    firstMethod);
+            TypeDefinitionHandle nested =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    nestedName,
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    firstMethod);
+            metadata.AddNestedType(nested, parent);
+        }
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        BlobHandle signatureBlob =
+            metadata.GetOrAddBlob(signature);
+        StringHandle methodName =
+            metadata.GetOrAddString("M");
+        for (int i = 0; i < typeCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signatureBlob,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
     static byte[] BuildSignatureGenericTypeImage(
         int genericParameterRows,
         int encodedArgumentCount = 2)
@@ -3017,18 +3283,22 @@ public sealed class MethodCorrespondenceResolverTests
         string typeName,
         string methodName,
         byte[] signature,
-        int methodCount)
+        int methodCount,
+        bool distinguishMethodNames = false)
     {
         var metadata =
             CreateSingleTypeMetadata(
                 "RepeatedApiMember",
                 typeName);
-        StringHandle name =
-            metadata.GetOrAddString(methodName);
         BlobHandle signatureBlob =
             metadata.GetOrAddBlob(signature);
         for (int i = 0; i < methodCount; i++)
         {
+            StringHandle name =
+                metadata.GetOrAddString(
+                    distinguishMethodNames
+                        ? $"{methodName}{i}"
+                        : methodName);
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,

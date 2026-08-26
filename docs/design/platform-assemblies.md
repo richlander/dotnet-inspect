@@ -57,8 +57,9 @@ For commands that need both API information and source resolution, dotnet-inspec
 3. Resolve the selected reference MethodDef to exactly one runtime MethodDef
    by normalized metadata API identity: exact declaring-type and method names,
    scope-aware named signature types, positional generic parameters, required
-   custom modifiers, nested function-pointer conventions, encoded arity, and
-   parameter-direction semantics
+   custom modifiers, named-type `CLASS`/`VALUETYPE` encodings, nested
+   function-pointer conventions, encoded arity, and parameter-direction
+   semantics
 4. Use that runtime MethodDef for both body-state and PDB source lookup
 5. Use the runtime assembly path for symbol server queries
 
@@ -78,10 +79,13 @@ platform-keyed core-library facade; that image's unique forwarder is the
 evidence, not the other type's name. Competing or malformed rows for that root
 fail correspondence rather than selecting from a partial projection. Unrelated
 rejected rows remain non-authorizing evidence. Forwarder and assembly-reference
-projection is operation-budgeted and projects repeated key material once.
-Neither case grants either reader core-library entitlement. Every name
-comparison, extension classification, forwarder projection, and identity
-materialization draws from one operation-wide work budget.
+projection is operation-budgeted, projects repeated key material once, and
+classifies nested rows from their direct implementation rather than repeatedly
+walking parent chains. Neither case grants either reader core-library
+entitlement. Every distinct target method name and target type-name comparison,
+extension classification, forwarder projection, and identity materialization
+draws from one operation-wide work budget; repeated target-name comparisons
+reuse their charged result.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

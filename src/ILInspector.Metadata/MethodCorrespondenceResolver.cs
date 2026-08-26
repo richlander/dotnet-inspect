@@ -35,17 +35,18 @@ public static class MethodCorrespondenceResolver
     /// <summary>
     /// Resolves by the stable API-member anchor used by selectors and API
     /// inventories, with normalized signature shape, required custom
-    /// modifiers, nested function-pointer conventions, defining scope,
-    /// positional generic parameters, encoded arity, and parameter-direction
-    /// semantics as close negatives. Assembly-reference versions, generic
-    /// parameter names, optional modifiers outside function pointers, and
-    /// equivalent current-scope TypeDef/TypeRef storage roles therefore do not
-    /// become API identity.
+    /// modifiers, named-type CLASS/VALUETYPE encodings, nested function-pointer
+    /// conventions, defining scope, positional generic parameters, encoded
+    /// arity, and parameter-direction semantics as close negatives.
+    /// Assembly-reference versions, generic parameter names, optional modifiers
+    /// outside function pointers, and equivalent current-scope TypeDef/TypeRef
+    /// storage roles therefore do not become API identity.
     /// <c>CommandExecutionTests.Member_PdbSource_CrossImageDependencyVersionUsesStableApiIdentity</c>
     /// gates the assembly-version distinction;
     /// <c>ResolveApiMember_ParameterDirectionMismatchIsAbsent</c>,
     /// <c>ResolveApiMember_ReturnTypeMismatchIsAbsent</c>,
     /// <c>ResolveApiMember_DifferentDefiningAssemblyIsAbsent</c>,
+    /// <c>ResolveApiMember_ClassAndValueTypeSignaturesAreAbsentInEitherDirection</c>,
     /// <c>ResolveApiMember_RenamedMethodGenericParameterRemainsExact</c>,
     /// <c>ResolveApiMember_RequiredReturnModifierMismatchIsAbsent</c>,
     /// <c>ResolveApiMember_FunctionPointerCallingConventionMismatchIsAbsent</c>,
@@ -93,12 +94,16 @@ public static class MethodCorrespondenceResolver
                     sourceMethod.Name);
             int typeComparisonWork =
                 GetTypeComparisonWork(sourceTypeName);
-            int methodNameComparisonWork =
-                Math.Max(sourceMetadataName.Length, 64);
             int correspondenceWorkRemaining =
                 MetadataSafetyPolicy.MaxCorrespondenceAnchorWorkChars;
             var correspondenceContext =
                 new ApiMemberIdentity.MethodCorrespondenceContext();
+            var targetTypeNameComparisons =
+                new Dictionary<
+                    (StringHandle Handle, string Expected),
+                    bool>();
+            var targetMethodNameComparisons =
+                new Dictionary<StringHandle, bool>();
             bool? sourceTypeHasExtensionAttribute = null;
             bool sourceIsExtensionMethod =
                 IsExtensionMethod(
@@ -162,7 +167,8 @@ public static class MethodCorrespondenceResolver
                             targetReader,
                             targetTypeHandle,
                             sourceTypeName,
-                            out MetadataTypeNameFailure? typeFailure);
+                            out MetadataTypeNameFailure? typeFailure,
+                            CompareTargetTypeName);
                     if (previousTypeMatch
                         == MetadataTypeDefinitionNameMatch.Rejected)
                     {
@@ -174,19 +180,15 @@ public static class MethodCorrespondenceResolver
                 if (previousTypeMatch == MetadataTypeDefinitionNameMatch.NoMatch)
                     continue;
 
-                if (!TryCharge(
-                        ref correspondenceWorkRemaining,
-                        methodNameComparisonWork))
+                if (!TryCompareTargetMethodName(
+                        targetMethod.Name,
+                        out bool methodNameMatches))
                 {
                     return Failed(
                         "target methods exceed the correspondence anchor work budget");
                 }
-                if (!targetReader.StringComparer.Equals(
-                        targetMethod.Name,
-                        sourceMetadataName))
-                {
+                if (!methodNameMatches)
                     continue;
-                }
 
                 var targetType =
                     targetReader.GetTypeDefinition(targetTypeHandle);
@@ -277,6 +279,59 @@ public static class MethodCorrespondenceResolver
                     candidates,
                     Failure: $"{candidates.Count} target methods have the same normalized API member identity"),
             };
+
+            bool CompareTargetTypeName(
+                StringHandle handle,
+                string expected)
+            {
+                var key = (handle, expected);
+                if (targetTypeNameComparisons.TryGetValue(
+                        key,
+                        out bool matches))
+                {
+                    return matches;
+                }
+                int encodedLength =
+                    targetReader.GetBlobReader(handle).Length;
+                if (!TryCharge(
+                        ref correspondenceWorkRemaining,
+                        Math.Max(encodedLength, 64)))
+                {
+                    throw new BadImageFormatException(
+                        "Target type names exceed the correspondence anchor work budget.");
+                }
+                matches =
+                    targetReader.StringComparer.Equals(handle, expected);
+                targetTypeNameComparisons.Add(key, matches);
+                return matches;
+            }
+
+            bool TryCompareTargetMethodName(
+                StringHandle handle,
+                out bool matches)
+            {
+                if (targetMethodNameComparisons.TryGetValue(
+                        handle,
+                        out matches))
+                {
+                    return true;
+                }
+                int encodedLength =
+                    targetReader.GetBlobReader(handle).Length;
+                if (!TryCharge(
+                        ref correspondenceWorkRemaining,
+                        Math.Max(encodedLength, 64)))
+                {
+                    matches = false;
+                    return false;
+                }
+                matches =
+                    targetReader.StringComparer.Equals(
+                        handle,
+                        sourceMetadataName);
+                targetMethodNameComparisons.Add(handle, matches);
+                return true;
+            }
         }
         catch (Exception ex)
             when (ex is BadImageFormatException

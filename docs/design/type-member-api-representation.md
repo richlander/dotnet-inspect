@@ -79,9 +79,10 @@ of repeated in every row.
 
 Normalized API correspondence is an internal, reader-pair-scoped structural
 projection. Named signature types retain their current-module, module-reference,
-or assembly-reference scope. Platform-keyed core-library facade references
-normalize to one intrinsic scope across reference and runtime images; all other
-assembly names, normalized cultures, and public-key tokens use
+or assembly-reference scope and whether the signature encodes each named type
+as `CLASS` or `VALUETYPE`. Platform-keyed core-library facade references
+normalize to one intrinsic scope across reference and runtime images; all
+other assembly names, normalized cultures, and public-key tokens use
 ordinal-ignore-case comparison, with assembly versions alone omitted. Generic
 parameters compare by validated position rather than metadata spelling, and
 malformed generic indices, declaring- or signature-type arity, generic
@@ -98,12 +99,17 @@ reference-pack definitions that become runtime core-library references without
 permitting name-alone correspondence. The authorizing root must be unique:
 competing or malformed evidence for that same namespace and root fails the
 correspondence operation, while unrelated rejected rows provide no
-authorization. Forwarder names, assembly-reference identity, and public-key
-material draw from the operation budget; budget exhaustion fails the operation,
-and one assembly reference is projected at most once during the reader's
-forwarder scan. Facade-reference and forwarder normalization are reader-pair
-correspondence only; they do not entitle either reader or any definition to mint
-core-library identity.
+authorization. The projection classifies a row from its direct implementation:
+nested rows are skipped without repeatedly walking their parent chains, while
+root-looking rows with nested implementations remain rejected evidence.
+Forwarder names, assembly-reference identity, target type and method names, and
+public-key material draw from the operation budget; budget exhaustion fails the
+operation. One assembly reference is projected at most once during the reader's
+forwarder scan, each target method name is compared at most once, and each
+target type name is compared at most once per expected source segment.
+Facade-reference and forwarder normalization are reader-pair correspondence
+only; they do not entitle either reader or any definition to mint core-library
+identity.
 `ResolveApiMember_AssemblyScopeCaseFoldingUsesOrdinalIdentity`,
 `ResolveApiMember_ReferencePackCoreLibraryFacadeMatchesRuntime`,
 `ResolveApiMember_ReferencePackTypeDefMatchesRuntimeCoreLibraryForwarder`,
@@ -118,7 +124,9 @@ core-library identity.
 `ResolveApiMember_ReusedForwarderAssemblyReferenceIsProjectedOnce`,
 `ResolveApiMember_ForwarderBudgetExhaustionFailsWithoutSelectingPartialEvidence`,
 `ResolveApiMember_UnrelatedMalformedForwarderDoesNotAuthorizeOrFail`,
+`ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,
+`ResolveApiMember_ClassAndValueTypeSignaturesAreAbsentInEitherDirection`,
 `ResolveApiMember_OutOfRangeGenericParameterIndexFails`,
 `ResolveApiMember_RejectedTypeSpecificationFails`,
 `ResolveApiMember_DeclaringTypeArityMismatchFails`,
@@ -127,6 +135,8 @@ core-library identity.
 `ResolveApiMember_InvalidArrayShapeFailsInEitherImage`,
 `ResolveApiMember_ZeroRankArrayFails`,
 `ResolveApiMember_ArraySizeDifferenceIsAbsent`,
+`ResolveApiMember_ReusedOversizedTargetMethodNameIsComparedOnce`,
+`ResolveApiMember_ReusedOversizedTargetTypeNameIsComparedOnce`,
 `DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlySize`, and
 `DurableAnchorAndStrictResolveIgnoreCorrespondenceOnlyMalformedShapes` are the
 gates.

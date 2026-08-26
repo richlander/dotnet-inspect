@@ -557,14 +557,16 @@ internal static class MetadataTypeDefinitionNameReader
         MetadataReader reader,
         TypeDefinitionHandle handle,
         MetadataTypeDefinitionName name,
-        out MetadataTypeNameFailure? failure)
+        out MetadataTypeNameFailure? failure,
+        Func<StringHandle, string, bool>? compare = null)
     {
         if (!LeafMatches<TypeDefinitionHandle, TypeDefinitionNameRow>(
                 reader,
                 handle,
                 name,
                 out MetadataTypeDefinitionNameMatch leafResult,
-                out failure))
+                out failure,
+                compare))
         {
             return leafResult;
         }
@@ -587,7 +589,8 @@ internal static class MetadataTypeDefinitionNameReader
             reader,
             rootToLeaf[..consumedNodes],
             name,
-            out failure);
+            out failure,
+            compare);
     }
 
     internal static MetadataTypeDefinitionNameMatch Matches(
@@ -601,7 +604,8 @@ internal static class MetadataTypeDefinitionNameReader
                 handle,
                 name,
                 out MetadataTypeDefinitionNameMatch leafResult,
-                out failure))
+                out failure,
+                compare: null))
         {
             return leafResult;
         }
@@ -624,7 +628,8 @@ internal static class MetadataTypeDefinitionNameReader
             reader,
             rootToLeaf[..consumedNodes],
             name,
-            out failure);
+            out failure,
+            compare: null);
     }
 
     static bool LeafMatches<THandle, TRow>(
@@ -632,7 +637,8 @@ internal static class MetadataTypeDefinitionNameReader
         THandle handle,
         MetadataTypeDefinitionName name,
         out MetadataTypeDefinitionNameMatch result,
-        out MetadataTypeNameFailure? failure)
+        out MetadataTypeNameFailure? failure,
+        Func<StringHandle, string, bool>? compare)
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
@@ -640,7 +646,11 @@ internal static class MetadataTypeDefinitionNameReader
         try
         {
             var (_, leafName) = TRow.GetName(reader, handle);
-            if (!reader.StringComparer.Equals(leafName, name.Segments[^1]))
+            if (!Compare(
+                    reader,
+                    leafName,
+                    name.Segments[^1],
+                    compare))
             {
                 result = MetadataTypeDefinitionNameMatch.NoMatch;
                 return false;
@@ -666,7 +676,8 @@ internal static class MetadataTypeDefinitionNameReader
         MetadataReader reader,
         ReadOnlySpan<THandle> rootToLeaf,
         MetadataTypeDefinitionName name,
-        out MetadataTypeNameFailure? failure)
+        out MetadataTypeNameFailure? failure,
+        Func<StringHandle, string, bool>? compare)
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
@@ -681,12 +692,20 @@ internal static class MetadataTypeDefinitionNameReader
                 var (namespaceHandle, nameHandle) =
                     TRow.GetName(reader, rootToLeaf[i]);
                 if (i == 0
-                    && !reader.StringComparer.Equals(namespaceHandle, name.Namespace))
+                    && !Compare(
+                        reader,
+                        namespaceHandle,
+                        name.Namespace,
+                        compare))
                 {
                     return MetadataTypeDefinitionNameMatch.NoMatch;
                 }
 
-                if (!reader.StringComparer.Equals(nameHandle, name.Segments[i]))
+                if (!Compare(
+                        reader,
+                        nameHandle,
+                        name.Segments[i],
+                        compare))
                     return MetadataTypeDefinitionNameMatch.NoMatch;
             }
             catch (BadImageFormatException ex)
@@ -709,6 +728,15 @@ internal static class MetadataTypeDefinitionNameReader
 
         return MetadataTypeDefinitionNameMatch.Match;
     }
+
+    static bool Compare(
+        MetadataReader reader,
+        StringHandle handle,
+        string expected,
+        Func<StringHandle, string, bool>? compare) =>
+        compare is null
+            ? reader.StringComparer.Equals(handle, expected)
+            : compare(handle, expected);
 
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,

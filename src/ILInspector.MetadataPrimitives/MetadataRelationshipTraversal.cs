@@ -73,7 +73,7 @@ public static class MetadataSafetyPolicy
     /// <c>ResolveApiMember_MethodExtensionAttributesRespectOperationBudget</c>,
     /// <c>ResolveApiMember_NestedFunctionPointerCorrespondenceRespectsAnchorLimit</c>,
     /// and
-    /// <c>ResolveApiMember_RepeatedNonmatchingNamesFailWithinOperationBudget</c>.
+    /// <c>ResolveApiMember_DistinctNonmatchingNamesFailWithinOperationBudget</c>.
     /// </summary>
     public const int MaxCorrespondenceAnchorWorkChars =
         MaxAnchorSignatureWorkChars;

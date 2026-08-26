@@ -1,5 +1,6 @@
 using CSharpText;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
@@ -195,6 +196,7 @@ public static class ApiMemberIdentity
         string Namespace,
         ImmutableArray<string> Segments,
         int GenericArity,
+        byte RawTypeKind,
         bool AuthorizesCurrentToIntrinsicCoreLibrary)
     {
         internal bool CorrespondsTo(
@@ -205,7 +207,8 @@ public static class ApiMemberIdentity
                     StringComparison.Ordinal)
                 || !Segments.SequenceEqual(
                     other.Segments,
-                    StringComparer.Ordinal))
+                    StringComparer.Ordinal)
+                || RawTypeKind != other.RawTypeKind)
             {
                 return false;
             }
@@ -1183,8 +1186,12 @@ public static class ApiMemberIdentity
         readonly bool _includeCorrespondence;
         readonly MethodCorrespondenceContext?
             _correspondenceContext;
-        Dictionary<TypeDefinitionHandle, AnchorSignatureType>? _definitionCache;
-        Dictionary<TypeReferenceHandle, AnchorSignatureType>? _referenceCache;
+        Dictionary<
+            (TypeDefinitionHandle Handle, byte RawTypeKind),
+            AnchorSignatureType>? _definitionCache;
+        Dictionary<
+            (TypeReferenceHandle Handle, byte RawTypeKind),
+            AnchorSignatureType>? _referenceCache;
 
         internal AnchorSignatureTypeProvider(
             AnchorSignatureWorkBudget workBudget,
@@ -1226,7 +1233,10 @@ public static class ApiMemberIdentity
             byte rawTypeKind)
         {
             _definitionCache ??= [];
-            if (_definitionCache.TryGetValue(handle, out AnchorSignatureType? cached))
+            var cacheKey = (handle, rawTypeKind);
+            if (_definitionCache.TryGetValue(
+                    cacheKey,
+                    out AnchorSignatureType? cached))
             {
                 // Reuse the composed name, but charge the same leaf floor as
                 // Encoded so wide GENERICINST/FNPTR trees of short TypeDef
@@ -1253,9 +1263,13 @@ public static class ApiMemberIdentity
                 FormatDefinitionTypeName,
                 correspondenceLength,
                 _includeCorrespondence
-                    ? ReadDefinitionCorrespondenceIdentity
+                    ? (currentReader, currentHandle) =>
+                        ReadDefinitionCorrespondenceIdentity(
+                            currentReader,
+                            currentHandle,
+                            rawTypeKind)
                     : null);
-            _definitionCache.Add(handle, encoded);
+            _definitionCache.Add(cacheKey, encoded);
             return encoded;
         }
 
@@ -1265,7 +1279,10 @@ public static class ApiMemberIdentity
             byte rawTypeKind)
         {
             _referenceCache ??= [];
-            if (_referenceCache.TryGetValue(handle, out AnchorSignatureType? cached))
+            var cacheKey = (handle, rawTypeKind);
+            if (_referenceCache.TryGetValue(
+                    cacheKey,
+                    out AnchorSignatureType? cached))
             {
                 ChargeLeaf(cached.Length);
                 return cached;
@@ -1286,9 +1303,13 @@ public static class ApiMemberIdentity
                 FormatReferenceTypeName,
                 correspondenceLength,
                 _includeCorrespondence
-                    ? ReadReferenceCorrespondenceIdentity
+                    ? (currentReader, currentHandle) =>
+                        ReadReferenceCorrespondenceIdentity(
+                            currentReader,
+                            currentHandle,
+                            rawTypeKind)
                     : null);
-            _referenceCache.Add(handle, encoded);
+            _referenceCache.Add(cacheKey, encoded);
             return encoded;
         }
 
@@ -1776,7 +1797,8 @@ public static class ApiMemberIdentity
         NamedTypeCorrespondenceIdentity
             ReadDefinitionCorrespondenceIdentity(
             MetadataReader reader,
-            TypeDefinitionHandle handle)
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
         {
             int genericArity =
                 ValidateCorrespondenceTypeDefinitionGenericArity(
@@ -1819,13 +1841,15 @@ public static class ApiMemberIdentity
                     reader.GetTypeDefinition(chain[0]).Namespace),
                 segments.MoveToImmutable(),
                 genericArity,
+                rawTypeKind,
                 AuthorizesCurrentToIntrinsicCoreLibrary: false);
         }
 
         NamedTypeCorrespondenceIdentity
             ReadReferenceCorrespondenceIdentity(
             MetadataReader reader,
-            TypeReferenceHandle handle)
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
         {
             Span<TypeReferenceHandle> chain =
                 stackalloc TypeReferenceHandle[
@@ -1909,6 +1933,7 @@ public static class ApiMemberIdentity
                 @namespace,
                 segmentArray,
                 GetMetadataNameGenericArity(segmentArray),
+                rawTypeKind,
                 scopeKind
                     == NamedTypeScopeKind.IntrinsicCoreLibrary
                     && IsIntrinsicCoreLibraryForwardedRoot(
@@ -1941,33 +1966,32 @@ public static class ApiMemberIdentity
                     new AssemblyReferenceProjectionCache(reader);
                 var chargedAssemblyReferences =
                     new HashSet<AssemblyReferenceHandle>();
-                Span<ExportedTypeHandle> rootToLeaf =
-                    stackalloc ExportedTypeHandle[
-                        MetadataSafetyPolicy.MaxRelationshipNodes];
                 foreach (ExportedTypeHandle handle in reader.ExportedTypes)
                 {
                     _workBudget.Charge(LeafNodeWorkUnits);
-                    if (!MetadataRelationshipTraversal
-                            .TryWalkExportedTypeImplementationChain(
-                                reader,
-                                handle,
-                                rootToLeaf,
-                                out int consumed,
-                                out EntityHandle terminal,
-                                out _)
-                        || consumed == 0)
+                    ExportedType root;
+                    try
                     {
-                        RecordRejectedRoot(handle);
+                        root = reader.GetExportedType(handle);
+                    }
+                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
+                    {
                         continue;
                     }
-                    if (rootToLeaf[0] != handle)
+
+                    EntityHandle terminal = root.Implementation;
+                    bool malformedRoot =
+                        terminal.Kind == HandleKind.ExportedType
+                        && !HasNestedVisibility(root.Attributes);
+                    if (terminal.Kind == HandleKind.ExportedType
+                        && !malformedRoot)
+                    {
                         continue;
+                    }
 
                     (string Namespace, string Name) rootIdentity;
                     try
                     {
-                        ExportedType root =
-                            reader.GetExportedType(rootToLeaf[0]);
                         rootIdentity =
                             (
                                 ReadStructuralString(
@@ -1987,9 +2011,9 @@ public static class ApiMemberIdentity
                     bool authorized = false;
                     try
                     {
-                        ExportedType root =
-                            reader.GetExportedType(rootToLeaf[0]);
-                        if (terminal.Kind == HandleKind.AssemblyReference
+                        if (!malformedRoot
+                            && terminal.Kind
+                                == HandleKind.AssemblyReference
                             && root.IsForwarder)
                         {
                             var targetHandle =
@@ -2011,29 +2035,6 @@ public static class ApiMemberIdentity
                     forwardedRoots.Record(rootIdentity, authorized);
                 }
                 return forwardedRoots;
-
-                void RecordRejectedRoot(ExportedTypeHandle handle)
-                {
-                    try
-                    {
-                        ExportedType row =
-                            reader.GetExportedType(handle);
-                        forwardedRoots.Record(
-                            (
-                                ReadStructuralString(
-                                    reader,
-                                    row.Namespace,
-                                    _workBudget),
-                                ReadStructuralString(
-                                    reader,
-                                    row.Name,
-                                    _workBudget)),
-                            authorized: false);
-                    }
-                    catch (Exception ex) when (CanIgnoreMalformedRow(ex))
-                    {
-                    }
-                }
 
                 void ChargeAssemblyReference(
                     AssemblyReferenceHandle handle)
@@ -2062,6 +2063,16 @@ public static class ApiMemberIdentity
                     _workBudget.Remaining > 0
                     && ex is BadImageFormatException
                         or ArgumentOutOfRangeException;
+
+                static bool HasNestedVisibility(
+                    TypeAttributes attributes) =>
+                    (attributes & TypeAttributes.VisibilityMask) is
+                        TypeAttributes.NestedPublic
+                        or TypeAttributes.NestedPrivate
+                        or TypeAttributes.NestedFamily
+                        or TypeAttributes.NestedAssembly
+                        or TypeAttributes.NestedFamANDAssem
+                        or TypeAttributes.NestedFamORAssem;
             }
         }
 
