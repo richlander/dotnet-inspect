@@ -26,7 +26,8 @@ public class StructuringAuditCommitPointTests
         var structureStep = AssertCommitOrder(
             structure,
             descriptionFragment: "structure container at",
-            successMethods: ["RecordStructured"]);
+            successMethods: ["RecordStructured"],
+            declineMethods: ["RecordStop"]);
         Assert.All(
             ExecutableNodes(structure).OfType<ReturnStatementSyntax>(),
             decline => AssertDeclineBeforeStep(decline, structureStep));
@@ -35,7 +36,8 @@ public class StructuringAuditCommitPointTests
         var step = AssertCommitOrder(
             retained,
             descriptionFragment: "retained-merge region(s)",
-            successMethods: ["RecordStructured", "RecordRetainedRegion"]);
+            successMethods: ["RecordStructured", "RecordRetainedRegion"],
+            declineMethods: ["RecordRetainedDecline"]);
         var returns = ExecutableNodes(retained).OfType<ReturnStatementSyntax>().ToArray();
         var success = Assert.Single(
             returns,
@@ -49,7 +51,8 @@ public class StructuringAuditCommitPointTests
     static InvocationExpressionSyntax AssertCommitOrder(
         MethodDeclarationSyntax method,
         string descriptionFragment,
-        IReadOnlyList<string> successMethods)
+        IReadOnlyList<string> successMethods,
+        IReadOnlyList<string> declineMethods)
     {
         var invocations = ExecutableNodes(method).OfType<InvocationExpressionSyntax>().ToArray();
         var auditSteps = invocations
@@ -65,6 +68,16 @@ public class StructuringAuditCommitPointTests
         Assert.True(
             step.SpanStart < install.SpanStart,
             $"Audit step at line {Line(step)} must precede installation at line {Line(install)}.");
+
+        var declineRecords = invocations
+            .Where(invocation => declineMethods.Contains(InvocationName(invocation)))
+            .ToArray();
+        Assert.NotEmpty(declineRecords);
+        Assert.All(
+            declineRecords,
+            record => Assert.True(
+                record.SpanStart < step.SpanStart,
+                $"{InvocationName(record)} at line {Line(record)} occurs after the audit step at line {Line(step)}."));
 
         var successRecords = invocations
             .Where(invocation => InvocationName(invocation) is "RecordStructured" or "RecordRetainedRegion")

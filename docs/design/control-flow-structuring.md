@@ -367,7 +367,8 @@ a label owner. It also rejects an actual retained-region build that places
 another arm after a terminal retained-merge branch. It then installs that
 candidate transactionally or declines. Structuring rewrite steps are recorded
 only after every candidate check that can decline, and success counters
-increment only after the replacement is installed.
+increment only after the replacement is installed. Decline diagnostics remain
+before the rewrite step and installation.
 `StructuringAuditCommitPointTests.StructuringAuditCommitsAfterEveryDeclineAndInstallation`
 is the non-vacuity gate for that call ordering;
 `RetainedAuditRecordsOnlyInstalledReplacement` covers the successful and

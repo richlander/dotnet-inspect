@@ -43,6 +43,8 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, successDiagnostics.Structured);
         Assert.Equal(2, successDiagnostics.RetainedRegions);
+        Assert.Empty(successDiagnostics.Stops);
+        Assert.Empty(successDiagnostics.RetainedDeclines);
         Assert.Single(
             successStepper.Steps,
             step => step.Description.Contains("2 retained-merge region(s)", StringComparison.Ordinal));
@@ -53,6 +55,17 @@ public class RetainedMergeStructuringTests
             stepper: declineStepper);
 
         Assert.Equal(0, declineDiagnostics.RetainedRegions);
+        Assert.Equal(["cond-target-past-region"], declineDiagnostics.Stops);
+        Assert.Equal(
+            [
+                "retained-dangling-merge-label",
+                "retained-external-entry",
+                "retained-back-edge-entangled",
+                "retained-external-entry",
+                "retained-external-entry",
+                "retained-back-edge-region",
+            ],
+            declineDiagnostics.RetainedDeclines);
         Assert.Empty(declined.Descendants.OfType<WhileLoop>());
         Assert.Empty(declineStepper.Steps);
     }
@@ -78,6 +91,8 @@ public class RetainedMergeStructuringTests
         Assert.Equal(originalIr, IrPrinter.Dump(function));
         Assert.Equal(0, diagnostics.Structured);
         Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Empty(diagnostics.Stops);
+        Assert.Empty(diagnostics.RetainedDeclines);
         Assert.Empty(stepper.Steps);
         function.CheckInvariant();
     }
