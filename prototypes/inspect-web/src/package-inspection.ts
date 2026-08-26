@@ -1,6 +1,7 @@
 import {
   packageIdentityKey,
   type DependencyGroupData,
+  type PackageLens,
   type PackageIdentity,
 } from "./data.ts";
 import type {
@@ -32,7 +33,7 @@ export interface PackagePerformance {
 export interface PackageInspectionState {
   packages: AppPackage[];
   atPackageRoot: boolean;
-  packageLens: string;
+  packageLens: PackageLens;
   packageDependencies: BrowserPackageDependencies | null;
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;

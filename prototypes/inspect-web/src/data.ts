@@ -5,20 +5,77 @@
 // wiring; these functions are pure transforms over explicit inputs/outputs so they can be
 // unit-tested and reused (e.g. by `graph-mermaid.ts`) without the render/event-wiring layer.
 
-export const lenses: readonly (readonly [string, string])[] = [
+// Exhaustiveness guard for the closed vocabularies below. The unions in this module are
+// derived from catalogs that also drive visible UI choices, so adding a catalog entry both
+// widens the union and offers the new value to users. Passing the switched value here makes
+// the compiler reject that addition until every consumer states what the new value does; the
+// throw is the residual runtime signal if a value ever reaches a consumer past its validator.
+export function assertNever(value: never, vocabulary: string): never {
+  throw new Error(`Unhandled ${vocabulary}: ${JSON.stringify(value)}`);
+}
+
+// Not exported: every consumer now goes through `typeLensesFor`, which applies the
+// runtime-pack filter. A direct export would be a way to skip it.
+const lenses = [
   ["api", "API"],
   ["metadata", "Metadata"],
   ["source", "Source"]
-];
+] as const;
 
-export const packageLenses: readonly (readonly [string, string])[] = [
+export type TypeLens = (typeof lenses)[number][0];
+
+export function isTypeLens(
+  value: string | null | undefined,
+): value is TypeLens {
+  return typeof value === "string"
+    && lenses.some(([id]) => id === value);
+}
+
+export const packageLenses = [
   ["overview", "Overview"],
   ["dependencies", "Dependencies"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"]
-];
+] as const;
+
+export type PackageLens = (typeof packageLenses)[number][0];
+
+export function isPackageLens(
+  value: string | null | undefined,
+): value is PackageLens {
+  return typeof value === "string"
+    && packageLenses.some(([id]) => id === value);
+}
+
+export const memberSectionDefinitions = [
+  ["overview", "Overview"],
+  ["call-graph", "Call graph"],
+  ["facts", "Facts"],
+  ["source", "Source"],
+  ["annotated", "Annotated source"],
+] as const;
+
+export type MemberSection = (typeof memberSectionDefinitions)[number][0];
+
+export function isMemberSection(
+  value: string | null | undefined,
+): value is MemberSection {
+  return typeof value === "string"
+    && memberSectionDefinitions.some(([id]) => id === value);
+}
+
+const workspaceScopes = ["package", "type", "member"] as const;
+
+export type WorkspaceScope = (typeof workspaceScopes)[number];
+
+export function isWorkspaceScope(
+  value: string | null | undefined,
+): value is WorkspaceScope {
+  return typeof value === "string"
+    && workspaceScopes.some(scope => scope === value);
+}
 
 export const MAX_WORKSPACE_PACKAGES = 12;
 export const MAX_SHARE_STATE_CHARACTERS = 65536;
@@ -81,10 +138,26 @@ export function mergeInspectionErrors(
   current: string | null | undefined,
   next: string | null | undefined,
 ): string {
-  const messages = [current, next]
-    .map(value => (value ?? "").trim())
+  return renderInspectionErrors(mergeInspectionErrorEntries(
+    current ? [current] : [],
+    next ? [next] : [],
+  ));
+}
+
+export function mergeInspectionErrorEntries(
+  current: readonly string[] | null | undefined,
+  next: readonly string[] | null | undefined,
+): string[] {
+  const messages = [...(current ?? []), ...(next ?? [])]
+    .map(value => value.trim())
     .filter(Boolean);
-  return [...new Set(messages)].join("; ");
+  return [...new Set(messages)];
+}
+
+export function renderInspectionErrors(
+  entries: readonly string[] | null | undefined,
+): string {
+  return (entries ?? []).join("; ");
 }
 
 export type PlatformPack = "netcore.app" | "aspnetcore.app";
@@ -402,11 +475,15 @@ export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
       version: tab.version,
       activeFramework: tab.framework
     });
-    if (!identityIndexes.has(identity)) {
-      identityIndexes.set(identity, tabs.length);
+    const existingIndex = identityIndexes.get(identity);
+    if (existingIndex === undefined) {
+      const newIndex = tabs.length;
+      identityIndexes.set(identity, newIndex);
       tabs.push(tab);
+      sourceIndexes[sourceIndex] = newIndex;
+    } else {
+      sourceIndexes[sourceIndex] = existingIndex;
     }
-    sourceIndexes[sourceIndex] = identityIndexes.get(identity)!;
   }
   return { tabs, sourceIndexes, error: "" };
 }
@@ -467,11 +544,11 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
   packageKey: string,
 ): RemoveWorkspacePackageResult<T> {
   const index = packages.findIndex(item => packageIdentityKey(item) === packageKey);
-  if (index < 0 || packages[index].isRuntimePack) {
+  const closed = index >= 0 ? packages[index] : undefined;
+  if (!closed || closed.isRuntimePack) {
     return { packages: [...packages], active: activePackage, closed: null };
   }
 
-  const closed = packages[index];
   const remaining = packages.filter((_, candidate) => candidate !== index);
   const active = packageIdentityKey(activePackage) === packageKey
     ? remaining[Math.min(index, remaining.length - 1)] ?? null
@@ -860,7 +937,7 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
 ): T | null {
   const matches = (types ?? []).filter(type =>
     (type.queryId ?? type.id) === queryId);
-  return matches.length === 1 ? matches[0] : null;
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 export interface CallGraphAssembly {
@@ -976,8 +1053,9 @@ function resolveGraphTargetCandidate<
       if (matches.length > 1) return { status: "ambiguous" };
     }
   }
-  return matches.length === 1
-    ? { status: "unique", ...matches[0] }
+  const match = matches[0];
+  return matches.length === 1 && match
+    ? { status: "unique", ...match }
     : exactAssemblyResident
       ? { status: "resident" }
       : identitySkew
@@ -1274,10 +1352,8 @@ export function graphMemberSelection(
   const bodyMatches: (
     GraphMemberSelection & { token: number | undefined }
   )[] = [];
-  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-    const group = groups[groupIndex];
-    for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
-      const overload = group.overloads[overloadIndex];
+  for (const [groupIndex, group] of groups.entries()) {
+    for (const [overloadIndex, overload] of group.overloads.entries()) {
       for (const body of overload.bodySelectors ?? []) {
         if (body.memberName === target.memberName
           && body.selectorKey === target.selectorKey) {
@@ -1287,7 +1363,8 @@ export function graphMemberSelection(
     }
   }
   if (bodyMatches.length > 0) {
-    const [first] = bodyMatches;
+    const first = bodyMatches[0];
+    if (!first) return null;
     if (bodyMatches.length === 1
       || (first.token != null
         && bodyMatches.every(match => match.token === first.token))) {
@@ -1300,14 +1377,13 @@ export function graphMemberSelection(
   }
 
   const ownerMatches: GraphMemberSelection[] = [];
-  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-    const group = groups[groupIndex];
-    for (let overloadIndex = 0; overloadIndex < group.overloads.length; overloadIndex++) {
-      if (group.overloads[overloadIndex].graphSelectorKey === target.selectorKey)
+  for (const [groupIndex, group] of groups.entries()) {
+    for (const [overloadIndex, overload] of group.overloads.entries()) {
+      if (overload.graphSelectorKey === target.selectorKey)
         ownerMatches.push({ groupIndex, overloadIndex });
     }
   }
-  return ownerMatches.length === 1 ? ownerMatches[0] : null;
+  return ownerMatches.length === 1 ? ownerMatches[0] ?? null : null;
 }
 
 export function searchableMemberGroups<
@@ -1371,9 +1447,9 @@ export interface SourceWorkbenchState {
   package?: unknown;
   graphSourceOpen?: boolean;
   atPackageRoot?: boolean;
-  lens?: string;
+  lens?: TypeLens;
   selectedMemberKey?: string;
-  memberSection?: string;
+  memberSection?: MemberSection;
 }
 
 function sourceWorkbenchIsVisible(state: SourceWorkbenchState): boolean {
@@ -1486,18 +1562,28 @@ export interface SectionableMember {
   kind?: string;
 }
 
+// The full roster is derived from the catalog rather than restated, so a new section is
+// offered as soon as it is defined. Restating it was the durable defect: the compiler
+// rejects a *removal* from the catalog, because the literal would stop being assignable,
+// but nothing caught an *addition*, which silently never reached the UI at all.
+const allMemberSections: readonly MemberSection[] =
+  memberSectionDefinitions.map(([id]) => id);
+
+const sourceBackedMemberSections: ReadonlySet<MemberSection> =
+  new Set<MemberSection>(["source", "annotated"]);
+
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
   isRuntimePack = false,
   hasSelectedBody = false,
-): string[] {
+): MemberSection[] {
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     return ["overview"];
   }
   const sections = isRuntimePack
-    ? ["overview", "call-graph", "facts"]
-    : ["overview", "call-graph", "facts", "source", "annotated"];
+    ? allMemberSections.filter(section => !sourceBackedMemberSections.has(section))
+    : [...allMemberSections];
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")
     ? sections.filter(id => id !== "source")
@@ -1506,7 +1592,7 @@ export function memberSectionIdsFor(
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean } | null | undefined,
-): readonly (readonly [string, string])[] {
+): readonly (readonly [TypeLens, string])[] {
   return pkg?.isRuntimePack
     ? lenses.filter(([id]) => id === "api")
     : lenses;

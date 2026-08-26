@@ -98,7 +98,7 @@ export interface SpotlightState {
   spotlightOpen: boolean;
   spotlightQuery: string;
   spotlightIndex: number;
-  spotlightScope: string;
+  spotlightScope: SpotlightScope;
   spotlightFocus: SpotlightFocus;
   spotlightChipIndex: number;
 }
@@ -139,6 +139,10 @@ const BASE_SCOPES = [
 ] as const;
 
 const COMMAND_SCOPE = { id: "commands", label: "Commands" } as const;
+
+export type SpotlightScope =
+  | (typeof BASE_SCOPES)[number]["id"]
+  | typeof COMMAND_SCOPE.id;
 const PLATFORM_PACK_LABEL: Readonly<Record<string, string>> = {
   "netcore.app": ".NET",
   "aspnetcore.app": "ASP.NET Core",
@@ -402,8 +406,9 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function rememberSelection(items: readonly SpotlightResult[]): void {
-    selectedResultIdentity = items[state.spotlightIndex]
-      ? spotlightResultIdentity(items[state.spotlightIndex])
+    const selected = items[state.spotlightIndex];
+    selectedResultIdentity = selected
+      ? spotlightResultIdentity(selected)
       : null;
   }
 
@@ -482,8 +487,8 @@ export function createSpotlight(options: SpotlightOptions) {
   function bindChipClicks(root: ParentNode): void {
     root.querySelectorAll<HTMLElement>("[data-sl-scope]").forEach(button => {
       button.addEventListener("click", () => {
-        const scope = button.dataset.slScope;
-        if (scope !== undefined) setScope(scope);
+        const scope = availableScope(button.dataset.slScope);
+        if (scope !== null) setScope(scope);
       });
     });
   }
@@ -530,7 +535,11 @@ export function createSpotlight(options: SpotlightOptions) {
     updateResults();
   }
 
-  function setScope(scope: string): void {
+  function availableScope(scope: string | undefined): SpotlightScope | null {
+    return scopes().find(item => item.id === scope)?.id ?? null;
+  }
+
+  function setScope(scope: SpotlightScope): void {
     const available = scopes();
     if (!available.some(item => item.id === scope)) return;
     state.spotlightScope = scope;
@@ -559,14 +568,12 @@ export function createSpotlight(options: SpotlightOptions) {
     options.focusAfterDismiss?.();
   }
 
-  function open(seed = "", scope = "all"): void {
+  function open(seed = "", scope: SpotlightScope = "all"): void {
     interactionGeneration++;
     options.resetPackageSearch();
     state.spotlightOpen = true;
     state.spotlightQuery = seed;
-    state.spotlightScope = scopes().some(item => item.id === scope)
-      ? scope
-      : "all";
+    state.spotlightScope = availableScope(scope) ?? "all";
     state.spotlightFocus = "input";
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
@@ -670,8 +677,11 @@ export function createSpotlight(options: SpotlightOptions) {
         available.length,
         event.shiftKey,
       );
-      state.spotlightChipIndex = next;
-      setScope(available[next].id);
+      const nextScope = available[next];
+      if (nextScope) {
+        state.spotlightChipIndex = next;
+        setScope(nextScope.id);
+      }
       return true;
     }
 

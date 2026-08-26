@@ -3907,7 +3907,6 @@ public class PackageCommand
 
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
@@ -3961,18 +3960,24 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        var scanners = pipeline.GetRequiredScanners(
+        HashSet<InspectionQueryDefinition> sectionQueries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        var queries = pipeline.GetRequiredQueries(
-            libraryOptions.Verbosity,
-            libraryOptions.IncludeSections,
-            libraryOptions.FixedOverview,
-            commandDemand: commandQueryDemand);
+        if (sectionQueries.Contains(BodyShapesQuery.Definition)
+            && libraryOptions.BodyKindQuery.HasFilter
+            && libraryOptions.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
+        HashSet<InspectionQueryDefinition> queries = sectionQueries;
+        foreach ((_, InspectionQueryDefinition query) in commandQueryDemand)
+            queries.Add(query);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -4019,8 +4024,6 @@ public class PackageCommand
                     packageName,
                     version,
                     context.HttpClient,
-                    scanners: scanners,
-                    scannerRegistry: scannerRegistry,
                     queries: queries,
                     queryRegistry: queryRegistry,
                     assemblyReference: assemblyReference,

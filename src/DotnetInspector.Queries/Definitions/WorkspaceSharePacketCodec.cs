@@ -1,11 +1,18 @@
 using System.Buffers;
 using System.Buffers.Text;
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Queries.Definitions;
+
+internal readonly record struct GroupExpressionPin(
+    int SegmentIndex,
+    int SeparatorIndex,
+    int ValueStart,
+    int ValueLength);
 
 /// <summary>
 /// Decodes and canonically emits the versioned base64url workspace share
@@ -58,32 +65,7 @@ public static class WorkspaceSharePacketCodec
                 $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
         }
 
-        ValidateUtf8(utf8Json);
-        ValidateJsonBudget(utf8Json);
-
-        JsonDocument document;
-        try
-        {
-            document = HardenedJson.Parse(utf8Json);
-        }
-        catch (JsonException ex)
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.InvalidJson,
-                "Workspace share state is not valid duplicate-free JSON.",
-                ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.InvalidJson,
-                "Workspace share state contains invalid JSON property text.",
-                ex);
-        }
-
-        WorkspaceSharePacket packet;
-        using (document)
-            packet = Bind(document.RootElement);
+        WorkspaceSharePacket packet = ParseJson(utf8Json, cancellationToken);
 
         string canonical = Encode(packet);
         if (!string.Equals(encoded, canonical, StringComparison.Ordinal))
@@ -97,18 +79,65 @@ public static class WorkspaceSharePacketCodec
     }
 
     /// <summary>
+    /// Parses one duplicate-free JSON packet shape into the validated semantic
+    /// model. Insignificant whitespace, property order, and equivalent JSON
+    /// string escapes are accepted; <see cref="Encode"/> restores the one
+    /// canonical base64url representation.
+    /// </summary>
+    public static WorkspaceSharePacket ParseJson(
+        string json,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(json);
+        if (json.Length == 0)
+            throw Failure(WorkspaceSharePacketFailureKind.Empty, "Workspace share JSON is empty.");
+        if (json.Length > MaxDecodedUtf8Length)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+                $"Workspace share JSON exceeds the {MaxDecodedUtf8Length}-byte limit.");
+        }
+
+        byte[] utf8Json;
+        try
+        {
+            int byteCount = s_utf8Strict.GetByteCount(json);
+            if (byteCount > MaxDecodedUtf8Length)
+            {
+                throw Failure(
+                    WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+                    $"Workspace share JSON exceeds the {MaxDecodedUtf8Length}-byte limit.");
+            }
+
+            utf8Json = s_utf8Strict.GetBytes(json);
+        }
+        catch (EncoderFallbackException ex)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.InvalidJson,
+                "Workspace share JSON contains invalid Unicode.",
+                ex);
+        }
+
+        return ParseJson(utf8Json, cancellationToken);
+    }
+
+    /// <summary>
+    /// Emits the exact compact JSON text used by canonical packet encoding.
+    /// </summary>
+    public static string SerializeJson(WorkspaceSharePacket packet)
+    {
+        byte[] utf8Json = WriteValidatedJson(packet);
+        return s_utf8Strict.GetString(utf8Json);
+    }
+
+    /// <summary>
     /// Emits the one canonical base64url representation of a validated packet.
     /// </summary>
     public static string Encode(WorkspaceSharePacket packet)
     {
-        ArgumentNullException.ThrowIfNull(packet);
-        byte[] utf8Json = WriteCanonicalJson(packet);
-        if (utf8Json.Length > MaxDecodedUtf8Length)
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
-                $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
-        }
+        byte[] utf8Json = WriteValidatedJson(packet);
 
         string encoded = Convert.ToBase64String(utf8Json)
             .TrimEnd('=')
@@ -122,6 +151,61 @@ public static class WorkspaceSharePacketCodec
         }
 
         return encoded;
+    }
+
+    private static WorkspaceSharePacket ParseJson(
+        ReadOnlyMemory<byte> utf8Json,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (utf8Json.Length == 0)
+            throw Failure(WorkspaceSharePacketFailureKind.Empty, "Workspace share JSON is empty.");
+        if (utf8Json.Length > MaxDecodedUtf8Length)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+                $"Workspace share JSON exceeds the {MaxDecodedUtf8Length}-byte limit.");
+        }
+
+        ValidateUtf8(utf8Json.Span);
+        ValidateJsonBudget(utf8Json.Span);
+
+        JsonDocument document;
+        try
+        {
+            document = HardenedJson.Parse(utf8Json);
+        }
+        catch (JsonException ex)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.InvalidJson,
+                "Workspace share JSON is not valid duplicate-free JSON.",
+                ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.InvalidJson,
+                "Workspace share JSON contains invalid property text.",
+                ex);
+        }
+
+        using (document)
+            return Bind(document.RootElement);
+    }
+
+    private static byte[] WriteValidatedJson(WorkspaceSharePacket packet)
+    {
+        ArgumentNullException.ThrowIfNull(packet);
+        byte[] utf8Json = WriteCanonicalJson(packet);
+        if (utf8Json.Length > MaxDecodedUtf8Length)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+                $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
+        }
+
+        return utf8Json;
     }
 
     private static byte[] DecodeBase64Url(string encoded)
@@ -553,8 +637,12 @@ public static class WorkspaceSharePacketCodec
                 ex);
         }
 
-        if (value.Length == 0)
-            throw InvalidShape($"Workspace share {owner} must not be empty.");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw InvalidShape(
+                $"Workspace share {owner} must not be empty or whitespace.");
+        }
+
         EnsureWellFormedUnicode(value, owner);
         return value;
     }
@@ -574,24 +662,68 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static bool IsGroupExpression(string value)
+    internal static bool IsGroupExpression(string value)
     {
-        if (value.Length < 2 || value[0] != ':' || value.Contains('@', StringComparison.Ordinal))
+        return TryParseGroupExpression(value, out IReadOnlyList<GroupExpressionPin> pins)
+            && pins.Count == 0;
+    }
+
+    internal static bool TryParseGroupExpression(
+        string value,
+        out IReadOnlyList<GroupExpressionPin> pins)
+    {
+        pins = Array.Empty<GroupExpressionPin>();
+        if (value.Length < 2 || value[0] != ':')
             return false;
 
-        ReadOnlySpan<char> remaining = value.AsSpan(1);
+        var parsedPins = new List<GroupExpressionPin>();
+        int position = 1;
+        int segmentIndex = 0;
         while (true)
         {
-            int separator = remaining.IndexOfAny(':', '+');
-            ReadOnlySpan<char> segment = separator < 0
-                ? remaining
-                : remaining[..separator];
-            if (!IsGroupName(segment))
+            int nameStart = position;
+            while (position < value.Length
+                && value[position] is not ('@' or ':' or '+'))
+            {
+                if (!IsGroupNameCharacter(value[position]))
+                    return false;
+                position++;
+            }
+            if (position == nameStart)
                 return false;
-            if (separator < 0)
-                return true;
 
-            remaining = remaining[(separator + 1)..];
+            if (position < value.Length && value[position] == '@')
+            {
+                int separatorIndex = position++;
+                int valueStart = position;
+                while (position < value.Length
+                    && value[position] is not (':' or '+'))
+                {
+                    if (!IsGroupVersionCharacter(value[position]))
+                        return false;
+                    position++;
+                }
+                if (position == valueStart)
+                    return false;
+
+                parsedPins.Add(new GroupExpressionPin(
+                    segmentIndex,
+                    separatorIndex,
+                    valueStart,
+                    position - valueStart));
+            }
+
+            if (position == value.Length)
+            {
+                pins = parsedPins.Count == 0
+                    ? Array.Empty<GroupExpressionPin>()
+                    : new ReadOnlyCollection<GroupExpressionPin>(
+                        parsedPins.ToArray());
+                return true;
+            }
+
+            position++;
+            segmentIndex++;
         }
     }
 
@@ -604,21 +736,24 @@ public static class WorkspaceSharePacketCodec
         return baseSegment.SequenceEqual("Platform");
     }
 
-    private static bool IsGroupName(ReadOnlySpan<char> value)
+    internal static bool IsGroupName(ReadOnlySpan<char> value)
     {
         if (value.IsEmpty)
             return false;
         foreach (char character in value)
         {
-            if (!char.IsAsciiLetterOrDigit(character)
-                && character is not ('.' or '_' or '-'))
-            {
+            if (!IsGroupNameCharacter(character))
                 return false;
-            }
         }
 
         return true;
     }
+
+    private static bool IsGroupNameCharacter(char value) =>
+        char.IsAsciiLetterOrDigit(value) || value is '.' or '_' or '-';
+
+    private static bool IsGroupVersionCharacter(char value) =>
+        char.IsAsciiLetterOrDigit(value) || value is '.' or '-';
 
     private static byte[] WriteCanonicalJson(WorkspaceSharePacket packet)
     {
