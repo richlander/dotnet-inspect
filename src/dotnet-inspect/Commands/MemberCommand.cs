@@ -387,6 +387,11 @@ public static class MemberCommand
 
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
+                selected.SelectorOverloadIndex = GetPublishedSelectorIndex(
+                    apiType,
+                    effectiveOptions,
+                    memberName,
+                    selected);
                 bool explicitAccessorSelector =
                     target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
                     && target.OverloadIndex.HasValue
@@ -400,7 +405,6 @@ public static class MemberCommand
                     return 1;
                 }
                 apiType.Members = [selected];
-                selected.SelectorOverloadIndex = target.SelectorIndex;
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
@@ -451,15 +455,23 @@ public static class MemberCommand
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var arityCandidateTargets = GetTargetCandidates(apiType, effectiveOptions, memberName);
-                var unfilteredSelectorIndices = GetTargetCandidates(
+                var unfilteredCandidates = GetTargetCandidates(
                         apiType,
                         effectiveOptions with { MemberGenericArity = null },
-                        memberName)
+                        memberName);
+                var unfilteredSelectorIndices = unfilteredCandidates
                     .ToDictionary(candidate => candidate.Member, candidate => candidate.SelectorIndex);
                 var arityCandidates = arityCandidateTargets.Select(candidate =>
                 {
-                    if (unfilteredSelectorIndices.TryGetValue(candidate.Member, out var selectorIndex))
+                    if (unfilteredCandidates.Count > 1
+                        && unfilteredSelectorIndices.TryGetValue(candidate.Member, out var selectorIndex))
+                    {
                         candidate.Member.SelectorOverloadIndex = selectorIndex;
+                    }
+                    else
+                    {
+                        candidate.Member.SelectorOverloadIndex = null;
+                    }
                     return candidate.Member;
                 }).ToList();
                 if (arityCandidates.Count == 0)
@@ -579,12 +591,13 @@ public static class MemberCommand
             // Aggregated caller queries always inspect the member's own assembly, with any
             // explicit caller scope contributing additional assemblies below.
             var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
-            if ((effectiveOptions.HasCallerScope
-                 || ApiMemberSectionPipelines.ShouldAggregateCallers(
-                     apiType,
-                     effectiveOptions))
-                && effectiveOptions.DllPath == null
-                && callerTargetAssembly != null)
+            bool aggregateCallers = ApiMemberSectionPipelines.ShouldAggregateCallers(
+                apiType,
+                effectiveOptions);
+            if (callerTargetAssembly != null
+                && (aggregateCallers
+                    || effectiveOptions.HasCallerScope
+                    && effectiveOptions.DllPath == null))
             {
                 effectiveOptions = effectiveOptions with { DllPath = callerTargetAssembly };
             }
@@ -1114,6 +1127,24 @@ public static class MemberCommand
                     ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
                     : new MemberTargetSelector(memberName, memberName),
                 options.KindFilter);
+
+    private static int? GetPublishedSelectorIndex(
+        ApiType apiType,
+        MemberOptions options,
+        string memberName,
+        ApiMember selected)
+    {
+        var candidates = GetTargetCandidates(
+            apiType,
+            options with { MemberGenericArity = null },
+            memberName);
+        if (candidates.Count <= 1)
+            return null;
+
+        return candidates
+            .Single(candidate => ReferenceEquals(candidate.Member, selected))
+            .SelectorIndex;
+    }
 
     private static string GetMemberSectionName(string kind) => kind switch
     {

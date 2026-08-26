@@ -16,4 +16,10 @@ public abstract class MemberBodylessEvidenceFixture
     public int this[byte value] => value;
 
     public unsafe int this[int* value] => *value;
+
+    public void Generic<T>(T value) { }
+
+    public void Generic<T1, T2>(T1 first, T2 second) { }
+
+    public void Generic(byte value) { }
 }

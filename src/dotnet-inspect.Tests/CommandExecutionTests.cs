@@ -13627,6 +13627,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_TypeScopeMixedCallersUsesForwardedImplementationAssembly()
+    {
+        const string typeName =
+            "System.Runtime.CompilerServices.RuntimeFeature";
+        var result = await RunAppAsync(
+            "member", typeName, "--platform", "System.Runtime",
+            "-S", $"{SectionNames.Callers},{SectionNames.UnsafeMembers}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains($"## {SectionNames.Callers}", result.Output);
+        Assert.Contains(
+            "RuntimeFeature.IsSupported(string)",
+            result.Output);
+        Assert.DoesNotContain(
+            "No callers found in this assembly.",
+            result.Output);
+    }
+
+    [Fact]
     public async Task Member_TypeScopeCallersDocumentJsonFailsClosed()
     {
         string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
@@ -13721,6 +13742,47 @@ public partial class CommandExecutionTests
         Assert.Contains(signature, result.Output);
         Assert.Contains($"`{selector}`", result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_GenericArityAutoSelectionPublishesCopyableSelector()
+    {
+        string assemblyPath = typeof(MemberBodylessEvidenceFixture).Assembly.Location;
+        string typeName = typeof(MemberBodylessEvidenceFixture).FullName!;
+        var selected = await RunAppAsync(
+            "member", typeName, "--library", assemblyPath,
+            "Generic<T,T>", "-S",
+            $"{SectionNames.Signature},{SectionNames.MemberIndex}",
+            "--tips", "q");
+
+        Assert.Equal(0, selected.Exit);
+        Assert.Empty(selected.Error);
+        Assert.Contains("Generic<T1, T2>(T1 first, T2 second)", selected.Output);
+        Assert.Contains("`Generic:2`", selected.Output);
+
+        var copied = await RunAppAsync(
+            "member", typeName, "--library", assemblyPath,
+            "Generic:2", "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(0, copied.Exit);
+        Assert.Empty(copied.Error);
+        Assert.Contains("Generic<T1, T2>(T1 first, T2 second)", copied.Output);
+    }
+
+    [Fact]
+    public async Task Member_SingletonAutoSelectionPublishesBareSelector()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            nameof(MemberBodylessEvidenceFixture.Native),
+            "-S", $"{SectionNames.Signature},{SectionNames.MemberIndex}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("`Native`", result.Output);
+        Assert.DoesNotContain("`Native:1`", result.Output);
     }
 
     [Theory]
