@@ -591,11 +591,11 @@ public static class MemberCommand
             // Aggregated caller queries always inspect the member's own assembly, with any
             // explicit caller scope contributing additional assemblies below.
             var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
-            bool aggregateCallers = ApiMemberSectionPipelines.ShouldAggregateCallers(
+            bool aggregateCallerTargets = ApiMemberSectionPipelines.ShouldAggregateCallers(
                 apiType,
                 effectiveOptions);
             if (callerTargetAssembly != null
-                && (aggregateCallers
+                && (aggregateCallerTargets
                     || effectiveOptions.HasCallerScope
                     && effectiveOptions.DllPath == null))
             {
