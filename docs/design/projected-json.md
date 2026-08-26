@@ -6,33 +6,37 @@ format contract, not a new shape or a replacement for the established typed
 JSON contracts.
 
 **Lowered** names the point where this JSON path joins Markout. The command
-builds the same Markout view used by Markdown, TSV, and JSONL; Markout applies
-section selection, field/column projection, and row windows while serializing
-that view. A JSON formatter receives the resulting field, table, list, and tree
-callbacks and assembles them into one JSON document. It is a sibling formatter,
-not a projection over the typed JSON graph and not a parser for rendered
-Markdown or table text.
+builds the same Markout view used by Markdown, TSV, and JSONL. Product-owned
+section/view adapters resolve section identities and construct display values
+and stable table keys. The resolved writer plan is then passed to Markout,
+which mechanically applies its section/projection/window options while
+serializing the view. A JSON formatter receives the resulting field, table,
+list, and tree callbacks and assembles them into one JSON document. It is a
+sibling formatter, not a projection over the typed JSON graph and not a parser
+for rendered Markdown or table text.
 
 The current Markout formatter seam carries field values and table cells as
-display strings. Markout therefore owns which content reaches lowered JSON and
-how typed facts become display text; the JSON formatter owns only the JSON
-containers, keys, escaping, and structural loss checks. This string-valued seam
-is why lowered JSON intentionally differs from the pre-lowered typed JSON
-contract described below.
+display strings. The product adapters own how typed facts become those strings;
+Markout owns serialization mechanics and delivery of the lowered callbacks; the
+JSON formatter owns JSON containers, escaping, and structural loss checks. This
+string-valued seam is why lowered JSON intentionally differs from the
+pre-lowered typed JSON contract described below.
 
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
-column projection under `--json`. New command families adopt this contract
+column projection under `--json`. Other projection-capable paths, including
+current `library` and `package` routes, can still accept the flags and return
+the full typed document instead. New command families adopt this contract
 individually rather than treating the existing formatter as evidence that every
-section is representable.
+section or route is correct.
 
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
-keys are still derived from display headings, and section-scoped projection has
-not been proven over broad multi-section documents. Issue #4677 owns the
-in-progress redesign of semantic item limits versus explicit rendered-line
-limits; this contract does not pre-empt that decision. These are hardening work,
-not accepted compatibility behavior.
+keys are still derived from display headings, labeled-array keys are discarded,
+and section-scoped projection has not been proven over broad multi-section
+documents. Issue #4677 owns the in-progress redesign of semantic item limits
+versus explicit rendered-line limits; this contract does not pre-empt that
+decision. These are hardening work, not accepted compatibility behavior.
 
 Related docs:
 
@@ -57,11 +61,14 @@ Related docs:
    table formats. Values are strings because the current formatter seam carries
    strings.
 
-Payload projection routing has precedence because `--fields`/`--columns` can
-select the source column for `--value` or `--print`. After an accepted payload
+Lens routing has first precedence. An accepted lens such as `-D`/`--discover`
+owns its payload and returns before the normal section pipeline; its own
+projection contract must not be reinterpreted as a lowered document request.
+Payload projection routing follows because `--fields`/`--columns` can select
+the source column for `--value` or `--print`. After no lens or payload
 projection has claimed the request, the routing rule is:
 
-> `--json` uses typed JSON unless an otherwise-unconsumed, non-empty
+> `--json` uses typed JSON unless an otherwise-unclaimed, non-empty
 > `--fields` or `--columns` request selects lowered JSON.
 
 Those flags are the dialect boundary because they name post-lowering
@@ -81,6 +88,7 @@ display columns from JSON property names.
 | `--json -S ...` | Typed | Do not lower; the command's typed section-selection contract applies. |
 | `--json --rows ...` | Typed | Do not lower; the command's typed row-window contract applies. |
 | `--json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
+| `--json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
 | `--json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
 | `--json --fields ...` | Lowered | Apply field-set projection through the section model. |
 | `--json --columns ...` | Lowered | Apply table-column projection through the section model. |
@@ -101,6 +109,11 @@ Payload projections such as `--count`, `--value`, `--print`, `--urls`, and
 payload projection claims the request before the JSON dialect is chosen.
 `--fields`/`--columns` may then select which source feeds that payload; they do
 not opt the enclosing request into lowered document JSON.
+
+Lens modes keep the same precedence. Discovery, package-content, version,
+layout, and other lens-owned output either honors its own accepted projection
+or rejects it under the lens contract; a central JSON router may not pull that
+request into the normal lowered-document path.
 
 Issue #4677 decides the item domain, pipeline order, migration, and exact
 relationship among `-n`/bare `-N`, `--tail`, `--rows`, and a future explicit
@@ -123,7 +136,8 @@ The dialect split does not change layer ownership.
 | Parse flags, select JSON format/dialect, commit stdout, choose exit code | L3 CLI |
 | Select ordered sections and apply row/field/column shape decisions | L2 section model |
 | Resolve projection names against each selected section schema | L2 projection service |
-| Produce display strings and stable table keys | Markout lowering |
+| Produce display strings, section identities, and stable table keys | L2 section/view adapters |
+| Apply the resolved writer plan and deliver formatter callbacks | Markout serialization |
 | Map a representable lowered document to JSON | Lowered JSON formatter |
 | Preserve the command's existing typed JSON schema | Typed command serializer |
 | Produce inspection facts and typed failures | Owning query/producer |
@@ -164,9 +178,27 @@ section contributes exactly one JSON value:
 | --- | --- |
 | Field set | Object whose properties are the selected fields |
 | Table | Array of row objects |
-| List or intrinsic vector | Array of strings |
+| Unlabeled list or intrinsic vector | Array of strings |
+| One or more labeled arrays | Object whose properties are label keys and whose values are arrays of strings |
 | Typed tree | Array of node objects with `text`, optional `badge`, and optional `children` |
 | Code/text blob or scalar | JSON string, when the formatter receives the payload through a value-bearing callback |
+
+Markout supplies each labeled array as a label plus its values. Lowered JSON
+must retain both:
+
+```json
+{
+  "overview": {
+    "target_frameworks": ["net8.0", "net9.0"],
+    "package_types": ["Dependency"]
+  }
+}
+```
+
+Labels use the machine-key rules below. Multiple labeled arrays may share a
+section only when their mapped keys are unique. A section that mixes labeled
+arrays with unlabeled list items is unrepresentable until a different envelope
+is designed; flattening either form would lose identity.
 
 A table projected to one column remains an array of one-property row objects:
 
@@ -213,11 +245,13 @@ have the same keys in the same order and the same string values.
 
 Sections and fields should use declared machine names when the section model
 provides them. While the formatter seam exposes only display names, converting
-them with the shared snake_case policy is an allowed pilot mapping, but those
-derived keys are provisional. Before a command family is declared adopted, it
-must either wire declared machine identities or publish and gate an explicit
-machine-key manifest for every emitted root field, section, and field. Broad
-multi-section adoption must not freeze keys derived accidentally from headings.
+them with the shared snake_case policy is an allowed transitional mechanism.
+The keys already emitted by the shipped `find` and `vocabulary` pilots are
+nevertheless compatibility-significant now; changing `results`, `members`, or
+any shipped vocabulary section key requires an explicit migration. Before a
+new command family is adopted, it must either wire declared machine identities
+or publish and gate an explicit machine-key manifest for every emitted root
+field, section, field, and labeled array.
 
 Every mapped namespace must reject collisions. It must not emit two properties
 and rely on a JSON parser to keep the last one.
@@ -227,7 +261,8 @@ Collision checks cover:
 - root fields against other root fields and section keys;
 - section keys against other section keys;
 - fields within a field-set section; and
-- columns within every row-object schema.
+- columns within every row-object schema; and
+- labeled arrays within their section object.
 
 ### Display values
 
@@ -302,7 +337,8 @@ The target representation covers:
 
 - grouped field sets;
 - one table schema per section, including repeated writes with the same schema;
-- lists; and
+- unlabeled lists;
+- one or more uniquely keyed labeled arrays; and
 - trees delivered with typed parent/child relationships.
 
 Code/text blobs and scalar sections become representable only when their full
@@ -313,6 +349,8 @@ The following conditions are unrepresentable until a specific JSON shape is
 designed:
 
 - one section mixes fields, tables, lists, trees, or blobs;
+- one section mixes labeled arrays with unlabeled list items;
+- a labeled array has no usable key or collides with another mapped label;
 - one section emits tables with different schemas;
 - a row has more cells than its table schema;
 - a field callback supplies a key without its value;
@@ -391,43 +429,59 @@ Lowered JSON promises:
 Escaping and insignificant whitespace need not be byte-identical to JSONL.
 Consumers compare decoded content.
 
-Replacing a prior fail-closed `--json --fields/--columns` combination with this
-output is additive. Once a command ships lowered JSON, changing its strings to
-inferred native JSON types is breaking. A future typed Markout seam may support
-a separately designed contract, but it must not silently change this dialect's
-value kinds.
+Replacing a genuinely fail-closed `--json --fields/--columns` combination with
+this output is additive. That applies to routes such as current `type` and
+`member`, which reject rather than return a document.
+
+It does not apply where a command currently succeeds after silently dropping
+the projection. Changing `library`, `package`, or another such route from a full
+typed document to lowered JSON changes a successful machine response. The
+adoption slice must identify that compatibility change explicitly and first
+establish visible fail-closed routing or an approved migration; it may not call
+the change additive.
+
+Once a command ships lowered JSON, changing its strings to inferred native JSON
+types is breaking. A future typed Markout seam may support a separately designed
+contract, but it must not silently change this dialect's value kinds.
 
 The dialect boundary itself may change the root kind. For example, a command's
 typed JSON may be a root array while its lowered JSON is a document object
 containing the projected section. That change is intentional because adding
 `--fields`/`--columns` explicitly selects the other dialect.
 
-Table machine keys are already covered by the lowered compatibility promise.
-Heading-derived root, section, and field keys remain provisional until the
-command passes its machine-key manifest gate. After adoption, adding a root
-field or section is compatibility-significant because both share the root
-namespace and must remain collision-free.
+Every key already emitted by a shipped lowered path is covered by the
+compatibility promise, including heading-derived root, section, and field keys.
+The derivation mechanism may be replaced, but changing the emitted key requires
+an explicit migration. Adding a root field or section is
+compatibility-significant because both share the root namespace and must remain
+collision-free.
 
 ## Adoption sequence
 
 Adopt one coherent command family at a time.
 
 1. **Harden the shared path.** Add dialect routing, section-scoped projection,
-   declared machine-key plans, representability preflight, transactional
-   stdout, and integration with the final #4677 limit contract around the
-   existing `find`/`vocabulary` formatter. Move or expose projection decisions
-   at the L2 boundary.
-2. **Adopt single-document table and field views.** Start with `type` and
+   lens precedence, labeled-array preservation, pinned machine-key plans,
+   representability preflight, transactional stdout, and integration with the
+   final #4677 limit contract around the existing `find`/`vocabulary`
+   formatter. Move or expose projection decisions at the L2 boundary.
+2. **Audit every projection-capable route.** Prove that each accepted
+   `--json --fields/--columns` request is owned by a lens/payload, rendered as
+   lowered JSON, or rejected visibly. Add fail-closed routing or an explicit
+   migration before changing a route that currently succeeds after dropping
+   the projection.
+3. **Adopt single-document table and field views.** Start with `type` and
    `member`, using their existing section manifests and projection diagnostics.
-3. **Adopt multi-section library/package documents.** Partition projection per
+4. **Adopt multi-section library/package documents.** Partition projection per
    selected section and reject unsupported sections before running the writer.
-4. **Adopt lists and typed trees.** Prove hierarchy and ordering without
+5. **Adopt lists and typed trees.** Prove labels, hierarchy, and ordering without
    recovering them from rendered text.
-5. **Design remaining envelopes.** Add blobs, mixed-content sections, and
+6. **Design remaining envelopes.** Add blobs, mixed-content sections, and
    multi-subject output only after each has an explicit JSON representation.
 
-Each slice keeps plain `--json` on the typed path and removes that command's
-fail-closed guard only when its lowered path passes the required gates.
+Each slice keeps plain `--json` on the typed path. A fail-closed command removes
+its guard only when its lowered path passes the required gates; a silently
+dropping command follows the separate migration rule above.
 
 ## Gates
 
@@ -451,11 +505,13 @@ implemented:
 
 | Required future gate | Claim it must enforce |
 | --- | --- |
-| `JsonDialectRoutingTests` | Only otherwise-unconsumed, non-empty `--fields`/`--columns` select lowered JSON; payload projections win, and `-S`, `--rows`, and `--compact` do not lower. |
+| `JsonDialectRoutingTests` | Lenses and payload projections claim requests first; only otherwise-unclaimed, non-empty `--fields`/`--columns` select lowered JSON, while `-S`, `--rows`, and `--compact` do not lower. |
+| `ProjectedJsonRoutingAuditTests` | Every projection-capable command either honors an accepted lens/payload, emits lowered JSON, or rejects visibly; no route succeeds after dropping the projection. |
 | `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
+| `ProjectedJsonLabeledArrayTests` | Labeled-array keys and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
 | `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections resolve independently and preserve requested ordering. |
-| `ProjectedJsonMachineKeyTests` | Every adopted root field, section, field, and column has a unique pinned machine key independent of display-heading changes. |
+| `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
 | `ProjectedJsonWindowingTests` | Under the final #4677 contract, semantic item/row windows happen before encoding and any rendered-line mode emits one complete JSON value or rejects with empty stdout. |
@@ -473,7 +529,9 @@ JSON.
 - No conversion of display strings back into guessed native types.
 - No requirement to migrate every typed JSON command in one change.
 - No retroactive promise that every typed JSON command already supports `-S`
-  or `--rows`; silently dropped typed modifiers remain separate defects.
+  or `--rows`; silently dropped typed modifiers remain defects.
+- No compatibility waiver for commands that currently drop
+  `--fields`/`--columns`; their migration must be explicit.
 - No decision about the `-n` item domain, `--rows` interaction, `--lines`
   grammar, or migration; issue #4677 owns those contracts.
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
