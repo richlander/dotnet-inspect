@@ -19,7 +19,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, ResolvedAssemblyReference? AssemblyReference = null, string? CaretFocus = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, ResolvedAssemblyReference? AssemblyReference = null, ResolvedAssemblyReference? TokenOriginAssemblyReference = null, string? CaretFocus = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -72,6 +72,11 @@ internal static class MemberCodeProvider
             return results;
 
         var bodySource = image.MethodBodies;
+        IReadOnlyDictionary<int, int> bodyTokens =
+            ApiBodyMemberCorrespondence.Resolve(
+                methods,
+                request.TokenOriginAssemblyReference ?? assembly,
+                assembly);
 
         // All decompiler-backed sections (decompiled source, annotated source, IR
         // stages) read through one MetadataSource that owns its own readers.
@@ -110,7 +115,9 @@ internal static class MemberCodeProvider
                 method.Name,
                 lookupOverloadIndex,
                 publicOnly,
-                method.MetadataToken);
+                method.MetadataToken is { } sourceToken
+                    ? bodyTokens[sourceToken]
+                    : null);
             int? methodToken = selection?.MetadataToken;
 
             IReadOnlyList<(string Name, string? Value)>? attributes = null;

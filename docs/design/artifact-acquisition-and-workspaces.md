@@ -158,6 +158,14 @@ only inside their owning artifact generation. A digest and immutable source
 coordinate can provide durable content evidence, but neither recreates the
 owner-issued registration after that generation ends.
 
+Metadata tokens are acquisition-local addresses and never establish
+correspondence between registrations. When an API member selected from a
+reference acquisition is analyzed against a distinct runtime acquisition, the
+consumer derives the member's canonical identity independently from each
+acquisition's SRM metadata and maps to the runtime MethodDef before opening any
+body-backed section. Missing or ambiguous identity correspondence is a visible
+failure; a foreign token is never used as a fallback.
+
 Caller designation is a policy input, not source provenance or assembly
 identity. The current `AssemblyResolutionProvenance.DesignatedAsset` carries the
 fact that a caller explicitly enumerated a corpus/build-layout assembly so the
@@ -742,7 +750,12 @@ Several current types are migration inputs, not target precedent:
   `DescriptorCommandConsumerTests.PathlessApiOwnership_SelectsTypedAcquisitionRoles`
   gates the pathless reference/runtime distinction;
   `ForwardedApiOwnership_PreservesTargetForRuntimeRole` gates forwarded-target
-  preservation. Method-body state opens the token-origin acquisition, including
+  preservation.
+  `MethodBodyInspectionSessionTests.MemberAnalysis_CorrespondsMethodIdentityAcrossDistinctAcquisitions`
+  gates canonical member correspondence across deliberately reordered
+  MethodDef tables and proves that body analysis does not consume the unrelated
+  runtime method occupying the reference token's RID.
+  Method-body state opens the token-origin acquisition, including
   a pathless one, and uses registration identity rather than path equality;
   `CommandExecutionTests.MemberBodyState_UsesTokenOwnerRegistration` gates both
   cases. PDB source-location enrichment likewise supports pathless embedded

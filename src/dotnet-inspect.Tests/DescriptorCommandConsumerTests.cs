@@ -69,7 +69,7 @@ public sealed class DescriptorCommandConsumerTests
         Assert.NotEmpty(
             ApiAnalysisInspection.ResolveExceptionRegions(
                 "/path-that-must-not-be-opened.dll",
-                assembly,
+                options,
                 [method]));
     }
 

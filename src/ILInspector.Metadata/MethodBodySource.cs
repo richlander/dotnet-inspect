@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -131,6 +132,94 @@ public sealed class MethodBodySource : IOperandNameResolver
         var methodHandle = ValidateMethod(typeHandle, methodName, preferredToken)
             ?? FindMethod(typeHandle, methodName, overloadIndex, publicOnly);
         return methodHandle is { } handle ? CreateSelection(handle) : null;
+    }
+
+    /// <summary>
+    /// Resolves canonical member identities in one metadata scan per declaring
+    /// type. Missing and ambiguous identities are omitted.
+    /// </summary>
+    public IReadOnlyDictionary<string, MethodBodySelection> ResolveMethods(
+        IEnumerable<MemberAnchor> anchors)
+    {
+        _ensureAlive();
+        ArgumentNullException.ThrowIfNull(anchors);
+
+        var resolved = new Dictionary<string, MethodBodySelection>(
+            StringComparer.Ordinal);
+        var ambiguous = new HashSet<string>(StringComparer.Ordinal);
+        var requestedByType = anchors
+            .DistinctBy(anchor => anchor.CanonicalSignature)
+            .GroupBy(anchor => anchor.TypeFullName, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .Select(anchor => anchor.CanonicalSignature)
+                    .ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal);
+        foreach (var typeHandle in _reader.TypeDefinitions)
+        {
+            string typeName = ApiMemberIdentity.CreateTypeAnchorName(
+                _reader,
+                typeHandle);
+            if (!requestedByType.TryGetValue(
+                    typeName,
+                    out HashSet<string>? requested))
+            {
+                continue;
+            }
+
+            foreach (var handle in _reader.GetTypeDefinition(typeHandle).GetMethods())
+            {
+                var method = _reader.GetMethodDefinition(handle);
+                string canonicalSignature = ApiMemberIdentity.CreateMethodAnchor(
+                        _reader,
+                        typeHandle,
+                        method)
+                    .CanonicalSignature;
+                if (!requested.Contains(canonicalSignature))
+                    continue;
+
+                if (!resolved.TryAdd(
+                        canonicalSignature,
+                        CreateSelection(handle)))
+                {
+                    resolved.Remove(canonicalSignature);
+                    ambiguous.Add(canonicalSignature);
+                }
+            }
+        }
+
+        foreach (string canonicalSignature in ambiguous)
+            resolved.Remove(canonicalSignature);
+        return resolved;
+    }
+
+    /// <summary>
+    /// Returns the metadata-owned canonical identity of a MethodDef token in
+    /// this source. The token is interpreted only within this acquisition.
+    /// </summary>
+    public MemberAnchor? ResolveMethodAnchor(int methodToken)
+    {
+        _ensureAlive();
+        var entity = MetadataTokens.EntityHandle(methodToken);
+        if (entity.Kind != HandleKind.MethodDefinition)
+            return null;
+
+        try
+        {
+            var handle = (MethodDefinitionHandle)entity;
+            var method = _reader.GetMethodDefinition(handle);
+            return ApiMemberIdentity.CreateMethodAnchor(
+                    _reader,
+                    method.GetDeclaringType(),
+                    method);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     public bool ContainsType(string typeName)

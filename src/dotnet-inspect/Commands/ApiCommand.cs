@@ -2320,7 +2320,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
-                    options.AssemblyReference,
+                    options,
                     type.Members.Where(member => member.MetadataToken is not null
                         && ApiMemberSectionDescriptors.IsMethodLike(member)));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegions, options.IncludeSections);
@@ -2338,7 +2338,7 @@ public class ApiCommand
                 && options.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, options.IncludeSections);
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, options.IncludeSections, options);
             }
 
             if (options.DllPath is not null
@@ -2347,7 +2347,8 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
                     options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
-                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options),
+                    apiOptions: options);
             }
 
             if (options.DllPath is not null
@@ -2355,7 +2356,8 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
-                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options),
+                    options: options);
             }
 
             // Source code (already resolved in command layer)
@@ -2415,6 +2417,13 @@ public class ApiCommand
             var assembly = options.AssemblyReference
                 ?? throw new InvalidOperationException(
                     "Whole-type Decompiled Source requires the acquired assembly descriptor.");
+            var tokenOrigin =
+                options.TokenOriginAssemblyReference ?? assembly;
+            IReadOnlyDictionary<int, int> bodyTokens =
+                ApiBodyMemberCorrespondence.Resolve(
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    tokenOrigin,
+                    assembly);
             Decompiler.DecompilerResult projection =
                 Decompiler.MemberBodyProducer.Project(
                 type,
@@ -2422,7 +2431,8 @@ public class ApiCommand
                 resolver,
                 metadata,
                 options.RenderOptions,
-                options.PdbPath);
+                options.PdbPath,
+                bodyTokens);
             if (projection.Output is { } listing)
             {
                 // Surface pending config warnings only once the styled listing is
@@ -3257,7 +3267,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
-                    renderOptions.AssemblyReference,
+                    renderOptions,
                     type.Members.Where(member => member.MetadataToken is not null
                         && ApiMemberSectionDescriptors.IsMethodLike(member)));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(
@@ -3276,7 +3286,7 @@ public class ApiCommand
                 && renderOptions.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, renderOptions.IncludeSections, renderOptions);
             }
 
             if (renderOptions.DllPath is not null
@@ -3284,7 +3294,8 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
-                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions),
+                    apiOptions: renderOptions);
             }
 
             if (renderOptions.DllPath is not null
@@ -3292,7 +3303,8 @@ public class ApiCommand
             {
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
-                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
+                        || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions),
+                    options: renderOptions);
             }
         }
 

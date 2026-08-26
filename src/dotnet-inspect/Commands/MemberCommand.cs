@@ -528,6 +528,11 @@ public static class MemberCommand
 
             effectiveOptions = effectiveOptions with
             {
+                TokenOriginAssemblyReference =
+                    ApiServices.AssemblyReferenceForRole(
+                        loaded,
+                        apiType,
+                        ApiServices.AssemblyReferenceRole.TokenOrigin),
                 AssemblyReference =
                     ApiServices.AssemblyReferenceForRole(
                         loaded,

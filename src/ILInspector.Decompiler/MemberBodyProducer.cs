@@ -278,7 +278,8 @@ public static class MemberBodyProducer
         IAssemblyBindingPolicy bindingPolicy,
         Pipeline.MetadataContext? context = null,
         Pipeline.PrinterOptions? printerOptions = null,
-        string? externalPdbPath = null)
+        string? externalPdbPath = null,
+        IReadOnlyDictionary<int, int>? bodyTokens = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -301,7 +302,8 @@ public static class MemberBodyProducer
                 bindingPolicy,
                 ctx),
             context,
-            printerOptions);
+            printerOptions,
+            bodyTokens);
         return composed.Error is { } error
             ? DecompilerResult.Failure(
                 DiagnosticIds.InternalError,
@@ -671,7 +673,8 @@ public static class MemberBodyProducer
         Func<CompositionDefinition?> locateType,
         Func<CompositionDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
-        Pipeline.PrinterOptions? printerOptions)
+        Pipeline.PrinterOptions? printerOptions,
+        IReadOnlyDictionary<int, int>? bodyTokens = null)
     {
         if (type.Kind is "delegate")
             return new TypeCompositionResult(Text: null);
@@ -740,7 +743,17 @@ public static class MemberBodyProducer
             {
                 ComposeFields(sb, reader, typeHandle, bodyNamespaces,
                     CollectFieldInitializers(pipelineSource, reader, typeHandle), ref any);
-                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, printerOptions: printerOptions);
+                ComposeMembers(
+                    sb,
+                    type,
+                    pipelineSource,
+                    reader,
+                    typeHandle,
+                    union,
+                    bodyNamespaces,
+                    ref any,
+                    printerOptions: printerOptions,
+                    bodyTokens: bodyTokens);
             }
 
             sb.AppendLf("}");
@@ -1132,7 +1145,8 @@ public static class MemberBodyProducer
         MetadataReader reader, TypeDefinitionHandle typeHandle, UnionDeclarationInfo? union,
         SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null,
         Pipeline.PrinterOptions? printerOptions = null,
-        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All,
+        IReadOnlyDictionary<int, int>? bodyTokens = null)
     {
         // Per-name running overload index — the same positional pairing the
         // member command uses for Name:N — used only when a member carries no
@@ -1195,7 +1209,11 @@ public static class MemberBodyProducer
                     // its body by it, so neither drifts onto a different overload.
                     // A non-validating token resolves the legacy name+ordinal
                     // selector to its concrete handle before any projection.
-                    var memberHandle = ResolveMemberHandle(reader, typeHandle, member)
+                    var memberHandle = ResolveMemberHandle(
+                            reader,
+                            typeHandle,
+                            member,
+                            bodyTokens)
                         ?? Pipeline.IrImporter.ResolveMethodHandle(
                             reader,
                             member.DeclaringType ?? type.FullName,
@@ -1306,7 +1324,8 @@ public static class MemberBodyProducer
                         bodyNamespaces,
                         printerOptions,
                         attributeMode,
-                        failOnDiagnostic: only is not null);
+                        failOnDiagnostic: only is not null,
+                        bodyTokens: bodyTokens);
                     break;
                 }
 
@@ -1329,7 +1348,8 @@ public static class MemberBodyProducer
                         bodyNamespaces,
                         printerOptions,
                         attributeMode,
-                        failOnDiagnostic: only is not null);
+                        failOnDiagnostic: only is not null,
+                        bodyTokens: bodyTokens);
                     break;
                 }
             }
@@ -1865,7 +1885,8 @@ public static class MemberBodyProducer
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
         SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
-        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic,
+        IReadOnlyDictionary<int, int>? bodyTokens)
     {
         string typeFullName = type.FullName;
         var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
@@ -1876,8 +1897,16 @@ public static class MemberBodyProducer
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
 
-        var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
-        var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
+        var getterHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            MapToken(member.GetterToken, bodyTokens),
+            $"get_{member.Name}");
+        var setterHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            MapToken(member.SetterToken, bodyTokens),
+            $"set_{member.Name}");
 
         var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
         if (accessorList >= 0)
@@ -1978,7 +2007,8 @@ public static class MemberBodyProducer
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
         SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
-        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic,
+        IReadOnlyDictionary<int, int>? bodyTokens)
     {
         var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
             ? DefaultDeclarationFormatter
@@ -1989,12 +2019,12 @@ public static class MemberBodyProducer
         var adderHandle = ResolveAccessorHandle(
             reader,
             typeHandle,
-            member.AdderToken,
+            MapToken(member.AdderToken, bodyTokens),
             $"add_{member.Name}");
         var removerHandle = ResolveAccessorHandle(
             reader,
             typeHandle,
-            member.RemoverToken,
+            MapToken(member.RemoverToken, bodyTokens),
             $"remove_{member.Name}");
 
         if (member.IsAbstract
@@ -2186,14 +2216,30 @@ public static class MemberBodyProducer
     /// carried over from a type-forwarded surface). A null result asks the
     /// caller to fall back to name+ordinal addressing.
     /// </summary>
-    static MethodDefinitionHandle? ResolveMemberHandle(MetadataReader reader, TypeDefinitionHandle typeHandle, ApiMember member)
+    static MethodDefinitionHandle? ResolveMemberHandle(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member,
+        IReadOnlyDictionary<int, int>? bodyTokens = null)
     {
-        if (ResolveMethodHandle(reader, typeHandle, member.MetadataToken) is not { } handle)
+        if (ResolveMethodHandle(
+                reader,
+                typeHandle,
+                MapToken(member.MetadataToken, bodyTokens)) is not { } handle)
             return null;
         if (reader.GetString(reader.GetMethodDefinition(handle).Name) != member.Name)
             return null;
         return handle;
     }
+
+    static int? MapToken(
+        int? token,
+        IReadOnlyDictionary<int, int>? bodyTokens) =>
+        token is { } value
+            && bodyTokens is not null
+            && bodyTokens.TryGetValue(value, out int mapped)
+                ? mapped
+                : token;
 
     /// <summary>
     /// Resolves a raw metadata token to a <see cref="MethodDefinitionHandle"/>

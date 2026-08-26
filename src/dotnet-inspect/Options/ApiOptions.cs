@@ -12,6 +12,14 @@ namespace DotnetInspector.Options;
 /// </summary>
 public partial record ApiOptions : IProjectionOptions
 {
+    /// <summary>
+    /// Acquisition whose MethodDef tokens are carried by the selected API model.
+    /// </summary>
+    internal ResolvedAssemblyReference? TokenOriginAssemblyReference { get; init; }
+
+    /// <summary>
+    /// Acquisition that supplies runtime bodies and PDB evidence.
+    /// </summary>
     internal ResolvedAssemblyReference? AssemblyReference { get; init; }
 
     /// <summary>

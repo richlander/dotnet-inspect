@@ -1591,6 +1591,7 @@ public static class ApiOutputFormatter
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm,
             AssemblyReference: options?.AssemblyReference,
+            TokenOriginAssemblyReference: options?.TokenOriginAssemblyReference,
             CaretFocus: options?.Focus);
 
         // An index-backed section that is explicitly selected (via -S or a category like
@@ -1620,8 +1621,9 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
+            int targetToken = analysisInspection.ResolveTargetToken(token);
             var callsByCaller = analysisInspection.BodyIndex.GetDirectCallsByCaller();
-            var calls = callsByCaller.TryGetValue(token, out var directCalls)
+            var calls = callsByCaller.TryGetValue(targetToken, out var directCalls)
                 ? directCalls
                 : ImmutableArray<Analysis.DirectCall>.Empty;
             var rows = calls
@@ -1763,7 +1765,8 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var evidence = InspectSafetyFindings(analysisInspection.BodyIndex, unsafeToken)
+            int targetToken = analysisInspection.ResolveTargetToken(unsafeToken);
+            var evidence = InspectSafetyFindings(analysisInspection.BodyIndex, targetToken)
                 .Evidence
                 .Select(static finding => finding.Payload)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
@@ -1805,11 +1808,12 @@ public static class ApiOutputFormatter
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
+            int targetToken = analysisInspection.ResolveTargetToken(semanticToken);
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
                 var rows = Analysis.SemanticFactProjection.AllocationFacts(
                         analysisInspection.BodyIndex.GetAllocationOccurrences(),
-                        semanticToken)
+                        targetToken)
                     .Select(fact => ToAllocationFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.AllocationFacts))
@@ -1821,7 +1825,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
-                var safety = InspectSafetyFindings(analysisInspection.BodyIndex, semanticToken);
+                var safety = InspectSafetyFindings(analysisInspection.BodyIndex, targetToken);
                 var rows = Analysis.SemanticFactProjection.SafetyFacts(
                         safety.Evidence,
                         safety.Operations)
@@ -1839,7 +1843,7 @@ public static class ApiOutputFormatter
                 var rows = Analysis.SemanticFactProjection.CostFacts(
                         analysisInspection.BodyIndex
                             .GetDirectCallsByEvidenceMethod(),
-                        semanticToken)
+                        targetToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.CostFacts))
@@ -2371,12 +2375,25 @@ public static class ApiOutputFormatter
         ApiType type,
         Analysis.LibraryBodyIndex index,
         IReadOnlySet<string>? requestedSections,
-        IReadOnlySet<string>? explicitSections = null)
+        IReadOnlySet<string>? explicitSections,
+        ApiOptions options)
     {
-        var methodTokens = type.Members
+        int[] sourceTokens = type.Members
             .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
             .Select(member => member.MetadataToken!.Value)
             .ToArray();
+        ResolvedAssemblyReference bodyAssembly =
+            options.AssemblyReference
+            ?? throw new InvalidOperationException(
+                "Type semantic facts require the acquired assembly descriptor.");
+        int[] methodTokens =
+        [
+            .. ApiBodyMemberCorrespondence.Resolve(
+                    sourceTokens,
+                    options.TokenOriginAssemblyReference ?? bodyAssembly,
+                    bodyAssembly)
+                .Values,
+        ];
 
         if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
         {
@@ -2424,12 +2441,31 @@ public static class ApiOutputFormatter
         Analysis.LibraryBodyIndex index,
         IReadOnlySet<string>? explicitSections = null,
         PerformanceTriageOptions? options = null,
-        bool restrictToModelMembers = false)
+        bool restrictToModelMembers = false,
+        ApiOptions? apiOptions = null)
     {
-        HashSet<int> typeMemberTokens = type.Members
+        int[] sourceTokens = type.Members
             .Where(member => member.MetadataToken is not null)
             .Select(member => member.MetadataToken!.Value)
-            .ToHashSet();
+            .ToArray();
+        ResolvedAssemblyReference? bodyAssembly =
+            apiOptions?.AssemblyReference;
+        if (bodyAssembly is null
+            && apiOptions?.TokenOriginAssemblyReference is not null)
+        {
+            throw new InvalidOperationException(
+                "Optimization opportunities require the acquired body assembly descriptor.");
+        }
+        HashSet<int> typeMemberTokens =
+            bodyAssembly is null
+                ? sourceTokens.ToHashSet()
+                : ApiBodyMemberCorrespondence.Resolve(
+                        sourceTokens,
+                        apiOptions?.TokenOriginAssemblyReference
+                            ?? bodyAssembly,
+                        bodyAssembly)
+                    .Values
+                    .ToHashSet();
         HashSet<int>? memberTokens = restrictToModelMembers
             ? typeMemberTokens
             : null;
@@ -2560,6 +2596,16 @@ public static class ApiOutputFormatter
         var assembly = options.AssemblyReference
             ?? throw new InvalidOperationException(
                 "Body Shapes requires the acquired assembly descriptor.");
+        var tokenOrigin =
+            options.TokenOriginAssemblyReference ?? assembly;
+        HashSet<int> bodyTokens =
+        [
+            .. ApiBodyMemberCorrespondence.Resolve(
+                    methodTokens,
+                    tokenOrigin,
+                    assembly)
+                .Values,
+        ];
         using var source = Decompiler.Pipeline.MetadataSource.Open(
             assembly,
             pdbPath,
@@ -2568,7 +2614,7 @@ public static class ApiOutputFormatter
             Decompiler.BodyShapeSearch.Search(
                 source,
                 kind,
-                methodTokens,
+                bodyTokens,
                 includeAll: options.IncludeAll,
                 printerOptions: options.RenderOptions);
         view.BodyShapeRows =
@@ -2695,6 +2741,8 @@ public static class ApiOutputFormatter
             Register(member.MetadataToken, drill);
             Register(member.GetterToken, drill);
             Register(member.SetterToken, drill);
+            Register(member.AdderToken, drill);
+            Register(member.RemoverToken, drill);
         }
 
         return map;
@@ -2706,9 +2754,39 @@ public static class ApiOutputFormatter
         }
     }
 
-    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryBodyIndex index, bool restrictToModelMembers = false)
+    internal static void PopulateTopLeverage(
+        TypeView view,
+        ApiType type,
+        Analysis.LibraryBodyIndex index,
+        bool restrictToModelMembers = false,
+        ApiOptions? options = null)
     {
-        var drillByToken = BuildMemberDrillMap(type);
+        Dictionary<int, (string? Stable, string Visibility, string Selector)>
+            sourceDrillByToken = BuildMemberDrillMap(type);
+        ResolvedAssemblyReference? bodyAssembly =
+            options?.AssemblyReference;
+        if (bodyAssembly is null
+            && options?.TokenOriginAssemblyReference is not null)
+        {
+            throw new InvalidOperationException(
+                "Top Leverage requires the acquired body assembly descriptor.");
+        }
+        IReadOnlyDictionary<int, int> bodyTokens =
+            bodyAssembly is null
+                ? sourceDrillByToken.Keys.ToDictionary(token => token)
+                : ApiBodyMemberCorrespondence.Resolve(
+                    sourceDrillByToken.Keys,
+                    options?.TokenOriginAssemblyReference ?? bodyAssembly,
+                    bodyAssembly);
+        var drillByToken = new Dictionary<
+            int,
+            (string? Stable, string Visibility, string Selector)>();
+        foreach ((int sourceToken, int bodyToken) in bodyTokens)
+        {
+            drillByToken.TryAdd(
+                bodyToken,
+                sourceDrillByToken[sourceToken]);
+        }
 
         // Rank every method declared on this type; fanin is still measured across all
         // callers in the assembly. The full ranked set is emitted and the generic row

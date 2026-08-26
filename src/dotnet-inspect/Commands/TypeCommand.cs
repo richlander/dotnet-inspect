@@ -260,6 +260,11 @@ public static class TypeCommand
                     effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
                     effectiveOptions = effectiveOptions with
                     {
+                        TokenOriginAssemblyReference =
+                            ApiServices.AssemblyReferenceForRole(
+                                loaded,
+                                apiType,
+                                ApiServices.AssemblyReferenceRole.TokenOrigin),
                         AssemblyReference =
                             ApiServices.AssemblyReferenceForRole(
                                 loaded,

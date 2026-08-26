@@ -94,15 +94,29 @@ internal static class ApiAnalysisInspection
 
     internal static IReadOnlyList<MemberExceptionRegion> ResolveExceptionRegions(
         string assemblyPath,
-        ResolvedAssemblyReference? assemblyReference,
+        ApiOptions options,
         IEnumerable<ApiMember> members)
     {
-        using var context = assemblyReference is not null
-            ? PdbContext.Open(assemblyReference)
-            : PdbContext.Open(assemblyPath);
-        return members
+        List<ApiMember> selected = members.ToList();
+        ResolvedAssemblyReference bodyAssembly =
+            options.AssemblyReference
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("type exception regions"));
+        ResolvedAssemblyReference tokenOrigin =
+            options.TokenOriginAssemblyReference ?? bodyAssembly;
+        IReadOnlyDictionary<int, int> bodyTokens =
+            ApiBodyMemberCorrespondence.Resolve(
+                selected,
+                tokenOrigin,
+                bodyAssembly);
+
+        using var context = PdbContext.Open(bodyAssembly);
+        return selected
             .Where(member => member.MetadataToken is not null)
-            .SelectMany(member => context.ResolveExceptionRegions(member.MetadataToken!.Value, out _)
+            .SelectMany(member => context.ResolveExceptionRegions(
+                    bodyTokens[member.MetadataToken!.Value],
+                    out _)
                 .Select(region => new MemberExceptionRegion(member, region)))
             .ToList();
     }

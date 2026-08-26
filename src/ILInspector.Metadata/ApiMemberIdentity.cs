@@ -1220,6 +1220,15 @@ public static class ApiMemberIdentity
             memberName);
     }
 
+    /// <summary>
+    /// Formats a TypeDef in the same canonical declaring-type grammar used by
+    /// metadata member anchors.
+    /// </summary>
+    public static string CreateTypeAnchorName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => FormatDefinitionName(reader, handle);
+
     static string FormatDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
     {
         Span<TypeDefinitionHandle> chain =

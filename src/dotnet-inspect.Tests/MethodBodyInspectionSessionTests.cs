@@ -1,7 +1,13 @@
 using System.Collections.Immutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.CallGraph;
+using ILInspector.Decompiler;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Analysis = ILInspector.Analysis;
@@ -54,6 +60,202 @@ public class MethodBodyInspectionSessionTests
         return index.DirectCalls
             .Select(call => call.CalleeDefinitionToken)
             .First(token => methodTokens.Contains(token));
+    }
+
+    [Fact]
+    public void MemberAnalysis_CorrespondsMethodIdentityAcrossDistinctAcquisitions()
+    {
+        byte[] referenceImage = CompileFixture(
+            "TokenCorrespondence",
+            """
+            namespace Sample;
+            public static class Outer
+            {
+                public static class Widget<T>
+                {
+                    public static T Target(T value) => value;
+                    public static T RegionTarget(T value)
+                    {
+                        try { return value; }
+                        finally { System.GC.KeepAlive(value); }
+                    }
+                    public static int Other() => 0;
+                }
+            }
+            """);
+        byte[] runtimeImage = CompileFixture(
+            "TokenCorrespondence",
+            """
+            namespace Sample;
+            public static class Outer
+            {
+                public static class Widget<T>
+                {
+                    public static int Other() => System.Math.Abs(-1);
+                    public static T Target(T value) => value;
+                    public static T RegionTarget(T value)
+                    {
+                        try { return value; }
+                        finally { System.GC.KeepAlive(value); }
+                    }
+                }
+            }
+            """);
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"token-correspondence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string referencePath = WriteFixture(
+                root,
+                "ref",
+                "TokenCorrespondence.dll",
+                referenceImage);
+            string runtimePath = WriteFixture(
+                root,
+                "runtime",
+                "TokenCorrespondence.dll",
+                runtimeImage);
+            ResolvedAssemblyReference tokenOrigin =
+                TestAssemblyReferences.Designated(referencePath);
+            ResolvedAssemblyReference bodyAssembly =
+                TestAssemblyReferences.Designated(runtimePath);
+            ApiSurface api = Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(tokenOrigin));
+            ApiType type = Assert.Single(
+                api.Types,
+                candidate => candidate.Members.Any(
+                    member => member.Name == "Target"));
+            ApiMember target = Assert.Single(
+                type.Members,
+                member => member.Name == "Target");
+            ApiMember regionTarget = Assert.Single(
+                type.Members,
+                member => member.Name == "RegionTarget");
+            var options = new MemberOptions
+            {
+                TokenOriginAssemblyReference = tokenOrigin,
+                AssemblyReference = bodyAssembly,
+            };
+            var inspection = new ApiMemberAnalysisInspection(
+                runtimePath,
+                [target],
+                new HashSet<string> { SectionNames.Calls },
+                callerScopeAssemblies: null,
+                options);
+
+            int sourceToken = target.MetadataToken!.Value;
+            int bodyToken = inspection.ResolveTargetToken(sourceToken);
+
+            Assert.NotEqual(sourceToken, bodyToken);
+            Analysis.MethodIdentity analyzed = Assert.Single(
+                inspection.BodyIndex.DeclaredMethods,
+                method => method.MetadataToken == bodyToken);
+            Assert.Equal("Target", analyzed.Name);
+            Assert.Equal(bodyToken, analyzed.MetadataToken);
+            Assert.Empty(inspection.BodyIndex.DirectCalls);
+            Assert.Single(
+                ApiAnalysisInspection.ResolveExceptionRegions(
+                    runtimePath,
+                    options,
+                    [regionTarget]));
+
+            IReadOnlyDictionary<int, int> wholeTypeTokens =
+                ApiBodyMemberCorrespondence.Resolve(
+                    ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
+                    tokenOrigin,
+                    bodyAssembly);
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(runtimePath));
+            DecompilerResult wholeType = MemberBodyProducer.Project(
+                type,
+                bodyAssembly,
+                resolver,
+                bodyTokens: wholeTypeTokens);
+            Assert.True(wholeType.Succeeded);
+            Assert.Contains(
+                "public static T Target(T value) => value;",
+                wholeType.Output);
+            Assert.Contains(
+                "public static int Other() => Math.Abs(-1);",
+                wholeType.Output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MemberAnalysis_MissingCrossAcquisitionIdentityFailsVisibly()
+    {
+        byte[] referenceImage = CompileFixture(
+            "MissingTokenCorrespondence",
+            """
+            namespace Sample;
+            public static class Widget
+            {
+                public static int Target(int value) => value;
+            }
+            """);
+        byte[] runtimeImage = CompileFixture(
+            "MissingTokenCorrespondence",
+            """
+            namespace Sample;
+            public static class Widget
+            {
+                public static string Target(string value) => value;
+            }
+            """);
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-token-correspondence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string referencePath = WriteFixture(
+                root,
+                "ref",
+                "MissingTokenCorrespondence.dll",
+                referenceImage);
+            string runtimePath = WriteFixture(
+                root,
+                "runtime",
+                "MissingTokenCorrespondence.dll",
+                runtimeImage);
+            ResolvedAssemblyReference tokenOrigin =
+                TestAssemblyReferences.Designated(referencePath);
+            ResolvedAssemblyReference bodyAssembly =
+                TestAssemblyReferences.Designated(runtimePath);
+            ApiSurface api = Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(tokenOrigin));
+            ApiType type = Assert.Single(
+                api.Types,
+                candidate => candidate.FullName == "Sample.Widget");
+            ApiMember target = Assert.Single(type.Members);
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => new ApiMemberAnalysisInspection(
+                    runtimePath,
+                    [target],
+                    new HashSet<string> { SectionNames.Calls },
+                    callerScopeAssemblies: null,
+                    new MemberOptions
+                    {
+                        TokenOriginAssemblyReference = tokenOrigin,
+                        AssemblyReference = bodyAssembly,
+                    }));
+
+            Assert.Contains(
+                "M:Sample.Widget.Target(System.Int32)",
+                error.Message,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

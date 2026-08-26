@@ -23,6 +23,8 @@ internal sealed class ApiMemberAnalysisInspection
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
     readonly IReadOnlySet<int>? _bodyScope;
+    readonly IReadOnlyDictionary<int, int> _bodyTokens;
+    readonly bool _requiresBodyTokenCorrespondence;
     readonly Dictionary<
         Analysis.TypeRef,
         Analysis.CallerScopeReachabilityPlan> _plans = [];
@@ -52,6 +54,19 @@ internal sealed class ApiMemberAnalysisInspection
         _methods = methods;
         _options = options;
         _callerScopeAssemblies = callerScopeAssemblies;
+        _targetAssembly =
+            options?.AssemblyReference
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("API member target"));
+        ResolvedAssemblyReference tokenOrigin =
+            options?.TokenOriginAssemblyReference ?? _targetAssembly;
+        _requiresBodyTokenCorrespondence =
+            tokenOrigin.Registration != _targetAssembly.Registration;
+        _bodyTokens = ApiBodyMemberCorrespondence.Resolve(
+            methods,
+            tokenOrigin,
+            _targetAssembly);
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
@@ -78,7 +93,7 @@ internal sealed class ApiMemberAnalysisInspection
         {
             var memberTokens = methods
                 .Where(member => member.MetadataToken.HasValue)
-                .Select(member => member.MetadataToken!.Value)
+                .Select(member => ResolveTargetToken(member.MetadataToken!.Value))
                 .ToHashSet();
             if (memberTokens.Count > 0
                 && memberTokens.Count == methods.Count)
@@ -89,6 +104,14 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     internal Analysis.LibraryBodyIndex BodyIndex => Session.BodyIndex;
+
+    internal int ResolveTargetToken(int sourceToken) =>
+        _bodyTokens.TryGetValue(sourceToken, out int targetToken)
+            ? targetToken
+            : !_requiresBodyTokenCorrespondence
+                ? sourceToken
+            : throw new InvalidOperationException(
+                $"MethodDef token 0x{sourceToken:X8} has no body-acquisition correspondence.");
 
     internal IReadOnlyList<CallGraphField> CallGraphFields =>
         _callGraphFields;
@@ -133,11 +156,14 @@ internal sealed class ApiMemberAnalysisInspection
         out string? error)
     {
         using var context = PdbContext.Open(TargetAssembly);
-        return context.ResolveExceptionRegions(methodToken, out error);
+        return context.ResolveExceptionRegions(
+            ResolveTargetToken(methodToken),
+            out error);
     }
 
     internal ImmutableArray<CallerEdge> CallerEdges(int methodToken)
     {
+        methodToken = ResolveTargetToken(methodToken);
         Analysis.CallerResolutionPlan? resolution =
             TryTargetType(methodToken, out Analysis.TypeRef? target)
                 ? Plan(target).Resolution
@@ -149,11 +175,12 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     internal Analysis.CallTreeNode BuildCallTree(int methodToken) =>
-        BodyIndex.BuildCallTree(methodToken);
+        BodyIndex.BuildCallTree(ResolveTargetToken(methodToken));
 
     internal ILInspector.CallGraph.CallGraphProjection BuildCallGraph(
         int methodToken)
     {
+        methodToken = ResolveTargetToken(methodToken);
         ILInspector.CallGraph.CallGraphProjection projection =
             Session.CallGraph(
                 methodToken,
@@ -166,6 +193,7 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal Analysis.CallTreeNode BuildCallerTree(int methodToken)
     {
+        methodToken = ResolveTargetToken(methodToken);
         Analysis.CallTreeNode tree = Session.CallerTree(
             methodToken,
             CallerScopes(
