@@ -989,7 +989,11 @@ public static class MemberCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : [];
         includeSections.Remove(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected = false
+        };
     }
 
     private static bool RequiresCallerScopeResolution(MemberOptions options)
