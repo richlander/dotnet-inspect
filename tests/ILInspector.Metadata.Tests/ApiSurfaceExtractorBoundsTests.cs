@@ -200,6 +200,26 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void MethodImplementationBaseChainClassification_IsBounded()
+    {
+        byte[] image = BuildMethodImplementationBaseChainImage(
+            typeCount: 4_096,
+            methodImplementationCount: 256);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(1, surface.PublicMethodCount);
+        Assert.Empty(surface.InspectionFailures);
+        Assert.True(
+            allocated < 96L * 1024 * 1024,
+            $"MethodImpl base-chain classification allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void OneTypeForwarderShortOfTheSurfaceSize_IsAbandoned()
     {
         ApiSurface unbounded = Unbounded();
@@ -1589,6 +1609,89 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 signatureHandle,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodImplementationBaseChainImage(
+        int typeCount,
+        int methodImplementationCount)
+    {
+        var metadata = Metadata("MethodImplementationBaseChain");
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e }),
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle root = metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Root"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        var rootTypeSpecSignature = new BlobBuilder();
+        rootTypeSpecSignature.WriteByte(0x12);
+        rootTypeSpecSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(root) << 2);
+        TypeSpecificationHandle rootTypeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(rootTypeSpecSignature));
+
+        TypeDefinitionHandle current = root;
+        for (int index = 1; index < typeCount; index++)
+        {
+            current = metadata.AddTypeDefinition(
+                index == typeCount - 1
+                    ? TypeAttributes.Public
+                    : TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Derived{index}"),
+                current,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Mapped"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        for (int index = 0; index < methodImplementationCount; index++)
+        {
+            MemberReferenceHandle distinctDeclaration = metadata.AddMemberReference(
+                rootTypeSpec,
+                metadata.GetOrAddString($"Mapped{index}"),
+                signatureHandle);
+            metadata.AddMethodImplementation(current, body, distinctDeclaration);
         }
 
         return Serialize(metadata);

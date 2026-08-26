@@ -165,6 +165,10 @@ public static class ApiSurfaceExtractor
         MetadataReader,
         PrimitiveDefinitionClassification>
         PrimitiveDefinitionClassifications = new();
+    private static readonly ConditionalWeakTable<
+        MetadataReader,
+        FinalizerMethodImplementationCache>
+        FinalizerMethodImplementationCaches = new();
 
     /// <summary>
     /// Extracts the public type identities and member-kind counts needed by the compact platform
@@ -2278,6 +2282,7 @@ public static class ApiSurfaceExtractor
         MetadataTypeScope? currentScope)
     {
         var methods = new AccessorMethodOwnership();
+        Dictionary<EntityHandle, TypeDefinitionHandle> associationOwners = [];
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             try
@@ -2285,71 +2290,11 @@ public static class ApiSurfaceExtractor
                 var type = reader.GetTypeDefinition(typeHandle);
                 foreach (var propertyHandle in type.GetProperties())
                 {
-                    try
-                    {
-                        var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-                        AddOwnedAccessor(
-                            reader,
-                            surface,
-                            budget,
-                            methods,
-                            typeHandle,
-                            propertyHandle,
-                            accessors.Getter,
-                            "property getter");
-                        AddOwnedAccessor(
-                            reader,
-                            surface,
-                            budget,
-                            methods,
-                            typeHandle,
-                            propertyHandle,
-                            accessors.Setter,
-                            "property setter");
-                    }
-                    catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
-                    {
-                        AddInspectionFailure(
-                            surface,
-                            budget,
-                            "property accessors",
-                            propertyHandle,
-                            MetadataTypeNameFailure.Malformed(propertyHandle, ex.Message));
-                    }
+                    associationOwners[(EntityHandle)propertyHandle] = typeHandle;
                 }
                 foreach (var eventHandle in type.GetEvents())
                 {
-                    try
-                    {
-                        var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
-                        AddOwnedAccessor(
-                            reader,
-                            surface,
-                            budget,
-                            methods,
-                            typeHandle,
-                            eventHandle,
-                            accessors.Adder,
-                            "event adder");
-                        AddOwnedAccessor(
-                            reader,
-                            surface,
-                            budget,
-                            methods,
-                            typeHandle,
-                            eventHandle,
-                            accessors.Remover,
-                            "event remover");
-                    }
-                    catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
-                    {
-                        AddInspectionFailure(
-                            surface,
-                            budget,
-                            "event accessors",
-                            eventHandle,
-                            MetadataTypeNameFailure.Malformed(eventHandle, ex.Message));
-                    }
+                    associationOwners[(EntityHandle)eventHandle] = typeHandle;
                 }
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -2363,6 +2308,76 @@ public static class ApiSurfaceExtractor
             }
         }
 
+        HashSet<PhysicalAccessorRole> roles = [];
+        int semanticsRows = reader.GetTableRowCount(TableIndex.MethodSemantics);
+        for (int rowId = 1; rowId <= semanticsRows; rowId++)
+        {
+            try
+            {
+                var semantics = ReadMethodSemanticsRow(reader, rowId);
+                if (!TryGetAccessorRole(
+                        semantics.Association,
+                        semantics.Attributes,
+                        out var role,
+                        out string? operation))
+                {
+                    continue;
+                }
+
+                if (!associationOwners.TryGetValue(
+                        semantics.Association,
+                        out TypeDefinitionHandle owningType))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        operation,
+                        semantics.Association,
+                        MetadataTypeNameFailure.Malformed(
+                            semantics.Association,
+                            "The MethodSemantics association has no TypeDef owner."));
+                    continue;
+                }
+
+                if (!roles.Add(new PhysicalAccessorRole(
+                        semantics.Association,
+                        semantics.Attributes)))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        operation,
+                        semantics.Association,
+                        MetadataTypeNameFailure.Malformed(
+                            semantics.Association,
+                            $"The physical MethodSemantics {semantics.Attributes} role "
+                            + "appears more than once for this association."));
+                }
+
+                AddOwnedAccessor(
+                    reader,
+                    surface,
+                    budget,
+                    methods,
+                    owningType,
+                    semantics.Association,
+                    semantics.Method,
+                    operation);
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget,
+                    "method semantics",
+                    default,
+                    MetadataTypeNameFailure.Malformed(default, ex.Message));
+            }
+        }
+
         methods.AddExtensionImplementations(
             ExtensionPropertyImplementationMethods(
                 reader,
@@ -2371,6 +2386,121 @@ public static class ApiSurfaceExtractor
                 currentScope));
         return methods;
     }
+
+    private readonly record struct PhysicalAccessorRole(
+        EntityHandle Association,
+        MethodSemanticsAttributes Attributes);
+
+    private readonly record struct MethodSemanticsRow(
+        MethodDefinitionHandle Method,
+        EntityHandle Association,
+        MethodSemanticsAttributes Attributes);
+
+    private static bool TryGetAccessorRole(
+        EntityHandle association,
+        MethodSemanticsAttributes attributes,
+        out MethodSemanticsAttributes role,
+        out string operation)
+    {
+        role = attributes;
+        operation = (association.Kind, attributes) switch
+        {
+            (HandleKind.PropertyDefinition, MethodSemanticsAttributes.Getter) =>
+                "property getter",
+            (HandleKind.PropertyDefinition, MethodSemanticsAttributes.Setter) =>
+                "property setter",
+            (HandleKind.EventDefinition, MethodSemanticsAttributes.Adder) =>
+                "event adder",
+            (HandleKind.EventDefinition, MethodSemanticsAttributes.Remover) =>
+                "event remover",
+            _ => "",
+        };
+        return operation.Length != 0;
+    }
+
+    private static unsafe MethodSemanticsRow ReadMethodSemanticsRow(
+        MetadataReader reader,
+        int rowId)
+    {
+        const int SemanticsFlagsSize = sizeof(ushort);
+        int methodIndexSize =
+            reader.GetTableRowCount(TableIndex.MethodDef) <= ushort.MaxValue
+                ? sizeof(ushort)
+                : sizeof(int);
+        int associationIndexSize =
+            Math.Max(
+                reader.GetTableRowCount(TableIndex.Event),
+                reader.GetTableRowCount(TableIndex.Property))
+            <= 0x7fff
+                ? sizeof(ushort)
+                : sizeof(int);
+        int rowSize = reader.GetTableRowSize(TableIndex.MethodSemantics);
+        if (rowSize != SemanticsFlagsSize + methodIndexSize + associationIndexSize)
+        {
+            throw new BadImageFormatException(
+                "The MethodSemantics row size does not match its ECMA-335 schema.");
+        }
+
+        int tableOffset = reader.GetTableMetadataOffset(TableIndex.MethodSemantics);
+        long rowEnd = checked(
+            (long)tableOffset + (long)rowId * rowSize);
+        if (tableOffset < 0
+            || rowId < 1
+            || rowEnd > reader.MetadataLength)
+        {
+            throw new BadImageFormatException(
+                "The MethodSemantics row lies outside the metadata image.");
+        }
+
+        int rowOffset = checked(
+            tableOffset + checked((rowId - 1) * rowSize));
+        byte* metadata = reader.MetadataPointer;
+        var attributes = (MethodSemanticsAttributes)unchecked(
+            (ushort)(metadata[rowOffset] | metadata[rowOffset + 1] << 8));
+        int methodRow = ReadMetadataIndex(
+            metadata,
+            checked(rowOffset + SemanticsFlagsSize),
+            methodIndexSize);
+        int association = ReadMetadataIndex(
+            metadata,
+            checked(rowOffset + SemanticsFlagsSize + methodIndexSize),
+            associationIndexSize);
+        if (methodRow < 1
+            || methodRow > reader.GetTableRowCount(TableIndex.MethodDef))
+        {
+            throw new BadImageFormatException(
+                "The MethodSemantics method index is outside the MethodDef table.");
+        }
+
+        int associationRow = association >> 1;
+        bool isProperty = (association & 1) != 0;
+        int associationLimit = reader.GetTableRowCount(
+            isProperty ? TableIndex.Property : TableIndex.Event);
+        if (associationRow < 1 || associationRow > associationLimit)
+        {
+            throw new BadImageFormatException(
+                "The MethodSemantics association is outside its target table.");
+        }
+
+        EntityHandle associationHandle = isProperty
+            ? (EntityHandle)MetadataTokens.PropertyDefinitionHandle(associationRow)
+            : MetadataTokens.EventDefinitionHandle(associationRow);
+        return new MethodSemanticsRow(
+            MetadataTokens.MethodDefinitionHandle(methodRow),
+            associationHandle,
+            attributes);
+    }
+
+    private static unsafe int ReadMetadataIndex(
+        byte* metadata,
+        int offset,
+        int size)
+        => size == sizeof(ushort)
+            ? metadata[offset] | metadata[offset + 1] << 8
+            : metadata[offset]
+                | metadata[offset + 1] << 8
+                | metadata[offset + 2] << 16
+                | metadata[offset + 3] << 24;
 
     private sealed class AccessorMethodOwnership
     {
@@ -3458,14 +3588,22 @@ public static class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork)
     {
         List<OwnedMethodImplementation> implementations = [];
-        HashSet<EntityHandle> declarations = [];
+        HashSet<MethodImplementationDeclarationKey> declarations =
+            new(MethodImplementationDeclarationKeyComparer.Instance);
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             try
             {
                 var implementation =
                     reader.GetMethodImplementation(implementationHandle);
-                if (!declarations.Add(implementation.MethodDeclaration))
+                var declaration = new MethodImplementationDeclarationKey(
+                    implementation.MethodDeclaration,
+                    TryGetMethodImplementationDeclarationIdentity(
+                        reader,
+                        implementation.MethodDeclaration,
+                        currentScope,
+                        beforeDecodeWork));
+                if (!declarations.Add(declaration))
                 {
                     AddInspectionFailure(
                         surface,
@@ -3630,10 +3768,10 @@ public static class ApiSurfaceExtractor
         {
             var candidate = reader.GetMethodDefinition(candidateHandle);
             if (!reader.StringComparer.Equals(candidate.Name, memberName)
-                || !SignaturesEqual(
+                || !MethodSignaturesEqual(
                     reader,
-                    candidate.Signature,
-                    memberReference.Signature,
+                    candidate,
+                    memberReference,
                     beforeDecodeWork))
             {
                 continue;
@@ -3647,25 +3785,392 @@ public static class ApiSurfaceExtractor
         return match.IsNil ? null : match;
     }
 
-    private static bool SignaturesEqual(
+    private static bool MethodSignaturesEqual(
         MetadataReader reader,
-        BlobHandle leftHandle,
-        BlobHandle rightHandle,
+        MethodDefinition method,
+        MemberReference memberReference,
         Action<int>? beforeDecodeWork)
     {
-        var left = reader.GetBlobReader(leftHandle);
-        var right = reader.GetBlobReader(rightHandle);
-        beforeDecodeWork?.Invoke(checked(left.Length + right.Length));
-        if (left.Length != right.Length)
-            return false;
+        MethodSignatureIdentity? methodIdentity =
+            TryGetMethodSignatureIdentity(
+                reader,
+                method,
+                beforeDecodeWork);
+        MethodSignatureIdentity? memberReferenceIdentity =
+            TryGetMethodSignatureIdentity(
+                reader,
+                memberReference,
+                beforeDecodeWork);
+        return methodIdentity is not null
+            && methodIdentity.Equals(memberReferenceIdentity);
+    }
 
-        while (left.RemainingBytes > 0)
+    private static MethodImplementationDeclarationIdentity?
+        TryGetMethodImplementationDeclarationIdentity(
+        MetadataReader reader,
+        EntityHandle declaration,
+        MetadataTypeScope? currentScope,
+        Action<int>? beforeDecodeWork)
+    {
+        EntityHandle declaringType;
+        string name;
+        MethodSignatureIdentity? signature;
+        switch (declaration.Kind)
         {
-            if (left.ReadByte() != right.ReadByte())
-                return false;
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)declaration);
+                declaringType = method.GetDeclaringType();
+                name = DecodeString(reader, method.Name, beforeDecodeWork);
+                signature = TryGetMethodSignatureIdentity(
+                    reader,
+                    method,
+                    beforeDecodeWork);
+                break;
+            case HandleKind.MemberReference:
+                var memberReference = reader.GetMemberReference(
+                    (MemberReferenceHandle)declaration);
+                declaringType = memberReference.Parent;
+                name = DecodeString(
+                    reader,
+                    memberReference.Name,
+                    beforeDecodeWork);
+                signature = TryGetMethodSignatureIdentity(
+                    reader,
+                    memberReference,
+                    beforeDecodeWork);
+                break;
+            default:
+                return null;
         }
 
-        return true;
+        MetadataNamedTypeIdentity? typeIdentity = TryGetNamedTypeIdentity(
+            reader,
+            declaringType,
+            currentScope,
+            beforeDecodeWork);
+        if (typeIdentity is null || signature is null)
+            return null;
+
+        string? constructedTypeIdentity = declaringType.Kind
+            == HandleKind.TypeSpecification
+            ? TryGetTypeStructuralIdentity(
+                reader,
+                (TypeSpecificationHandle)declaringType,
+                beforeDecodeWork)
+            : null;
+        if (declaringType.Kind == HandleKind.TypeSpecification
+            && constructedTypeIdentity is null)
+        {
+            return null;
+        }
+
+        return new MethodImplementationDeclarationIdentity(
+            typeIdentity,
+            constructedTypeIdentity,
+            name,
+            signature);
+    }
+
+    private static string? TryGetTypeStructuralIdentity(
+        MetadataReader reader,
+        TypeSpecificationHandle type,
+        Action<int>? beforeDecodeWork)
+    {
+        var node = GuardedProviderDecode.TypeSpec(
+            reader,
+            type,
+            new TypeNodeProvider(beforeMaterialize: beforeDecodeWork),
+            context: null,
+            (TypeNode)new DegradedTypeNode());
+        return node.IsDegraded ? null : node.StructuralIdentity();
+    }
+
+    private static MethodSignatureIdentity? TryGetMethodSignatureIdentity(
+        MetadataReader reader,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork)
+    {
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            return null;
+        }
+
+        try
+        {
+            MethodSignature<TypeNode> signature =
+                GuardedProviderDecode.Method(
+                    reader,
+                    method,
+                    new TypeNodeProvider(
+                        beforeMaterialize: beforeDecodeWork),
+                    context: null,
+                    (TypeNode)new DegradedTypeNode());
+            return CreateMethodSignatureIdentity(signature);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static MethodSignatureIdentity? TryGetMethodSignatureIdentity(
+        MetadataReader reader,
+        MemberReference memberReference,
+        Action<int>? beforeDecodeWork)
+    {
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                memberReference.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            return null;
+        }
+
+        try
+        {
+            MethodSignature<TypeNode> signature =
+                GuardedProviderDecode.MemberRefMethod(
+                    reader,
+                    memberReference,
+                    new TypeNodeProvider(
+                        beforeMaterialize: beforeDecodeWork),
+                    context: null,
+                    (TypeNode)new DegradedTypeNode());
+            return CreateMethodSignatureIdentity(signature);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static MethodSignatureIdentity? CreateMethodSignatureIdentity(
+        MethodSignature<TypeNode> signature)
+    {
+        if (signature.ReturnType.IsDegraded
+            || signature.ParameterTypes.Any(static type => type.IsDegraded))
+        {
+            return null;
+        }
+
+        return new MethodSignatureIdentity(
+            signature.Header.RawValue,
+            signature.GenericParameterCount,
+            signature.RequiredParameterCount,
+            signature.ReturnType.StructuralIdentity(),
+            [.. signature.ParameterTypes.Select(
+                static parameter => parameter.StructuralIdentity())]);
+    }
+
+    private sealed class MethodSignatureIdentity : IEquatable<MethodSignatureIdentity>
+    {
+        private readonly int _hashCode;
+
+        internal MethodSignatureIdentity(
+            byte header,
+            int genericParameterCount,
+            int requiredParameterCount,
+            string returnType,
+            string[] parameterTypes)
+        {
+            Header = header;
+            GenericParameterCount = genericParameterCount;
+            RequiredParameterCount = requiredParameterCount;
+            ReturnType = returnType;
+            ParameterTypes = parameterTypes;
+            var hash = new HashCode();
+            hash.Add(header);
+            hash.Add(genericParameterCount);
+            hash.Add(requiredParameterCount);
+            hash.Add(returnType, StringComparer.Ordinal);
+            foreach (string parameterType in parameterTypes)
+                hash.Add(parameterType, StringComparer.Ordinal);
+            _hashCode = hash.ToHashCode();
+        }
+
+        internal byte Header { get; }
+        internal int GenericParameterCount { get; }
+        internal int RequiredParameterCount { get; }
+        internal string ReturnType { get; }
+        internal string[] ParameterTypes { get; }
+
+        public bool Equals(MethodSignatureIdentity? other)
+            => ReferenceEquals(this, other)
+                || other is not null
+                    && _hashCode == other._hashCode
+                    && Header == other.Header
+                    && GenericParameterCount == other.GenericParameterCount
+                    && RequiredParameterCount == other.RequiredParameterCount
+                    && string.Equals(
+                        ReturnType,
+                        other.ReturnType,
+                        StringComparison.Ordinal)
+                    && ParameterTypes.SequenceEqual(
+                        other.ParameterTypes,
+                        StringComparer.Ordinal);
+
+        public override bool Equals(object? obj)
+            => Equals(obj as MethodSignatureIdentity);
+
+        public override int GetHashCode() => _hashCode;
+    }
+
+    private sealed class MethodImplementationDeclarationIdentity :
+        IEquatable<MethodImplementationDeclarationIdentity>
+    {
+        private readonly int _hashCode;
+
+        internal MethodImplementationDeclarationIdentity(
+            MetadataNamedTypeIdentity declaringType,
+            string? constructedTypeIdentity,
+            string name,
+            MethodSignatureIdentity signature)
+        {
+            DeclaringType = declaringType;
+            ConstructedTypeIdentity = constructedTypeIdentity;
+            Name = name;
+            Signature = signature;
+            var hash = new HashCode();
+            hash.Add(
+                MetadataNamedTypeIdentityComparer.Instance.GetHashCode(
+                    declaringType));
+            hash.Add(constructedTypeIdentity, StringComparer.Ordinal);
+            hash.Add(name, StringComparer.Ordinal);
+            hash.Add(signature);
+            _hashCode = hash.ToHashCode();
+        }
+
+        internal MetadataNamedTypeIdentity DeclaringType { get; }
+        internal string? ConstructedTypeIdentity { get; }
+        internal string Name { get; }
+        internal MethodSignatureIdentity Signature { get; }
+
+        public bool Equals(MethodImplementationDeclarationIdentity? other)
+            => ReferenceEquals(this, other)
+                || other is not null
+                    && _hashCode == other._hashCode
+                    && MetadataNamedTypeIdentityComparer.Instance.Equals(
+                        DeclaringType,
+                        other.DeclaringType)
+                    && string.Equals(
+                        ConstructedTypeIdentity,
+                        other.ConstructedTypeIdentity,
+                        StringComparison.Ordinal)
+                    && string.Equals(Name, other.Name, StringComparison.Ordinal)
+                    && Signature.Equals(other.Signature);
+
+        public override bool Equals(object? obj)
+            => Equals(obj as MethodImplementationDeclarationIdentity);
+
+        public override int GetHashCode() => _hashCode;
+    }
+
+    private readonly record struct MethodImplementationDeclarationKey(
+        EntityHandle Handle,
+        MethodImplementationDeclarationIdentity? CanonicalIdentity);
+
+    private sealed class MethodImplementationDeclarationKeyComparer :
+        IEqualityComparer<MethodImplementationDeclarationKey>
+    {
+        internal static MethodImplementationDeclarationKeyComparer Instance { get; } =
+            new();
+
+        public bool Equals(
+            MethodImplementationDeclarationKey left,
+            MethodImplementationDeclarationKey right)
+            => left.CanonicalIdentity is not null
+                && right.CanonicalIdentity is not null
+                ? left.CanonicalIdentity.Equals(right.CanonicalIdentity)
+                : left.Handle == right.Handle;
+
+        public int GetHashCode(MethodImplementationDeclarationKey value)
+            => value.CanonicalIdentity?.GetHashCode()
+                ?? value.Handle.GetHashCode();
+    }
+
+    private sealed class FinalizerMethodImplementationCache
+    {
+        private readonly object _gate = new();
+        private readonly ApiSurface _failures = new();
+        private Dictionary<
+            MetadataNamedTypeIdentity,
+            TypeDefinitionHandle?> _localTypes = [];
+        private readonly Dictionary<
+            TypeDefinitionHandle,
+            IReadOnlyList<OwnedMethodImplementation>> _implementations = [];
+        private MetadataTypeScope? _currentScope;
+        private bool _initialized;
+
+        internal IReadOnlyList<OwnedMethodImplementation> Get(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            TypeDefinition type)
+        {
+            lock (_gate)
+            {
+                if (_implementations.TryGetValue(
+                        typeHandle,
+                        out IReadOnlyList<OwnedMethodImplementation>? cached))
+                {
+                    return cached;
+                }
+
+                if (!_initialized)
+                {
+                    _initialized = true;
+                    try
+                    {
+                        _currentScope = CurrentScope(
+                            reader,
+                            beforeDecodeWork: null);
+                        if (_currentScope is not null)
+                        {
+                            _localTypes = LocalTypes(
+                                reader,
+                                _currentScope,
+                                _failures,
+                                budget: null);
+                        }
+                    }
+                    catch (Exception ex) when (
+                        ex is BadImageFormatException
+                            or ArgumentOutOfRangeException
+                            or OverflowException)
+                    {
+                        _currentScope = null;
+                        _localTypes = [];
+                    }
+                }
+
+                IReadOnlyList<OwnedMethodImplementation> implementations =
+                    _currentScope is null
+                        ? []
+                        : ReadOwnedMethodImplementations(
+                            reader,
+                            typeHandle,
+                            type,
+                            _failures,
+                            budget: null,
+                            owningTypeDefinition: null,
+                            currentScope: _currentScope,
+                            localTypes: _localTypes,
+                            beforeDecodeWork: null);
+                _implementations.Add(typeHandle, implementations);
+                return implementations;
+            }
+        }
     }
 
     private static bool IsLocalBaseType(
@@ -3834,7 +4339,7 @@ public static class ApiSurfaceExtractor
             || !TryGetUniqueLocalType(localTypes, declarationIdentity, out _);
         var currentType = typeDef;
         HashSet<TypeDefinitionHandle> visitedBaseTypes = [];
-        while (true)
+        for (int depth = 0; depth < MaxBaseChainDepth; depth++)
         {
             foreach (var handle in currentType.GetInterfaceImplementations())
             {
@@ -3880,6 +4385,8 @@ public static class ApiSurfaceExtractor
 
             currentType = reader.GetTypeDefinition(baseDefinition);
         }
+        if (visitedBaseTypes.Count == MaxBaseChainDepth)
+            hasUnresolvedExternalOwnership = true;
 
         while (pending.TryDequeue(out var candidate))
         {
@@ -4345,7 +4852,9 @@ public static class ApiSurfaceExtractor
     {
         EntityHandle baseType = typeDef.BaseType;
         HashSet<TypeDefinitionHandle> visited = [];
-        while (!baseType.IsNil)
+        for (int depth = 0;
+            !baseType.IsNil && depth < MaxBaseChainDepth;
+            depth++)
         {
             if (baseType == declaringType)
                 return true;
@@ -5096,32 +5605,48 @@ public static class ApiSurfaceExtractor
     /// </summary>
     internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
-        var method = reader.GetMethodDefinition(methodHandle);
-        if (!IsFinalizerBodyShape(reader, method))
-            return false;
-
-        var typeHandle = method.GetDeclaringType();
-        var typeDef = reader.GetTypeDefinition(typeHandle);
-        if (!IsFinalizerOwner(reader, typeDef))
-            return false;
-        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        try
         {
-            var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
-                && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
-                && ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
-            {
-                return true;
-            }
-        }
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (!IsFinalizerBodyShape(reader, method))
+                return false;
 
-        // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
-        return IsImplicitObjectFinalizeOverride(
-            reader,
-            typeHandle,
-            method,
-            currentScope: null,
-            localTypes: null);
+            var typeHandle = method.GetDeclaringType();
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!IsFinalizerOwner(reader, typeDef))
+                return false;
+            IReadOnlyList<OwnedMethodImplementation> implementations =
+                FinalizerMethodImplementationCaches
+                    .GetValue(
+                        reader,
+                        static _ => new FinalizerMethodImplementationCache())
+                    .Get(reader, typeHandle, typeDef);
+            foreach (var implementation in implementations)
+            {
+                if (implementation.Body == methodHandle
+                    && ReferencesObjectFinalize(
+                        reader,
+                        implementation.Declaration))
+                {
+                    return true;
+                }
+            }
+
+            // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
+            return IsImplicitObjectFinalizeOverride(
+                reader,
+                typeHandle,
+                method,
+                currentScope: null,
+                localTypes: null);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return false;
+        }
     }
 
     private static bool IsFinalizerOwner(
@@ -5152,9 +5677,9 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set
-    // below stops in-assembly cycles, and this cap stops an unbounded walk through a long legitimate
-    // (or degenerate) hierarchy. Real finalizer-bearing hierarchies are far shallower than this.
+    // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; visited sets
+    // stop in-assembly cycles, and this cap bounds all hierarchy classifications over a long
+    // legitimate (or degenerate) chain. Real API hierarchies are far shallower than this.
     private const int MaxBaseChainDepth = 256;
 
     /// <summary>
@@ -5343,7 +5868,8 @@ public static class ApiSurfaceExtractor
                 return false;
             // Return type: a plain ELEMENT_TYPE_VOID. Any leading custom modifier or by-ref token is
             // read here instead of Void and correctly rejects.
-            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void;
+            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void
+                && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
         {
