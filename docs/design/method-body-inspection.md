@@ -333,6 +333,8 @@ resolution. Its authenticated owner evidence pairs method identity with
 method- and enclosing-type generated provenance from the primary metadata
 resolver, so malformed-name authentication uses the provenance captured with
 the resolved owner instead of re-deriving a narrower attribute subset.
+Ultimate-owner traversal preserves that typed provenance for recommendation
+suppression instead of projecting identity alone.
 `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
 `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
 `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -372,6 +374,7 @@ multi-hop caller projection for unresolved and recoverable-failure paths;
 gate canonical generated-name admission at immediate and intermediate hops.
 `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
 `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
+`ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,
 `ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
 `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
 `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
@@ -380,6 +383,11 @@ authentication.
 `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
 gates ultimate-owner recommendation attribution across full, method, and type
 scopes.
+`OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes`
+and
+`OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes`
+gate generated ultimate-owner suppression for generic-box and async-sibling
+recommendations across those scopes.
 `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
 `ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
 async-owner shapes.

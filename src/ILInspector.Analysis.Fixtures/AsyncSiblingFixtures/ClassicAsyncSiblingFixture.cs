@@ -31,6 +31,25 @@ public static class ClassicAsyncSiblingFixture
         return ReadValue(value);
     }
 
+    [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]
+    public static Func<int, Task<int>>
+        GeneratedUltimateAsyncOwner()
+    {
+        return Child;
+
+        static async Task<int> Child(int value)
+        {
+            await Task.Yield();
+            return GeneratedRead(value);
+        }
+    }
+
+    public static int GeneratedRead(int value) =>
+        value;
+
+    public static Task<int> GeneratedReadAsync(int value) =>
+        Task.FromResult(value);
+
     public static Action<Task> AwaitTaskInAsyncLambda() =>
         async task => await task;
 

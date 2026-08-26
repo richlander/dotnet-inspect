@@ -103,7 +103,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
-        out MethodIdentity? ultimateOwner);
+        out AuthenticatedSourceOwner? ultimateOwner);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -282,6 +282,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
+            AuthenticatedSourceOwner? ultimateOwnerEvidence = null;
             bool opportunityOwnershipResolved = true;
             try
             {
@@ -323,7 +324,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 methodDefinition,
                                 caller,
                                 typeSourceGenerated,
-                                out ultimateOwner);
+                                out ultimateOwnerEvidence);
+                    ultimateOwner =
+                        ultimateOwnerEvidence?.Method;
                 }
                 if (ownerResolution
                     == DeclaredOwnerResolution.Resolved)
@@ -518,7 +521,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodAttributes)
                     || hasSourceOwner
                         && sourceOwner
-                            .SuppressesOpportunities;
+                            .SuppressesOpportunities
+                    || ultimateOwnerEvidence
+                        ?.SuppressesOpportunities == true;
                 bool compilerGenerated =
                     _infrastructure.HasCompilerGeneratedAttribute(
                         methodAttributes)

@@ -4814,6 +4814,56 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                typeGeneratedMalformedLiftedSource: true);
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TypeGeneratedMalformedAsyncSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity source = Assert.Single(
+            full.Methods,
+            method => method.Name == "Noise>b__0_0");
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            full,
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TypeGeneratedMalformedAsyncSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: new HashSet<int>
+                {
+                    source.MetadataToken,
+                }),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TypeGeneratedMalformedAsyncSource.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyTypeScope:
+                    type => type.Equals(
+                        source.DeclaringType)),
+        })
+        {
+            Assert.Null(
+                index.ResolveDeclaredMethod(moveNext));
+        }
+        Assert.Contains(
+            full.DirectCalls,
+            call => call.EvidenceMethod == moveNext
+                && call.Caller == moveNext
+                && call.Callee.Name == "Read");
+    }
+
+    [Fact]
+    public void
         ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner()
     {
         byte[] image =
@@ -5699,6 +5749,7 @@ public class LibraryBodyIndexTests
         bool malformedTopLevelEntryPoint = false,
         bool nestedUnresolvedLiftedSource = false,
         bool malformedGeneratedLiftedSource = false,
+        bool typeGeneratedMalformedLiftedSource = false,
         bool malformedNestedLiftedIntermediate = false,
         bool deepNestedLiftedSource = false,
         bool crossKindDuplicate = false,
@@ -5975,6 +6026,7 @@ public class LibraryBodyIndexTests
                     : nestedUnresolvedLiftedSource
                         ? "<<Outer>b__0_0>b__0_1"
                         : malformedGeneratedLiftedSource
+                            || typeGeneratedMalformedLiftedSource
                             ? "Noise>b__0_0"
                         : unresolvedLiftedSource
                         ? "<Outer>b__0_0"
@@ -6206,6 +6258,14 @@ public class LibraryBodyIndexTests
         {
             metadata.AddCustomAttribute(
                 analyze,
+                generatedAttributeConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
+        if (typeGeneratedMalformedLiftedSource)
+        {
+            metadata.AddCustomAttribute(
+                sourceType,
                 generatedAttributeConstructor,
                 metadata.GetOrAddBlob(
                     new byte[] { 0x01, 0x00, 0x00, 0x00 }));
@@ -11891,6 +11951,144 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(LibraryBodyIndexTests).Assembly.Location);
+        string intermediateName =
+            "<GeneratedUltimate>g__Mid|0_0";
+        string evidenceName =
+            $"<{intermediateName}>g__Box|0_1";
+        ReplaceUniqueAscii(
+            image,
+            new string('D', evidenceName.Length),
+            evidenceName);
+        ReplaceUniqueAscii(
+            image,
+            new string('C', intermediateName.Length),
+            intermediateName);
+
+        LibraryBodyIndex identities =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "GeneratedUltimateBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity ultimate = Assert.Single(
+            identities.Methods,
+            method => method.Name == "GeneratedUltimate"
+                && method.DeclaringType.Name.Contains(
+                    nameof(
+                        GeneratedUltimateNestedFixture),
+                    StringComparison.Ordinal));
+        MethodIdentity evidence = Assert.Single(
+            identities.Methods,
+            method => method.Name == evidenceName);
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "GeneratedUltimateBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "GeneratedUltimateBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    evidence.MetadataToken,
+                }),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "GeneratedUltimateBox.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        ultimate.DeclaringType)),
+        })
+        {
+            Assert.Equal(
+                ultimate,
+                index.ResolveDeclaredMethod(evidence));
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "generic-parameter-object-box"
+                    && opportunity.Method.MetadataToken
+                        == evidence.MetadataToken);
+        }
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex identities = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity ultimate = Assert.Single(
+            identities.Methods,
+            method => method.Name
+                == nameof(
+                    ClassicAsyncSiblingFixture
+                        .GeneratedUltimateAsyncOwner));
+        MethodIdentity child = Assert.Single(
+            identities.Methods,
+            method => method.Name.StartsWith(
+                "<GeneratedUltimateAsyncOwner>g__Child|",
+                StringComparison.Ordinal));
+
+        foreach (LibraryBodyIndex index in new[]
+        {
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    ultimate.MetadataToken,
+                }),
+            LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyTypeScope:
+                    type => type.Equals(
+                        ultimate.DeclaringType)),
+        })
+        {
+            Assert.Equal(
+                ultimate,
+                index.ResolveDeclaredMethod(child));
+            Assert.Contains(
+                index.DirectCalls,
+                call => call.Caller == ultimate
+                    && call.EvidenceMethod.Name
+                        == "MoveNext"
+                    && call.Callee.Name
+                        == nameof(
+                            ClassicAsyncSiblingFixture
+                                .GeneratedRead));
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.MetadataToken
+                        == child.MetadataToken);
+        }
+    }
+
+    [Fact]
     public void DirectCalls_AttributeLiftedBodiesButNotIterators()
     {
         var index = LibraryBodyIndex.Open(
@@ -17179,6 +17377,29 @@ public static class ResolvedNestedLiftedOwnerFixture
             right);
 
     public static bool BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB<T>(
+        T left,
+        T right)
+        => left!.Equals(right);
+}
+
+public static class GeneratedUltimateNestedFixture
+{
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static bool GeneratedUltimate<T>(
+        T left,
+        T right)
+        => CCCCCCCCCCCCCCCCCCCCCCCCCCCCC(
+            left,
+            right);
+
+    public static bool CCCCCCCCCCCCCCCCCCCCCCCCCCCCC<T>(
+        T left,
+        T right)
+        => DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD(
+            left,
+            right);
+
+    public static bool DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD<T>(
         T left,
         T right)
         => left!.Equals(right);

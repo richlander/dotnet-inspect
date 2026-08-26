@@ -865,8 +865,9 @@ Research overlay bridge, and the application layer:
   owner candidate set in every scope without acquiring unselected owner bodies.
   Authenticated lifted-owner evidence carries the owner identity together with
   method- and enclosing-type compiler-generated provenance; attribution,
-  scope admission, and recommendation projection consume that evidence rather
-  than re-reading a narrower attribute subset.
+  scope admission, and recommendation projection preserve that evidence
+  through ultimate-owner traversal rather than re-reading a narrower attribute
+  subset or projecting identity alone.
   Ownership-derived recommendations require an authenticated ultimate owner
   in full, method, and type scopes; unresolved ownership retains physical
   evidence and body-intrinsic opportunities but fails closed for attribution.
@@ -910,6 +911,7 @@ Research overlay bridge, and the application layer:
   gate malformed immediate and intermediate names.
   `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
   `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
+  `ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,
   `ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
   `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
   `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
@@ -918,6 +920,11 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
   gates ultimate-owner recommendation attribution with a resolvable two-hop
   compiled relationship in full, method, and type scopes.
+  `OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes`
+  and
+  `OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes`
+  gate generated ultimate-owner suppression for generic-box and async-sibling
+  recommendations across those same scopes.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
