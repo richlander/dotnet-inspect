@@ -423,6 +423,63 @@ export function retainedPlatformTargetVersion(
   return tab.version ?? "";
 }
 
+function workspaceShareTabMatchesResolved(
+  requested: BrowserWorkspaceShareTab,
+  resolved: BrowserWorkspaceShareTab,
+): boolean {
+  return requested.kind === resolved.kind
+    && requested.source.toLowerCase() === resolved.source.toLowerCase()
+    && (!requested.version
+      || requested.version.toLowerCase() === resolved.version?.toLowerCase())
+    && (!requested.framework
+      || requested.framework.toLowerCase() === resolved.framework?.toLowerCase())
+    && requested.runtimeIdentifier === resolved.runtimeIdentifier;
+}
+
+export function workspaceShareTabsMatchResolved(
+  requested: readonly BrowserWorkspaceShareTab[],
+  resolved: readonly BrowserWorkspaceShareTab[],
+): boolean {
+  return requested.length === resolved.length
+    && requested.every((tab, index) => {
+      const resolvedTab = resolved[index];
+      return resolvedTab
+        ? workspaceShareTabMatchesResolved(tab, resolvedTab)
+        : false;
+    });
+}
+
+export interface RetainedMissingPlatformTarget {
+  tabIndex: number;
+  version: string;
+}
+
+export function retainedMissingPlatformTarget(
+  basisTabs: readonly BrowserWorkspaceShareTab[] | null | undefined,
+  resolvedTabs: readonly BrowserWorkspaceShareTab[],
+  framework: string,
+): RetainedMissingPlatformTarget | null {
+  if (!basisTabs || basisTabs.length !== resolvedTabs.length + 1) return null;
+  const matches = basisTabs
+    .map((tab, index) => ({ tab, index }))
+    .filter(({ tab }) =>
+      tab.kind === "group"
+      && tab.source === ":Platform"
+      && !tab.runtimeIdentifier
+      && (!tab.version || Boolean(tab.framework))
+      && (!tab.framework
+        || tab.framework.toLowerCase() === framework.toLowerCase()));
+  if (matches.length !== 1) return null;
+
+  const { tab, index } = matches[0]!;
+  const remaining = basisTabs.filter((_, candidate) => candidate !== index);
+  if (!workspaceShareTabsMatchResolved(remaining, resolvedTabs)) return null;
+  return {
+    tabIndex: index,
+    version: tab.version ?? "",
+  };
+}
+
 export interface DecodedShareState {
   state: BrowserWorkspaceShareState;
   tabs: WorkspaceTab[];

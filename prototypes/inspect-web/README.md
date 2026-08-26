@@ -784,15 +784,19 @@ send that complete ordered context to the product engine.
 
 Browser activation supports package tabs and one exact or floating `:Platform`
 group tab without RIDs. Canonical activation is atomic: any unavailable tab,
-library, type, member, or applicable member section leaves the original URL
-intact, retains the prior workbench when one exists, and reports the failed
-restore rather than activating a partial workspace. Unsupported groups, multiple
-Platform tabs, runtime identifiers,
+library, type, member, applicable member section, or many-to-one or
+coordinate-changing tab resolution leaves the original URL intact, retains the
+prior workbench when one exists, and reports the failed restore rather than
+activating a partial workspace.
+Unsupported groups, multiple Platform tabs, runtime identifiers,
 multiple selected libraries, unknown lenses or sections, package-root facets,
 unresolved graph targets,
-ambiguous overloads, accessor-specific bodies, and members without a portable
-product identity fail visibly rather than producing lossy state. Filters and
-browse presentation stay
+ambiguous overloads, graph-discovered members, accessor-specific bodies, and
+members without a portable product identity fail visibly rather than producing
+lossy state. `canonical tabs must remain distinct and ordered after resolution`,
+`missing Platform reacquisition retains only an aligned canonical pin`, and
+`canonical restoration is atomic and history adopts the active packet basis`
+gate these boundaries. Filters and browse presentation stay
 session-local. A package-root view drops stale `w=` state and uses the ordinary
 Browser package route for address-bar synchronization and explicit Share until
 product facet ids exist. Other transient,

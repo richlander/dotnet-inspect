@@ -1177,11 +1177,17 @@ Definition records and product demos (this slice):
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
   while an absent pin remains floating. Browser activation accepts at most one
   Platform tab and is atomic: an unavailable coordinate, selected library,
-  type, member, or applicable section restores no partial workspace, retains a
-  prior workbench when present, and leaves the source URL intact. Unsupported
+  type, member, or applicable section, or a many-to-one or coordinate-changing
+  tab resolution restores no partial workspace, retains a prior workbench when
+  present, and leaves the source URL intact. Unsupported
   groups, RIDs, multi-library Browser views, unknown lenses or sections, package
-  facets, pending graph targets, accessor-specific bodies, and members without
-  portable anchor/signature identity fail visibly instead of being flattened.
+  facets, pending graph targets, graph-discovered members, accessor-specific
+  bodies, and members without portable anchor/signature identity fail visibly
+  instead of being flattened.
+  `canonical tabs must remain distinct and ordered after resolution`,
+  `missing Platform reacquisition retains only an aligned canonical pin`, and
+  `canonical restoration is atomic and history adopts the active packet basis`
+  gate these Browser boundaries.
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI

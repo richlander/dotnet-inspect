@@ -2173,6 +2173,9 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.match(
     capture,
     /overload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
+  assert.match(
+    capture,
+    /overload\.graphOnly[\s\S]*Graph-discovered members cannot be shared/);
   assert.match(capture, /package: state\.package\.id/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);
@@ -2241,7 +2244,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
 
   assert.match(
     restore,
-    /failedTabCount[\s\S]*loc\.shareState && failedTabCount > 0[\s\S]*failCanonicalWorkspaceRestore/);
+    /canonicalTabCountPreserved[\s\S]*canonicalTabsPreserved[\s\S]*failedTabCount > 0 \|\| !canonicalTabsPreserved[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
     /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens\)[\s\S]*failCanonicalWorkspaceRestore/);
@@ -2253,10 +2256,16 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalSnapshot = loc\.shareState[\s\S]*state\.workspaceShareBasis = loc\.shareState/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*preserveUrlThroughNextRender = true;\s*render\(\);\s*preserveUrlThroughNextRender = false/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*preserveUrlThroughNextRender = true;\s*render\(\);\s*return/);
+  assert.doesNotMatch(
+    appSource,
+    /render\(\);\s*preserveUrlThroughNextRender = false/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
+  assert.match(
+    history,
+    /invalidateMemberCallGraphWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
     /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
@@ -3814,7 +3823,7 @@ test("home navigation invalidates pending graph work", () => {
   assert.match(home, /invalidateGraphMemberNavigation\(\)/);
   assert.match(home, /state\.memberCallGraphExpanding = false/);
   assert.match(history, /invalidateGraphMemberNavigation\(\)/);
-  assert.match(history, /state\.memberCallGraphExpanding = false/);
+  assert.match(history, /invalidateMemberCallGraphWork\(state\)/);
 });
 
 test("graph navigation restores scope and supersedes local drills", () => {

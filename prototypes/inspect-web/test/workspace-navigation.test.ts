@@ -11,9 +11,11 @@ import {
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
+  retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   resolveWorkspaceRoute,
   shouldInterceptLinkClick,
+  workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
   type LinkNavigationClick,
@@ -545,6 +547,63 @@ test("Platform drill target version preserves exact versus floating packet ident
   assert.equal(
     retainedPlatformTargetVersion(null, runtimePack, "net10.0"),
     "");
+});
+
+test("canonical tabs must remain distinct and ordered after resolution", () => {
+  const requested = workspaceState().tabs;
+  const resolved = requested.map(tab => ({
+    ...tab,
+    version: tab.version ?? "10.0.11",
+    framework: tab.framework ?? "net10.0",
+  }));
+
+  assert.equal(workspaceShareTabsMatchResolved(requested, resolved), true);
+  assert.equal(
+    workspaceShareTabsMatchResolved(requested, resolved.slice(0, 1)),
+    false);
+  assert.equal(
+    workspaceShareTabsMatchResolved(
+      requested,
+      [resolved[1]!, resolved[0]!]),
+    false);
+});
+
+test("missing Platform reacquisition retains only an aligned canonical pin", () => {
+  const packageTab = workspaceState().tabs[0]!;
+  const platformTab = {
+    id: "platform",
+    kind: "group",
+    source: ":Platform",
+    version: "10.0.10",
+    framework: "net10.0",
+    runtimeIdentifier: null,
+  };
+  const basis = [packageTab, platformTab];
+
+  assert.deepEqual(
+    retainedMissingPlatformTarget(basis, [packageTab], "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
+  assert.deepEqual(
+    retainedMissingPlatformTarget(
+      [{ ...platformTab, version: null }, packageTab],
+      [packageTab],
+      "net10.0"),
+    { tabIndex: 0, version: "" });
+  assert.equal(
+    retainedMissingPlatformTarget(basis, [packageTab], "net9.0"),
+    null);
+  assert.equal(
+    retainedMissingPlatformTarget(
+      [{ ...platformTab, framework: null }, packageTab],
+      [packageTab],
+      "net10.0"),
+    null);
+  assert.equal(
+    retainedMissingPlatformTarget(
+      basis,
+      [{ ...packageTab, source: "Replacement.Package" }],
+      "net10.0"),
+    null);
 });
 
 test("package-root URLs discard stale workspace state and restore the package lens", () => {

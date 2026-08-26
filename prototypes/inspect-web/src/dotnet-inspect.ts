@@ -87,7 +87,9 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
   type NavigationHistorySnapshot,
@@ -5914,43 +5916,27 @@ function workbenchModalOwnsFocus() {
     || state.docViewerOpen;
 }
 
-function shareTabMatchesPackage(
-  tab: BrowserWorkspaceShareState["tabs"][number],
-  pkg: AppPackage,
-) {
-  if (pkg.isRuntimePack) {
-    return tab.kind === "group"
-      && tab.source === ":Platform"
-      && (!tab.version || tab.version === pkg.version)
-      && (!tab.framework || tab.framework === pkg.activeFramework)
-      && !tab.runtimeIdentifier;
-  }
-  return tab.kind === "package"
-    && tab.source.toLowerCase() === pkg.id.toLowerCase()
-    && (!tab.version || tab.version === pkg.version)
-    && (!tab.framework || tab.framework === pkg.activeFramework)
-    && !tab.runtimeIdentifier;
+function resolvedWorkspaceShareTabs():
+BrowserWorkspaceShareState["tabs"] {
+  return state.packages.map((pkg, index) => ({
+    id: `t${index}`,
+    kind: pkg.isRuntimePack ? "group" : "package",
+    source: pkg.isRuntimePack ? ":Platform" : pkg.id,
+    version: pkg.version || null,
+    framework: pkg.activeFramework || null,
+    runtimeIdentifier: null,
+  }));
 }
 
 function capturedShareTabs() {
   const basis = state.workspaceShareBasis;
+  const resolvedTabs = resolvedWorkspaceShareTabs();
   const preservesBasis = Boolean(basis
-    && basis.tabs.length === state.packages.length
-    && basis.tabs.every((tab, index) => {
-      const pkg = state.packages[index];
-      return pkg ? shareTabMatchesPackage(tab, pkg) : false;
-    }));
+    && workspaceShareTabsMatchResolved(basis.tabs, resolvedTabs));
   const tabs: BrowserWorkspaceShareState["tabs"] =
     preservesBasis && basis
       ? basis.tabs.map(tab => ({ ...tab }))
-      : state.packages.map((pkg, index) => ({
-          id: `t${index}`,
-          kind: pkg.isRuntimePack ? "group" : "package",
-          source: pkg.isRuntimePack ? ":Platform" : pkg.id,
-          version: pkg.version || null,
-          framework: pkg.activeFramework || null,
-          runtimeIdentifier: null,
-        }));
+      : resolvedTabs;
   return { tabs, preservesBasis };
 }
 
@@ -6035,6 +6021,10 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     if (!overload) {
       throw new Error(
         "The selected overload is no longer available and cannot be shared.");
+    }
+    if (overload.graphOnly) {
+      throw new Error(
+        "Graph-discovered members cannot be shared until workspace packets carry their portable target identity.");
     }
     memberAnchor = overload.anchorDigest || null;
     memberSignature = memberAnchor ? null : overload.canonicalSignature || null;
@@ -7952,6 +7942,10 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     runtimePackPackage(),
     framework);
   if (!pack) {
+    const retainedPlatform = retainedMissingPlatformTarget(
+      state.workspaceShareBasis?.tabs,
+      resolvedWorkspaceShareTabs(),
+      framework);
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
@@ -7968,9 +7962,18 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
         : `${node.assembly}.dll`,
       targetPack ?? "",
       navigationIsCurrent,
-      "");
+      retainedPlatform?.version ?? "");
     pack = runtimeResult.packageModel;
     if (discardIfStale(preservedFocus)) return;
+    if (pack && retainedPlatform) {
+      const currentIndex = state.packages.indexOf(pack);
+      if (currentIndex >= 0 && currentIndex !== retainedPlatform.tabIndex) {
+        const packages = state.packages.slice();
+        packages.splice(currentIndex, 1);
+        packages.splice(retainedPlatform.tabIndex, 0, pack);
+        state.packages = packages;
+      }
+    }
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = runtimeResult.failureMessage
@@ -8923,12 +8926,21 @@ async function restoreWorkspaceFromLocation(
     if (loaded && matchesTarget(tab)) loadedTargetModel = loaded;
   }
 
-  if (loc.shareState && failedTabCount > 0) {
+  const resolvedTabs = resolvedWorkspaceShareTabs();
+  const canonicalTabCountPreserved = !loc.shareState
+    || loc.shareState.tabs.length === resolvedTabs.length;
+  const canonicalTabsPreserved = !loc.shareState
+    || workspaceShareTabsMatchResolved(loc.shareState.tabs, resolvedTabs);
+  if (loc.shareState && (failedTabCount > 0 || !canonicalTabsPreserved)) {
     failCanonicalWorkspaceRestore(
       loc,
       deep,
       state.queryNotice
-        || "The shared workspace could not be restored completely.",
+        || (failedTabCount > 0
+          ? "The shared workspace could not be restored completely."
+          : canonicalTabCountPreserved
+            ? "A shared workspace tab resolved to a different version or framework than the packet requested."
+            : "The shared workspace tabs did not remain distinct after resolution."),
       canonicalSnapshot);
     return;
   }
@@ -9029,7 +9041,6 @@ function failCanonicalWorkspaceRestore(
       () => restoreWorkspaceFromLocation(loc, deep));
     preserveUrlThroughNextRender = true;
     render();
-    preserveUrlThroughNextRender = false;
     return;
   }
   clearWorkspacePackages();
@@ -9621,8 +9632,7 @@ function clearNavigationError() {
 
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
-  state.memberCallGraphSeq++;
-  state.memberCallGraphExpanding = false;
+  invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
