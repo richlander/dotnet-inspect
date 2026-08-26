@@ -416,14 +416,16 @@ resolved scenario into its selected context, navigation focus, type/member
 selection, and section; CLI and browser encodings consume that plan rather than
 parsing the member selection independently. **Home demos now bind product
 section display names**
-through `ProductDemoSections` (today: `Methods` for STJ; `Call Graph` primary
-bind for the extensions member, expanded at run via `ExpandRunSections` /
-`DemoScenarioRunner` so the closed preset matches the multi-package
-`--caller-package` companion rule: Markdown keeps `Call Graph` + `Callers`;
-table/tsv/jsonl select `Callers` alone (MemberCommand re-adds Callers under
-caller scope, so Call Graph-only tabular silently fell back to a member
-inventory); standalone `--mermaid` keeps `Call Graph`; document `--json` fails
-closed for Call Graph demos until graph sections project into that payload.
+through `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
+Graph` primary bind for multi-package and package-local graph demos, expanded
+at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
+`Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
+caller scope — MemberCommand re-adds Callers under caller scope, so
+Call Graph-only tabular would silently fall back to a member inventory — and
+select `Call Graph` when it does not, so package-local entry points with empty
+Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
+`--json` fails closed for Call Graph demos until graph sections project into
+that payload.
 `ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
 section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
@@ -1046,8 +1048,9 @@ Definition records and product demos (this slice):
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the two home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `RendererRegistry` style) of the product home scenarios (Methods tour plus
+  multiple Call Graph shapes); listing is metadata-only and
+  `ResolveHomeScenario` allocates only that demo's peer records and enforces
   `ProductDemoSections` binding; JSON remains the portable load path for external
   definitions;
 - `ProductDemoRunPlan` lowers the resolved context, focus, type/member
@@ -1055,14 +1058,14 @@ Definition records and product demos (this slice):
 - `ProductDemoSections` is the closed allow list of product section display names
   home demos may select until minted view-facet ids land; `ExpandRunSections`
   expands Call Graph binds format-aware (Markdown: Call Graph + Callers;
-  table/tsv/jsonl: Callers);
+  table/tsv/jsonl: Callers with caller scope, Call Graph without);
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
-  two home demos; inspect-web's generated `RunHomeDemo` binding runs the
+  product home demos; inspect-web's generated `RunHomeDemo` binding runs the
   member-bound Call Graph preset from its product scenario id;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
