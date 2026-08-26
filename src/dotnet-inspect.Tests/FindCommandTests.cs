@@ -261,12 +261,17 @@ public class FindCommandTests
     [Fact]
     public void PackageProfileSection_BindsProfileQueryAndProjectsDependencySecond()
     {
+        PackageProfileSectionCatalog catalog =
+            PackageProfileSections.CreateCatalog();
         SectionPipeline<PackageProfileView> pipeline =
-            PackageProfileSections.CreatePipeline();
+            catalog.Pipeline;
         (string Name, InspectionQueryDefinition Query) binding =
             Assert.Single(pipeline.QueryBoundSections);
         Assert.Equal(PackageProfileSections.Packages, binding.Name);
         Assert.Same(PackageProfileQuery.Definition, binding.Query);
+        Assert.Same(
+            PackageProfileQuery.Definition,
+            Assert.Single(catalog.QueryRegistry.RegisteredQueries));
 
         PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",

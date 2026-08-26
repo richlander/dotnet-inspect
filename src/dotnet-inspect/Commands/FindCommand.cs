@@ -31,8 +31,10 @@ public class FindCommand
             {
                 if (options.IsPackageProfile)
                 {
+                    PackageProfileSectionCatalog catalog =
+                        PackageProfileSections.CreateCatalog();
                     SectionPipeline<PackageProfileView> pipeline =
-                        PackageProfileSections.CreatePipeline();
+                        catalog.Pipeline;
                     return DiscoverOutput.Execute(
                         options.Discover,
                         PackageProfileSections.CreateSchema(),
@@ -191,12 +193,23 @@ public class FindCommand
         var request = new PackagePrefixProfileRequest(
             options.PackagePrefix!,
             maximumPackages);
+        PackageProfileSectionCatalog catalog =
+            PackageProfileSections.CreateCatalog();
+        HashSet<string> includeSections =
+            [PackageProfileSections.Packages];
+        HashSet<InspectionQueryDefinition> requestedQueries =
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Normal,
+                includeSections);
+        InspectionQueryResults queryResults =
+            catalog.QueryRegistry.Run(
+                requestedQueries,
+                new PackageProfileQueryContext(source, request));
+        IAsyncEnumerable<PackageProfileEvent> profileEvents =
+            queryResults.Get(PackageProfileQuery.Definition);
         var events = new List<PackageProfileEvent>();
         await foreach (PackageProfileEvent profileEvent
-            in PackageProfileQuery.ExecuteAsync(
-                source,
-                request,
-                cancellationToken))
+            in profileEvents.WithCancellation(cancellationToken))
         {
             events.Add(profileEvent);
         }

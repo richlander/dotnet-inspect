@@ -13,6 +13,13 @@ public sealed record PackagePrefixProfileRequest(
     bool IncludePrerelease = false);
 
 /// <summary>
+/// Host-supplied input for one package-profile query execution.
+/// </summary>
+public sealed record PackageProfileQueryContext(
+    IPackageSourceClient Source,
+    PackagePrefixProfileRequest Request);
+
+/// <summary>
 /// One package whose latest listed manifest was projected by a package profile.
 /// </summary>
 public sealed record PackageProfileMatch(

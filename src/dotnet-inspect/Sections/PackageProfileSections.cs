@@ -8,6 +8,10 @@ using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
+public sealed record PackageProfileSectionCatalog(
+    SectionPipeline<PackageProfileView> Pipeline,
+    InspectionQueryRegistry<PackageProfileQueryContext> QueryRegistry);
+
 /// <summary>
 /// Sections and row projection for a package-prefix profile.
 /// </summary>
@@ -15,10 +19,36 @@ public static class PackageProfileSections
 {
     public const string Packages = "Packages";
 
-    public static SectionPipeline<PackageProfileView> CreatePipeline() =>
+    public static PackageProfileSectionCatalog CreateCatalog()
+    {
+        InspectionQueryRegistry<PackageProfileQueryContext> queryRegistry =
+            CreateQueryRegistry();
+        return new PackageProfileSectionCatalog(
+            CreatePipeline(queryRegistry.CostOf),
+            queryRegistry);
+    }
+
+    public static SectionPipeline<PackageProfileView> CreatePipeline()
+    {
+        InspectionQueryRegistry<PackageProfileQueryContext> queryRegistry =
+            CreateQueryRegistry();
+        return CreatePipeline(queryRegistry.CostOf);
+    }
+
+    private static InspectionQueryRegistry<PackageProfileQueryContext>
+        CreateQueryRegistry() =>
+        new InspectionQueryRegistry<PackageProfileQueryContext>()
+            .Add(
+                PackageProfileQuery.Definition,
+                static context => PackageProfileQuery.ExecuteAsync(
+                    context.Source,
+                    context.Request));
+
+    private static SectionPipeline<PackageProfileView> CreatePipeline(
+        Func<InspectionQueryDefinition, InspectionCost> queryCost) =>
         new SectionPipeline<PackageProfileView>()
             .UseCuratedCatalog()
-            .UseQueryCosts(static query => query.Cost)
+            .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<PackageRows>(PackageProfileQuery.Definition);
 
