@@ -304,6 +304,208 @@ consumer's convenience.
 7. **Presentation-free means presentation-free.** No layer below L3 writes to the
    console or decides an output format.
 
+## Queries-to-Research population boundary
+
+**Status:** target design for #4711; unimplemented and unverified until the
+named gates in [Migration and gates](#migration-and-gates) land.
+
+This boundary is owned by the L1 `DotnetInspector.Queries` component and this
+document. The component spans the core query assembly and the optional
+`DotnetInspector.ResearchQueries` companion: the latter is a physical dependency
+split that keeps Research out of core query consumers, not a second
+architectural owner.
+
+`ILInspector.Research` remains the adjacent owner. It owns Research identity
+construction, admission, target resolution, correspondence, and comparison
+semantics under [Implementation Diff](implementation-diff.md). L1 may require
+Research-issued identities and retain their correspondence to query identities;
+it must not mint, infer, or reinterpret them.
+
+### Current gap
+
+`ImplementationComparisonInput` currently accepts independent old/new
+collections of Research-owned `ImplementationAssemblyInput` values.
+`BodySignalComparisonInput` accepts independent old/new
+`LibraryBodyIndex` collections. Both query adapters pass those collections
+directly to Research. Neither adapter has a query-owned operation identity,
+sealed population, or receipt proving which query inputs became which Research
+admission values.
+
+`AssemblyContextGroup` already seals participant registration and
+binding-policy consistency for one live workspace group. That remains a
+workspace lifetime contract. A comparison may borrow its participant evidence,
+but the group does not become the comparison-population owner and its disposal
+rules do not move into this boundary.
+
+### Population contract
+
+Each `ImplementationComparisonQuery.Execute` or
+`BodySignalComparisonQuery.Execute` invocation is one query question. Before
+Research execution, L1 snapshots and seals:
+
+- one opaque, operation-local `QueryComparisonOperationId`;
+- one opaque `QueryComparisonQuestionId` parented by that operation;
+- the exact type-filter and member-target values supplied as selection intent;
+- every submitted old/new input binding, each with one opaque
+  `QueryComparisonInputId` parented by that operation and question, plus an
+  explicit `Before` or `After` side.
+
+This is the complete **query input population**. It is not the later set of
+resolved methods, Research subjects, attempts, work items, or producer
+dispositions. Target expansion and body-presence resolution consume this
+population in the Research-owned follow-up design; they cannot add query input
+members retroactively.
+
+The operation, question, and input ids are identity. Assembly names, paths,
+MVIDs, list positions, rendered labels, filter text, and Research subject ids
+are evidence or intent and never substitute for those ids. Side participates in
+population membership. Reusing the same borrowed owner value on both sides
+mints two side-local input ids; one `QueryComparisonInputId` may appear only
+once in the entire population.
+
+The three query id types are sealed opaque reference identities with
+non-public constructors. Queries mints them while creating the profile binding
+and population; callers cannot supply an arbitrary value, parse one from text,
+or convert between id kinds. Duplicate means that one query-issued binding/id
+was submitted more than once. The sealer does not treat two separately issued
+bindings as duplicates merely because they reference the same owner value, and
+it does not open content, hash bytes, read an MVID, compare paths, or use object
+position to invent a canonical content identity.
+
+The boundary has two separately typed profiles corresponding to the current
+queries:
+
+| Profile | Query-owned input binding | Borrowed owner values |
+| --- | --- | --- |
+| Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and `LibraryBodyIndex` |
+| Body-signal comparison | one binding per submitted body index | exact `LibraryBodyIndex` |
+
+The profiles share identity and sealing rules, not an untyped input bag.
+Implementation must replace the Research-owned
+`ImplementationAssemblyInput` at the public L1 input seam with a query-owned
+binding whose Queries factory mints the input id. Body-signal comparison
+likewise wraps each index in a query-owned binding instead of treating
+`LibraryBodyIndex.Path` or object position as identity.
+
+The sealer copies caller-owned collections and selection sets into immutable
+storage before returning. Subsequent caller mutation cannot change the
+population. An empty side is an explicit frozen set, not omitted state. A
+binding id may appear at most once in the population, every member names the
+current operation and question, and every retained value must belong to the
+declared profile. Null, duplicate, substituted, wrong-side, or reparented
+members produce a typed query-population rejection before Research execution.
+
+Sealing does not open assembly content, read metadata, resolve targets, or
+validate Analysis evidence against an assembly image. In particular,
+`ImplementationDiff.ValidateBodyIndex` remains a Research-owned content check;
+the L1 sealer only proves which exact borrowed values entered the population.
+
+### Projection and receipt
+
+The optional ResearchQueries companion is the only L1 assembly that references
+both core Queries and Research. It consumes one sealed profile and asks
+Research-owned factories to mint distinct typed identities for these roles:
+
+- `ResearchComparisonOperationId` for the comparison operation;
+- `ResearchComparisonQuestionId` for the question whose selection intent will
+  be resolved;
+- `ResearchComparisonInputId` for each side-local admitted input.
+
+Those Research id types are sealed opaque reference identities with
+Research-owned non-public constructors. The companion can invoke the internal
+factories through its downward Research dependency but cannot construct the
+types itself. A factory invocation receives the Research-owned admission facts
+defined by that owner and returns the id for that exact sealed antecedent. The
+companion inserts the query-id/Research-id pair immediately from that call; it
+does not collect ids and later join them by ordinal, content, or display value.
+
+Rank 1 fixes those roles and the correspondence obligations. The Research-owned
+target-request design defines their admission payload and construction
+semantics; callers cannot supply them and L1 cannot derive them from query ids
+or display values.
+
+Projection is atomic. Either every sealed query identity receives exactly one
+Research identity and the companion returns one
+`QueryToResearchPopulationReceipt`, or no projected population is exposed. The
+Queries-owned receipt contains one exact operation pair, one immutable exact
+map from `QueryComparisonQuestionId` to
+`ResearchComparisonQuestionId`, and one immutable exact map from
+`QueryComparisonInputId` to `QueryToResearchInputCorrespondence`. The final
+value contains the `ResearchComparisonInputId` and exact `Before` or `After`
+side supplied to its factory call. The maps use exact owner-issued identity,
+not structural or textual equality. For each map:
+
+- the domain equals the corresponding sealed query-id set;
+- the range equals the corresponding Research-issued id set;
+- every domain value has one image;
+- every range value has one antecedent; and
+- query and Research identities remain non-convertible and unequal by
+  construction.
+
+Missing, extra, duplicate, substituted, wrong-side, or wrong-operation entries
+reject projection. The companion validates map cardinality and exact set
+equality; Research validates the identities and admission values it issued.
+Neither owner infers the other's identity from shared facts.
+
+The receipt is inert and immutable. It may retain opaque owner-issued ids,
+profile kind, and side, but it retains no assembly descriptor, resolver, body
+index, metadata source, callback, lease, producer evidence, display row, or
+cleanup authority. The companion returns it as an immediate output of that one
+L1 invocation. It is not registered, cached, published, or cleaned up by this
+boundary, and this design does not define an outer result shape or longer-lived
+retention policy.
+
+`ResearchComparisonInputId` is admission identity for one projected query
+input. It is not a `ResearchSubjectKey`, resolved member/type identity, Finding
+subject, change id, row id, or display coordinate. Those later identities
+cannot appear in the population receipt.
+
+### Migration and gates
+
+Implementation proceeds without reversing dependency direction:
+
+1. Core Queries adds the query-owned ids, profile bindings, immutable
+   populations, and sealing results. It does not reference Research.
+2. The ResearchQueries companion adds the projection adapter and
+   `QueryToResearchPopulationReceipt`. Research supplies only owner-issued
+   identity factories through the existing downward companion-to-Research
+   dependency.
+3. `ImplementationComparisonQuery` and `BodySignalComparisonQuery` route their
+   exact current inputs through the matching sealer and projection before
+   Research execution. Current result and presentation shapes remain unchanged.
+4. The Research-owned body-index/content check and target matching remain in
+   Research until their owning designs change them.
+
+The implementation must add these named non-vacuity gates before the target
+contract is described as implemented:
+
+- `ComparisonPopulation_SealsImmutableInputAndSelectionSnapshots`
+- `ComparisonPopulation_RejectsDuplicateWrongSideAndReparentedBindings`
+- `ResearchPopulationProjection_IsTotalAndBijective`
+- `ResearchPopulationProjection_MapsEachFactoryResultToItsExactSealedAntecedent`
+- `ResearchPopulationProjection_RejectsMissingExtraAndSubstitutedMappings`
+- `PopulationIdentities_AreOwnerIssuedAndNonConvertible`
+- `PopulationReceipt_DoesNotRetainBorrowedInputs`
+- `CoreQueries_DoesNotReferenceResearch`
+
+The expected identity and map sets must be derived from the sealed population,
+so both missing and stale entries fail. The final gate must inspect project
+references rather than merely exercising a path that happens not to load
+Research.
+
+### Population-boundary non-goals
+
+This boundary does not define:
+
+- package-role realization, resource ownership, cleanup, or budgets;
+- Research target requests, attempts, body-presence outcomes, work items,
+  producer execution, completion, or comparison semantics;
+- direct-member designation or comparison;
+- Source, PDB, network, or authored-source behavior;
+- outer result publication, failure composition, CLI projection, or output
+  integrity; or
+- a global operation-stage catalog or shared cross-component lifecycle.
+
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
