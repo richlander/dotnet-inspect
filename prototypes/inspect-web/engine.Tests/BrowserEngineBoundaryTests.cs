@@ -2402,10 +2402,13 @@ public sealed class BrowserEngineBoundaryTests
                 BrowserJsonContext.Default.BrowserPackageSurface));
 
         Assert.Empty(surface.Assemblies);
+        Assert.NotEmpty(surface.Accessibility);
+        string inspectionError = Assert.Single(surface.InspectionErrors);
         Assert.Contains(
             "truncated",
-            surface.InspectionError,
+            inspectionError,
             StringComparison.Ordinal);
+        Assert.Equal(surface.InspectionError, inspectionError);
     }
 
     [Fact]
