@@ -245,6 +245,9 @@ public sealed class StateMachineRelationshipIndex
         readonly List<StateMachineRelationship> _relationships = [];
         readonly List<Claim> _claims = [];
         readonly List<RejectionComponent> _rejectionComponents = [];
+        readonly Dictionary<
+            MetadataTypeDefinitionName,
+            RejectionComponent> _claimedNameRejections = [];
         readonly Action? _rejectionWorkObserved;
         long _remainingNameWork;
         long _remainingSignatureWork;
@@ -462,20 +465,23 @@ public sealed class StateMachineRelationshipIndex
             StateMachineClaimKind kind,
             CustomAttribute attribute)
         {
-            if (TryGetSerializedTypeArgumentByteCount(
-                    attribute,
-                    out int serializedByteCount))
+            switch (InspectClaimValue(
+                attribute,
+                out int serializedByteCount))
             {
-                if (serializedByteCount
-                    > MetadataTypeNameBudget.MaxEncodedBytes)
-                {
+                case ClaimValueShape.Oversized:
                     return ClaimCandidate.Rejected(
                         kind,
                         StateMachineRelationshipFailureKind.Malformed,
                         "The state-machine type name exceeds its encoded byte budget.");
-                }
-                ChargeNameWork(serializedByteCount);
+                case ClaimValueShape.Malformed:
+                    return ClaimCandidate.Rejected(
+                        kind,
+                        StateMachineRelationshipFailureKind.Malformed,
+                        "The state-machine attribute value is malformed.");
             }
+
+            ChargeNameWork(serializedByteCount);
 
             CustomAttributeValue<string>? decoded =
                 AttributeDecoder
@@ -519,7 +525,18 @@ public sealed class StateMachineRelationshipIndex
                 Detail: null);
         }
 
-        bool TryGetSerializedTypeArgumentByteCount(
+        /// <summary>
+        /// Validates the whole attribute value blob before any decode. A trusted
+        /// claim constructor takes exactly one <c>System.Type</c> parameter, so a
+        /// well-formed value is the prolog, one non-null <c>SerString</c>, and a
+        /// zero named-argument count with nothing after it. Checking the tail
+        /// here — rather than inspecting the decoded
+        /// <c>NamedArguments.Length</c> — keeps SRM from materializing named
+        /// argument names and values that the claim contract already forbids;
+        /// those bytes are otherwise unbounded and uncharged because many
+        /// method definitions can share one value blob.
+        /// </summary>
+        ClaimValueShape InspectClaimValue(
             CustomAttribute attribute,
             out int byteCount)
         {
@@ -531,21 +548,39 @@ public sealed class StateMachineRelationshipIndex
                 if (value.RemainingBytes < 3
                     || value.ReadUInt16() != 1)
                 {
-                    return false;
+                    return ClaimValueShape.Malformed;
                 }
 
                 int offset = value.Offset;
                 if (value.ReadByte() == 0xFF)
-                    return false;
+                    return ClaimValueShape.Malformed;
                 value.Offset = offset;
+
                 byteCount = value.ReadCompressedInteger();
-                return byteCount >= 0;
+                if (byteCount < 0)
+                    return ClaimValueShape.Malformed;
+                if (byteCount
+                    > MetadataTypeNameBudget.MaxEncodedBytes)
+                {
+                    return ClaimValueShape.Oversized;
+                }
+                if (byteCount > value.RemainingBytes)
+                    return ClaimValueShape.Malformed;
+
+                value.Offset += byteCount;
+                if (value.RemainingBytes != 2
+                    || value.ReadUInt16() != 0)
+                {
+                    return ClaimValueShape.Malformed;
+                }
+
+                return ClaimValueShape.Valid;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException)
             {
-                return false;
+                return ClaimValueShape.Malformed;
             }
         }
 
@@ -616,10 +651,13 @@ public sealed class StateMachineRelationshipIndex
             {
                 return false;
             }
-            if (!string.IsNullOrEmpty(qualification.CultureName)
+            // A null culture name means the qualifier was omitted; an empty one
+            // is an explicit `Culture=neutral` and still has to match.
+            if (qualification.CultureName is { } culture
                 && !string.Equals(
-                    qualification.CultureName,
-                    assembly.Culture,
+                    AssemblyReferenceIdentity.NormalizeCulture(culture),
+                    AssemblyReferenceIdentity.NormalizeCulture(
+                        assembly.Culture),
                     StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -629,11 +667,14 @@ public sealed class StateMachineRelationshipIndex
             {
                 return false;
             }
-            if (!qualification.PublicKeyOrToken.IsDefaultOrEmpty
+            // Only a default token means the qualifier was omitted. An empty one
+            // is an explicit `PublicKeyToken=null`, which names an unsigned
+            // assembly and must not match a signed one.
+            if (!qualification.PublicKeyOrToken.IsDefault
                 && !string.Equals(
                     Convert.ToHexString(
                         qualification.PublicKeyOrToken.AsSpan()),
-                    assembly.PublicKeyToken,
+                    assembly.PublicKeyToken ?? "",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -655,30 +696,50 @@ public sealed class StateMachineRelationshipIndex
                     .Select(candidate =>
                         candidate.StateMachineName!)
                     .Distinct()];
+            // Expand each claimed name into its matching type definitions at
+            // most once for the whole image. A claimed name can match every
+            // duplicate-named type definition, so expanding per kickoff would
+            // retain and re-publish that set once per kickoff. Later kickoffs
+            // claiming an already-expanded name join the component that owns
+            // those reverse-index entries instead, which keeps the merged
+            // evidence identical while bounding the work by the type-definition
+            // row count rather than by kickoffs times duplicates.
             var stateMachines =
                 ImmutableArray.CreateBuilder<
                     MetadataTypeDefinitionAddress>();
+            List<MetadataTypeDefinitionName>? expandedNames = null;
+            List<RejectionComponent>? priorNameComponents = null;
             foreach (MetadataTypeDefinitionName claimedType
                 in claimedTypes)
             {
-                if (_typeDefinitions.TryGetDefinitions(
+                if (_claimedNameRejections.TryGetValue(
+                        claimedType,
+                        out RejectionComponent? prior))
+                {
+                    (priorNameComponents ??= []).Add(prior);
+                    continue;
+                }
+
+                if (!_typeDefinitions.TryGetDefinitions(
                         claimedType,
                         out ImmutableArray<TypeDefinitionHandle>
                             matchingTypes,
                         out _))
                 {
-                    foreach (TypeDefinitionHandle stateMachine
-                        in matchingTypes)
-                    {
-                        stateMachines.Add(
-                            TypeAddress(stateMachine));
-                    }
+                    continue;
                 }
+
+                foreach (TypeDefinitionHandle stateMachine
+                    in matchingTypes)
+                {
+                    stateMachines.Add(TypeAddress(stateMachine));
+                }
+                (expandedNames ??= []).Add(claimedType);
             }
 
             ImmutableArray<MetadataTypeDefinitionAddress>
                 stateMachineEvidence = stateMachines.ToImmutable();
-            PublishRejection(
+            RejectionComponent component = PublishRejection(
                 kind,
                 detail,
                 [Address(kickoff)],
@@ -688,6 +749,24 @@ public sealed class StateMachineRelationshipIndex
                 [.. stateMachineEvidence.Select(
                     stateMachine => stateMachine.Definition.Value)],
                 []);
+
+            if (expandedNames is not null)
+            {
+                foreach (MetadataTypeDefinitionName name
+                    in expandedNames)
+                {
+                    _claimedNameRejections.Add(name, component);
+                }
+            }
+
+            if (priorNameComponents is null)
+                return;
+
+            foreach (RejectionComponent prior in priorNameComponents)
+            {
+                ObserveRejectionWork();
+                RejectionComponent.Union(component, prior);
+            }
         }
 
         void Resolve(
@@ -1140,7 +1219,7 @@ public sealed class StateMachineRelationshipIndex
                 []);
         }
 
-        void PublishRejection(
+        RejectionComponent PublishRejection(
             StateMachineRelationshipFailureKind kind,
             string detail,
             ImmutableArray<MetadataMethodAddress> kickoffs,
@@ -1178,6 +1257,8 @@ public sealed class StateMachineRelationshipIndex
                 _byStateMachine[token] = pending;
             foreach (int token in implementationTokens)
                 _byImplementation[token] = pending;
+
+            return component;
         }
 
         void MergeExisting(
@@ -1420,6 +1501,10 @@ public sealed class StateMachineRelationshipIndex
         readonly bool _currentAssemblyIsCoreLibrary;
         readonly Action<int> _beforeMaterialize;
         readonly Action<int> _beforeDecodeSignature;
+        readonly AssemblyReferenceProjectionCache _assemblyReferences;
+        readonly Dictionary<AssemblyReferenceHandle, bool>
+            _platformAssemblies = [];
+        readonly HashSet<BlobHandle> _chargedAssemblyKeys = [];
 
         internal StateMachineSignatureProvider(
             MetadataReader reader,
@@ -1429,9 +1514,44 @@ public sealed class StateMachineRelationshipIndex
             _reader = reader;
             _beforeMaterialize = beforeMaterialize;
             _beforeDecodeSignature = beforeDecodeSignature;
+            _assemblyReferences =
+                AssemblyReferenceIdentity.RetainedProjection(reader);
             _currentAssemblyIsCoreLibrary =
                 CoreLibraryRootAuthentication
                     .DeclaresUniqueTopLevelCoreLibraryRoot(reader);
+        }
+
+        /// <summary>
+        /// Answers whether a type reference's terminal assembly reference
+        /// carries a platform public key. Every distinct assembly-reference row
+        /// is projected once, and each distinct public-key blob is charged once
+        /// against the name-work budget before it is copied and hashed. Without
+        /// both, a type reference shared by many constructor member references
+        /// re-copies and re-hashes the same unbounded key blob per constructor.
+        /// </summary>
+        bool TerminatesInPlatformAssembly(
+            AssemblyReferenceHandle handle)
+        {
+            if (_platformAssemblies.TryGetValue(
+                    handle,
+                    out bool platform))
+            {
+                return platform;
+            }
+
+            BlobHandle key =
+                _reader.GetAssemblyReference(handle)
+                    .PublicKeyOrToken;
+            if (!key.IsNil && _chargedAssemblyKeys.Add(key))
+                _beforeMaterialize(_reader.GetBlobReader(key).Length);
+
+            platform = PlatformKeys.IsPlatform(
+                AssemblyReferenceIdentity.From(
+                    handle,
+                    _assemblyReferences)
+                    .PublicKeyToken);
+            _platformAssemblies.Add(handle, platform);
+            return platform;
         }
 
         internal AttributeConstructorClassification
@@ -1714,11 +1834,8 @@ public sealed class StateMachineRelationshipIndex
                         out _)
                 || terminal.Kind
                     != HandleKind.AssemblyReference
-                || !PlatformKeys.IsPlatform(
-                    AssemblyReferenceIdentity.From(
-                        reader,
-                        (AssemblyReferenceHandle)terminal)
-                        .PublicKeyToken))
+                || !TerminatesInPlatformAssembly(
+                    (AssemblyReferenceHandle)terminal))
             {
                 return SignatureType.Unknown;
             }
@@ -2047,6 +2164,16 @@ public sealed class StateMachineRelationshipIndex
         MethodDefinitionHandle Kickoff,
         StateMachineClaimKind Kind,
         MetadataTypeDefinitionName StateMachineName);
+
+    /// <summary>
+    /// Outcome of validating a claim attribute's value blob before decode.
+    /// </summary>
+    enum ClaimValueShape
+    {
+        Valid,
+        Malformed,
+        Oversized,
+    }
 
     readonly record struct ClaimCandidate(
         StateMachineClaimKind Kind,

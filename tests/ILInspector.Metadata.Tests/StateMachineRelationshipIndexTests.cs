@@ -771,6 +771,162 @@ public sealed class StateMachineRelationshipIndexTests
             result.Failure.Kind);
     }
 
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce()
+    {
+        const int kickoffs = 4_000;
+        const int duplicates = 4_000;
+        using var image = new LoadedImage(
+            BuildAmbiguousClaimFanOutImage(kickoffs, duplicates));
+        int rejectionWork = 0;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                rejectionWorkObserved: () => rejectionWork++);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Duplicate,
+            result.Failure.Kind);
+        Assert.Equal(
+            kickoffs,
+            result.Failure.KickoffCandidates.Length);
+        Assert.Equal(
+            duplicates,
+            result.Failure.StateMachineCandidates.Length);
+        Assert.InRange(
+            rejectionWork,
+            kickoffs + duplicates,
+            16 * (kickoffs + duplicates));
+        Assert.InRange(allocated, 0, 64L * 1024 * 1024);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_RejectsNamedArgumentsBeforeDecode()
+    {
+        const int kickoffs = 200;
+        const int namedValueCharacters = 100_000;
+        using var image = new LoadedImage(
+            BuildNamedArgumentClaimImage(
+                kickoffs,
+                namedValueCharacters));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine attribute value is malformed.",
+            result.Failure.Detail);
+        Assert.InRange(
+            allocated,
+            0,
+            (long)kickoffs * namedValueCharacters / 4);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void
+        StateMachineRelationshipIndex_ChargesUntrustedAssemblyKeyOnce(
+            bool chargedOnce)
+    {
+        const int constructors = 64;
+        const int keyBytes = 4_096;
+        using var image = new LoadedImage(
+            BuildUntrustedAssemblyKeyImage(constructors, keyBytes));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                nameWorkBudget: chargedOnce
+                    ? 2 * keyBytes
+                    : keyBytes - 1);
+
+        if (!chargedOnce)
+        {
+            var rejected =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    index.GetByKickoff(
+                        MetadataTokens.MethodDefinitionHandle(1)));
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.BudgetExceeded,
+                rejected.Failure.Kind);
+            return;
+        }
+
+        Assert.IsType<StateMachineRelationshipResult.Absent>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+    }
+
+    [Theory]
+    [InlineData("PublicKeyToken=null", false)]
+    [InlineData("PublicKeyToken=0011223344556677", false)]
+    [InlineData("PublicKeyToken=473c444ebb4661a5", true)]
+    [InlineData("Culture=neutral", false)]
+    [InlineData("Culture=en-US", true)]
+    public void
+        StateMachineRelationshipIndex_MatchesExplicitAssemblyQualifiers(
+            string qualifier,
+            bool matches)
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName:
+                    "Fixtures.Owner+Machine, StateMachineClaims, "
+                    + qualifier,
+                assemblyPublicKey: QualifierPublicKey,
+                assemblyCulture: "en-US"));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Unresolved,
+            result.Failure.Kind);
+        Assert.Equal(
+            matches ? 1 : 0,
+            result.Failure.StateMachineCandidates.Length);
+    }
+
+    /// <summary>
+    /// Fixed signing key for
+    /// <c>StateMachineRelationshipIndex_MatchesExplicitAssemblyQualifiers</c>.
+    /// Its ECMA-335 II.23.3 token is <c>473c444ebb4661a5</c>, which the theory
+    /// data spells out so a qualifier that names the correct signed assembly
+    /// stays distinguishable from one that names an unsigned assembly.
+    /// </summary>
+    static byte[] QualifierPublicKey =>
+        [.. Enumerable.Range(0, 160).Select(value => (byte)value)];
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         string name,
@@ -864,8 +1020,343 @@ public sealed class StateMachineRelationshipIndexTests
         return image.ToArray();
     }
 
-    static byte[] BuildRejectionMergeImage(int count)
+    /// <summary>
+    /// Builds an image where every kickoff carries duplicate claims naming one
+    /// ambiguous type, and that name matches <paramref name="duplicates"/> type
+    /// definitions. Expanding the name per kickoff would retain and republish
+    /// the whole matching set once per kickoff, so this is the fan-out shape
+    /// <c>StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce</c> bounds.
+    /// </summary>
+    static byte[] BuildAmbiguousClaimFanOutImage(
+        int kickoffs,
+        int duplicates)
     {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ClaimFanOut.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ClaimFanOut"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyName core =
+            typeof(AsyncStateMachineAttribute).Assembly.GetName();
+        AssemblyReferenceHandle coreReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(core.Name!),
+                core.Version!,
+                default,
+                metadata.GetOrAddBlob(core.GetPublicKeyToken()!),
+                default,
+                default);
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                metadata.AddTypeReference(
+                    coreReference,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString(
+                        nameof(AsyncStateMachineAttribute))),
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    TypeConstructorSignature(systemType)));
+
+        var staticVoid = new BlobBuilder();
+        new BlobEncoder(staticVoid)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                result => result.Void(),
+                parameters => { });
+        BlobHandle staticVoidSignature =
+            metadata.GetOrAddBlob(staticVoid);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        StringHandle sharedName = metadata.GetOrAddString("Machine");
+        var stateMachines =
+            new List<TypeDefinitionHandle>(duplicates);
+        for (int i = 0; i < duplicates; i++)
+        {
+            stateMachines.Add(
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPrivate
+                        | TypeAttributes.Sealed,
+                    default,
+                    sharedName,
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(
+                        kickoffs + 1)));
+        }
+        foreach (TypeDefinitionHandle stateMachine in stateMachines)
+            metadata.AddNestedType(stateMachine, owner);
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString("Fixtures.Owner+Machine");
+        value.WriteUInt16(0);
+        BlobHandle claimValue = metadata.GetOrAddBlob(value);
+
+        for (int i = 0; i < kickoffs; i++)
+        {
+            MethodDefinitionHandle kickoff =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"K{i}"),
+                    staticVoidSignature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1));
+            metadata.AddCustomAttribute(
+                kickoff,
+                constructor,
+                claimValue);
+            metadata.AddCustomAttribute(
+                kickoff,
+                constructor,
+                claimValue);
+        }
+
+        return Serialize(metadata);
+    }
+
+    /// <summary>
+    /// Builds an image whose shared claim value carries a named argument with a
+    /// large string payload. The claim contract forbids named arguments, so the
+    /// value must be refused from the blob rather than after SRM materializes
+    /// every kickoff's copy of that payload.
+    /// </summary>
+    static byte[] BuildNamedArgumentClaimImage(
+        int kickoffs,
+        int namedValueCharacters)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("NamedArgumentClaim.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("NamedArgumentClaim"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyName core =
+            typeof(AsyncStateMachineAttribute).Assembly.GetName();
+        AssemblyReferenceHandle coreReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(core.Name!),
+                core.Version!,
+                default,
+                metadata.GetOrAddBlob(core.GetPublicKeyToken()!),
+                default,
+                default);
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                metadata.AddTypeReference(
+                    coreReference,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString(
+                        nameof(AsyncStateMachineAttribute))),
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    TypeConstructorSignature(systemType)));
+
+        var staticVoid = new BlobBuilder();
+        new BlobEncoder(staticVoid)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                result => result.Void(),
+                parameters => { });
+        BlobHandle staticVoidSignature =
+            metadata.GetOrAddBlob(staticVoid);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString("Fixtures.Owner+Machine");
+        value.WriteUInt16(1);
+        value.WriteByte(0x54);
+        value.WriteByte(0x0E);
+        value.WriteSerializedString("Payload");
+        value.WriteSerializedString(
+            new string('x', namedValueCharacters));
+        BlobHandle claimValue = metadata.GetOrAddBlob(value);
+
+        for (int i = 0; i < kickoffs; i++)
+        {
+            metadata.AddCustomAttribute(
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"K{i}"),
+                    staticVoidSignature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1)),
+                constructor,
+                claimValue);
+        }
+
+        return Serialize(metadata);
+    }
+
+    /// <summary>
+    /// Builds an image whose claim attributes all reference one untrusted
+    /// assembly through distinct constructor member references. Authenticating
+    /// each constructor has to decide the parent's trust, and the parent's
+    /// public key is unbounded, so the key must be projected and charged once
+    /// rather than once per constructor.
+    /// </summary>
+    static byte[] BuildUntrustedAssemblyKeyImage(
+        int constructors,
+        int keyBytes)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("UntrustedKey.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("UntrustedKey"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle untrusted =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Untrusted"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Enumerable.Range(0, keyBytes)
+                        .Select(value => (byte)value)
+                        .ToArray()),
+                AssemblyFlags.PublicKey,
+                default);
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                untrusted,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        TypeReferenceHandle attributeType =
+            metadata.AddTypeReference(
+                untrusted,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    nameof(AsyncStateMachineAttribute)));
+        BlobHandle constructorSignature =
+            metadata.GetOrAddBlob(
+                TypeConstructorSignature(systemType));
+
+        var staticVoid = new BlobBuilder();
+        new BlobEncoder(staticVoid)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                result => result.Void(),
+                parameters => { });
+        BlobHandle staticVoidSignature =
+            metadata.GetOrAddBlob(staticVoid);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString("Fixtures.Owner+Machine");
+        value.WriteUInt16(0);
+        BlobHandle claimValue = metadata.GetOrAddBlob(value);
+
+        for (int i = 0; i < constructors; i++)
+        {
+            metadata.AddCustomAttribute(
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"K{i}"),
+                    staticVoidSignature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1)),
+                metadata.AddMemberReference(
+                    attributeType,
+                    metadata.GetOrAddString(".ctor"),
+                    constructorSignature),
+                claimValue);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildRejectionMergeImage(int count)    {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
@@ -1029,7 +1520,9 @@ public sealed class StateMachineRelationshipIndexTests
         int unrelatedAttributeCount = 0,
         IReadOnlyList<StateMachineClaimKind>?
             additionalKickoffClaims = null,
-        bool reuseClaimConstructors = false)
+        bool reuseClaimConstructors = false,
+        byte[]? assemblyPublicKey = null,
+        string? assemblyCulture = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1041,9 +1534,15 @@ public sealed class StateMachineRelationshipIndexTests
         metadata.AddAssembly(
             metadata.GetOrAddString("StateMachineClaims"),
             new Version(1, 0, 0, 0),
-            default,
-            default,
-            default,
+            assemblyCulture is null
+                ? default
+                : metadata.GetOrAddString(assemblyCulture),
+            assemblyPublicKey is null
+                ? default
+                : metadata.GetOrAddBlob(assemblyPublicKey),
+            assemblyPublicKey is null
+                ? default
+                : AssemblyFlags.PublicKey,
             default);
 
         AssemblyName coreLibrary =

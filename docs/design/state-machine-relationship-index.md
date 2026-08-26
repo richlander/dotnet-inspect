@@ -55,7 +55,12 @@ A claim enters the index only when all of these conditions hold:
 2. The attribute constructor is an instance `.ctor(System.Type)` returning
    `void`, with no generic parameters or custom-modified parameter type.
 3. Its serialized type name is bounded, well formed, and names the current
-   assembly when assembly-qualified.
+   assembly when assembly-qualified. An explicit qualifier is compared exactly:
+   `PublicKeyToken=null` names an unsigned assembly and does not match a signed
+   one, and `Culture=neutral` does not match a cultured one. Only an omitted
+   qualifier is unconstrained.
+   `StateMachineRelationshipIndex_MatchesExplicitAssemblyQualifiers` gates both
+   directions.
 4. The name resolves to one same-module `TypeDef`.
 5. One kickoff claims that state-machine type, with one claim kind.
 6. The state-machine type directly declares each required interface and each
@@ -102,12 +107,21 @@ including the bounded authentication work needed to ignore an unrelated or
 untrusted attribute, plus interface rows, `MethodImpl` rows, and candidate
 implementation methods. Constructor authentication is cached per metadata
 handle. Untrusted constructor parents are rejected before method signatures are
-decoded, while a separate cumulative signature-work budget charges every
+decoded, and each distinct terminal assembly reference is projected once with
+its public-key blob charged once, so a type reference shared by many
+constructors cannot re-copy and re-hash an unbounded key. A separate cumulative
+signature-work budget charges every
 constructor, method, and TypeSpec blob that is decoded or compared. A cumulative
 name-work budget bounds both metadata names materialized while classifying
 distinct constructors and serialized state-machine names before attribute
 decoding. State-machine `System.Type` values also receive an individual encoded
-byte-length preflight before SRM materializes their strings. The TypeDef index
+byte-length preflight before SRM materializes their strings, and the whole value
+blob is validated before decode: a trusted claim constructor takes exactly one
+`System.Type`, so a value carrying named arguments or trailing bytes is
+`Malformed` without materializing payloads the claim contract already forbids.
+Each ambiguous claimed name is expanded into its matching type definitions once
+per image rather than once per kickoff, so rejection evidence stays complete
+while the work stays bounded by the `TypeDef` row count. The TypeDef index
 retains ambiguous handles with amortized-linear growth. Existing signature,
 custom-attribute, serialized-name, and metadata-relationship guards bound
 recursive or allocated decoding.
@@ -128,6 +142,14 @@ cumulative constructor-name work and reuse; and
 `StateMachineRelationshipIndex_BoundsCumulativeConstructorSignatures` and
 `StateMachineRelationshipIndex_BoundsCumulativeSerializedTypeNames` gate the
 remaining cumulative decode and materialization paths.
+`StateMachineRelationshipIndex_ChargesUntrustedAssemblyKeyOnce` gates that an
+untrusted public key is charged, and charged once rather than once per
+constructor;
+`StateMachineRelationshipIndex_RejectsNamedArgumentsBeforeDecode` gates the
+value-blob preflight; and
+`StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce` gates that
+kickoff-by-duplicate fan-out stays linear while preserving every kickoff and
+type-definition candidate in the merged failure.
 
 ## Ownership boundaries
 
