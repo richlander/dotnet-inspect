@@ -1366,6 +1366,210 @@ public sealed class OperatorApiSurfaceTests
         Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
     }
 
+    /// <summary>
+    /// A C# 14 instance compound-assignment operator is an ordinary instance
+    /// member, so <c>virtual</c>, <c>abstract</c>, <c>override</c>, and
+    /// <c>sealed override</c> are all legal on it — and an implicit interface
+    /// implementation carries <c>virtual final newslot</c> with no source
+    /// keyword at all. The declared metadata flags are asserted here so the
+    /// case stays non-vacuous if Roslyn's emission ever changes: rejecting them
+    /// would call compiler-produced C# unrepresentable.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBase),
+        "op_AdditionAssignment",
+        MethodAttributes.Virtual | MethodAttributes.NewSlot)]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBase),
+        "op_SubtractionAssignment",
+        MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.NewSlot)]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBase),
+        "op_IncrementAssignment",
+        MethodAttributes.Virtual | MethodAttributes.NewSlot)]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerived),
+        "op_AdditionAssignment",
+        MethodAttributes.Virtual)]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerived),
+        "op_SubtractionAssignment",
+        MethodAttributes.Virtual)]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerived),
+        "op_IncrementAssignment",
+        MethodAttributes.Virtual | MethodAttributes.Final)]
+    [InlineData(
+        nameof(ImplicitAssignmentOperatorImplementation),
+        "op_MultiplicationAssignment",
+        MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot)]
+    [InlineData(
+        nameof(IAssignmentOperatorContract),
+        "op_MultiplicationAssignment",
+        MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.NewSlot)]
+    public void CSharpOperatorDeclaration_AcceptsVirtualInstanceAssignmentOperators(
+        string typeName,
+        string operatorName,
+        MethodAttributes expectedInheritanceFlags)
+    {
+        using var stream = File.OpenRead(
+            typeof(VirtualAssignmentOperatorBase).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == typeName);
+        var method = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition),
+            candidate => reader.GetString(candidate.Name) == operatorName);
+
+        Assert.Equal(
+            expectedInheritanceFlags,
+            method.Attributes
+                & (MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Final
+                    | MethodAttributes.NewSlot));
+        Assert.False((method.Attributes & MethodAttributes.Static) != 0);
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.Yes,
+            OperatorMetadata.ClassifyCSharpOperatorDeclaration(reader, method));
+    }
+
+    /// <summary>
+    /// The close negatives for the case above, each differing from a positive in
+    /// exactly one obligation. The abstract/virtual rejection stays in force for
+    /// every operator form C# requires to be static, where those flags are
+    /// impossible outside an interface. And a STATIC method wearing an instance
+    /// assignment operator's name is still not a C# operator declaration even
+    /// with the flags gate scoped away from it, because the static-ness
+    /// obligation is proved by the shape rule instead.
+    /// </summary>
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsVirtualStaticClassOperator()
+    {
+        using var image =
+            OperatorImage.BuildObjectParameterEncoding(
+                (byte)SignatureTypeKind.Class,
+                methodAttributes:
+                    MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig);
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Theory]
+    // Static, with and without the impossible virtual flag: rejected either way.
+    [InlineData(
+        MethodAttributes.Public
+            | MethodAttributes.Static
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+        (byte)0x00,
+        false)]
+    [InlineData(
+        MethodAttributes.Public
+            | MethodAttributes.Static
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+        (byte)0x00,
+        false)]
+    // Non-public: an instance assignment operator must be public.
+    [InlineData(
+        MethodAttributes.Private
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+        (byte)0x20,
+        false)]
+    // The legal shape, with the virtual flag the scoping now admits.
+    [InlineData(
+        MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+        (byte)0x20,
+        true)]
+    public void CSharpOperatorDeclaration_ProvesStaticnessForAssignmentOperators(
+        MethodAttributes methodAttributes,
+        byte signatureHeader,
+        bool expected)
+    {
+        using var image =
+            OperatorImage.BuildInstanceAssignmentEncoding(
+                methodAttributes,
+                signatureHeader);
+
+        Assert.Equal(
+            expected,
+            image.IsCSharpOperatorDeclaration("op_AdditionAssignment"));
+    }
+
+    /// <summary>
+    /// The API surface carries the classification and the inheritance modifiers
+    /// together, so declaration consumers can spell
+    /// <c>public virtual void operator +=(int value)</c> rather than falling
+    /// back to a method rendering.
+    /// </summary>
+    [Fact]
+    public void ApiSurface_ReportsVirtualInstanceAssignmentOperatorsAsDeclarations()
+    {
+        using var stream = File.OpenRead(
+            typeof(VirtualAssignmentOperatorBase).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var types = ApiSurfaceExtractor.Extract(peReader).Types;
+
+        var baseType = Assert.Single(
+            types,
+            candidate => candidate.Name == nameof(VirtualAssignmentOperatorBase));
+        var virtualOperator = Assert.Single(
+            baseType.Members,
+            candidate => candidate.Name == "op_AdditionAssignment");
+        var abstractOperator = Assert.Single(
+            baseType.Members,
+            candidate => candidate.Name == "op_SubtractionAssignment");
+        var derivedType = Assert.Single(
+            types,
+            candidate => candidate.Name == nameof(VirtualAssignmentOperatorDerived));
+        var overrideOperator = Assert.Single(
+            derivedType.Members,
+            candidate => candidate.Name == "op_AdditionAssignment");
+        var sealedOverrideOperator = Assert.Single(
+            derivedType.Members,
+            candidate => candidate.Name == "op_IncrementAssignment");
+
+        foreach (var member in new[]
+        {
+            virtualOperator,
+            abstractOperator,
+            overrideOperator,
+            sealedOverrideOperator,
+        })
+        {
+            Assert.Equal("operator", member.Kind);
+            Assert.True(member.HasCSharpOperatorDeclarationClassification);
+            Assert.True(member.CSharpOperatorDeclaration);
+        }
+
+        Assert.True(virtualOperator.IsVirtual);
+        Assert.False(virtualOperator.IsOverride);
+        Assert.True(abstractOperator.IsAbstract);
+        Assert.True(overrideOperator.IsOverride);
+        Assert.True(sealedOverrideOperator.IsOverride);
+        Assert.True(sealedOverrideOperator.IsSealed);
+    }
+
     static string FullName(MetadataReader reader, TypeDefinition type)
     {
         string ns = reader.GetString(type.Namespace);
@@ -1454,6 +1658,104 @@ public sealed class OperatorApiSurfaceTests
             define(module);
             assembly.Save(path);
             return new OperatorImage(path, targetTypeName);
+        }
+
+        /// <summary>
+        /// Emits <c>void op_AdditionAssignment(int32)</c> on a plain class with
+        /// exactly the supplied method attributes and signature header. Raw
+        /// metadata rather than <see cref="Build"/> because
+        /// <see cref="System.Reflection.Emit"/> refuses a static virtual method
+        /// outright ("Method cannot be both static and virtual"), which is the
+        /// impossible combination this exists to hand the classifier.
+        /// </summary>
+        public static OperatorImage BuildInstanceAssignmentEncoding(
+            MethodAttributes methodAttributes,
+            byte signatureHeader)
+        {
+            string path = Path.Combine(
+                Path.GetTempPath(),
+                $"operator-surface-{Guid.NewGuid():N}.dll");
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("OperatorSurface.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("OperatorSurface"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var runtime = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    }),
+                default,
+                default);
+            var objectType = metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(TypeName),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+            var bodies = new BlobBuilder();
+            var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+            var code = new BlobBuilder();
+            var instructions = new InstructionEncoder(
+                code,
+                new ControlFlowBuilder());
+            instructions.OpCode(ILOpCode.Ret);
+            int bodyOffset = bodyEncoder.AddMethodBody(
+                instructions,
+                maxStack: 1);
+            byte[] signature =
+            [
+                signatureHeader,
+                0x01,
+                (byte)SignatureTypeCode.Void,
+                (byte)SignatureTypeCode.Int32,
+            ];
+            metadata.AddMethodDefinition(
+                methodAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("op_AdditionAssignment"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+            var builder = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            builder.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+            return new OperatorImage(path, TypeName);
         }
 
         public static OperatorImage BuildObjectParameterEncoding(
@@ -2025,4 +2327,49 @@ public sealed class OperatorApiSurfaceTests
                 OperatorMetadata.OperatorSignatureType requiredBase)
             => OperatorMetadata.TypeRelationship.Unknown;
     }
+}
+
+/// <summary>
+/// Compiler-produced C# 14 instance compound-assignment operators carrying every
+/// inheritance modifier the language allows on them. These are top-level so the
+/// API-surface projection sees ordinary type names, and they exist to prove that
+/// the abstract/virtual metadata flags Roslyn emits here are not treated as
+/// metadata no C# compiler could have produced.
+/// </summary>
+public abstract class VirtualAssignmentOperatorBase
+{
+    public int Value;
+
+    public virtual void operator +=(int value) => Value += value;
+
+    public abstract void operator -=(int value);
+
+    public virtual void operator ++() => Value++;
+}
+
+public class VirtualAssignmentOperatorDerived : VirtualAssignmentOperatorBase
+{
+    public override void operator +=(int value) => Value += value * 2;
+
+    public override void operator -=(int value) => Value -= value;
+
+    public sealed override void operator ++() => Value += 2;
+}
+
+public interface IAssignmentOperatorContract
+{
+    void operator *=(int value);
+}
+
+/// <summary>
+/// An implicit interface implementation: the source carries no inheritance
+/// keyword at all, yet Roslyn must emit <c>virtual final newslot</c> to fill the
+/// interface slot.
+/// </summary>
+public sealed class ImplicitAssignmentOperatorImplementation
+    : IAssignmentOperatorContract
+{
+    public int Value;
+
+    public void operator *=(int value) => Value *= value;
 }

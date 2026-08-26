@@ -93,16 +93,27 @@ falling back to display identity.
 Operator representability remains `Unknown` when a resolved definition's kind
 could not be authenticated, and required custom modifiers are not erased into
 an affirmative source proof. A non-interface declaration also cannot acquire
-C# operator identity from impossible abstract/virtual method flags, and the
+C# operator identity from abstract or virtual method flags on an operator form
+C# requires to be static, where those flags are impossible; the C# 14 instance
+compound-assignment family is an ordinary instance member, so `virtual`,
+`abstract`, `override`, `sealed override`, and the `virtual final newslot` of an
+implicit interface implementation are all legal there and must not be rejected.
+Static-ness for that family is proved by the shape rule instead, and the
 MethodDef static flag must agree with the signature header. The
 compiler-produced hierarchy cases in
 `ReferenceEqualityMetadataFactsTests` and the adversarial signature cases in
 `OperatorApiSurfaceTests`, including
 `CSharpOperatorDeclaration_IgnoresUnavailableEncodingKindForNonConversion` and
 `OperatorKindAuthenticationFailureRemainsUnknownAndVisible`, gate those
-boundaries; `CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator` and
+boundaries; `CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator`,
+`CSharpOperatorDeclaration_RejectsVirtualStaticClassOperator`, and
 `CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch` gate the modifier
-and header negatives.
+and header negatives, while
+`CSharpOperatorDeclaration_AcceptsVirtualInstanceAssignmentOperators`,
+`CSharpOperatorDeclaration_ProvesStaticnessForAssignmentOperators`,
+`ApiSurface_ReportsVirtualInstanceAssignmentOperatorsAsDeclarations`, and
+`VirtualInstanceAssignmentOperatorDeclarationTests` gate the instance
+assignment scoping.
 `ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
 operator proof and pair JSON tests in `ApiOutputFormatterTests` and
 `CSharpDeclarationWriterTests`, especially

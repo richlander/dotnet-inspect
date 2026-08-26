@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using ILInspector.Metadata;
@@ -2378,4 +2379,121 @@ public sealed class CSharpDeclarationWriterTests
                 }
             ]
         };
+}
+
+/// <summary>
+/// Compiler-produced fixtures for C# 14 virtual/abstract/override/sealed-override
+/// instance compound-assignment operators. Roslyn emits these with the ordinary
+/// virtual-dispatch method flags, which the general non-interface abstract/virtual
+/// rejection previously read as "impossible for an operator" and classified as an
+/// exact No — so the surface lost the operator spelling entirely.
+/// </summary>
+public sealed class VirtualInstanceAssignmentOperatorDeclarationTests
+{
+    [Theory]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBaseFixture),
+        "op_AdditionAssignment",
+        "public virtual void operator +=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBaseFixture),
+        "op_SubtractionAssignment",
+        "public abstract void operator -=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBaseFixture),
+        "op_IncrementAssignment",
+        "public virtual void operator ++()")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerivedFixture),
+        "op_AdditionAssignment",
+        "public override void operator +=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerivedFixture),
+        "op_SubtractionAssignment",
+        "public override void operator -=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerivedFixture),
+        "op_IncrementAssignment",
+        "public sealed override void operator ++()")]
+    public void MemberDeclaration_SpellsVirtualInstanceAssignmentOperators(
+        string typeName,
+        string memberName,
+        string expected)
+    {
+        var (type, member) = FindMember(typeName, memberName);
+
+        Assert.Equal(
+            "operator",
+            member.Kind);
+        Assert.Equal(
+            expected,
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
+    /// The close negative: a STATIC operator on the same fixture assembly carries
+    /// none of those flags, so it keeps its plain static operator spelling and
+    /// proves the scoping did not leak virtual-dispatch modifiers onto forms C#
+    /// requires to be static.
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_LeavesStaticOperatorsWithoutVirtualModifiers()
+    {
+        var (type, member) = FindMember(
+            nameof(VirtualAssignmentOperatorBaseFixture),
+            "op_Addition");
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.DoesNotContain("virtual", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("abstract", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("override", declaration, StringComparison.Ordinal);
+        Assert.Contains("static", declaration, StringComparison.Ordinal);
+        Assert.Contains("operator +", declaration, StringComparison.Ordinal);
+    }
+
+    static (ApiType Type, ApiMember Member) FindMember(
+        string typeName,
+        string memberName)
+    {
+        using var pe = new PEReader(
+            File.OpenRead(
+                typeof(VirtualInstanceAssignmentOperatorDeclarationTests)
+                    .Assembly
+                    .Location));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.Name == typeName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == memberName);
+        return (type, member);
+    }
+}
+
+public abstract class VirtualAssignmentOperatorBaseFixture
+{
+    public int Value;
+
+    public virtual void operator +=(int value) => Value += value;
+
+    public abstract void operator -=(int value);
+
+    public virtual void operator ++() => Value++;
+
+    public static VirtualAssignmentOperatorBaseFixture operator +(
+        VirtualAssignmentOperatorBaseFixture left,
+        int right)
+        => left;
+}
+
+public class VirtualAssignmentOperatorDerivedFixture
+    : VirtualAssignmentOperatorBaseFixture
+{
+    public override void operator +=(int value) => Value += value;
+
+    public override void operator -=(int value) => Value -= value;
+
+    public sealed override void operator ++() => Value++;
 }

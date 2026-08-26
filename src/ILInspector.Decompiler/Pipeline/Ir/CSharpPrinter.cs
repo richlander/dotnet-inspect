@@ -5735,6 +5735,24 @@ public sealed partial class CSharpPrinter
             && call.Callee.Name.StartsWith("op_Checked", StringComparison.Ordinal);
 
     /// <summary>
+    /// True when an instance compound-assignment call can only be spelled as a
+    /// statement, so an enclosing expression-bodied form
+    /// (<see cref="LambdaText"/>) must take the block path instead. Two
+    /// independent reasons, and each is invalid C# as an expression body:
+    /// <list type="bullet">
+    /// <item>the checked form needs a <c>checked { ... }</c> statement, because
+    /// <c>checked(box += 1)</c> is CS0201; and</item>
+    /// <item>a receiver that is not a C# variable needs the statement-level
+    /// materialization local, because <c>Create() += 1</c> is CS0131.</item>
+    /// </list>
+    /// An assignable receiver in the unchecked form stays expression-bodied.
+    /// </summary>
+    bool RequiresStatementFormInstanceAssignment(Call call)
+        => IsInstanceAssignmentOperatorCall(call)
+            && (call.Callee.Name.StartsWith("op_Checked", StringComparison.Ordinal)
+                || RequiresMaterializedReceiver(call));
+
+    /// <summary>
     /// The direct idiom for a negated operator-spelled equality/inequality
     /// CALL (`!(Type.op_Equality(a, b))` -> `a != b`, and the reverse), the
     /// call-shaped counterpart of the native <c>ceq</c>-opcode fold above

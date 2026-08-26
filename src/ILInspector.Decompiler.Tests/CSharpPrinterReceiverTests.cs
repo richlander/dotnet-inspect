@@ -515,6 +515,66 @@ public sealed class CSharpPrinterReceiverTests
             InstanceAssignmentDeclarations);
     }
 
+    /// <summary>
+    /// A void lambda whose instance compound-assignment receiver has to be
+    /// materialized. C# has no expression-bodied spelling for these: the whole
+    /// point of materializing is that the receiver expression is not assignable,
+    /// so an expression body would emit <c>Factory.Create() += 1</c> (CS0131) or
+    /// <c>Factory.Create()++</c> (CS1059). Only the checked forms were routed to
+    /// the statement path before; the unchecked ones are the round-18 finding.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedAssignmentLambda),
+        "__receiver += amount;",
+        "public static Action M(int amount)")]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedIncrementLambda),
+        "__receiver++;",
+        "public static Action M()")]
+    public void UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied(
+        string methodName,
+        string statement,
+        string header)
+    {
+        string body = PrintFixtureWithCrossMethodImport(methodName);
+
+        Assert.DoesNotContain("Create() +=", body);
+        Assert.DoesNotContain("Create()++", body);
+        Assert.DoesNotContain("=> InstanceAssignmentBoxFactory.Create()", body);
+        Assert.Contains(
+            "InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();",
+            body);
+        Assert.Contains(statement, body);
+        AssertCompiles(header, Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    /// <summary>
+    /// The close control: a lambda whose receiver is already an assignable place
+    /// needs no materialization, so it keeps the expression body it always had.
+    /// The fix routes on materialization, not on "is an instance assignment".
+    /// </summary>
+    [Theory]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedAssignableReceiverLambda),
+        "return () => box += 1;")]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedAssignableReceiverIncrementLambda),
+        "return () => box++;")]
+    public void UncheckedInstanceAssignment_AssignableReceiverVoidLambdaStaysExpressionBodied(
+        string methodName,
+        string expected)
+    {
+        string body = PrintFixtureWithCrossMethodImport(methodName);
+
+        Assert.Contains(expected, body);
+        Assert.DoesNotContain("__receiver", body);
+        AssertCompiles(
+            "public static Action M(InstanceAssignmentBox box)",
+            Indent(body),
+            InstanceAssignmentDeclarations);
+    }
+
     [Fact]
     public void ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace()
     {
@@ -985,6 +1045,28 @@ public static class InstanceAssignmentFixtures
                 box++;
             }
         };
+
+    public static Action UncheckedAssignmentLambda(int amount)
+        => () =>
+        {
+            InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+            box += amount;
+        };
+
+    public static Action UncheckedIncrementLambda()
+        => () =>
+        {
+            InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+            box++;
+        };
+
+    public static Action UncheckedAssignableReceiverLambda(
+        InstanceAssignmentBox box)
+        => () => box += 1;
+
+    public static Action UncheckedAssignableReceiverIncrementLambda(
+        InstanceAssignmentBox box)
+        => () => box++;
 
     public static void AssignableReceiver()
     {

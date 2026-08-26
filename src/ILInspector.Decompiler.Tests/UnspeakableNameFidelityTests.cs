@@ -16,6 +16,7 @@ public class UnspeakableNameFidelityTests
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef Target = TypeRef.Definition("Synthetic", "Samples", "Target");
 
@@ -265,6 +266,143 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    /// <summary>
+    /// A known-framework operator whose defining metadata never resolved — so
+    /// <see cref="MetadataFactState.Unknown"/> with only an INFERRED SpecialName
+    /// — used as a method-group/delegate target. The known-framework exemption
+    /// that keeps an ordinary <c>a == b</c> call at Full is a CALL-position
+    /// exemption; here the <c>op_Equality</c> name reaches the output verbatim
+    /// and is CS0571, so it must degrade (round-18 review finding).
+    /// </summary>
+    [Fact]
+    public void UnresolvedKnownFrameworkOperatorDelegateTarget_DegradesToPartial()
+    {
+        var function = Function([], Container(
+            new ExpressionStatement(
+                new DelegateCreation(
+                    StringEqualityDelegateType,
+                    UnresolvedStringEquality(specialNameInferred: true),
+                    isVirtual: false,
+                    new Constant(null, Object))),
+            new Return(null)));
+
+        _ = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators.OperatorMethodGroup);
+    }
+
+    /// <summary>
+    /// The exemption itself, preserved: the SAME unresolved callee in an ordinary
+    /// call renders as <c>a == b</c>, where no <c>op_</c> name reaches the output,
+    /// so it stays Full.
+    /// </summary>
+    [Fact]
+    public void UnresolvedKnownFrameworkOperatorCall_StaysFull()
+    {
+        var callee = UnresolvedStringEquality(specialNameInferred: true);
+        var function = Function(Boolean, [], [], Container(
+            new Return(
+                new Call(
+                    callee,
+                    isVirtual: false,
+                    [
+                        new LoadArgument(0, "a", String),
+                        new LoadArgument(1, "b", String),
+                    ]))));
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("a == b", output);
+        Assert.DoesNotContain("op_Equality", output);
+    }
+
+    /// <summary>
+    /// Close control: the same unresolved/inferred shape on a type that is NOT a
+    /// known framework operator keeps degrading through the pre-existing
+    /// unverified-operator path, so the new predicate widened nothing.
+    /// </summary>
+    [Fact]
+    public void UnresolvedNonFrameworkOperatorDelegateTarget_DegradesAsUnverified()
+    {
+        var op = new MethodRef(
+            Target,
+            "op_Equality",
+            Boolean,
+            [Target, Target],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsSpecialNameInferred = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+        var function = Function([], Container(
+            new ExpressionStatement(
+                new DelegateCreation(
+                    TypeRef.GenericInstance(
+                        TypeRef.CoreLib("System", "Func`3"),
+                        [Target, Target, Boolean]),
+                    op,
+                    isVirtual: false,
+                    new Constant(null, Object))),
+            new Return(null)));
+
+        _ = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators.OperatorMetadataUnavailable);
+    }
+
+    /// <summary>
+    /// Close control: an EXACT (non-inferred) SpecialName on the same known
+    /// framework operator already degraded before this fix, through the exact
+    /// SpecialName path. The new predicate closes only the inferred case.
+    /// </summary>
+    [Fact]
+    public void ExactSpecialNameKnownFrameworkOperatorDelegateTarget_DegradesToPartial()
+    {
+        var function = Function([], Container(
+            new ExpressionStatement(
+                new DelegateCreation(
+                    StringEqualityDelegateType,
+                    UnresolvedStringEquality(specialNameInferred: false),
+                    isVirtual: false,
+                    new Constant(null, Object))),
+            new Return(null)));
+
+        _ = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators.OperatorMethodGroup);
+    }
+
+    static TypeRef StringEqualityDelegateType => TypeRef.GenericInstance(
+        TypeRef.CoreLib("System", "Func`3"),
+        [String, String, Boolean]);
+
+    static MethodRef UnresolvedStringEquality(bool specialNameInferred)
+        => new(
+            String,
+            "op_Equality",
+            Boolean,
+            [String, String],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsSpecialNameInferred = specialNameInferred,
+            IsOperator = MetadataFactState.Unknown,
+        };
 
     [Fact]
     public void AutoPropertyBackingField_StaysFull()

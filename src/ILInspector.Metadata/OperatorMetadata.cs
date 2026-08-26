@@ -163,7 +163,20 @@ public static class OperatorMetadata
         {
             return DeclarationClassification.No;
         }
+        // Every C# operator form except the C# 14 instance compound-assignment
+        // family is required to be static, and a static method cannot carry
+        // Abstract/Virtual outside an interface — so those flags prove metadata
+        // no C# compiler produced. An instance assignment operator is an
+        // ordinary instance member: `virtual`, `abstract`, `override`, and
+        // `sealed override` are all legal on it, and an implicit interface
+        // implementation carries `virtual final newslot` with no source keyword
+        // at all. Rejecting the flags there would call real C# unrepresentable,
+        // so the rejection is scoped to the forms that cannot have them. The
+        // static-ness obligation itself is still proved below by
+        // OperatorNames.IsCSharpOperatorDeclaration, which is what rejects a
+        // static method wearing an instance assignment operator's name.
         if (!declaringTypeIsInterface
+            && !OperatorNames.IsAssignmentOperatorMethodName(name)
             && (attributes & (MethodAttributes.Abstract | MethodAttributes.Virtual)) != 0)
         {
             return DeclarationClassification.No;

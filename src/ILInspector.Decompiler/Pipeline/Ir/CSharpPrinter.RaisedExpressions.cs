@@ -108,6 +108,16 @@ public sealed partial class CSharpPrinter
     /// with more than one statement expands across lines like any other
     /// statement block (see <see cref="LambdaBlockText"/>); a single-statement
     /// block stays inline, matching a developer's own shorthand for a trivial body.
+    /// <para>
+    /// A void body whose single expression is an instance compound-assignment
+    /// call is not always expression-bodiable. The checked form needs a
+    /// <c>checked { ... }</c> statement (<c>=&gt; checked(box += 1)</c> is
+    /// CS0201), and any form whose receiver is not a C# variable needs the
+    /// statement-level receiver materialization
+    /// (<see cref="RequiresMaterializedReceiver"/>) — <c>Create() += 1</c> is
+    /// CS0131 wherever it appears, so an expression body cannot spell it. Both
+    /// take the block path, where <see cref="Statement"/> owns the expansion.
+    /// </para>
     /// </summary>
     string LambdaText(Lambda lambda)
     {
@@ -122,7 +132,7 @@ public sealed partial class CSharpPrinter
 
         if (lambda.ExpressionBody is { } expr
             && (expr is not Call call
-                || !IsCheckedInstanceAssignmentOperatorCall(call)))
+                || !RequiresStatementFormInstanceAssignment(call)))
         {
             if (_stackSlotTelemetry is not null
                 && NeedsNestedLambdaScope(lambda))
