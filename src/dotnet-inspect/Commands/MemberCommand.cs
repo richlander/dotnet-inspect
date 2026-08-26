@@ -299,6 +299,7 @@ public static class MemberCommand
             var discoveredCallerSections =
                 GetDiscoveredCallerSections(effectiveOptions);
             var callersImplicitlySelected = effectiveOptions.HasCallerScope
+                && !IsWholeDocumentJson(effectiveOptions)
                 && (!HasAuthoredSectionRequest(effectiveOptions)
                     || discoveredCallerSections.Count > 0);
             if (callersImplicitlySelected)
@@ -315,10 +316,15 @@ public static class MemberCommand
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
-                && ShouldAutoSelectSingleOverload(effectiveOptions))
+                && ShouldAutoSelectSingleOverload(authoredSelection))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
-                var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
+                var autoOverloads = GetCandidateMembers(
+                        apiType,
+                        effectiveOptions,
+                        autoMemberName)
+                    .Where(member => !effectiveOptions.UnsafeOnly || member.IsUnsafe)
+                    .ToList();
                 if (autoOverloads.Count == 1)
                 {
                     if (effectiveOptions.BodyKindQuery.HasFilter
@@ -347,11 +353,7 @@ public static class MemberCommand
                             detailPipeline)
                         is not { } detailOptions)
                         return 1;
-                    effectiveOptions = callersImplicitlySelected
-                        ? IncludeCallerScopeSections(
-                            detailOptions,
-                            discoveredCallerSections)
-                        : detailOptions;
+                    effectiveOptions = detailOptions;
                 }
             }
 
@@ -417,6 +419,25 @@ public static class MemberCommand
                     CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
                     return 1;
                 }
+            }
+
+            if (ApiMemberSectionPipelines.ShouldAggregateCallers(
+                    apiType,
+                    effectiveOptions))
+            {
+                var callerTokens = GetAggregatedCallerMembers(apiType, effectiveOptions)
+                    .SelectMany(member => BodyMethodTokens(apiType, member))
+                    .ToHashSet();
+                effectiveOptions = effectiveOptions with
+                {
+                    AggregatedCallerMemberTokens = callerTokens
+                };
+            }
+            else if (effectiveOptions.CallerScopeSectionImplicitlySelected
+                && effectiveOptions.OverloadIndex is null
+                && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
+            {
+                effectiveOptions = ExcludeCallersSection(effectiveOptions);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -927,11 +948,42 @@ public static class MemberCommand
            && (sections.Contains(SectionNames.Callers)
                || sections.Contains(SectionNames.CallGraph));
 
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
+        HashSet<string>? exactIncludeSections = null;
+        if (options.ExactIncludeSectionsOverride is { } exactExisting)
+        {
+            exactIncludeSections = new HashSet<string>(
+                exactExisting,
+                StringComparer.OrdinalIgnoreCase);
+            exactIncludeSections.Remove(SectionNames.Callers);
+        }
+        return options with
+        {
+            IncludeSections = includeSections,
+            ExactIncludeSectionsOverride = exactIncludeSections,
+            CallerScopeSectionImplicitlySelected = false
+        };
+    }
+
     private static bool HasAuthoredSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
            || options.Discover is { Length: > 0 }
            || options.BodyKindQuery.HasFilter;
+
+    private static bool IsWholeDocumentJson(MemberOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && options.Discover is null
+           && !options.Print
+           && !options.Value
+           && !options.Urls
+           && !options.Paths;
 
     private static bool IsSelectedBodyEvidenceUnavailable(
         ApiType type,
@@ -973,6 +1025,43 @@ public static class MemberCommand
         SectionNames.IL,
         SectionNames.Facts
     ];
+
+    private static IEnumerable<int> BodyMethodTokens(
+        ApiType type,
+        ApiMember member)
+    {
+        if (ApiMemberSectionDescriptors.IsMethodLike(member))
+        {
+            if (member.MetadataToken is { } token)
+                yield return token;
+            yield break;
+        }
+
+        if (!ApiMemberSectionDescriptors.HasAccessorTokens(member))
+            yield break;
+
+        foreach (var accessor in ApiOutputFormatter.AccessorMethods(member, type))
+        {
+            if (accessor.MetadataToken is { } token)
+                yield return token;
+        }
+    }
+
+    private static IEnumerable<ApiMember> GetAggregatedCallerMembers(
+        ApiType type,
+        MemberOptions options)
+    {
+        IEnumerable<ApiMember> members = ApiOutputFormatter
+            .GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter)
+            .SelectMany(group => group.Value);
+        if (options.MemberGenericArity.HasValue && options.MemberFilter.Count == 1)
+        {
+            var memberName = options.MemberFilter.First();
+            var arityCandidates = GetCandidateMembers(type, options, memberName).ToHashSet();
+            members = members.Where(arityCandidates.Contains);
+        }
+        return members;
+    }
 
     private static readonly string[] SingleOverloadSectionNames =
     [

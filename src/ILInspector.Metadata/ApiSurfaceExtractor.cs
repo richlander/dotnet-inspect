@@ -157,6 +157,13 @@ public abstract record ApiSurfaceExtractionResult
 /// </summary>
 public static class ApiSurfaceExtractor
 {
+    private static bool? MethodHasBody(
+        MetadataReader reader,
+        MethodDefinitionHandle handle)
+        => handle.IsNil
+            ? null
+            : reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
+
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
     private static readonly ConditionalWeakTable<
@@ -861,6 +868,7 @@ public static class ApiSurfaceExtractor
                     // round-tripped ApiSurface (where SignatureModel is gone).
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
+                    MethodHasBody = method.RelativeVirtualAddress != 0,
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1010,7 +1018,9 @@ public static class ApiSurfaceExtractor
                         observeText,
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
-                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
+                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    GetterHasBody = MethodHasBody(reader, accessors.Getter),
+                    SetterHasBody = MethodHasBody(reader, accessors.Setter)
                 };
 
                 budget?.RetainMember(member);
@@ -1331,7 +1341,9 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
+                        : MetadataTokens.GetToken(accessors.Remover),
+                    AdderHasBody = MethodHasBody(reader, accessors.Adder),
+                    RemoverHasBody = MethodHasBody(reader, accessors.Remover)
                 };
 
                 budget?.RetainMember(member);

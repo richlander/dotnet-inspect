@@ -243,7 +243,7 @@ public static class ApiOutputFormatter
                     options.IncludeSections,
                     explicitInclude: sectionsPreResolved));
         }
-        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options))
+        if (ApiMemberSectionPipelines.ShouldAggregateCallers(type, options))
         {
             includeSections ??= [];
             includeSections.Add(SectionNames.Callers);
@@ -1464,17 +1464,44 @@ public static class ApiOutputFormatter
         IReadOnlySet<string> requestedSections,
         ApiOptions? options = null)
     {
-        bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
-        var methods = type.Members
-            .Where(member =>
-                options is null
-                || ApiMemberSectionPipelines.IsImplicitCallerTarget(
-                    member,
-                    options))
-            .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
-            .ToList();
+        bool includeBodyless = requestedSections.Any(
+            AddressableWithoutExecutableBodySections.Contains);
+        var aggregatedCallerTokens = (options as MemberOptions)?.AggregatedCallerMemberTokens;
+        List<ApiMember> methods;
+        if (aggregatedCallerTokens is { } tokens)
+        {
+            methods = type.Members
+                .Where(ApiMemberSectionDescriptors.IsMethodLike)
+                .Where(member => member.MetadataToken is { } token && tokens.Contains(token))
+                .ToList();
+            var methodTokens = methods
+                .Select(member => member.MetadataToken)
+                .OfType<int>()
+                .ToHashSet();
+            methods.AddRange(type.Members
+                .Where(ApiMemberSectionDescriptors.HasAccessorTokens)
+                .SelectMany(member => AccessorMethods(member, type))
+                .Where(member => member.MetadataToken is { } token
+                    && tokens.Contains(token)
+                    && methodTokens.Add(token)));
+        }
+        else
+        {
+            methods = type.Members
+                .Where(member =>
+                    options is null
+                    || ApiMemberSectionPipelines.IsImplicitCallerTarget(
+                        member,
+                        options))
+                .Where(member =>
+                    ApiMemberSectionDescriptors.IsMethodLike(member)
+                    && (includeBodyless
+                        || ApiMemberSectionDescriptors.HasExecutableBody(member)))
+                .ToList();
+        }
 
-        if (methods.Count == 0
+        if (aggregatedCallerTokens is null
+            && methods.Count == 0
             && type.Members
                 .Where(member =>
                     options is null
@@ -1485,12 +1512,26 @@ public static class ApiOutputFormatter
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
             methods = AccessorMethods(single, type)
-                .Where(m => !m.IsAbstract || includeAbstract)
+                .Where(member =>
+                    includeBodyless
+                    || ApiMemberSectionDescriptors.HasExecutableBody(member))
                 .ToList();
         }
 
         return methods;
     }
+
+    private static readonly HashSet<string> AddressableWithoutExecutableBodySections =
+    [
+        SectionNames.DecompiledSource,
+        SectionNames.FidelityCauses,
+        SectionNames.AnnotatedSource,
+        SectionNames.PdbSource,
+        SectionNames.SourceDiff,
+        SectionNames.SourceLocations,
+        SectionNames.Callers,
+        SectionNames.CallGraph
+    ];
 
     /// <summary>
     /// Synthesizes method members for a property's or event's accessors, keyed by the
@@ -1564,6 +1605,14 @@ public static class ApiOutputFormatter
             Name = name,
             Kind = "method",
             MetadataToken = token,
+            MethodHasBody = accessorKind switch
+            {
+                "get" => owner.GetterHasBody,
+                "set" => owner.SetterHasBody,
+                "add" => owner.AdderHasBody,
+                "remove" => owner.RemoverHasBody,
+                _ => null
+            },
             DeclaringType = declaringType,
             ReturnType = returnType,
             Signature = $"{returnType} {name}({renderedParameters})",

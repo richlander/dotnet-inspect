@@ -1724,7 +1724,7 @@ public class ApiCommand
                     options.IncludeSections,
                     explicitInclude: explicitInclude));
         }
-        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options))
+        if (ApiMemberSectionPipelines.ShouldAggregateCallers(type, options))
             sections.Add(SectionNames.Callers);
         if (options.Discover is { Length: > 0 } discover)
         {

@@ -13506,6 +13506,101 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallerScope_KindFilterExcludesImplicitCallerTargets()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            nameof(MemberCallGraphFixture.Inner), "--kind", "property",
+            "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Callers", result.Output);
+        Assert.DoesNotContain("Callers", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_UnsafeFilterExcludesImplicitCallerTargets()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            nameof(MemberCallGraphFixture.Inner), "--unsafe",
+            "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Callers", result.Output);
+        Assert.DoesNotContain("Callers", result.Error);
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-D")]
+    public async Task Member_TypeScopeCallerSection_IsSelectableAndDiscoverable(
+        string option)
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, option, SectionNames.Callers, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            option == "-S" ? $"## {SectionNames.Callers}" : "| Caller | column |",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(nameof(IMemberAbstractCallerFixture.Invoke))]
+    [InlineData(nameof(IMemberAbstractCallerFixture.Value))]
+    public async Task Member_AbstractCallerTarget_RetainsMethodAndAccessorTokens(
+        string memberName)
+    {
+        string fixtureAssembly = typeof(IMemberAbstractCallerFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(IMemberAbstractCallerFixture).FullName!,
+            "--library", fixtureAssembly, memberName,
+            "-S", SectionNames.Callers, "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(nameof(MemberAbstractCallerUseFixture.Call), result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_DocumentJsonWithCallerScope_PreservesMemberInventory()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(document.RootElement.GetProperty("members").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Member_PInvokeIl_IsVisibleAsInapplicable()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!, "--library", TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId), "--all",
+            "-S", SectionNames.IL, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("section 'IL' has no data", result.Error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectDecompiledSource_RendersPlainCSharp()
     {
         var options = new MemberOptions

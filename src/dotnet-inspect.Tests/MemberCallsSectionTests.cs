@@ -141,3 +141,18 @@ public static class MemberCallsFixture
         return value + 1;
     }
 }
+
+public interface IMemberAbstractCallerFixture
+{
+    void Invoke();
+    int Value { get; }
+}
+
+public static class MemberAbstractCallerUseFixture
+{
+    public static void Call(IMemberAbstractCallerFixture target)
+    {
+        target.Invoke();
+        _ = target.Value;
+    }
+}

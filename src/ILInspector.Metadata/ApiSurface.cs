@@ -854,11 +854,23 @@ public class ApiMember
     public int? MetadataToken { get; set; }
 
     /// <summary>
+    /// Metadata-only body presence for a method-like member. Null means the producer did not
+    /// supply the fact; extracted metadata always supplies it. Kept out of public JSON because
+    /// it is routing state for body-backed inspection, not an API-surface contract.
+    /// </summary>
+    [JsonIgnore]
+    public bool? MethodHasBody { get; set; }
+
+    /// <summary>
     /// MethodDef tokens of a property's get/set accessors when known. Lets accessor-level
     /// call-graph rows (e.g. <c>get_Foo</c>) map back to the owning property's selector.
     /// </summary>
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
+    [JsonIgnore]
+    public bool? GetterHasBody { get; set; }
+    [JsonIgnore]
+    public bool? SetterHasBody { get; set; }
 
     /// <summary>
     /// MethodDef tokens of an event's add/remove accessors when known. Serialized (like
@@ -869,6 +881,10 @@ public class ApiMember
     public int? AdderToken { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RemoverToken { get; set; }
+    [JsonIgnore]
+    public bool? AdderHasBody { get; set; }
+    [JsonIgnore]
+    public bool? RemoverHasBody { get; set; }
 
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
