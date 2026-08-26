@@ -1262,6 +1262,271 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // An external interface whose definition cannot be read leaves the question "does this
+    // interface declare the target?" unanswered. Reporting the unanswered case as "no" made
+    // a dropped `: IProbe` base-list entry round-trip as a clean Exact even though the
+    // target's final/newslot slot exists only because of that interface.
+    [Fact]
+    public void CompileBackTargets_UnavailableExternalImplicitInterfaceReportsUnknownEvidence()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public interface IProbe { int Read(); }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Probe : IProbe
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            // Close negative: the definition is readable, so the omission is proven and
+            // keeps the proven reason.
+            var resolved = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, resolved.Status);
+            Assert.Contains(
+                resolved.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.DoesNotContain(
+                resolved.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable");
+
+            File.Delete(contractsPath);
+
+            var unavailable = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, unavailable.Status);
+            Assert.Contains(
+                "implicit-interface-evidence-unavailable",
+                unavailable.Detail,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                unavailable.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable"
+                    && diagnostic.Layer == "type identity"
+                    && diagnostic.Detail.Contains("Probe::Read", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // A constructed generic interface nested in another type is referenced through a
+    // TypeSpec whose root TypeRef is scoped to its enclosing TypeRef, not to an assembly
+    // reference. That reference cannot be resolved to a definition here, so the interface's
+    // members are never read: the base-list entry disappears and, before the tri-state
+    // evidence, nothing said so.
+    [Fact]
+    public void CompileBackTargets_NestedExternalConstructedInterfaceReportsUnknownEvidence()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            public interface IOuter
+            {
+                public interface IInner<T>
+                {
+                    int Read();
+                }
+            }
+
+            public interface ITopLevel<T>
+            {
+                int Read();
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var nestedPath = CompileFixture(
+            """
+            public sealed class Probe : IOuter.IInner<int>
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "nested",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        var topLevelPath = CompileFixture(
+            """
+            public sealed class Probe : ITopLevel<int>
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "toplevel",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var nested = Assert.Single(ReturnToSender.CompileBackTargets(
+                nestedPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, nested.Status);
+            Assert.DoesNotContain("IInner", nested.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                nested.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable"
+                    && diagnostic.Layer == "type identity");
+
+            // Close negative: the same constructed generic shape at top level resolves, so
+            // the omission stays a proven fact rather than an unavailable one.
+            var topLevel = Assert.Single(ReturnToSender.CompileBackTargets(
+                topLevelPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, topLevel.Status);
+            Assert.Contains(
+                topLevel.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.DoesNotContain(
+                topLevel.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(nestedPath);
+        }
+    }
+
+    // The interface an explicit event accessor implements is named by the accessor's own
+    // canonical metadata name, not by MethodImpl table order. `Probe` carries two
+    // `.override` rows on one accessor and emits the wrong one first, so first-row selection
+    // reconstructs the event as `IB.Changed` and silently moves the member to another
+    // interface's slot.
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompileBackTargets_ExplicitEventUsesCanonicalDeclarationNotTableOrder()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL explicit-event regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(ilasm, MultiOverrideEventIl, directory, "eventoverride");
+        try
+        {
+            var shared = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "IA.add_Changed", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("IA.Changed", shared.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IB.Changed", shared.Source, StringComparison.Ordinal);
+
+            // Close negative: one `.override` row for the same canonical name selects the
+            // same interface and is unaffected by the tie-break.
+            var single = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Solo", "IA.add_Changed", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("IA.Changed", single.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IB.Changed", single.Source, StringComparison.Ordinal);
+            Assert.True(
+                shared.Status == single.Status,
+                $"shared {shared.Status}: {shared.Detail}{Environment.NewLine}"
+                    + $"single {single.Status}: {single.Detail}");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // The closure member surface classifies operators without a relationship resolver, so an
+    // operator whose signature names a type outside the assembly is unclassifiable. Both the
+    // unclassifiable and the proven-negative case emit a raw method, but only the proven one
+    // may claim the member is not representable.
+    [Fact]
+    public void CompileBackTargets_UnknownOperatorClassificationUsesUnknownReason()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public sealed class Money { }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        const string WalletSource = """
+            public sealed class Wallet
+            {
+                public static implicit operator Money(Wallet value) => new Money();
+
+                public static Wallet Create() => new Wallet();
+            }
+
+            public static class Target
+            {
+                public static object Run() => Wallet.Create();
+            }
+            """;
+        var externalPath = CompileFixture(
+            WalletSource,
+            directory: fixtureDir,
+            assemblyName: "external",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        var localPath = CompileFixture(
+            "public sealed class Money { }" + Environment.NewLine + WalletSource,
+            directory: fixtureDir,
+            assemblyName: "local");
+        try
+        {
+            // `All` reconstructs Wallet as a closure root with its member surface, which is
+            // where the surface's operator classification is consumed.
+            var external = Assert.Single(ReturnToSender.CompileBackTargets(
+                externalPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains(
+                external.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-representability-unknown"
+                    && diagnostic.Layer == "member surface"
+                    && diagnostic.Detail.Contains("op_Implicit", StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                external.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable"
+                    && diagnostic.Detail.Contains("op_Implicit", StringComparison.Ordinal));
+
+            // Close negative: the same operator with an in-assembly conversion target is
+            // classified, representable, and reports nothing.
+            var local = Assert.Single(ReturnToSender.CompileBackTargets(
+                localPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.DoesNotContain(
+                local.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-representability-unknown"
+                    or "operator-not-representable");
+        }
+        finally
+        {
+            DeleteFixture(externalPath);
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_ExternalImplicitInterfaceAccessorsDeclineNatively()
     {
@@ -13288,6 +13553,104 @@ public class ReturnToSenderPrototypeTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    // Hand-authored IL exercising MethodImpl table order against canonical declaration
+    // identity: two interfaces declare the same event shape, and `Probe` satisfies both with
+    // one pair of accessors whose canonical metadata names spell `IA`. The `.override` rows
+    // are emitted IB-first, so table order disagrees with the accessor's own name. `Solo` is
+    // the single-row control. Assembled with ilasm because C# cannot emit one accessor
+    // carrying overrides for two interfaces.
+    const string MultiOverrideEventIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly eventoverride { }
+        .module eventoverride.dll
+
+        .class interface public abstract auto ansi IA
+        {
+          .method public hidebysig newslot specialname abstract virtual
+              instance void add_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .method public hidebysig newslot specialname abstract virtual
+              instance void remove_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .event [System.Runtime]System.Action Changed
+          {
+            .addon instance void IA::add_Changed(class [System.Runtime]System.Action)
+            .removeon instance void IA::remove_Changed(class [System.Runtime]System.Action)
+          }
+        }
+
+        .class interface public abstract auto ansi IB
+        {
+          .method public hidebysig newslot specialname abstract virtual
+              instance void add_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .method public hidebysig newslot specialname abstract virtual
+              instance void remove_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .event [System.Runtime]System.Action Changed
+          {
+            .addon instance void IB::add_Changed(class [System.Runtime]System.Action)
+            .removeon instance void IB::remove_Changed(class [System.Runtime]System.Action)
+          }
+        }
+
+        .class public auto ansi sealed beforefieldinit Probe
+            extends [System.Runtime]System.Object
+            implements IA, IB
+        {
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.add_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IB::add_Changed
+            .override IA::add_Changed
+            ret
+          }
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.remove_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IB::remove_Changed
+            .override IA::remove_Changed
+            ret
+          }
+          .event [System.Runtime]System.Action 'IA.Changed'
+          {
+            .addon instance void Probe::'IA.add_Changed'(class [System.Runtime]System.Action)
+            .removeon instance void Probe::'IA.remove_Changed'(class [System.Runtime]System.Action)
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+
+        .class public auto ansi sealed beforefieldinit Solo
+            extends [System.Runtime]System.Object
+            implements IA
+        {
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.add_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IA::add_Changed
+            ret
+          }
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.remove_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IA::remove_Changed
+            ret
+          }
+          .event [System.Runtime]System.Action 'IA.Changed'
+          {
+            .addon instance void Solo::'IA.add_Changed'(class [System.Runtime]System.Action)
+            .removeon instance void Solo::'IA.remove_Changed'(class [System.Runtime]System.Action)
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
 
     // Hand-authored IL exercising the shadowing-sibling regression: a class with a clean
     // explicit-interface metadata name for System.Collections.IEnumerable.GetEnumerator plus

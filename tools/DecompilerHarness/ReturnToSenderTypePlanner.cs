@@ -2745,11 +2745,32 @@ public static class CompileBackSourceComposer
         return $"{returnType.DisplayName} {explicitInterfaceMemberName}{typeParametersText}({parametersText})";
     }
 
+    // Which interface event an explicit accessor implements comes from the accessor's own
+    // canonical declaration identity — its explicit-interface metadata name (`IA.add_E`) —
+    // not from MethodImpl table order. One body can carry several `.override` rows, and the
+    // first row is simply whichever the producer emitted first: selecting it names the wrong
+    // interface in the reconstructed declaration and silently moves the member to a different
+    // slot. When the accessor carries no resolvable canonical name, only an unambiguous single
+    // row is usable; several rows are declined rather than guessed.
     static ExplicitInterfaceEventInfo? ExplicitInterfaceEvent(
         MetadataReader reader,
         TypeDefinition targetType,
         MethodDefinitionHandle targetAccessor)
     {
+        TypeDefinitionHandle? canonicalInterface = null;
+        string? canonicalMemberName = null;
+        if (TrySplitExplicitInterfaceMetadataName(
+                reader.GetString(reader.GetMethodDefinition(targetAccessor).Name),
+                out string interfaceMetadataName,
+                out string memberMetadataName)
+            && TypeProducer.FindType(reader, interfaceMetadataName) is { } canonicalHandle)
+        {
+            canonicalInterface = canonicalHandle;
+            canonicalMemberName = memberMetadataName;
+        }
+
+        ExplicitInterfaceEventInfo? fallback = null;
+        bool fallbackIsAmbiguous = false;
         foreach (var implementationHandle in targetType.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
@@ -2763,6 +2784,7 @@ public static class CompileBackSourceComposer
             var declaration = reader.GetMethodDefinition(declarationHandle);
             var interfaceHandle = declaration.GetDeclaringType();
             var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            ExplicitInterfaceEventInfo? candidate = null;
             foreach (var eventHandle in interfaceDef.GetEvents())
             {
                 var eventDefinition = reader.GetEventDefinition(eventHandle);
@@ -2772,15 +2794,32 @@ public static class CompileBackSourceComposer
 
                 var interfaceIdentity = CompileBackTypeIdentity.FromDefinition(reader, interfaceDef);
                 string eventName = Identifier(reader.GetString(eventDefinition.Name));
-                return new ExplicitInterfaceEventInfo(
+                candidate = new ExplicitInterfaceEventInfo(
                     interfaceHandle,
                     eventHandle,
                     $"{interfaceIdentity.FullName}.{eventName}",
                     reader.GetString(declaration.Name));
+                break;
             }
+
+            if (candidate is null)
+                continue;
+            if (canonicalInterface is { } expectedInterface)
+            {
+                if (interfaceHandle == expectedInterface
+                    && reader.GetString(declaration.Name) == canonicalMemberName)
+                {
+                    return candidate;
+                }
+                continue;
+            }
+            if (fallback is null)
+                fallback = candidate;
+            else
+                fallbackIsAmbiguous = true;
         }
 
-        return null;
+        return fallbackIsAmbiguous ? null : fallback;
     }
 
     static (ExternalExplicitInterfaceEventInfo? Event, string? DeclineReason)
@@ -4164,25 +4203,37 @@ public static class CompileBackSourceComposer
         MethodDefinition targetMethod,
         IReadOnlyList<CompileBackTypeRequirement> reconstructedRequirements)
     {
-        if (!ImplicitInterfaceTargetIsOmitted(
-                assemblyPath,
-                compilationClosure,
-                reader,
-                targetType,
-                targetMethod,
-                reconstructedRequirements))
-        {
+        var omission = ImplicitInterfaceTargetOmission(
+            assemblyPath,
+            compilationClosure,
+            reader,
+            targetType,
+            targetMethod,
+            reconstructedRequirements);
+        if (omission == MetadataFactState.No)
             return;
-        }
 
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetType);
-        diagnostics.Add(new CompileBackPlanningDiagnostic(
-            "type identity",
-            "implicit-interface-not-reconstructed",
-            $"{targetIdentity.MetadataFullName}::{reader.GetString(targetMethod.Name)}"));
+        AddImplicitInterfaceOmissionDiagnostic(
+            diagnostics,
+            omission,
+            $"{targetIdentity.MetadataFullName}::{reader.GetString(targetMethod.Name)}");
     }
 
-    static bool ImplicitInterfaceTargetIsOmitted(
+    // Whether an interface the reconstruction omits from the target type's base list
+    // declares the target member — i.e. whether the target is an implicit interface
+    // implementation whose declaring interface the shell no longer names.
+    //
+    // The answer is tri-state on purpose. `No` is a proven negative: every omitted
+    // interface was read and none declares this member. `Unknown` means the evidence
+    // was unavailable — an unresolvable external assembly, an undecodable signature, or
+    // an interface reference this planner cannot follow (a nested-scope TypeRef, a
+    // TypeSpec rooted in another TypeSpec). Collapsing `Unknown` into `No` is what let a
+    // dropped `: IProbe` (or `: IOuter.IInner<int>`) report a clean Exact: the member's
+    // final/newslot slot only exists because of an interface the shell never mentions,
+    // and nothing said so. Callers must decline on `Unknown` with a distinct reason
+    // rather than claim fidelity they cannot prove.
+    static MetadataFactState ImplicitInterfaceTargetOmission(
         string assemblyPath,
         ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
@@ -4191,7 +4242,7 @@ public static class CompileBackSourceComposer
         IReadOnlyList<CompileBackTypeRequirement> reconstructedRequirements)
     {
         if (ShellKind(reader, typeDef) != CompileBackTypeKind.Class)
-            return false;
+            return MetadataFactState.No;
 
         string name = reader.GetString(method.Name);
         if (name.Contains('.', StringComparison.Ordinal)
@@ -4201,7 +4252,7 @@ public static class CompileBackSourceComposer
             || !method.Attributes.HasFlag(MethodAttributes.Final)
             || !method.Attributes.HasFlag(MethodAttributes.NewSlot))
         {
-            return false;
+            return MetadataFactState.No;
         }
 
         MethodSignature<string> targetSignature;
@@ -4213,23 +4264,25 @@ public static class CompileBackSourceComposer
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return false;
+            return MetadataFactState.Unknown;
         }
 
+        var omission = MetadataFactState.No;
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var interfaceHandle = reader.GetInterfaceImplementation(implementationHandle).Interface;
-            if (!OmittedInterfaceDeclaresTarget(
-                    assemblyPath,
-                    compilationClosure,
-                    reader,
-                    interfaceHandle,
-                    method,
-                    targetSignature))
-            {
+            var declares = OmittedInterfaceDeclaresTarget(
+                assemblyPath,
+                compilationClosure,
+                reader,
+                interfaceHandle,
+                method,
+                targetSignature);
+            if (declares == MetadataFactState.No)
                 continue;
-            }
 
+            // A same-assembly interface the plan actually reconstructs is not omitted, so
+            // it neither proves an omission nor leaves one unproven.
             if (SameAssemblyInterfaceTargetIsReconstructed(
                     reader,
                     interfaceHandle,
@@ -4239,10 +4292,12 @@ public static class CompileBackSourceComposer
                 continue;
             }
 
-            return true;
+            omission = CombineInterfaceEvidence(omission, declares);
+            if (omission == MetadataFactState.Yes)
+                return MetadataFactState.Yes;
         }
 
-        return false;
+        return omission;
     }
 
     static bool SameAssemblyInterfaceTargetIsReconstructed(
@@ -4534,7 +4589,38 @@ public static class CompileBackSourceComposer
         return !interfaceType.IsNil;
     }
 
-    static bool OmittedInterfaceDeclaresTarget(
+    // A proven `Yes` wins outright; otherwise one unavailable answer makes the whole
+    // question unanswerable. Never let a later `No` overwrite an earlier `Unknown`.
+    static MetadataFactState CombineInterfaceEvidence(
+        MetadataFactState current,
+        MetadataFactState next)
+        => (current, next) switch
+        {
+            (MetadataFactState.Yes, _) or (_, MetadataFactState.Yes) => MetadataFactState.Yes,
+            (MetadataFactState.Unknown, _) or (_, MetadataFactState.Unknown) => MetadataFactState.Unknown,
+            _ => MetadataFactState.No,
+        };
+
+    static void AddImplicitInterfaceOmissionDiagnostic(
+        List<CompileBackPlanningDiagnostic> diagnostics,
+        MetadataFactState omission,
+        string memberIdentity)
+    {
+        string? reason = omission switch
+        {
+            MetadataFactState.Yes => "implicit-interface-not-reconstructed",
+            MetadataFactState.Unknown => "implicit-interface-evidence-unavailable",
+            _ => null,
+        };
+        if (reason is null)
+            return;
+        diagnostics.Add(new CompileBackPlanningDiagnostic(
+            "type identity",
+            reason,
+            memberIdentity));
+    }
+
+    static MetadataFactState OmittedInterfaceDeclaresTarget(
         string assemblyPath,
         ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
@@ -4552,7 +4638,7 @@ public static class CompileBackSourceComposer
                     out root,
                     out genericInstantiation))
             {
-                return false;
+                return MetadataFactState.Unknown;
             }
         }
 
@@ -4560,19 +4646,24 @@ public static class CompileBackSourceComposer
         {
             var interfaceDef = reader.GetTypeDefinition((TypeDefinitionHandle)root);
             return InterfaceDeclaresTarget(
+                assemblyPath,
+                compilationClosure,
                 reader,
                 interfaceDef,
                 targetMethod,
                 targetSignature,
                 exactSignature: !genericInstantiation);
         }
+        // A TypeSpec rooted in another TypeSpec, or a TypeRef this planner cannot turn
+        // into an assembly-qualified identity (a nested type's scope is its enclosing
+        // TypeRef, not an AssemblyRef), leaves the interface's members unread.
         if (root.Kind != HandleKind.TypeReference
             || ExternalInterfaceReference(
                 reader,
                 (TypeReferenceHandle)root,
                 allowGenericMetadataName: true) is not { } interfaceReference)
         {
-            return false;
+            return MetadataFactState.Unknown;
         }
 
         return ExternalInterfaceDeclaresTarget(
@@ -4585,13 +4676,16 @@ public static class CompileBackSourceComposer
             exactSignature: !genericInstantiation);
     }
 
-    static bool InterfaceDeclaresTarget(
+    static MetadataFactState InterfaceDeclaresTarget(
+        string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
         TypeDefinition interfaceDef,
         MethodDefinition targetMethod,
         MethodSignature<string> targetSignature,
         bool exactSignature)
     {
+        var evidence = MetadataFactState.No;
         string targetName = reader.GetString(targetMethod.Name);
         foreach (var methodHandle in interfaceDef.GetMethods())
         {
@@ -4610,6 +4704,9 @@ public static class CompileBackSourceComposer
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
+                // A same-named, same-arity candidate whose signature will not decode is
+                // exactly the case that cannot be dismissed as "does not declare it".
+                evidence = MetadataFactState.Unknown;
                 continue;
             }
             if (signature.ParameterTypes.Length != targetSignature.ParameterTypes.Length)
@@ -4620,28 +4717,66 @@ public static class CompileBackSourceComposer
                         targetSignature.ParameterTypes,
                         StringComparer.Ordinal))
             {
-                return true;
+                return MetadataFactState.Yes;
             }
         }
 
         foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
         {
             var inherited = reader.GetInterfaceImplementation(implementationHandle).Interface;
-            if (inherited.Kind == HandleKind.TypeDefinition
-                && InterfaceDeclaresTarget(
+            bool inheritedExact = exactSignature;
+            if (inherited.Kind == HandleKind.TypeSpecification)
+            {
+                if (!TryReadNamedTypeSpecificationRoot(
+                        reader,
+                        (TypeSpecificationHandle)inherited,
+                        out inherited,
+                        out bool genericInstantiation))
+                {
+                    evidence = MetadataFactState.Unknown;
+                    continue;
+                }
+                inheritedExact &= !genericInstantiation;
+            }
+            MetadataFactState inheritedEvidence;
+            if (inherited.Kind == HandleKind.TypeDefinition)
+            {
+                inheritedEvidence = InterfaceDeclaresTarget(
+                    assemblyPath,
+                    compilationClosure,
                     reader,
                     reader.GetTypeDefinition((TypeDefinitionHandle)inherited),
                     targetMethod,
                     targetSignature,
-                    exactSignature))
-            {
-                return true;
+                    inheritedExact);
             }
+            else if (inherited.Kind == HandleKind.TypeReference
+                && ExternalInterfaceReference(
+                    reader,
+                    (TypeReferenceHandle)inherited,
+                    allowGenericMetadataName: true) is { } inheritedReference)
+            {
+                inheritedEvidence = ExternalInterfaceDeclaresTarget(
+                    assemblyPath,
+                    compilationClosure,
+                    reader,
+                    inheritedReference,
+                    targetMethod,
+                    targetSignature,
+                    inheritedExact);
+            }
+            else
+            {
+                inheritedEvidence = MetadataFactState.Unknown;
+            }
+            evidence = CombineInterfaceEvidence(evidence, inheritedEvidence);
+            if (evidence == MetadataFactState.Yes)
+                return MetadataFactState.Yes;
         }
-        return false;
+        return evidence;
     }
 
-    static bool ExternalInterfaceDeclaresTarget(
+    static MetadataFactState ExternalInterfaceDeclaresTarget(
         string assemblyPath,
         ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader targetReader,
@@ -4659,7 +4794,11 @@ public static class CompileBackSourceComposer
                 interfaceReference.MetadataFullName,
                 closure.Resolver) is not { } definition)
         {
-            return false;
+            // The interface exists in metadata but its definition is unavailable, so
+            // whether it declares the target member is unknown. Reporting "does not
+            // declare it" here is what let a dropped external interface round-trip as
+            // Exact when its assembly could not be resolved.
+            return MetadataFactState.Unknown;
         }
 
         try
@@ -4675,10 +4814,10 @@ public static class CompileBackSourceComposer
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         {
-            return false;
+            return MetadataFactState.Unknown;
         }
 
-        static bool ResolvedExternalInterfaceDeclaresTarget(
+        static MetadataFactState ResolvedExternalInterfaceDeclaresTarget(
             (
                 ResolvedAssemblyReference Assembly,
                 MetadataTypeDefinitionAddress Address) definition,
@@ -4692,13 +4831,13 @@ public static class CompileBackSourceComposer
             using Stream stream = definition.Assembly.OpenRead();
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata)
-                return false;
+                return MetadataFactState.Unknown;
             var reader = peReader.GetMetadataReader();
             if (!definition.Address.TryResolve(
                     reader,
                     out TypeDefinitionHandle interfaceHandle))
             {
-                return false;
+                return MetadataFactState.Unknown;
             }
             return ExternalInterfaceDefinitionDeclaresTarget(
                 reader,
@@ -4712,7 +4851,7 @@ public static class CompileBackSourceComposer
                 visited);
         }
 
-        static bool ExternalInterfaceDefinitionDeclaresTarget(
+        static MetadataFactState ExternalInterfaceDefinitionDeclaresTarget(
             MetadataReader reader,
             ResolvedAssemblyReference assembly,
             TypeDefinitionHandle interfaceHandle,
@@ -4726,8 +4865,11 @@ public static class CompileBackSourceComposer
             string visitKey =
                 $"{assembly.Identity}|{reader.GetGuid(reader.GetModuleDefinition().Mvid):D}|"
                 + $"{MetadataTokens.GetToken(interfaceHandle):X8}";
+            // A repeat visit contributed its own answer the first time; treating the
+            // cycle stop as `No` keeps it from masking that answer.
             if (!visited.Add(visitKey))
-                return false;
+                return MetadataFactState.No;
+            var evidence = MetadataFactState.No;
             var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
             foreach (var methodHandle in interfaceDef.GetMethods())
             {
@@ -4746,6 +4888,7 @@ public static class CompileBackSourceComposer
                 }
                 catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
                 {
+                    evidence = MetadataFactState.Unknown;
                     continue;
                 }
                 if (signature.ParameterTypes.Length != targetSignature.ParameterTypes.Length)
@@ -4756,7 +4899,7 @@ public static class CompileBackSourceComposer
                             targetSignature.ParameterTypes,
                             StringComparer.Ordinal))
                 {
-                    return true;
+                    return MetadataFactState.Yes;
                 }
             }
 
@@ -4772,12 +4915,15 @@ public static class CompileBackSourceComposer
                             out inherited,
                             out bool genericInstantiation))
                     {
+                        evidence = MetadataFactState.Unknown;
                         continue;
                     }
                     inheritedExact &= !genericInstantiation;
                 }
-                if (inherited.Kind == HandleKind.TypeDefinition
-                    && ExternalInterfaceDefinitionDeclaresTarget(
+                MetadataFactState inheritedEvidence;
+                if (inherited.Kind == HandleKind.TypeDefinition)
+                {
+                    inheritedEvidence = ExternalInterfaceDefinitionDeclaresTarget(
                         reader,
                         assembly,
                         (TypeDefinitionHandle)inherited,
@@ -4786,11 +4932,9 @@ public static class CompileBackSourceComposer
                         targetGenericArity,
                         targetSignature,
                         inheritedExact,
-                        visited))
-                {
-                    return true;
+                        visited);
                 }
-                if (inherited.Kind == HandleKind.TypeReference
+                else if (inherited.Kind == HandleKind.TypeReference
                     && ExternalInterfaceReference(
                         reader,
                         (TypeReferenceHandle)inherited,
@@ -4799,20 +4943,26 @@ public static class CompileBackSourceComposer
                         assembly,
                         inheritedReference.AssemblyIdentity,
                         inheritedReference.MetadataFullName,
-                        resolver) is { } inheritedDefinition
-                    && ResolvedExternalInterfaceDeclaresTarget(
+                        resolver) is { } inheritedDefinition)
+                {
+                    inheritedEvidence = ResolvedExternalInterfaceDeclaresTarget(
                         inheritedDefinition,
                         resolver,
                         targetName,
                         targetGenericArity,
                         targetSignature,
                         inheritedExact,
-                        visited))
-                {
-                    return true;
+                        visited);
                 }
+                else
+                {
+                    inheritedEvidence = MetadataFactState.Unknown;
+                }
+                evidence = CombineInterfaceEvidence(evidence, inheritedEvidence);
+                if (evidence == MetadataFactState.Yes)
+                    return MetadataFactState.Yes;
             }
-            return false;
+            return evidence;
         }
     }
 
@@ -7442,9 +7592,24 @@ public static class CompileBackSourceComposer
             foreach (var surfaceMethod in surface.Members.Where(member =>
                 member.MetadataToken is not null
                 && !surfaceAccessorTokens.Contains(member.MetadataToken.Value)
-                && member.Kind != "extension-method"
-                && (!operatorOnly || member.CSharpOperatorDeclaration == true)))
+                && member.Kind != "extension-method"))
             {
+                if (operatorOnly && surfaceMethod.CSharpOperatorDeclaration != true)
+                {
+                    // An operator-only surface keeps proven operators and drops everything
+                    // else. An unclassifiable operator is neither, so record that it was
+                    // dropped without evidence instead of dropping it silently.
+                    if (surfaceMethod.HasCSharpOperatorDeclarationClassification
+                        && surfaceMethod.CSharpOperatorDeclaration is null)
+                    {
+                        diagnostics.Add(new CompileBackPlanningDiagnostic(
+                            "member surface",
+                            "operator-representability-unknown",
+                            $"{requirement.Type.MetadataFullName}::{surfaceMethod.Name}; "
+                                + "C# operator classification unavailable; omitted from operator surface"));
+                    }
+                    continue;
+                }
                 var methodHandle = SurfaceMethodHandle(surfaceMethod.MetadataToken);
                 if (methodHandle.IsNil)
                 {
@@ -7528,10 +7693,21 @@ public static class CompileBackSourceComposer
                     && surfaceMethod.CSharpOperatorDeclaration == true;
                 if (methodHasOperatorIdentity && !methodIsOperator)
                 {
+                    // A null classification is unavailable evidence, not a proven negative:
+                    // the surface classifies without a relationship resolver, so an operator
+                    // whose signature names a type outside this assembly is unclassifiable.
+                    // Both cases still emit the raw method, but reporting the unproven one as
+                    // "not representable" claims a fact nothing established.
+                    bool classificationUnavailable =
+                        surfaceMethod.CSharpOperatorDeclaration is null;
                     diagnostics.Add(new CompileBackPlanningDiagnostic(
                         "member surface",
-                        "operator-not-representable",
-                        $"{signatureIdentity}; emitted as raw method"));
+                        classificationUnavailable
+                            ? "operator-representability-unknown"
+                            : "operator-not-representable",
+                        classificationUnavailable
+                            ? $"{signatureIdentity}; C# operator classification unavailable; emitted as raw method"
+                            : $"{signatureIdentity}; emitted as raw method"));
                 }
                 var memberKind = isConstructor
                     ? CompileBackMemberKind.Constructor
