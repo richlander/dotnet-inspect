@@ -155,17 +155,44 @@ public sealed class InspectionQueryRegistry<TContext>
         InspectionQuery<TResult> query,
         Func<TContext, InspectionQueryResults, TResult> execute,
         params InspectionQueryDefinition[] requires)
+        => AddCore(query, execute, requires, []);
+
+    /// <summary>
+    /// Registers a typed query that may consume results independently demanded by the caller.
+    /// Optional dependencies run before the consumer when present, but do not enter its
+    /// prerequisite closure or cost.
+    /// </summary>
+    public InspectionQueryRegistry<TContext> AddWithOptional<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, InspectionQueryResults, TResult> execute,
+        IReadOnlyList<InspectionQueryDefinition> optional,
+        params InspectionQueryDefinition[] requires)
+        => AddCore(query, execute, requires, optional);
+
+    private InspectionQueryRegistry<TContext> AddCore<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, InspectionQueryResults, TResult> execute,
+        IReadOnlyList<InspectionQueryDefinition> requires,
+        IReadOnlyList<InspectionQueryDefinition> optional)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(execute);
         ArgumentNullException.ThrowIfNull(requires);
+        ArgumentNullException.ThrowIfNull(optional);
 
         if (_registrations.ContainsKey(query))
             throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
 
+        ImmutableArray<InspectionQueryDefinition> required = [.. requires];
+        ImmutableArray<InspectionQueryDefinition> optionalDependencies = [.. optional];
+        ValidateDependencies(query, required, optionalDependencies);
         _registrations.Add(
             query,
-            new Registration<TResult>(query, execute, [.. requires]));
+            new Registration<TResult>(
+                query,
+                execute,
+                required,
+                optionalDependencies));
         return this;
     }
 
@@ -188,18 +215,76 @@ public sealed class InspectionQueryRegistry<TContext>
             CancellationToken,
             ValueTask<TResult>> execute,
         params InspectionQueryDefinition[] requires)
+        => AddAsyncCore(query, execute, requires, []);
+
+    /// <summary>
+    /// Registers an asynchronous typed query that may consume results independently demanded by
+    /// the caller.
+    /// </summary>
+    public InspectionQueryRegistry<TContext> AddAsyncWithOptional<TResult>(
+        InspectionQuery<TResult> query,
+        Func<
+            TContext,
+            InspectionQueryResults,
+            CancellationToken,
+            ValueTask<TResult>> execute,
+        IReadOnlyList<InspectionQueryDefinition> optional,
+        params InspectionQueryDefinition[] requires)
+        => AddAsyncCore(query, execute, requires, optional);
+
+    private InspectionQueryRegistry<TContext> AddAsyncCore<TResult>(
+        InspectionQuery<TResult> query,
+        Func<
+            TContext,
+            InspectionQueryResults,
+            CancellationToken,
+            ValueTask<TResult>> execute,
+        IReadOnlyList<InspectionQueryDefinition> requires,
+        IReadOnlyList<InspectionQueryDefinition> optional)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(execute);
         ArgumentNullException.ThrowIfNull(requires);
+        ArgumentNullException.ThrowIfNull(optional);
 
         if (_registrations.ContainsKey(query))
             throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
 
+        ImmutableArray<InspectionQueryDefinition> required = [.. requires];
+        ImmutableArray<InspectionQueryDefinition> optionalDependencies = [.. optional];
+        ValidateDependencies(query, required, optionalDependencies);
         _registrations.Add(
             query,
-            new AsyncRegistration<TResult>(query, execute, [.. requires]));
+            new AsyncRegistration<TResult>(
+                query,
+                execute,
+                required,
+                optionalDependencies));
         return this;
+    }
+
+    private static void ValidateDependencies(
+        InspectionQueryDefinition query,
+        ImmutableArray<InspectionQueryDefinition> requires,
+        ImmutableArray<InspectionQueryDefinition> optional)
+    {
+        if (requires.Any(static dependency => dependency is null)
+            || optional.Any(static dependency => dependency is null))
+        {
+            throw new ArgumentException(
+                $"Query '{query.Name}' has a null dependency.");
+        }
+        if (requires.Length != requires.Distinct().Count()
+            || optional.Length != optional.Distinct().Count())
+        {
+            throw new InspectionQueryException(
+                $"Query '{query.Name}' declares the same dependency more than once.");
+        }
+        if (requires.Intersect(optional).Any())
+        {
+            throw new InspectionQueryException(
+                $"Query '{query.Name}' declares one dependency as both required and optional.");
+        }
     }
 
     /// <summary>
@@ -223,6 +308,19 @@ public sealed class InspectionQueryRegistry<TContext>
         ArgumentNullException.ThrowIfNull(query);
         return _registrations.TryGetValue(query, out Registration? registration)
             ? registration.Requires
+            : [];
+    }
+
+    /// <summary>
+    /// Queries whose results this query may consume when they were independently requested.
+    /// Optional dependencies do not enter prerequisite closure or cost.
+    /// </summary>
+    public ImmutableArray<InspectionQueryDefinition> OptionalDependenciesOf(
+        InspectionQueryDefinition query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return _registrations.TryGetValue(query, out Registration? registration)
+            ? registration.Optional
             : [];
     }
 
@@ -267,12 +365,22 @@ public sealed class InspectionQueryRegistry<TContext>
     {
         HashSet<InspectionQueryDefinition> required = ExpandRequired(requested);
         HashSet<InspectionQueryDefinition> ran = [];
+        HashSet<InspectionQueryDefinition> running = [];
         var results = new InspectionQueryResults();
 
         foreach (InspectionQueryDefinition query in _registrations.Keys)
         {
             if (required.Contains(query))
-                RunWithRequirements(query, context, results, ran, recordExecution);
+            {
+                RunWithRequirements(
+                    query,
+                    context,
+                    results,
+                    required,
+                    ran,
+                    running,
+                    recordExecution);
+            }
         }
 
         return results;
@@ -290,6 +398,7 @@ public sealed class InspectionQueryRegistry<TContext>
     {
         HashSet<InspectionQueryDefinition> required = ExpandRequired(requested);
         HashSet<InspectionQueryDefinition> ran = [];
+        HashSet<InspectionQueryDefinition> running = [];
         var results = new InspectionQueryResults();
 
         foreach (InspectionQueryDefinition query in _registrations.Keys)
@@ -301,7 +410,9 @@ public sealed class InspectionQueryRegistry<TContext>
                     query,
                     context,
                     results,
+                    required,
                     ran,
+                    running,
                     recordExecution,
                     cancellationToken).ConfigureAwait(false);
             }
@@ -322,7 +433,10 @@ public sealed class InspectionQueryRegistry<TContext>
 
         if (closure.Add(query))
         {
-            foreach (InspectionQueryDefinition required in _registrations[query].Requires)
+            Registration registration = _registrations[query];
+            foreach (InspectionQueryDefinition optional in registration.Optional)
+                EnsureRegistered(optional);
+            foreach (InspectionQueryDefinition required in registration.Requires)
                 AddWithRequirements(required, closure, visiting);
         }
 
@@ -333,22 +447,53 @@ public sealed class InspectionQueryRegistry<TContext>
         InspectionQueryDefinition query,
         TContext context,
         InspectionQueryResults results,
+        IReadOnlySet<InspectionQueryDefinition> active,
         HashSet<InspectionQueryDefinition> ran,
+        HashSet<InspectionQueryDefinition> running,
         Action<InspectionQueryDefinition, TimeSpan>? recordExecution)
     {
         if (ran.Contains(query))
             return;
+        if (!running.Add(query))
+        {
+            throw new InspectionQueryException(
+                $"Inspection query active dependency cycle detected at '{query.Name}'.");
+        }
 
         Registration registration = _registrations[query];
         foreach (InspectionQueryDefinition required in registration.Requires)
-            RunWithRequirements(required, context, results, ran, recordExecution);
+        {
+            RunWithRequirements(
+                required,
+                context,
+                results,
+                active,
+                ran,
+                running,
+                recordExecution);
+        }
+        foreach (InspectionQueryDefinition optional in registration.Optional)
+        {
+            if (active.Contains(optional))
+            {
+                RunWithRequirements(
+                    optional,
+                    context,
+                    results,
+                    active,
+                    ran,
+                    running,
+                    recordExecution);
+            }
+        }
 
+        running.Remove(query);
         ran.Add(query);
         long start = Stopwatch.GetTimestamp();
         try
         {
             HashSet<InspectionQueryDefinition> prerequisites =
-                ExpandRequired(registration.Requires);
+                AccessibleDependencies(registration, active);
             using IDisposable? scope = _enterExecutionScope?.Invoke(
                 context,
                 query,
@@ -368,12 +513,19 @@ public sealed class InspectionQueryRegistry<TContext>
         InspectionQueryDefinition query,
         TContext context,
         InspectionQueryResults results,
+        IReadOnlySet<InspectionQueryDefinition> active,
         HashSet<InspectionQueryDefinition> ran,
+        HashSet<InspectionQueryDefinition> running,
         Action<InspectionQueryDefinition, TimeSpan>? recordExecution,
         CancellationToken cancellationToken)
     {
         if (ran.Contains(query))
             return;
+        if (!running.Add(query))
+        {
+            throw new InspectionQueryException(
+                $"Inspection query active dependency cycle detected at '{query.Name}'.");
+        }
 
         Registration registration = _registrations[query];
         foreach (InspectionQueryDefinition required in registration.Requires)
@@ -382,18 +534,36 @@ public sealed class InspectionQueryRegistry<TContext>
                 required,
                 context,
                 results,
+                active,
                 ran,
+                running,
                 recordExecution,
                 cancellationToken).ConfigureAwait(false);
         }
+        foreach (InspectionQueryDefinition optional in registration.Optional)
+        {
+            if (active.Contains(optional))
+            {
+                await RunWithRequirementsAsync(
+                    optional,
+                    context,
+                    results,
+                    active,
+                    ran,
+                    running,
+                    recordExecution,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         cancellationToken.ThrowIfCancellationRequested();
+        running.Remove(query);
         ran.Add(query);
         long start = Stopwatch.GetTimestamp();
         try
         {
             HashSet<InspectionQueryDefinition> prerequisites =
-                ExpandRequired(registration.Requires);
+                AccessibleDependencies(registration, active);
             using IDisposable? scope = _enterExecutionScope?.Invoke(
                 context,
                 query,
@@ -410,6 +580,21 @@ public sealed class InspectionQueryRegistry<TContext>
         }
     }
 
+    private HashSet<InspectionQueryDefinition> AccessibleDependencies(
+        Registration registration,
+        IReadOnlySet<InspectionQueryDefinition> active)
+    {
+        HashSet<InspectionQueryDefinition> accessible =
+            ExpandRequired(registration.Requires);
+        foreach (InspectionQueryDefinition optional in registration.Optional)
+        {
+            accessible.Add(optional);
+            if (active.Contains(optional))
+                accessible.UnionWith(ExpandRequired([optional]));
+        }
+        return accessible;
+    }
+
     private void EnsureRegistered(InspectionQueryDefinition query)
     {
         if (!_registrations.ContainsKey(query))
@@ -418,10 +603,12 @@ public sealed class InspectionQueryRegistry<TContext>
 
     private abstract class Registration(
         InspectionQueryDefinition query,
-        ImmutableArray<InspectionQueryDefinition> requires)
+        ImmutableArray<InspectionQueryDefinition> requires,
+        ImmutableArray<InspectionQueryDefinition> optional)
     {
         public InspectionQueryDefinition Query { get; } = query;
         public ImmutableArray<InspectionQueryDefinition> Requires { get; } = requires;
+        public ImmutableArray<InspectionQueryDefinition> Optional { get; } = optional;
         public abstract void Execute(
             TContext context,
             InspectionQueryResults results,
@@ -436,8 +623,9 @@ public sealed class InspectionQueryRegistry<TContext>
     private sealed class Registration<TResult>(
         InspectionQuery<TResult> query,
         Func<TContext, InspectionQueryResults, TResult> execute,
-        ImmutableArray<InspectionQueryDefinition> requires)
-        : Registration(query, requires)
+        ImmutableArray<InspectionQueryDefinition> requires,
+        ImmutableArray<InspectionQueryDefinition> optional)
+        : Registration(query, requires, optional)
     {
         public override void Execute(
             TContext context,
@@ -464,8 +652,9 @@ public sealed class InspectionQueryRegistry<TContext>
             InspectionQueryResults,
             CancellationToken,
             ValueTask<TResult>> execute,
-        ImmutableArray<InspectionQueryDefinition> requires)
-        : Registration(query, requires)
+        ImmutableArray<InspectionQueryDefinition> requires,
+        ImmutableArray<InspectionQueryDefinition> optional)
+        : Registration(query, requires, optional)
     {
         public override void Execute(
             TContext context,

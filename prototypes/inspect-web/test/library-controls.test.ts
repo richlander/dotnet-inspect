@@ -73,12 +73,12 @@ test("library controls decode every rendered selector without eager work", () =>
   const libraryChip = new FakeElement({ libraryChip: "System.Text.Json" });
   const defaultLibraryChip = new FakeElement();
   const accessChip = new FakeElement({ accessChip: "public" });
-  const defaultAccessChip = new FakeElement();
+  const allAccessChip = new FakeElement();
   root.addAll(
     "[data-library-chip]",
     libraryChip,
     defaultLibraryChip);
-  root.addAll("[data-access-chip]", accessChip, defaultAccessChip);
+  root.addAll("[data-access-chip]", accessChip, allAccessChip);
 
   const libraryJump = root.add("#library-jump", new FakeElement());
   libraryJump.value = "System.Collections";
@@ -122,7 +122,7 @@ test("library controls decode every rendered selector without eager work", () =>
   libraryChip.dispatch("click");
   defaultLibraryChip.dispatch("click");
   accessChip.dispatch("click");
-  defaultAccessChip.dispatch("click");
+  allAccessChip.dispatch("click");
   libraryJump.dispatch("change");
   libraryJump.value = "";
   libraryJump.dispatch("change");

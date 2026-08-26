@@ -365,6 +365,37 @@ public sealed class BodyShapesSectionTests
             OptimizationOpportunitiesQuery.Definition.Name,
             result.Error,
             StringComparison.Ordinal);
+        Assert.Contains(
+            BodyShapesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_DoesNotRunOptionalPerformanceQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--trace",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            BodyShapesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

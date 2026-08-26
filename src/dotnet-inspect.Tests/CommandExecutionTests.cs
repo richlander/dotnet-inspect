@@ -20316,7 +20316,7 @@ public partial class CommandExecutionTests
     {
         // Every deterministic generated section must render the same content whether it is asked
         // for alone or alongside all the others. Asking for a section alone runs only its declared
-        // scanner or query closure, so undeclared dependencies render less in isolation.
+        // query closure, so undeclared dependencies render less in isolation.
         //
         // The section set is derived from the pipeline, not from the prerequisite declarations,
         // so deleting a declaration does not also delete the coverage that would catch it.
@@ -20326,9 +20326,9 @@ public partial class CommandExecutionTests
         // Body-index-backed producers are excluded for run time only, not correctness: each costs
         // seconds and this test does one run per section. A new body-index producer added here
         // would only make the test slower, never wrong.
-        string[] bodyIndexScanners = [];
         InspectionQueryDefinition[] bodyIndexQueries =
         [
+            BodyShapesQuery.Definition,
             OptimizationOpportunitiesQuery.Definition,
             ResourceTriageQuery.Definition,
             TopLeverageQuery.Definition,
@@ -20350,12 +20350,10 @@ public partial class CommandExecutionTests
             SectionNames.BodyShapes,
         ];
 
-        var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
-        var bound = pipeline.ScannerBoundSections
+        var bound = pipeline.QueryBoundSections
             .Select(b => b.Name)
-            .Concat(pipeline.QueryBoundSections.Select(b => b.Name))
             .ToHashSet(StringComparer.Ordinal);
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
@@ -20363,9 +20361,6 @@ public partial class CommandExecutionTests
         foreach (var name in parameterScoped)
             Assert.Contains(name, bound);
 
-        var scannerNames = pipeline.ScannerBoundSections
-            .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
-            .Select(b => b.Name);
         var queryNames = pipeline.QueryBoundSections
             // Availability and integrity intentionally observe live per-file network state, so
             // separate invocations cannot promise byte-for-byte identical results. Their query
@@ -20373,8 +20368,7 @@ public partial class CommandExecutionTests
             .Where(b => !bodyIndexQueries.Contains(b.Query)
                 && !liveNetworkQueries.Contains(b.Query))
             .Select(b => b.Name);
-        var names = scannerNames
-            .Concat(queryNames)
+        var names = queryNames
             .Where(n => !parameterScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
