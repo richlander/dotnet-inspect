@@ -990,7 +990,9 @@ Implementation must add, at minimum:
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
-  independent browser implementation consuming the same vectors remains open;
+  `BrowserWorkspaceShareOperationsTests.CanonicalPacket_RoundTripsByteForByte`
+  gates the Browser JS-export adapter against the same product-owned codec and
+  transposer rather than a second packet implementation;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
@@ -1134,11 +1136,19 @@ Definition records and product demos (this slice):
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
   `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
   Browser adapter and its unchanged Wasm limits; and
-- **not yet:** minted view-facet ids, packet view/query binding, or CLI and
-  browser use of the codec and transposer;
-  `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
-  package + `--caller-package` encoding, and
-  platform still uses the resident runtime-pack share encoding).
+- inspect-web decodes `w=` through `WorkspaceSharePacketCodec` and
+  `WorkspaceSharePacketTransposer`, carries the packet-local tab/context
+  topology through typed Browser records, and reverses the same path when
+  sharing. The active navigation tab and selected query context remain
+  independent; the selected context bounds cross-package Call Graph expansion.
+  Exact `:Platform` versions remain exact through initial and lazy acquisition,
+  while unsupported groups, RIDs, multi-library Browser views, package facets,
+  pending graph targets, and members without portable anchor/signature identity
+  fail visibly instead of being flattened; and
+- **not yet:** minted view-facet ids, complete packet view/query binding, CLI
+  use of the codec/transposer for executable `-W`, or
+  `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
+  uses package + `--caller-package` encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates
@@ -1324,8 +1334,8 @@ is not part of runtime-pack acquisition. It supplies:
   unusable folder rather than an exception escaping the loader after commit.
 
 The residual open items from the list above are: group catalog grammar and
-subscribe lowering, packet projection, filesystem `project` / `local` /
-`directory` coordinate hosts, and preset/query binding. Coordinate kinds
+subscribe lowering, filesystem `project` / `local` / `directory` coordinate
+hosts, and complete preset/query binding. Coordinate kinds
 `package`, `platform`, and `embedded` already lower; the record schema,
 serializer, registry, and product demos are gated by
 `InspectionDefinitionTests`. Every property that still depends on the residual

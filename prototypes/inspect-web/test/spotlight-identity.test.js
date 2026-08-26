@@ -39,7 +39,6 @@ import {
   graphOnlyBodyTarget,
   retainGraphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
-  MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   memberSectionDefinitions,
@@ -48,7 +47,6 @@ import {
   mergeInspectionErrors,
   renderInspectionErrors,
   mermaidLabel,
-  normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -72,7 +70,6 @@ import {
   runtimePackForFramework,
   runtimeGraphTargetAssemblyIsResident,
   runtimeGraphTargetNavigationDisposition,
-  shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
   sourceSurfaceIsVisible,
@@ -500,7 +497,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     /pack:\s*request\.platformPack/);
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.assembly,\s*request\.pack/);
+    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.platformVersion,\s*request\.assembly,\s*request\.pack/);
 });
 
 test("platform pack inference rejects cross-family ambiguity", () => {
@@ -599,16 +596,16 @@ test("runtime graph acquisition ignores a resident pack from another TFM", () =>
     /let pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*framework\)/);
 });
 
-test("shared platform state preserves an exact pack token", () => {
+test("platform library selection remains distinct from canonical Platform identity", () => {
   assert.equal(platformPackToken("aspnetcore.app"), "aspnetcore.app");
   assert.equal(platformPackToken("netcore.app"), "netcore.app");
   assert.equal(platformPackToken("unknown.app"), null);
   assert.match(
     workspaceNavigationSource,
-    /if \(state\.libraryPack\) packet\.p = state\.libraryPack/);
+    /tab\.kind === "group" && tab\.source === ":Platform"/);
   assert.match(
     workspaceNavigationSource,
-    /libraryPack:\s*platformPackToken\(raw\.p\)/);
+    /id: "Microsoft\.NETCore\.App"/);
   assert.match(
     appSource,
     /platformPackForAssembly\(key,\s*libraryPack\)/);
@@ -777,7 +774,8 @@ test("typed package inspection owns package-root request coordination", () => {
     assert.match(
       appSource,
       new RegExp(
-        `${engine}\\(\\s*framework,\\s*assemblyFileName,\\s*pack\\)`));
+        `${engine}\\(\\s*framework,\\s*platformVersion,\\s*`
+        + "assemblyFileName,\\s*pack\\)"));
   }
   assert.match(
     dependenciesLoader,
@@ -2152,43 +2150,67 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypes\(\)/);
 });
 
-test("shared member views retain scope and filter state", () => {
+test("shared member views use portable product identity and omit UI-local filters", () => {
   const capture = appSource.match(
     /function captureWorkspaceUrlState\(\)[\s\S]*?\n}\n\nfunction buildStateUrl/)?.[0] ?? "";
   const encoder = workspaceNavigationSource.match(
     /function encodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction decodeWorkspaceShareState/)?.[0] ?? "";
-  const decoder = workspaceNavigationSource.match(
-    /function decodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction resolveView/)?.[0] ?? "";
   const deepLink = appSource.match(
     /function applyDeepLink\([\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
-  assert.match(encoder, /packet\.b = 1/);
-  assert.match(encoder, /packet\.q = state\.memberTextFilter/);
-  assert.match(encoder, /packet\.k = state\.memberKindFilter/);
-  assert.match(encoder, /packet\.e = state\.memberAccessibilityFilter/);
-  assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
   assert.match(
     encoder,
-    /const encodedBodyTarget = encodeBodyTarget\(state\.selectedBodyTarget\);[\s\S]*if \(encodedBodyTarget\) packet\.d = encodedBodyTarget/);
-  assert.match(decoder, /memberBrowse: raw\.b === 1/);
-  assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
+    /tabs: state\.tabs,[\s\S]*contexts: state\.contexts,[\s\S]*view: state\.view/);
   assert.match(
     capture,
-    /selectedBodyTarget: pending \? null : state\.selectedBodyTarget,[\s\S]*graphTarget/);
-  assert.match(capture, /memberBrowse: memberScopeIsActive\(state, selectedType\(\)\?\.id\)/);
-  assert.match(capture, /memberTextFilter: state\.memberTextFilter/);
-  assert.match(capture, /memberKindFilter: state\.memberKindFilter/);
-  assert.match(capture, /memberAccessibilityFilter: state\.memberAccessibilityFilter/);
-  assert.match(capture, /memberTraitFilter: state\.memberTraitFilter/);
-  assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
+    /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
+  assert.match(capture, /libraries = state\.package\.isRuntimePack && state\.libraryScope/);
+  assert.doesNotMatch(capture, /memberTextFilter:/);
+  assert.doesNotMatch(capture, /memberKindFilter:/);
+  assert.doesNotMatch(capture, /memberAccessibilityFilter:/);
+  assert.doesNotMatch(capture, /memberTraitFilter:/);
   assert.match(
     deepLink,
-    /state\.memberSection = "overview";[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody\)\.includes\(deep\.section\)[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
+    /deep\.memberAnchor \|\| deep\.memberSignature[\s\S]*portableMatches\.length === 1[\s\S]*state\.selectedOverloadIndex = selection\.overloadIndex/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
   assert.match(
     appSource,
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
+});
+
+test("the frontend delegates compact packet syntax to the product codec", () => {
+  assert.doesNotMatch(workspaceNavigationSource, /\batob\b|\bbtoa\b/);
+  assert.doesNotMatch(
+    workspaceNavigationSource,
+    /\b(?:packet|raw)\.(?:f|t|g|a|x|v|y|m|s|c|l)\b/);
+  assert.doesNotMatch(
+    workspaceNavigationSource,
+    /WorkspaceSharePacket|encodeBase64Url|decodeBase64Url/);
+  assert.match(
+    workspaceNavigationSource,
+    /const result = decode\(value\)/);
+  assert.match(
+    workspaceNavigationSource,
+    /const result = encode\(JSON\.stringify\(\{/);
+});
+
+test("the selected canonical context bounds call graph workspace membership", () => {
+  const selection = appSource.match(
+    /function selectedCallGraphWorkspacePackages\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  const loader = appSource.match(
+    /async function loadSelectedMemberCallGraph\([\s\S]*?\n}/)?.[0] ?? "";
+
+  assert.match(
+    selection,
+    /context\.id === basis\.selectedContextId/);
+  assert.match(selection, /const selectedIds = new Set\(selected\.tabIds\)/);
+  assert.match(
+    selection,
+    /selectedIds\.has\(basis\.tabs\[index\]!\.id\)/);
+  assert.match(
+    loader,
+    /const workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {
@@ -2305,7 +2327,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\),[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -3378,9 +3400,6 @@ test("graph-only deep links win over colliding public member groups", () => {
   assert.match(
     deepLink,
     /The shared graph member no longer matches this package and was not opened/);
-  assert.match(
-    workspaceNavigationSource,
-    /const graphMember = graphMemberTargetFromPacket\(raw\);[\s\S]*if \(graphMember\.error\) return \{ error: graphMember\.error \}/);
 });
 
 test("pending graph-member restoration is bound to its exact view", () => {
@@ -3443,18 +3462,18 @@ test("stale graph-only navigation clears progress without surfacing its error", 
     /function popPlatformDrill\(\) \{\s*invalidateGraphMemberNavigation\(\);/);
 });
 
-test("shared package graph navigation retains existing accessor identity", () => {
+test("shared package graph navigation retains portable accessor identity", () => {
   const shareState =
     appSource.match(/function captureWorkspaceUrlState\(\)[\s\S]*?\n}(?=\n\nfunction buildStateUrl)/)?.[0]
     ?? "";
 
   assert.match(
     shareState,
-    /selection\?\.group\.key === state\.selectedMemberKey/);
+    /memberAnchor = overload\.anchorDigest \|\| null/);
   assert.match(
     shareState,
-    /selection\.overloadIndex === state\.selectedOverloadIndex/);
-  assert.doesNotMatch(shareState, /overloads\.some\(overload => overload\.graphOnly\)/);
+    /memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
+  assert.doesNotMatch(shareState, /selectedBodyTarget:/);
   assert.match(appSource, /solid border: no platform lookup/);
 });
 
@@ -3662,7 +3681,7 @@ test("runtime graph nodes separate member, drill, and lookup disposition", () =>
     /state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null/);
 });
 
-test("runtime graph identities share and restore through exact resident candidates", () => {
+test("runtime graph identities restore through exact resident candidates", () => {
   const type = {
     id: "System.Console",
     definitionId: "System.Console",
@@ -3716,7 +3735,7 @@ test("runtime graph identities share and restore through exact resident candidat
     /if \(!state\.package\?\.isRuntimePack\s*&& packet\.y/);
   assert.match(
     appSource,
-    /resolveRuntimeGraphTargetCandidate\(\s*state\.package,\s*state\.selectedBodyTarget\)/);
+    /resolveRuntimeGraphTargetCandidate\(\s*pkg,\s*deep\.graphTarget\)/);
 });
 
 test("home navigation invalidates pending graph work", () => {
@@ -4616,29 +4635,6 @@ test("package Markdown has no styling or resource-loading authority", () => {
   for (const attribute of ["style", "src", "srcset", "href", "poster", "class", "id"]) {
     assert.equal(MARKDOWN_SANITIZE_OPTIONS.ALLOWED_ATTR.includes(attribute), false);
   }
-});
-
-test("shared workspaces are bounded before package loading", () => {
-  const tuples = Array.from(
-    { length: MAX_WORKSPACE_PACKAGES },
-    (_, index) => [`Package.${index}`, "1.0.0", "net10.0"]);
-  assert.equal(normalizeShareTabs(tuples).error, "");
-  assert.match(
-    normalizeShareTabs([...tuples, ["Package.Overflow", "1.0.0", "net10.0"]]).error,
-    /12-package limit/);
-  for (const malformed of [
-    [null],
-    [[]],
-    [[""]],
-    [[{}, "1.0.0", "net10.0"]],
-    [["Package", "1.0.0", "net10.0", "unexpected"]]
-  ]) {
-    assert.match(normalizeShareTabs(malformed).error, /invalid/);
-  }
-  assert.equal(shareStateLengthError("x".repeat(MAX_SHARE_STATE_CHARACTERS)), "");
-  assert.match(
-    shareStateLengthError("x".repeat(MAX_SHARE_STATE_CHARACTERS + 1)),
-    /65536-character limit/);
 });
 
 test("workspace package models retain the active and newest coordinates within the limit", () => {

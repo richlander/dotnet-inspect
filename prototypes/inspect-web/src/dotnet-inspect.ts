@@ -271,6 +271,7 @@ import type {
   BrowserSource,
   BrowserTypeMetadata,
   BrowserTypeSurface,
+  BrowserWorkspaceShareState,
 } from "./inspect-web-engine.d.ts";
 
 type EngineModule = typeof import("./inspect-web-engine.d.ts");
@@ -311,6 +312,8 @@ let inspectTypeMemberSource: EngineModule["queryTypeMemberSource"];
 let inspectTypeProjection: EngineModule["queryTypeProjection"];
 let inspectTypeSource: EngineModule["queryTypeSource"];
 let inspectBuildIdentity: EngineModule["buildIdentity"];
+let inspectDecodeWorkspaceShareState: EngineModule["decodeWorkspaceShareState"];
+let inspectEncodeWorkspaceShareState: EngineModule["encodeWorkspaceShareState"];
 let inspectPackageCacheStats: EngineModule["packageCacheStats"];
 let matchPackageDependencyCoordinate: EngineModule["matchPackageDependencyCoordinate"];
 let resolveDependencyVersion: EngineModule["resolvePackageDependencyVersion"];
@@ -319,6 +322,8 @@ async function loadEngineModule() {
   ({
     buildIdentity: inspectBuildIdentity,
     cancelSourceQuery: cancelSourceInspection,
+    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
+    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
     expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
     initializeEngine,
@@ -545,6 +550,7 @@ const initialState = {
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
   requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
+  workspaceShareBasis: null,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -687,6 +693,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
@@ -797,6 +804,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     parseEngineJson<ExplorerTableData>(
       await inspectPlatformMetadataTable(
         explorer.framework,
+        explorer.version,
         explorer.assemblyFileName,
         explorer.pack || "",
         index,
@@ -814,6 +822,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     parseEngineJson<HeapListingData>(
       await inspectPlatformHeapEntries(
         explorer.framework,
+        explorer.version,
         explorer.assemblyFileName,
         explorer.pack || "",
         heapName)),
@@ -879,6 +888,7 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
   queryPlatform: request =>
     inspectExpandPlatformCallGraph(
       request.framework,
+      request.platformVersion,
       request.assembly,
       request.pack,
       request.assemblyVersion ?? "",
@@ -1137,6 +1147,8 @@ const workspaceLocation = createWorkspaceLocationPersistence({
   }),
   replace: url => history.replaceState(null, "", url),
   push: url => history.pushState(null, "", url),
+  decode: value => inspectDecodeWorkspaceShareState(value),
+  encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
 });
 
 function parseLocation() {
@@ -1169,6 +1181,8 @@ function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
   return {
     type: loc.type,
     member: loc.member,
+    memberAnchor: loc.memberAnchor,
+    memberSignature: loc.memberSignature,
     overload: loc.overload,
     section: loc.section,
     bodyTarget: loc.bodyTarget,
@@ -1619,6 +1633,7 @@ function clearWorkspacePackages() {
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
+  state.workspaceShareBasis = null;
   for (const packageModel of discarded)
     releasePackageModelCaches(packageModel);
 }
@@ -2791,18 +2806,30 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformIntegrations: (framework, assemblyFileName, pack) =>
+  queryPlatformIntegrations: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     inspectPlatformIntegrations(
       framework,
+      platformVersion,
       assemblyFileName,
       pack),
   queryPackageOpportunities: packageModel => inspectPackageOpportunities(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformOpportunities: (framework, assemblyFileName, pack) =>
+  queryPlatformOpportunities: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     inspectPlatformOpportunities(
       framework,
+      platformVersion,
       assemblyFileName,
       pack),
   queryPackagePerformance: async packageModel =>
@@ -2811,10 +2838,16 @@ const packageInspection = createPackageInspectionCoordinator({
         packageModel.id,
         packageModel.version,
         packageModel.activeFramework)),
-  queryPlatformPerformance: async (framework, assemblyFileName, pack) =>
+  queryPlatformPerformance: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     parseEngineJson<PackagePerformance>(
       await inspectPlatformPerformance(
         framework,
+        platformVersion,
         assemblyFileName,
         pack)),
   queryPackageMetadata: async packageModel =>
@@ -2823,10 +2856,16 @@ const packageInspection = createPackageInspectionCoordinator({
         packageModel.id,
         packageModel.version,
         packageModel.activeFramework)),
-  queryPlatformMetadata: async (framework, assemblyFileName, pack) =>
+  queryPlatformMetadata: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     parseEngineJson<PackageMetadata>(
       await inspectPlatformMetadata(
         framework,
+        platformVersion,
         assemblyFileName,
         pack)),
   platformPackForAssembly: assemblyName =>
@@ -4234,7 +4273,8 @@ async function openPlatformLensLibrary(
       platformScopeTfm(),
       `${key}.dll`,
       pack ?? "",
-      () => state.packages.includes(originPackage));
+      () => state.packages.includes(originPackage),
+      originPackage.version);
     const loaded = runtimeResult.packageModel;
     if (!loaded) {
       if (isCurrent()) {
@@ -5552,7 +5592,8 @@ async function openPlatformLibrary(
       tfm,
       fileName,
       pack,
-      () => navigationSequence.isCurrent(navigationSeq));
+      () => navigationSequence.isCurrent(navigationSeq),
+      runtimePackPackage()?.version ?? "");
     const loaded = runtimeResult.packageModel;
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (!loaded) {
@@ -5799,73 +5840,174 @@ function workbenchModalOwnsFocus() {
     || state.docViewerOpen;
 }
 
+function shareTabMatchesPackage(
+  tab: BrowserWorkspaceShareState["tabs"][number],
+  pkg: AppPackage,
+) {
+  if (pkg.isRuntimePack) {
+    return tab.kind === "group"
+      && tab.source === ":Platform"
+      && (!tab.version || tab.version === pkg.version)
+      && (!tab.framework || tab.framework === pkg.activeFramework)
+      && !tab.runtimeIdentifier;
+  }
+  return tab.kind === "package"
+    && tab.source.toLowerCase() === pkg.id.toLowerCase()
+    && (!tab.version || tab.version === pkg.version)
+    && (!tab.framework || tab.framework === pkg.activeFramework)
+    && !tab.runtimeIdentifier;
+}
+
+function capturedShareTabs() {
+  const basis = state.workspaceShareBasis;
+  if (basis
+    && basis.tabs.length === state.packages.length
+    && basis.tabs.every((tab, index) => {
+      const pkg = state.packages[index];
+      return pkg ? shareTabMatchesPackage(tab, pkg) : false;
+    })) {
+    return basis.tabs.map(tab => ({ ...tab }));
+  }
+
+  return state.packages.map((pkg, index) => ({
+    id: `t${index}`,
+    kind: pkg.isRuntimePack ? "group" : "package",
+    source: pkg.isRuntimePack ? ":Platform" : pkg.id,
+    version: pkg.version || null,
+    framework: pkg.activeFramework || null,
+    runtimeIdentifier: null,
+  }));
+}
+
+function selectedCallGraphWorkspacePackages(): AppPackage[] {
+  const basis = state.workspaceShareBasis;
+  const preservesBasis = basis
+    && basis.tabs.length === state.packages.length
+    && basis.tabs.every((tab, index) => {
+      const pkg = state.packages[index];
+      return pkg ? shareTabMatchesPackage(tab, pkg) : false;
+    });
+  if (!preservesBasis) {
+    return state.packages.filter(packageItem => !packageItem.isRuntimePack);
+  }
+
+  const selected = basis.contexts.find(
+    context => context.id === basis.selectedContextId);
+  if (!selected) {
+    throw new Error(
+      "The selected workspace context is no longer available.");
+  }
+  const selectedIds = new Set(selected.tabIds);
+  return state.packages.filter((packageItem, index) =>
+    !packageItem.isRuntimePack
+    && selectedIds.has(basis.tabs[index]!.id));
+}
+
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
-  const packageKey = packageIdentityKey(state.package);
-  const currentViewSignature = viewSignature();
-  const pending = graphMemberPendingMatchesView(
-    state.pendingGraphMemberDeepLink,
-    packageKey,
-    currentViewSignature)
-    ? state.pendingGraphMemberDeepLink
-    : null;
-  const pendingOverload = Number(pending?.overload);
-  const selectedOverloadIndex = pending
-    && Number.isInteger(pendingOverload)
-    && pendingOverload >= 0
-    ? pendingOverload
-    : state.selectedOverloadIndex;
-  let graphTarget = pending?.target ?? null;
-  if (!pending && state.selectedBodyTarget) {
-    const type = selectedType();
-    const candidate = state.package.isRuntimePack
-      ? resolveRuntimeGraphTargetCandidate(
-          state.package,
-          state.selectedBodyTarget)
-      : resolveLoadedGraphTargetCandidate(
-          [state.package],
-          state.selectedBodyTarget);
-    const selection = type
-      ? findGraphMemberSelection(type, state.selectedBodyTarget)
-      : null;
-    if (candidate.status === "unique"
-      && candidate.type === type
-      && selection?.group.key === state.selectedMemberKey
-      && selection.overloadIndex === state.selectedOverloadIndex) {
-      graphTarget = graphMemberTargetFromShare(
-        graphMemberShareTarget(state.selectedBodyTarget));
+  if (state.atPackageRoot) {
+    throw new Error(
+      "Package views do not yet have product-owned share facet identities.");
+  }
+  if (state.pendingGraphMemberDeepLink) {
+    throw new Error(
+      "The pending graph member must resolve before this workspace can be shared.");
+  }
+
+  const tabs = capturedShareTabs();
+  const activeIndex = state.packages.indexOf(state.package);
+  const activeTab = tabs[activeIndex];
+  if (!activeTab) return null;
+
+  let contexts;
+  let selectedContextId;
+  const basis = state.workspaceShareBasis;
+  const preservesBasis = basis
+    && basis.tabs.length === tabs.length
+    && basis.tabs.every((tab, index) => tab.id === tabs[index]?.id);
+  if (preservesBasis) {
+    contexts = basis.contexts.map(context => ({
+      id: context.id,
+      tabIds: context.tabIds.slice(),
+    }));
+    selectedContextId = basis.selectedContextId;
+  } else {
+    contexts = tabs.map((tab, index) => ({
+      id: `g${index}`,
+      tabIds: [tab.id],
+    }));
+    selectedContextId = contexts[activeIndex]?.id ?? contexts[0]?.id ?? "";
+  }
+
+  const packageTabIds = tabs
+    .filter(tab => tab.kind === "package")
+    .map(tab => tab.id);
+  if (state.memberSection === "call-graph"
+    && packageTabIds.length > 1
+    && !state.package.isRuntimePack) {
+    const rootFirst = [
+      activeTab.id,
+      ...packageTabIds.filter(id => id !== activeTab.id),
+    ];
+    const existing = contexts.find(context =>
+      context.tabIds.length === rootFirst.length
+      && context.tabIds.every((id, index) => id === rootFirst[index]));
+    if (existing) {
+      selectedContextId = existing.id;
+    } else {
+      const context = {
+        id: `g${contexts.length}`,
+        tabIds: rootFirst,
+      };
+      contexts.push(context);
+      selectedContextId = context.id;
     }
   }
-  const library = isRuntimePackId(state.package.id)
-    && state.libraryScope?.size === 1
-    ? [...state.libraryScope][0] ?? null
-    : null;
+
+  const type = selectedType();
+  const member = selectedMember(type);
+  let memberAnchor: string | null = null;
+  let memberSignature: string | null = null;
+  if (member) {
+    const overloadIndex = state.selectedOverloadIndex
+      ?? (member.overloads.length === 1 ? 0 : null);
+    if (overloadIndex === null) {
+      throw new Error(
+        "Select a concrete overload before sharing this member view.");
+    }
+    const overload = member.overloads[overloadIndex];
+    if (!overload) {
+      throw new Error(
+        "The selected overload is no longer available and cannot be shared.");
+    }
+    memberAnchor = overload.anchorDigest || null;
+    memberSignature = memberAnchor ? null : overload.canonicalSignature || null;
+    if (!memberAnchor && !memberSignature) {
+      throw new Error(
+        "The selected overload has no portable product identity and cannot be shared.");
+    }
+  }
+
+  const libraries = state.package.isRuntimePack && state.libraryScope
+    ? [...state.libraryScope].sort((left, right) =>
+        left < right ? -1 : left > right ? 1 : 0)
+    : [];
   return {
-    package: state.package.id,
-    tabs: state.packages.map(item => ({
-      id: item.id,
-      version: item.version,
-      framework: item.activeFramework || "",
-    })),
-    active: Math.max(0, state.packages.indexOf(state.package)),
-    lens: state.lens,
-    atPackageRoot: state.atPackageRoot,
-    packageLens: state.packageLens,
-    library,
-    libraryPack: library ? platformPackForAssembly(library) : null,
-    selectedTypeId: pending?.type ?? state.selectedTypeId,
-    selectedMemberKey: pending?.member ?? state.selectedMemberKey,
-    selectedOverloadIndex,
-    memberSection: pending && isMemberSection(pending.section)
-      ? pending.section
-      : state.memberSection,
-    selectedBodyTarget: pending ? null : state.selectedBodyTarget,
-    graphTarget,
-    memberBrowse: memberScopeIsActive(state, selectedType()?.id),
-    memberTextFilter: state.memberTextFilter,
-    memberKindFilter: state.memberKindFilter,
-    memberAccessibilityFilter: state.memberAccessibilityFilter,
-    memberTraitFilter: state.memberTraitFilter,
+    package: activeTab.source,
+    tabs,
+    contexts,
+    activeTabId: activeTab.id,
+    selectedContextId,
+    view: {
+      lens: state.lens,
+      type: state.selectedTypeId || null,
+      memberAnchor,
+      memberSignature,
+      section: member && state.memberSection !== "overview"
+        ? state.memberSection
+        : null,
+      libraries,
+    },
   };
 }
 
@@ -5880,10 +6022,14 @@ function buildStateUrl(base = location.href) {
 // the URL is always shareable. replaceState (not pushState) keeps the app's own
 // back/forward buttons authoritative and avoids flooding browser history on every render.
 function syncUrl() {
-  const snapshot = captureWorkspaceUrlState();
-  if (!snapshot || state.loading) return;
-  document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-  workspaceLocation.sync(snapshot);
+  try {
+    const snapshot = captureWorkspaceUrlState();
+    if (!snapshot || state.loading) return;
+    document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+    workspaceLocation.sync(snapshot);
+  } catch {
+    // Keep the last canonical URL while the active Browser state is not projectable.
+  }
 }
 
 // Apply a parsed URL selection onto the currently loaded package, validating that the
@@ -5985,6 +6131,43 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       : "";
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
+    const portableMatches = deep.memberAnchor || deep.memberSignature
+      ? groups.flatMap(group =>
+          group.overloads.map((overload, overloadIndex) => ({
+            group,
+            overload,
+            overloadIndex,
+          }))).filter(candidate =>
+            deep.memberAnchor
+              ? candidate.overload.anchorDigest === deep.memberAnchor
+              : candidate.overload.canonicalSignature === deep.memberSignature)
+      : [];
+    let restoredPortableMember = false;
+    if (deep.memberAnchor || deep.memberSignature) {
+      if (portableMatches.length === 1) {
+        const selection = portableMatches[0]!;
+        state.memberBrowseTypeId = type.id;
+        state.selectedMemberKey = selection.group.key;
+        state.selectedOverloadIndex = selection.overloadIndex;
+        const hasSelectedBody = selection.overload.bodySelectors.length > 0
+          || selection.overload.metadataToken != null;
+        if (deep.section
+          && isMemberSection(deep.section)
+          && memberSectionIdsFor(
+            selection.group,
+            state.package?.isRuntimePack,
+            hasSelectedBody).includes(deep.section)) {
+          state.memberSection = deep.section;
+        }
+        restoredPortableMember = true;
+      } else {
+        appendQueryNotice(
+          portableMatches.length === 0
+            ? "The shared member is no longer available and was not opened."
+            : "The shared member identity is ambiguous and was not opened.");
+      }
+    }
+    if (!restoredPortableMember) {
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     const graphCandidate = deep.member && deep.graphTarget
       ? pkg.isRuntimePack
@@ -6074,6 +6257,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       if (hasSelectedBody) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
+    }
     }
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
@@ -6294,7 +6478,9 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
-  const link = productHomeDemoLocationHref(resolved);
+  const link = productHomeDemoLocationHref(
+    resolved,
+    inspectEncodeWorkspaceShareState);
   if (!link) {
     observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
@@ -6940,8 +7126,7 @@ async function loadSelectedMemberCallGraph() {
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
-  const workspacePackages =
-    state.packages.filter(packageItem => !packageItem.isRuntimePack);
+  const workspacePackages = selectedCallGraphWorkspacePackages();
   const hasOtherLibraries =
     workspacePackages.some(packageItem => packageItem !== state.package);
   return callGraphInspection.load({
@@ -7512,6 +7697,7 @@ async function drillPlatformNode(
   }
   return callGraphInspection.drill({
     framework: currentPackage().activeFramework,
+    platformVersion: currentPackage().version,
     assembly: node.assembly,
     pack: platformPackForGraphAssembly(
       node.assembly,
@@ -7604,7 +7790,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
         ? node.assembly
         : `${node.assembly}.dll`,
       targetPack ?? "",
-      navigationIsCurrent);
+      navigationIsCurrent,
+      "");
     pack = runtimeResult.packageModel;
     if (discardIfStale(preservedFocus)) return;
     state.platformDrillLoading = false;
@@ -7644,7 +7831,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
         ? node.assembly
         : `${node.assembly}.dll`,
       targetPack ?? "",
-      navigationIsCurrent);
+      navigationIsCurrent,
+      pack.version);
     pack = runtimeResult.packageModel;
     if (!navigationIsCurrent()) {
       if (seq === state.memberCallGraphSeq) {
@@ -8247,9 +8435,18 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
-  loadRuntimePack: framework => inspectLoadRuntimePack(framework),
-  loadRuntimePackAssembly: (framework, assemblyFileName, pack) =>
-    inspectLoadRuntimePackAssembly(framework, assemblyFileName, pack),
+  loadRuntimePack: (framework, platformVersion) =>
+    inspectLoadRuntimePack(framework, platformVersion),
+  loadRuntimePackAssembly: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) => inspectLoadRuntimePackAssembly(
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack),
   parseRuntimeSurface: json => parseEngineJson<BrowserPackageSurface>(json),
   runtimePackage: runtimePackPackage,
   retainPackage: retainPackageModel,
@@ -8275,10 +8472,12 @@ interface RuntimeLoadResult {
 async function loadRuntimePack(
   framework: string,
   isCurrent: () => boolean = () => true,
+  platformVersion = "",
 ): Promise<RuntimeLoadResult> {
   const result = await packageAcquisition.loadRuntimePack(
     framework,
-    isCurrent);
+    isCurrent,
+    platformVersion);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -8290,12 +8489,14 @@ async function loadRuntimePackAssembly(
   assemblyFileName: string,
   pack: string,
   isCurrent: () => boolean = () => true,
+  platformVersion = "",
 ): Promise<RuntimeLoadResult> {
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
     pack,
-    isCurrent);
+    isCurrent,
+    platformVersion);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -8483,7 +8684,8 @@ async function restoreWorkspaceFromLocation(
     if (isRuntimePackId(tab.id)) {
       const runtimeResult = await loadRuntimePack(
         tab.framework,
-        () => navigationSequence.isCurrent(navigationSeq));
+        () => navigationSequence.isCurrent(navigationSeq),
+        tab.version);
       loaded = runtimeResult.packageModel;
       runtimeFailureMessage = runtimeResult.failureMessage;
       if (!loaded && navigationSequence.isCurrent(navigationSeq)) {
@@ -8524,6 +8726,7 @@ async function restoreWorkspaceFromLocation(
       applyLocationView(loc);
     }
     applyDeepLink(deep);
+    state.workspaceShareBasis = loc.shareState;
     state.loading = false;
     render();
     await loadSelectionData();
@@ -9276,7 +9479,8 @@ async function restoreRuntimePackFromHistory(
 ) {
   const runtimeResult = await loadRuntimePack(
     loc.framework || "",
-    () => navigationSequence.isCurrent(navigationSeq));
+    () => navigationSequence.isCurrent(navigationSeq),
+    loc.version || "");
   const pack = runtimeResult.packageModel;
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (pack) {

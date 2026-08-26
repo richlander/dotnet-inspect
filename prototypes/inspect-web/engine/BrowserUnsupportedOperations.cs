@@ -47,6 +47,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform performance", NoPlatformProjection);
@@ -67,6 +68,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformMetadata(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform metadata", NoPlatformProjection);
@@ -87,6 +89,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformMetadataTable(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         int tableIndex,
@@ -108,6 +111,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformHeapEntries(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         string heap) =>

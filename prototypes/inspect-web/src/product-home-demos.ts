@@ -2,9 +2,11 @@ import type {
   BrowserHomeDemoCatalogEntry,
   BrowserHomeDemoMember,
   BrowserHomeDemoResolved,
+  BrowserWorkspaceShareTab,
 } from "./inspect-web-engine.d.ts";
 import {
   encodeWorkspaceShareState,
+  type WorkspaceShareEncoder,
   type WorkspaceUrlState,
 } from "./workspace-navigation.ts";
 
@@ -13,9 +15,8 @@ import {
  * (`ListHomeDemos` / `ResolveHomeDemo` → `ProductInspectionDemos`).
  *
  * Catalog ids/titles/summaries and resolved coordinates come from C#. This
- * module owns only host encoding: workspace share packets, the residual
- * platform → Microsoft.NETCore.App runtime-pack mapping, and location state
- * for demos that restore through a share packet.
+ * module owns only the Browser projection into the long-form share transport.
+ * The engine owns packet validation, transposition, and canonical encoding.
  */
 
 export type ProductHomeDemoId = string;
@@ -24,9 +25,9 @@ export type ProductHomeDemoCatalogEntry = BrowserHomeDemoCatalogEntry;
 
 export type ProductHomeDemoResolved = BrowserHomeDemoResolved;
 
-/** Residual browser share encoding for product unversioned `runtime` platform. */
+/** Residual Browser target for the product's unversioned `runtime` platform. */
 export const PLATFORM_RUNTIME_PACK = {
-  id: "Microsoft.NETCore.App",
+  source: ":Platform",
   version: "10.0.10",
   framework: "net10.0",
 } as const;
@@ -54,52 +55,32 @@ export function isProductHomeDemoId(
   return typeof value === "string" && catalogIdSet.has(value);
 }
 
-function workspaceUrlState(partial: Partial<WorkspaceUrlState> & Pick<
-  WorkspaceUrlState,
-  "package" | "tabs" | "active"
->): WorkspaceUrlState {
-  return {
-    lens: "api",
-    atPackageRoot: false,
-    packageLens: "overview",
-    library: null,
-    libraryPack: null,
-    selectedTypeId: "",
-    selectedMemberKey: "",
-    selectedOverloadIndex: null,
-    memberSection: "overview",
-    selectedBodyTarget: null,
-    graphTarget: null,
-    memberBrowse: false,
-    memberTextFilter: "",
-    memberKindFilter: "all",
-    memberAccessibilityFilter: "all",
-    memberTraitFilter: "",
-    ...partial,
-  };
-}
-
-function locationHref(state: WorkspaceUrlState): string {
+function locationHref(
+  state: WorkspaceUrlState,
+  encode: WorkspaceShareEncoder,
+): string {
   const params = new URLSearchParams();
   params.set("package", state.package);
-  params.set("w", encodeWorkspaceShareState(state));
+  params.set("w", encodeWorkspaceShareState(state, encode));
   return `?${params.toString()}`;
 }
 
-function packageTab(member: BrowserHomeDemoMember): {
-  id: string;
-  version: string;
-  framework: string;
-} {
+function packageTab(
+  member: BrowserHomeDemoMember,
+  index: number,
+): BrowserWorkspaceShareTab {
   if (member.kind === "package") {
     if (!member.version || !member.framework) {
       throw new Error(
         `Product home demo package '${member.id}' is missing version/framework pins.`);
     }
     return {
-      id: member.id,
+      id: `t${index}`,
+      kind: "package",
+      source: member.id,
       version: member.version,
       framework: member.framework,
+      runtimeIdentifier: null,
     };
   }
 
@@ -111,7 +92,14 @@ function packageTab(member: BrowserHomeDemoMember): {
         "Product home demo platform 'runtime' is pinned; browser residual maps only the unversioned shape.");
     }
     // Residual until WorkspaceContextLoader platform groups are the browser substrate.
-    return { ...PLATFORM_RUNTIME_PACK };
+    return {
+      id: `t${index}`,
+      kind: "group",
+      source: PLATFORM_RUNTIME_PACK.source,
+      version: PLATFORM_RUNTIME_PACK.version,
+      framework: PLATFORM_RUNTIME_PACK.framework,
+      runtimeIdentifier: null,
+    };
   }
 
   throw new Error(
@@ -125,13 +113,14 @@ function packageTab(member: BrowserHomeDemoMember): {
  */
 export function productHomeDemoLocationHref(
   demo: ProductHomeDemoResolved,
+  encode: WorkspaceShareEncoder,
 ): string | null {
   const section = demo.view.section;
   if (section === "Call Graph" && demo.view.memberAnchor) {
     return null;
   }
 
-  const tabs = demo.tabs.map(tab => packageTab(tab.member));
+  const tabs = demo.tabs.map((tab, index) => packageTab(tab.member, index));
   if (tabs.length === 0) {
     throw new Error(`Product home demo '${demo.id}' has no navigation tabs.`);
   }
@@ -143,14 +132,24 @@ export function productHomeDemoLocationHref(
   if (!focusTab) {
     throw new Error(`Product home demo '${demo.id}' has no active navigation tab.`);
   }
-  const focusPackage = focusTab.id;
-  return locationHref(workspaceUrlState({
-    package: focusPackage,
+  return locationHref({
+    package: focusTab.source,
     tabs,
-    active,
-    library: demo.view.library,
-    selectedTypeId: demo.view.type ?? "",
-  }));
+    contexts: [{
+      id: "g0",
+      tabIds: tabs.map(tab => tab.id),
+    }],
+    activeTabId: focusTab.id,
+    selectedContextId: "g0",
+    view: {
+      lens: "api",
+      type: demo.view.type,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: demo.view.library ? [demo.view.library] : [],
+    },
+  }, encode);
 }
 
 /**

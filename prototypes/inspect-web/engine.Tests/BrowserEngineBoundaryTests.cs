@@ -592,6 +592,52 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string latestVersion = "11.0.76";
+        const string exactVersion = "11.0.77";
+        const string framework = "net11.0-exact-platform-version";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var latestHandler = new PlatformVersionHandler(
+            packageId,
+            latestVersion,
+            nupkg);
+        var exactHandler = new PlatformVersionHandler(
+            packageId,
+            exactVersion,
+            nupkg);
+        using var latestClient = new HttpClient(latestHandler);
+        using var exactClient = new HttpClient(exactHandler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution latest =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                latestClient,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        using BrowserPlatformScopeResolution exact =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                exactVersion,
+                exactClient,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(latestVersion, latest.Coordinate.Version);
+        Assert.Equal(exactVersion, exact.Coordinate.Version);
+        Assert.NotSame(latest.Scope, exact.Scope);
+        Assert.Equal(1, exactHandler.Requests);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_LeasesArchivesUntilCandidateRegistration()
     {
         const string runtimePackage =
@@ -924,8 +970,8 @@ public sealed class BrowserEngineBoundaryTests
                     "Targets",
                     BindingFlags.Static | BindingFlags.NonPublic)!
                 .GetValue(null));
-        Assert.False(targets.Contains(frameworks[0]));
-        Assert.True(targets.Contains(frameworks[^1]));
+        Assert.False(targets.Contains($"{frameworks[0]}@latest"));
+        Assert.True(targets.Contains($"{frameworks[^1]}@latest"));
     }
 
     [Fact]
@@ -1019,8 +1065,8 @@ public sealed class BrowserEngineBoundaryTests
                             "Targets",
                             BindingFlags.Static | BindingFlags.NonPublic)!
                         .GetValue(null));
-            Assert.True(targets.Contains(frameworks[0]));
-            Assert.False(targets.Contains(frameworks[1]));
+            Assert.True(targets.Contains($"{frameworks[0]}@latest"));
+            Assert.False(targets.Contains($"{frameworks[1]}@latest"));
         }
         finally
         {

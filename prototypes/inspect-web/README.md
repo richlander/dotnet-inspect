@@ -146,9 +146,13 @@ evicted cumulative workspace can be re-acquired without version drift or lost
 participants. Every archive is temporarily leased as soon as acquisition
 returns it and until the cumulative candidate is registered or abandoned, so a
 later family download cannot evict bytes that the unregistered candidate still
-holds. Shared links carry the selected library's exact pack token, and initial
-member graphs use the same escaped definition identity as subsequent graph
-descent. Platform graph loads and descents also carry the target's complete
+holds. Shared links carry the canonical `:Platform` group version and selected library
+identity. An exact version bypasses discovery, keys retained Platform state
+separately from floating acquisition, and follows every later assembly and
+query operation; a different resident patch cannot satisfy it.
+`PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` gates
+that behavior. Initial member graphs use the same escaped definition identity
+as subsequent graph descent. Platform graph loads and descents also carry the target's complete
 assembly identity and reject an acquired root that is not binding-equivalent,
 rather than applying a valid selector to a different assembly version or
 public-key token. A selected Platform coordinate that matches multiple full
@@ -219,6 +223,7 @@ assemblies that receive a .NET platform lookup on click.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
+| `engine/BrowserWorkspaceShareOperations.cs` | typed Browser adaptation over the product-owned workspace packet codec and transposer |
 | `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, and the bounded workspace registry |
 | `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
@@ -752,14 +757,29 @@ state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
-navigation generation, share-packet encoding and decoding, URL routing and
-building, the browser-history port, and the single delegated click listener
+navigation generation, URL routing and building, typed adaptation to the
+generated workspace-state bridge, the browser-history port, and the single delegated click listener
 that intercepts same-origin in-app anchor clicks
 (`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
 `target`-scoped link, `download` link, or cross-origin href keeps native
 browser behavior. Initial routing records the opaque `w=` value without decoding
 it, which preserves the bare-home paint before WebAssembly while allowing shared
 workspace resolution to run only after the engine is ready.
+`BrowserWorkspaceShareOperations` then routes decode through
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer`; encoding
+reverses the same path. TypeScript neither understands compact packet fields nor
+owns base64url. Packet-local tabs, independent navigation focus and selected
+binding context, portable member anchors/signatures, section, and sorted library
+scope cross the generated bridge as long-form records. The selected context,
+not every open tab, bounds package Call Graph expansion.
+
+Browser activation supports package tabs and exact `:Platform` group tabs
+without RIDs. Unsupported groups, runtime identifiers, multiple selected
+libraries, unknown sections, package-root facets, unresolved graph targets,
+ambiguous overloads, and members without a portable product identity fail
+visibly rather than producing lossy state. Filters and browse presentation stay
+session-local. URL synchronization retains the last valid canonical URL while a
+transient view is not projectable; explicit Share reports the refusal.
 `test/workspace-navigation.test.ts` gates that the route preflight cannot decode
 the packet and that later resolution invokes exactly one decoder.
 `dotnet-inspect.ts` remains the sole mutable
@@ -796,9 +816,9 @@ handled fallthrough, exact modifiers, conflict reporting, disposal, and the
 original stack-navigation collision. `test/spotlight-identity.test.js` gates
 the single-listener wiring and the complete workbench priority order.
 `test/workspace-navigation.test.ts` gates
-history traversal, stale-entry removal, navigation cancellation, rich and
-legacy URL compatibility, visible invalid-state failures, sandboxed history
-errors, and the link-interception rule.
+history traversal, stale-entry removal, navigation cancellation, generated
+codec delegation, canonical topology and identity adaptation, visible typed
+failures, sandboxed history errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
@@ -809,6 +829,8 @@ activation, workspace restoration, notices, retries, and rendering.
 ordering, runtime request serialization and merging, cancellation after queued
 or in-flight work, request-local failure reporting, replacement-slot
 preservation, retry after failure, and resident-pack reuse;
+exact Platform pins additionally gate version-aware resident reuse and engine
+invocation;
 `test/spotlight-identity.test.js` gates provenance, failure adaptation, and
 composition-root wiring.
 

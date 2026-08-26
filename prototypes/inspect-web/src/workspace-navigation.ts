@@ -1,27 +1,28 @@
 import {
   graphMemberShareTarget,
-  graphMemberTargetFromPacket,
   isMemberSection,
   isPackageLens,
   isTypeLens,
-  normalizeShareTabs,
-  platformPackToken,
   replaceCurrentNavigationEntry,
-  shareStateLengthError,
   type MemberSection,
   type PackageLens,
   type PlatformPack,
   type GraphMemberShareIdentity,
-  type GraphMemberShareTarget,
   type TypeLens,
   type WorkspaceTab,
 } from "./data.ts";
 import {
-  decodeBodyTarget,
   encodeBodyTarget,
   type BodyTarget,
-  type EncodedBodyTarget,
 } from "./member-filtering.ts";
+import type {
+  BrowserWorkspaceShareContext,
+  BrowserWorkspaceShareDecodeResult,
+  BrowserWorkspaceShareEncodeResult,
+  BrowserWorkspaceShareState,
+  BrowserWorkspaceShareTab,
+  BrowserWorkspaceShareView,
+} from "./inspect-web-engine.d.ts";
 
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.
@@ -256,6 +257,8 @@ export function createNavigationHistory<TView>(
 export interface WorkspaceDeepLink {
   type?: string | null;
   member?: string | null;
+  memberAnchor?: string | null;
+  memberSignature?: string | null;
   overload?: string | null;
   section?: MemberSection | null;
   bodyTarget?: BodyTarget | null;
@@ -269,227 +272,136 @@ export interface WorkspaceDeepLink {
 
 export interface WorkspaceUrlState {
   package: string;
-  tabs: WorkspaceTab[];
-  active: number;
-  lens: TypeLens;
-  atPackageRoot: boolean;
-  packageLens: PackageLens;
-  library: string | null;
-  libraryPack: PlatformPack | null;
-  selectedTypeId: string;
-  selectedMemberKey: string;
-  selectedOverloadIndex: number | null;
-  memberSection: MemberSection;
-  selectedBodyTarget: BodyTarget | null;
-  graphTarget: GraphMemberShareIdentity | null;
-  memberBrowse: boolean;
-  memberTextFilter: string;
-  memberKindFilter: string;
-  memberAccessibilityFilter: string;
-  memberTraitFilter: string;
-}
-
-interface SharePacket {
-  t: string[][];
-  a: number;
-  l?: string;
-  p?: PlatformPack;
-  v?: string;
-  y?: string;
-  m?: string;
-  o?: number;
-  c?: string;
-  d?: EncodedBodyTarget;
-  b?: 1;
-  q?: string;
-  k?: string;
-  e?: string;
-  r?: string;
-  g?: GraphMemberShareTarget;
+  tabs: BrowserWorkspaceShareTab[];
+  contexts: BrowserWorkspaceShareContext[];
+  activeTabId: string;
+  selectedContextId: string;
+  view: BrowserWorkspaceShareView;
 }
 
 export interface DecodedShareState {
+  state: BrowserWorkspaceShareState;
   tabs: WorkspaceTab[];
   active: number;
+  contexts: BrowserWorkspaceShareContext[];
+  selectedContextId: string;
   view: string;
-  rich: boolean;
   type: string | null;
-  member: string | null;
-  overload: string | null;
+  memberAnchor: string | null;
+  memberSignature: string | null;
   section: MemberSection | null;
-  bodyTarget: BodyTarget | null;
   library: string | null;
-  libraryPack: PlatformPack | null;
-  memberBrowse: boolean;
-  memberTextFilter: string;
-  memberKindFilter: string;
-  memberAccessibilityFilter: string;
-  memberTraitFilter: string;
-  graphTarget: GraphMemberShareIdentity | null;
 }
 
 export type ShareStateResult = DecodedShareState | { error: string } | null;
-export type WorkspaceShareDecoder = (value: string) => ShareStateResult;
+export type WorkspaceShareDecoder =
+  (value: string) => BrowserWorkspaceShareDecodeResult;
+export type WorkspaceShareEncoder =
+  (stateJson: string) => BrowserWorkspaceShareEncodeResult;
 
 const invalidShareState =
   "The shared workspace state is invalid and was ignored.";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function hasOwn(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
-}
-
-function richSharePacketIsValid(
-  raw: Record<string, unknown>,
-  sourceIndexes: readonly number[],
-): raw is Record<string, unknown> & { a: number } {
-  if (typeof raw.a !== "number"
-    || !Number.isInteger(raw.a)
-    || raw.a < 0
-    || raw.a >= sourceIndexes.length) {
-    return false;
+export function encodeWorkspaceShareState(
+  state: WorkspaceUrlState,
+  encode: WorkspaceShareEncoder,
+): string {
+  const result = encode(JSON.stringify({
+    tabs: state.tabs,
+    contexts: state.contexts,
+    activeTabId: state.activeTabId,
+    selectedContextId: state.selectedContextId,
+    view: state.view,
+  } satisfies BrowserWorkspaceShareState));
+  if (!result.succeeded || !result.packet) {
+    throw new Error(result.failure?.message
+      ?? "The workspace cannot be represented as canonical share state.");
   }
-
-  const optionalStrings = ["l", "v", "y", "m", "c", "q", "k", "e", "r"];
-  if (optionalStrings.some(key => hasOwn(raw, key) && typeof raw[key] !== "string"))
-    return false;
-  if (hasOwn(raw, "p") && platformPackToken(raw.p) === null) return false;
-  if (hasOwn(raw, "o")
-    && (typeof raw.o !== "number"
-      || !Number.isInteger(raw.o)
-      || raw.o < 0)) {
-    return false;
-  }
-  if (hasOwn(raw, "d") && decodeBodyTarget(raw.d) === null) return false;
-  if (hasOwn(raw, "b") && raw.b !== 1) return false;
-  return true;
+  return result.packet;
 }
 
-function base64UrlEncode(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(value: string): string {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++)
-    bytes[index] = binary.charCodeAt(index);
-  return new TextDecoder().decode(bytes);
-}
-
-export function encodeWorkspaceShareState(state: WorkspaceUrlState): string {
-  const packet: SharePacket = {
-    t: state.tabs.map(item => [item.id, item.version, item.framework || ""]),
-    a: Math.max(0, state.active),
-  };
-  if (state.library) packet.l = state.library;
-  if (state.libraryPack) packet.p = state.libraryPack;
-  if (state.atPackageRoot) {
-    packet.v = state.packageLens && state.packageLens !== "overview"
-      ? `pkg:${state.packageLens}`
-      : "pkg";
-  } else {
-    if (state.lens && state.lens !== "api") packet.v = state.lens;
-    if (state.selectedTypeId) packet.y = state.selectedTypeId;
-    if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
-    if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
-    if (state.memberSection && state.memberSection !== "overview")
-      packet.c = state.memberSection;
-    const graphTarget = graphMemberShareTarget(state.graphTarget);
-    if (graphTarget
-      && state.selectedTypeId
-      && state.selectedMemberKey
-      && state.selectedOverloadIndex != null
-      && Number.isInteger(state.selectedOverloadIndex)
-      && state.selectedOverloadIndex >= 0) {
-      packet.g = graphTarget;
-    } else if (state.selectedBodyTarget) {
-      const encodedBodyTarget = encodeBodyTarget(state.selectedBodyTarget);
-      if (encodedBodyTarget) packet.d = encodedBodyTarget;
-    }
-    if (state.memberBrowse) packet.b = 1;
-    if (state.memberTextFilter) packet.q = state.memberTextFilter;
-    if (state.memberKindFilter !== "all") packet.k = state.memberKindFilter;
-    if (state.memberAccessibilityFilter !== "all")
-      packet.e = state.memberAccessibilityFilter;
-    if (state.memberTraitFilter) packet.r = state.memberTraitFilter;
-  }
-  return base64UrlEncode(JSON.stringify(packet));
-}
-
-function decodeWorkspaceShareState(value: string | null): ShareStateResult {
+function decodeWorkspaceShareState(
+  value: string | null,
+  decode: WorkspaceShareDecoder,
+): ShareStateResult {
   if (!value) return null;
-  const lengthError = shareStateLengthError(value);
-  if (lengthError) return { error: lengthError };
-  try {
-    const raw: unknown = JSON.parse(base64UrlDecode(value));
-    if (Array.isArray(raw)) {
-      const normalized = normalizeShareTabs(raw);
-      if (normalized.error) return { error: normalized.error };
-      return {
-        tabs: normalized.tabs,
-        active: 0,
-        view: "",
-        rich: false,
-        type: null,
-        member: null,
-        overload: null,
-        section: null,
-        bodyTarget: null,
-        library: null,
-        libraryPack: null,
-        memberBrowse: false,
-        memberTextFilter: "",
-        memberKindFilter: "all",
-        memberAccessibilityFilter: "all",
-        memberTraitFilter: "",
-        graphTarget: null,
-      };
-    }
-    if (isRecord(raw) && Array.isArray(raw.t)) {
-      const normalized = normalizeShareTabs(raw.t);
-      if (normalized.error) return { error: normalized.error };
-      const graphMember = graphMemberTargetFromPacket(raw);
-      if (graphMember.error) return { error: graphMember.error };
-      if (!richSharePacketIsValid(raw, normalized.sourceIndexes))
-        return { error: invalidShareState };
-      const active = normalized.sourceIndexes[raw.a];
-      if (active === undefined) return { error: invalidShareState };
-      return {
-        tabs: normalized.tabs,
-        active,
-        view: typeof raw.v === "string" ? raw.v : "",
-        rich: true,
-        type: typeof raw.y === "string" ? raw.y : null,
-        member: typeof raw.m === "string" ? raw.m : null,
-        overload: typeof raw.o === "string" || typeof raw.o === "number"
-          ? String(raw.o)
-          : null,
-        section: typeof raw.c === "string" && isMemberSection(raw.c)
-          ? raw.c
-          : null,
-        bodyTarget: decodeBodyTarget(raw.d),
-        library: typeof raw.l === "string" ? raw.l : null,
-        libraryPack: platformPackToken(raw.p),
-        memberBrowse: raw.b === 1,
-        memberTextFilter: typeof raw.q === "string" ? raw.q : "",
-        memberKindFilter: typeof raw.k === "string" ? raw.k : "all",
-        memberAccessibilityFilter: typeof raw.e === "string" ? raw.e : "all",
-        memberTraitFilter: typeof raw.r === "string" ? raw.r : "",
-        graphTarget: graphMember.target,
-      };
-    }
-    return { error: invalidShareState };
-  } catch {
-    return { error: invalidShareState };
+  const result = decode(value);
+  if (!result.succeeded || !result.state) {
+    const failure = result.failure;
+    return {
+      error: failure
+        ? `The shared workspace state was rejected (${failure.kind}): ${failure.message}`
+        : invalidShareState,
+    };
   }
+
+  const state = result.state;
+  const tabs: WorkspaceTab[] = [];
+  for (const tab of state.tabs) {
+    if (tab.runtimeIdentifier) {
+      return {
+        error: "The shared workspace uses a runtime-specific context that this browser cannot activate.",
+      };
+    }
+    if (tab.kind === "package") {
+      tabs.push({
+        id: tab.source,
+        version: tab.version ?? "latest",
+        framework: tab.framework ?? "",
+        shareId: tab.id,
+        shareKind: "package",
+        shareSource: tab.source,
+        runtimeIdentifier: null,
+      });
+      continue;
+    }
+    if (tab.kind === "group" && tab.source === ":Platform") {
+      tabs.push({
+        id: "Microsoft.NETCore.App",
+        version: tab.version ?? "latest",
+        framework: tab.framework ?? "",
+        shareId: tab.id,
+        shareKind: "group",
+        shareSource: tab.source,
+        runtimeIdentifier: null,
+      });
+      continue;
+    }
+    return {
+      error: `The shared workspace group '${tab.source}' is not supported by this browser.`,
+    };
+  }
+
+  const active = state.tabs.findIndex(tab => tab.id === state.activeTabId);
+  if (active < 0) return { error: invalidShareState };
+  const section = state.view.section;
+  if (section && !isMemberSection(section)) {
+    return {
+      error: `The shared workspace view section '${section}' is not supported by this browser.`,
+    };
+  }
+  const memberSection = section && isMemberSection(section)
+    ? section
+    : null;
+  if (state.view.libraries.length > 1) {
+    return {
+      error: "The shared workspace selects multiple libraries, which this browser cannot activate.",
+    };
+  }
+
+  return {
+    state,
+    tabs,
+    active,
+    contexts: state.contexts,
+    selectedContextId: state.selectedContextId,
+    view: state.view.lens ?? "",
+    type: state.view.type,
+    memberAnchor: state.view.memberAnchor,
+    memberSignature: state.view.memberSignature,
+    section: memberSection,
+    library: state.view.libraries[0] ?? null,
+  };
 }
 
 function resolveView(token: string): {
@@ -541,6 +453,8 @@ function resolveWorkspaceLocation(
   let framework = params.get("framework");
   let type = params.get("type");
   let member = params.get("member");
+  let memberAnchor: string | null = null;
+  let memberSignature: string | null = null;
   let overload = params.get("overload");
   const sectionToken = params.get("section");
   let section: MemberSection | null = isMemberSection(sectionToken)
@@ -550,6 +464,8 @@ function resolveWorkspaceLocation(
   let viewToken = location.hash.slice(1);
   let tabs: WorkspaceTab[] = [];
   let active = 0;
+  let contexts: BrowserWorkspaceShareContext[] = [];
+  let selectedContextId = "";
   let library: string | null = null;
   let libraryPack: PlatformPack | null = null;
   let memberBrowse = false;
@@ -558,37 +474,37 @@ function resolveWorkspaceLocation(
   let memberAccessibilityFilter = "all";
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
+  let shareState: BrowserWorkspaceShareState | null = null;
   const workspaceNotice = share && "error" in share ? share.error : "";
 
   if (share && !("error" in share)) {
+    shareState = share.state;
     tabs = share.tabs;
-    if (share.rich) {
-      active = Math.min(Math.max(0, share.active), Math.max(0, tabs.length - 1));
-      const target = tabs[active];
-      if (target) {
-        pkg = target.id;
-        version = target.version;
-        framework = target.framework;
-      }
-      if (share.view) viewToken = share.view;
-      type = share.type;
-      member = share.member;
-      overload = share.overload;
-      section = share.section;
-      bodyTarget = share.bodyTarget;
-      library = share.library;
-      libraryPack = share.libraryPack;
-      memberBrowse = share.memberBrowse;
-      memberTextFilter = share.memberTextFilter;
-      memberKindFilter = share.memberKindFilter;
-      memberAccessibilityFilter = share.memberAccessibilityFilter;
-      memberTraitFilter = share.memberTraitFilter;
-      graphTarget = share.graphTarget;
-    } else {
-      const index = tabs.findIndex(tab =>
-        pkg && tab.id.toLowerCase() === pkg.toLowerCase());
-      active = index >= 0 ? index : 0;
+    active = Math.min(Math.max(0, share.active), Math.max(0, tabs.length - 1));
+    contexts = share.contexts;
+    selectedContextId = share.selectedContextId;
+    const target = tabs[active];
+    if (target) {
+      pkg = target.id;
+      version = target.version;
+      framework = target.framework;
     }
+    if (share.view) viewToken = share.view;
+    type = share.type;
+    member = null;
+    memberAnchor = share.memberAnchor;
+    memberSignature = share.memberSignature;
+    overload = null;
+    section = share.section;
+    bodyTarget = null;
+    library = share.library;
+    libraryPack = null;
+    memberBrowse = false;
+    memberTextFilter = "";
+    memberKindFilter = "all";
+    memberAccessibilityFilter = "all";
+    memberTraitFilter = "";
+    graphTarget = null;
   }
   if (!pkg && tabs.length) {
     const target = tabs[Math.min(Math.max(0, active), tabs.length - 1)];
@@ -606,6 +522,8 @@ function resolveWorkspaceLocation(
     framework,
     type,
     member,
+    memberAnchor,
+    memberSignature,
     overload,
     section,
     bodyTarget,
@@ -614,6 +532,8 @@ function resolveWorkspaceLocation(
     packageLens: view.packageLens,
     tabs,
     active,
+    contexts,
+    selectedContextId,
     library,
     libraryPack,
     memberBrowse,
@@ -622,6 +542,7 @@ function resolveWorkspaceLocation(
     memberAccessibilityFilter,
     memberTraitFilter,
     graphTarget,
+    shareState,
     workspaceNotice,
   };
 }
@@ -642,33 +563,33 @@ export function parseWorkspaceRoute(
 
 export function resolveWorkspaceRoute(
   route: WorkspaceLocationRoute,
-  decode: WorkspaceShareDecoder = decodeWorkspaceShareState,
+  decode: WorkspaceShareDecoder,
 ): ParsedWorkspaceLocation {
   const encodedWorkspaceState = route.encodedWorkspaceState;
   return resolveWorkspaceLocation(
     route.location,
     encodedWorkspaceState
-      ? decode(encodedWorkspaceState)
+      ? decodeWorkspaceShareState(encodedWorkspaceState, decode)
       : null);
 }
 
 export function parseWorkspaceLocation(
   location: WorkspaceLocationSnapshot,
+  decode: WorkspaceShareDecoder,
 ): ParsedWorkspaceLocation {
-  return resolveWorkspaceRoute(parseWorkspaceRoute(location));
+  return resolveWorkspaceRoute(parseWorkspaceRoute(location), decode);
 }
 
 export function buildWorkspaceStateUrl(
   base: string,
   state: WorkspaceUrlState,
+  encode: WorkspaceShareEncoder,
 ): URL {
   const url = new URL(base);
   url.pathname = "/";
   const params = new URLSearchParams();
   params.set("package", state.package);
-  const shareState = encodeWorkspaceShareState(state);
-  const shareError = shareStateLengthError(shareState);
-  if (shareError) throw new Error(shareError);
+  const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
   url.search = params.toString();
   url.hash = "";
@@ -695,18 +616,25 @@ export interface WorkspaceLocationDependencies {
   current(): WorkspaceLocationSnapshot;
   replace(url: string): void;
   push(url: string): void;
+  decode(value: string): BrowserWorkspaceShareDecodeResult;
+  encode(stateJson: string): BrowserWorkspaceShareEncodeResult;
 }
 
 export function createWorkspaceLocationPersistence(
   dependencies: WorkspaceLocationDependencies,
 ): WorkspaceLocationPersistence {
+  const decode = (value: string) => dependencies.decode(value);
+  const encode = (stateJson: string) => dependencies.encode(stateJson);
   const build = (state: WorkspaceUrlState, base?: string) =>
     buildWorkspaceStateUrl(
       base ?? dependencies.current().href,
-      state);
+      state,
+      encode);
   return {
     parseCurrent() {
-      return parseWorkspaceLocation(dependencies.current());
+      return parseWorkspaceLocation(
+        dependencies.current(),
+        decode);
     },
     preflightCurrent,
     build,
@@ -731,8 +659,8 @@ export function createWorkspaceLocationPersistence(
     return {
       visible: route.visible,
       hasWorkspaceState: route.hasWorkspaceState,
-      resolve(decode?: WorkspaceShareDecoder) {
-        return resolveWorkspaceRoute(route, decode);
+      resolve(routeDecoder = decode) {
+        return resolveWorkspaceRoute(route, routeDecoder);
       },
     };
   }
