@@ -224,8 +224,6 @@ import {
   renderPackageMetadata as renderPackageMetadataHtml,
   sameFocus,
   type ExplorerFocus,
-  type ExplorerTableData,
-  type HeapListingData,
   type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
@@ -783,40 +781,36 @@ const metadataInspection = createMetadataInspectionCoordinator({
     request.framework,
     request.assembly,
     request.type),
-  queryPackageTable: async (explorer, index, startRowId, maxRows) =>
-    parseEngineJson<ExplorerTableData>(
-      await inspectPackageMetadataTable(
-        explorer.packageId,
-        explorer.version,
-        explorer.framework,
-        explorer.assemblyFileName,
-        index,
-        startRowId,
-        maxRows)),
-  queryPlatformTable: async (explorer, index, startRowId, maxRows) =>
-    parseEngineJson<ExplorerTableData>(
-      await inspectPlatformMetadataTable(
-        explorer.framework,
-        explorer.assemblyFileName,
-        explorer.pack || "",
-        index,
-        startRowId,
-        maxRows)),
-  queryPackageHeap: async (explorer, heapName) =>
-    parseEngineJson<HeapListingData>(
-      await inspectPackageHeapEntries(
-        explorer.packageId,
-        explorer.version,
-        explorer.framework,
-        explorer.assemblyFileName,
-        heapName)),
-  queryPlatformHeap: async (explorer, heapName) =>
-    parseEngineJson<HeapListingData>(
-      await inspectPlatformHeapEntries(
-        explorer.framework,
-        explorer.assemblyFileName,
-        explorer.pack || "",
-        heapName)),
+  queryPackageTable: (explorer, index, startRowId, maxRows) =>
+    inspectPackageMetadataTable(
+      explorer.packageId,
+      explorer.version,
+      explorer.framework,
+      explorer.assemblyFileName,
+      index,
+      startRowId,
+      maxRows),
+  queryPlatformTable: (explorer, index, startRowId, maxRows) =>
+    inspectPlatformMetadataTable(
+      explorer.framework,
+      explorer.assemblyFileName,
+      explorer.pack || "",
+      index,
+      startRowId,
+      maxRows),
+  queryPackageHeap: (explorer, heapName) =>
+    inspectPackageHeapEntries(
+      explorer.packageId,
+      explorer.version,
+      explorer.framework,
+      explorer.assemblyFileName,
+      heapName),
+  queryPlatformHeap: (explorer, heapName) =>
+    inspectPlatformHeapEntries(
+      explorer.framework,
+      explorer.assemblyFileName,
+      explorer.pack || "",
+      heapName),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -1970,7 +1964,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
 // package lenses that fetch one would 404. Integrations and Opportunities scan a
 // selected library through the content-backed platform workspace; dependencies remain
-// package-only, while Analysis and Metadata report their explicit product-query gaps.
+// package-only, while Analysis reports its explicit product-query gap.
 function packageLensesFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
@@ -2817,18 +2811,16 @@ const packageInspection = createPackageInspectionCoordinator({
         framework,
         assemblyFileName,
         pack)),
-  queryPackageMetadata: async packageModel =>
-    parseEngineJson<PackageMetadata>(
-      await inspectPackageMetadata(
-        packageModel.id,
-        packageModel.version,
-        packageModel.activeFramework)),
-  queryPlatformMetadata: async (framework, assemblyFileName, pack) =>
-    parseEngineJson<PackageMetadata>(
-      await inspectPlatformMetadata(
-        framework,
-        assemblyFileName,
-        pack)),
+  queryPackageMetadata: packageModel =>
+    inspectPackageMetadata(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework),
+  queryPlatformMetadata: (framework, assemblyFileName, pack) =>
+    inspectPlatformMetadata(
+      framework,
+      assemblyFileName,
+      pack),
   platformPackForAssembly: assemblyName =>
     platformPackForAssembly(assemblyName) ?? "",
   describeError: errorMessage,

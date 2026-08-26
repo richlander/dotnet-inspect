@@ -48,10 +48,10 @@ export interface MetadataHeaders {
   machine?: string;
   isPE32Plus?: boolean;
   subsystem?: string;
-  corFlags?: string;
-  majorRuntimeVersion?: number;
-  minorRuntimeVersion?: number;
-  entryPointToken?: number;
+  corFlags?: string | null;
+  majorRuntimeVersion?: number | null;
+  minorRuntimeVersion?: number | null;
+  entryPointToken?: number | null;
 }
 
 export interface MetadataAssembly {
@@ -68,7 +68,7 @@ export interface MetadataAssembly {
 
 export interface PackageMetadata {
   assemblies?: readonly MetadataAssembly[];
-  inspectionError?: string;
+  inspectionError?: string | null;
 }
 
 // -- Metadata Explorer data shapes ---------------------------------------------------------
@@ -99,21 +99,21 @@ export interface ExplorerColumn {
  */
 export interface ExplorerCell {
   kind: string;
-  display?: string;
-  raw?: number | string;
-  decoded?: string;
-  heap?: string;
-  text?: string;
-  preview?: string;
-  offset?: number;
-  length?: number;
-  truncated?: boolean;
-  targetTable?: number;
-  targetRowId?: number;
-  startRowId?: number;
-  endRowId?: number;
-  count?: number;
-  detail?: string;
+  display?: string | null;
+  raw?: number | string | null;
+  decoded?: string | null;
+  heap?: string | null;
+  text?: string | null;
+  preview?: string | null;
+  offset?: number | null;
+  length?: number | null;
+  truncated?: boolean | null;
+  targetTable?: number | null;
+  targetRowId?: number | null;
+  startRowId?: number | null;
+  endRowId?: number | null;
+  count?: number | null;
+  detail?: string | null;
 }
 
 export interface ExplorerRow {
@@ -129,7 +129,7 @@ export interface ExplorerTableData {
   startRowId: number;
   columns?: readonly ExplorerColumn[];
   rows?: readonly ExplorerRow[];
-  error?: string;
+  error?: string | null;
 }
 
 export interface ExplorerWindow {
@@ -750,7 +750,8 @@ export function renderExplorerCell(
   context: ExplorerRenderContext,
 ): string {
   const { explorer: ex, escapeHtml } = context;
-  const tableName = (index: number | undefined) => explorerTableName(ex.directory, Number(index));
+  const tableName = (index: number | null | undefined) =>
+    explorerTableName(ex.directory, Number(index ?? undefined));
   if (!cell) return "";
   switch (cell.kind) {
     case "nil":

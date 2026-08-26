@@ -510,10 +510,15 @@ rather than fixture results or success-shaped empty output.
 | Unsupported export | Missing product query |
 | --- | --- |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
-| `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
 | `QueryPlatformPerformance` | the same missing assembly-wide Analysis ranking query as the package export |
+
+Package and Platform Metadata use
+`AssemblyContextMetadataImageQuery`, `AssemblyContextMetadataTableQuery`, and
+`AssemblyContextMetadataHeapQuery`. The host selects a workspace participant;
+the product query owns session access and returns typed availability, rejection,
+or failure. Table windows and heap listings retain their bounds, coverage, and
+truncation instead of presenting partial data as complete.
 
 Package-backed type Metadata/Source and member Source/Annotated Source exports
 do not accept platform coordinates. The Platform UI therefore withholds those

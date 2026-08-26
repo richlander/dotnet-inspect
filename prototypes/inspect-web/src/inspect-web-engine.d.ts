@@ -22,6 +22,18 @@ export interface BrowserAnnotatedSource {
   contextLimitation: string | null;
 }
 
+export interface BrowserAssemblyMetadata {
+  assembly: string;
+  metadataVersion: string;
+  kind: string;
+  isAssembly: boolean;
+  metadataSize: number;
+  projectedTableTotal: number;
+  heaps: BrowserMetadataHeap[];
+  tables: BrowserMetadataTable[];
+  headers: BrowserMetadataHeaders;
+}
+
 export interface BrowserAssemblyReference {
   name: string;
   version: string;
@@ -120,6 +132,23 @@ export interface BrowserDependencyCoordinateMatch {
 export interface BrowserExceptionSurface {
   type: string;
   description: string;
+}
+
+export interface BrowserHeapEntry {
+  offset: number;
+  value: BrowserMetadataCell;
+  referenceCount: number;
+}
+
+export interface BrowserHeapListing {
+  assembly: string;
+  heap: string;
+  streamName: string;
+  coverage: string;
+  entries: BrowserHeapEntry[];
+  rowsTruncated: boolean;
+  entriesTruncated: boolean;
+  error: string | null;
 }
 
 export interface BrowserHomeDemoCatalog {
@@ -237,6 +266,74 @@ export interface BrowserMemberSurface {
   bodySelectors: BrowserMemberBodySelector[];
 }
 
+export interface BrowserMetadataCell {
+  kind: string;
+  raw: number | null;
+  display: string | null;
+  decoded: string | null;
+  heap: string | null;
+  text: string | null;
+  preview: string | null;
+  offset: number | null;
+  length: number | null;
+  truncated: boolean | null;
+  targetTable: number | null;
+  targetRowId: number | null;
+  startRowId: number | null;
+  endRowId: number | null;
+  count: number | null;
+  token: number | null;
+  detail: string | null;
+}
+
+export interface BrowserMetadataColumn {
+  name: string;
+  kind: string;
+  candidateTargets: number[];
+}
+
+export interface BrowserMetadataHeaders {
+  machine: string;
+  isPE32Plus: boolean;
+  subsystem: string;
+  corFlags: string | null;
+  majorRuntimeVersion: number | null;
+  minorRuntimeVersion: number | null;
+  entryPointToken: number | null;
+}
+
+export interface BrowserMetadataHeap {
+  name: string;
+  sizeInBytes: number;
+  maxAddress: number;
+  addressing: string;
+}
+
+export interface BrowserMetadataRow {
+  rowId: number;
+  token: number;
+  cells: BrowserMetadataCell[];
+}
+
+export interface BrowserMetadataTable {
+  index: number;
+  name: string;
+  rowCount: number;
+  isProjected: boolean;
+}
+
+export interface BrowserMetadataWindow {
+  assembly: string;
+  index: number;
+  name: string;
+  rowCount: number;
+  startRowId: number;
+  columns: BrowserMetadataColumn[];
+  rows: BrowserMetadataRow[];
+  truncated: boolean;
+  error: string | null;
+}
+
 export interface BrowserOpportunityCategory {
   integration: string;
   items: BrowserOpportunityItem[];
@@ -304,6 +401,11 @@ export interface BrowserPackageIntegrations {
   categories: BrowserIntegrationCategory[];
   totalSignals: number;
   isComplete: boolean;
+  inspectionError: string | null;
+}
+
+export interface BrowserPackageMetadata {
+  assemblies: BrowserAssemblyMetadata[];
   inspectionError: string | null;
 }
 
@@ -487,17 +589,17 @@ export declare function queryMemberFacts(packageId: string, version: string, tar
 export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
-export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<string>;
+export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPackageIntegrations(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageIntegrations>;
-export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string): Promise<string>;
-export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
+export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageMetadata>;
+export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryPackageOpportunities(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<string>;
 export declare function queryPackageVersions(packageId: string): Promise<string[]>;
-export declare function queryPlatformHeapEntries(targetFramework: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
+export declare function queryPlatformHeapEntries(targetFramework: string, assemblyFileName: string, pack: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPlatformIntegrations(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
-export declare function queryPlatformMetadata(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
-export declare function queryPlatformMetadataTable(targetFramework: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
+export declare function queryPlatformMetadata(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
+export declare function queryPlatformMetadataTable(targetFramework: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryPlatformOpportunities(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPlatformPerformance(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
