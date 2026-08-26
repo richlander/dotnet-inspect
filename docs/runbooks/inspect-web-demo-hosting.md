@@ -55,7 +55,8 @@ The build host needs:
 - the exact branch in its own clean development worktree;
 - the repository-selected .NET SDK and WebAssembly workload;
 - Node.js at the version required by `prototypes/inspect-web/package.json`;
-- SSH access from the viewer when using viewer-side forwarding; or
+- an SSH destination already proven from the viewer when using viewer-side
+  forwarding; or
 - a user-provided standing Serve session on the build host when using Serve.
 
 Use these build-host variables:
@@ -182,10 +183,17 @@ Use this pattern by default. It requires the viewer to have SSH access to the
 build host but requires no tailnet, certificate, or network-facing application
 listener.
 
+Set `DEMO_BUILD_HOST` to the exact destination the viewer already uses
+successfully for SSH, including the username when needed. Prefer its SSH config
+alias or machine name. Do not derive or substitute an interface address from
+the build host with `hostname -I`, `ip address`, or similar commands: that
+address can be unreachable from the viewer because of routing, VPN, or firewall
+policy even when the machine name works.
+
 On the viewer machine, choose an unused loopback port and start the forward:
 
 ```bash
-export DEMO_BUILD_HOST="<build-host SSH name>"
+export DEMO_BUILD_HOST="<existing SSH alias, machine name, or user@machine-name>"
 export DEMO_BUILD_ORIGIN_PORT=5198
 export DEMO_VIEWER_PORT=5198
 
@@ -200,6 +208,11 @@ ssh -N -T \
 `ExitOnForwardFailure` is required. Without it, SSH can remain alive after
 failing to claim the viewer port, leaving a success-shaped process that serves
 nothing.
+
+If the destination has not yet been proven from that viewer, establish ordinary
+SSH access first. A failed direct SSH connection is a routing or authentication
+problem, not a demo-hosting problem; do not search the build host for a
+different address and silently replace the destination.
 
 Keep the tunnel in a dedicated terminal. From another viewer terminal, verify
 the complete path:
@@ -329,6 +342,7 @@ silently repoint an existing build-tagged URL to unrelated work.
 | --- | --- | --- |
 | Build-host origin fails | Publish or static server | Check `site_root`, process, and the required published files |
 | SSH exits immediately | Port ownership or authentication | Keep `ExitOnForwardFailure`; inspect the named port and SSH access |
+| SSH times out before forwarding | Viewer-to-host routing | Reuse the viewer's proven machine name or SSH config alias; do not substitute a build-host interface address |
 | Viewer HTTP works but browser reports insecure context | Wrong URL | Use viewer loopback, not the build host's LAN or tailnet address |
 | Serve returns 502/503 | Vite is absent or on the wrong loopback port | Start Vite on the session's assigned origin; do not change Serve |
 | Serve is unavailable to the viewer | Session or tailnet policy | Report the failure; do not discover another route or enable Funnel |
