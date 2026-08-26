@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -23,6 +24,86 @@ namespace InspectWeb.Engine.Tests;
 public sealed class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
+
+    [Fact]
+    public void QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
+    {
+        const string artifactText = "Artifact\u202e";
+        var identity = new AssemblyReferenceIdentity(
+            artifactText,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                identity,
+                "test",
+                () => new MemoryStream([0x01, 0x02, 0x03]),
+                AssemblyResolutionProvenance.Package(
+                    "Package.Sample",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null));
+        var participant = new AssemblyContextParticipant(
+            assembly,
+            new RejectingBindingPolicy());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+
+        AssemblyContextApiSurfaceResult surface =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits);
+        AssemblyContextIntegrationsResult integrations =
+            AssemblyContextIntegrationsQuery.Execute(group);
+        AssemblyIntegrationOpportunitiesEntry opportunity =
+            AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(
+                group,
+                participant);
+        string[] failures =
+        [
+            Assert.Single(
+                BrowserSurfaceProjection.ApiSurfaceFailureEntries(
+                    surface.Assemblies.Assemblies)),
+            InspectionEngine.CreateIntegrations(
+                "Package.Sample",
+                "1.0.0",
+                "net11.0",
+                integrations.Assemblies).InspectionError!,
+            InspectionEngine.CreateOpportunities(
+                "Package.Sample",
+                "1.0.0",
+                "net11.0",
+                [opportunity]).InspectionError!,
+            BrowserSurfaceProjection.RejectedAssembly(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    artifactText)),
+            BrowserSurfaceProjection.FailedAssembly(
+                new InvalidDataException(artifactText)),
+            BrowserSurfaceProjection.PartialApiSurface(1),
+        ];
+
+        Assert.All(
+            failures,
+            failure =>
+            {
+                Assert.DoesNotContain(
+                    artifactText,
+                    failure,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain('\u202e', failure);
+            });
+        Assert.Equal("Assembly unavailable: InvalidImage.", failures[0]);
+        Assert.Equal(
+            "Assembly inspection failed (InvalidDataException).",
+            failures[4]);
+        Assert.Equal(
+            "An assembly API surface omitted 1 metadata row(s).",
+            failures[5]);
+    }
 
     [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
@@ -1145,6 +1226,103 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageFrameworkFailure_DoesNotEmitArtifactFramework()
+    {
+        const char bidi = '\u202E';
+        const string packageId = "Bidi.Framework.Failure";
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                Package(
+                    [0x01],
+                    $"lib/net8.0{bidi}/{packageId}.dll"),
+                fromCache: false));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.ResolveAsync(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain(bidi, failure.Message);
+        Assert.DoesNotContain($"net8.0{bidi}", failure.Message, StringComparison.Ordinal);
+
+        var selectedPackage = new BrowserPackage(
+            "Bidi.Selected.Framework",
+            "1.0.0",
+            Package(
+                [0x01],
+                $"lib/net8.0{bidi}/Selected.dll"),
+            fromCache: false);
+        var selectedContext = new PackageAssemblyContextSelection(
+            selectedPackage.Content,
+            selectedPackage.PackageId,
+            selectedPackage.Version);
+        var coordinate =
+            new BrowserPackageCoordinate(selectedPackage, selectedContext);
+
+        InvalidOperationException compileFailure =
+            Assert.Throws<InvalidOperationException>(
+                () => coordinate.CompileAsset("Missing.dll"));
+
+        Assert.DoesNotContain(bidi, compileFailure.Message);
+    }
+
+    [Fact]
+    public void ReferenceOnlyFailures_DoNotEmitArtifactAssemblyNames()
+    {
+        const char bidi = '\u202E';
+        string assemblyName = $"Bidi.Reference{bidi}.dll";
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Bidi.ReferenceOnly",
+            Package(
+                image,
+                $"ref/net11.0/{assemblyName}"));
+
+        InvalidOperationException coordinateFailure =
+            Assert.Throws<InvalidOperationException>(
+                () => coordinate.ImplementationAsset(assemblyName));
+
+        Assert.Contains("reference assembly only", coordinateFailure.Message);
+        Assert.DoesNotContain(bidi, coordinateFailure.Message);
+
+        using BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+        InvalidOperationException scopeFailure =
+            Assert.Throws<InvalidOperationException>(
+                () => scope.ImplementationParticipant(
+                    Assert.Single(scope.SurfaceParticipants)));
+
+        Assert.Contains("reference assembly only", scopeFailure.Message);
+        Assert.DoesNotContain(bidi, scopeFailure.Message);
+    }
+
+    [Fact]
+    public void MissingPackageEntryFailure_DoesNotEmitArtifactPath()
+    {
+        const char bidi = '\u202E';
+        var package = new BrowserPackage(
+            "Bidi.Missing.Entry",
+            "1.0.0",
+            Package([0x01], "lib/net11.0/Present.dll"),
+            fromCache: false);
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => package.OpenEntry(
+                    $"lib/net11.0/Missing{bidi}.dll",
+                    1_024));
+
+        Assert.DoesNotContain(bidi, failure.Message);
+    }
+
+    [Fact]
     public void SourceFailures_PreserveTypedDetailAndCause()
     {
         var cause = new IOException("symbol service failed");
@@ -1332,7 +1510,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task QueryPackage_AllSelectedFailuresPreserveTheTypedDiagnosis()
+    public async Task QueryPackage_AllSelectedFailuresPreserveKindWithoutArtifactDetail()
     {
         const string packageId = "Malformed.Surface";
         const string version = "1.0.0";
@@ -1353,10 +1531,10 @@ public sealed class BrowserEngineBoundaryTests
                     "net11.0"));
 
         Assert.Contains(
-            "InvalidImage",
+            "Assembly unavailable: InvalidImage.",
             failure.Message,
             StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.DoesNotContain(
             "invalid metadata",
             failure.Message,
             StringComparison.Ordinal);
@@ -1965,6 +2143,38 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("package", unique.CandidateKey);
         Assert.Equal(BrowserDependencyCoordinateMatchOutcome.Ambiguous, ambiguous.Outcome);
         Assert.Null(ambiguous.CandidateKey);
+    }
+
+    [Fact]
+    public void BuildIdentity_ReadsHostAssemblyAttributes()
+    {
+        Assembly assembly = typeof(InspectionEngine).Assembly;
+        AssemblyInformationalVersionAttribute? informationalVersion =
+            assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+        BrowserBuildIdentity identity =
+            BrowserBuildIdentityReader.Read(assembly);
+
+        Assert.NotNull(informationalVersion);
+        Assert.Equal(
+            informationalVersion.InformationalVersion.Split('+', 2)[0],
+            identity.Version);
+    }
+
+    [Fact]
+    public void BuildIdentity_UsesFileVersionWithoutInformationalVersion()
+    {
+        const string fileVersion = "2.3.4.5";
+        AssemblyBuilder assembly = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("BrowserBuildIdentityFallback"),
+            AssemblyBuilderAccess.Run);
+        ConstructorInfo constructor =
+            typeof(AssemblyFileVersionAttribute).GetConstructor([typeof(string)])!;
+        assembly.SetCustomAttribute(
+            new CustomAttributeBuilder(constructor, [fileVersion]));
+
+        BrowserBuildIdentity identity = BrowserBuildIdentityReader.Read(assembly);
+
+        Assert.Equal(fileVersion, identity.Version);
     }
 
     [Fact]
@@ -3692,12 +3902,13 @@ public sealed class BrowserEngineBoundaryTests
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);
         BrowserPackageWorkspace.RegisterAcquiredPackage(package);
-        PackageCompileAssetSelection selection = PackageCompileAssetSelector.Select(
+        var assemblyContext = new PackageAssemblyContextSelection(
             package.Content,
             id,
+            package.Version,
             "net11.0");
-        Assert.True(selection.IsSelected);
-        return new BrowserPackageCoordinate(package, selection);
+        Assert.True(assemblyContext.AssetSelection.IsSelected);
+        return new BrowserPackageCoordinate(package, assemblyContext);
     }
 
     static byte[] Package(
@@ -4227,6 +4438,17 @@ public sealed class BrowserEngineBoundaryTests
                 new HttpResponseMessage(
                     System.Net.HttpStatusCode.NotFound));
         }
+    }
+
+    sealed class RejectingBindingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable));
     }
 
 }

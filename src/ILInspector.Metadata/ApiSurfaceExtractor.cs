@@ -2584,7 +2584,7 @@ public static class ApiSurfaceExtractor
             }
 
             (descriptors ??= new Dictionary<string, AutoPropertyBackingField>(StringComparer.Ordinal))
-                [$"<{propertyName}>k__BackingField"]
+                [$"<{propertyName}{GeneratedNameGrammar.BackingFieldSuffix}"]
                     = new AutoPropertyBackingField(propertyType, isStatic);
         }
 
