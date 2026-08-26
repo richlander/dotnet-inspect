@@ -131,6 +131,7 @@ internal sealed class RidPackageReferenceJson(RidPackageReferenceText text)
 {
     public string RuntimeIdentifier => text.RuntimeIdentifier.ToString();
     public string PackageId => text.PackageId.ToString();
+    public string Available => text.AvailableDisplay;
 }
 
 internal sealed class PackageDependencyGroupJson(PackageDependencyGroupText text)
