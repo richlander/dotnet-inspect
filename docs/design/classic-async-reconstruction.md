@@ -171,12 +171,22 @@ MetadataBodyTarget
   PreferredAddress?      same-source MetadataMethodAddress hint
   PresentationAnchor?    label only; never resolution evidence
 
+MetadataBodyAddressResult
+  Resolved(MetadataMethodAddress)
+  AddressFailed(MetadataBodyAddressFailure)
+
+MetadataBodyAddressFailure
+  Unavailable(UnsupportedTargetVersion)
+  Rejected(CrossModuleHint | RelationshipRoleMismatch)
+  Ambiguous(CandidateAddresses)
+  Failed(Diagnostics)
+
 MetadataBodySelector
   Name                   metadata MethodDef name
   ZeroBasedOrdinal       metadata-order position after name/visibility filtering
 
 MetadataBodyProjectionResult
-  AddressFailed(Diagnostics)
+  AddressFailed(MetadataBodyAddressFailure)
   Resolved(MetadataBodyResolvedProjection)
 
 MetadataBodyResolvedProjection
@@ -328,15 +338,35 @@ owns the user-facing selector boundary.
 `MetadataBodyTarget` is the single-source carried-target currency owned by
 Metadata. `MetadataBodyKey` retains declaring type, method kind/name, calling
 convention, generic arity and constraints, parameter and return shapes, by-ref
-shape, function pointers, custom modifiers, relationship role, and exact named
-type assembly scope. Carried resolution revalidates a preferred address only
-within its MVID, then resolves by current-version strict key plus relationship
-role in that one `MetadataSource`. An unknown key version is unavailable; an
-invalid role or cross-reader hint is rejected; duplicate keys are ambiguous;
-malformed or budget-exhausted metadata fails visibly. No outcome falls back to
-name, ordinal, presentation anchor, or raw token equality. The projector maps
-each failure into `AddressFailed(Diagnostics)` and stops before async
-classification.
+shape, function pointers, custom modifiers, and exact named type assembly
+scope. `RelationshipRole` exists only on the target envelope. Carried
+resolution revalidates a preferred address against a reopened reader only when
+its MVID, MethodDef row, strict key, and relationship role all agree; a
+same-MVID reopened reader is supported. Otherwise it resolves by
+current-version strict key plus the envelope role in that one
+`MetadataSource`. A role is valid only when the resolved MethodDef occupies
+that exact method/getter/setter/adder/remover relationship. An unknown key
+version is `Unavailable`; a cross-MVID hint or role mismatch is `Rejected`;
+duplicate keys are `Ambiguous` with every candidate address; malformed or
+budget-exhausted metadata is `Failed` with diagnostics. No outcome falls back
+to name, ordinal, presentation anchor, or raw token equality.
+`MetadataBodyProjector` preserves the complete non-`Resolved` value in
+`AddressFailed` and stops before async classification.
+
+The existing Metadata `BodyTarget` and `ResolvedMemberTarget.Body` remain
+selection-only compatibility values during migration; they are not accepted by
+`MetadataBodyProjector`. Before a selected API member leaves its live Metadata
+session, a Metadata factory validates its exact MethodDef and constructs
+`MetadataBodyTarget`; `ResolvedMemberTarget` gains that value alongside the
+legacy property until all non-body consumers migrate. Every declared-source
+body consumer requires the new target or begins with an explicit fresh
+`Selector` request. In particular, `MemberCodeProvider` and whole-member/type
+composition may no longer turn `BodyTarget.MetadataToken` or
+`DeclaringOverloadIndex` into a body request. This contract supersedes the
+normalized-signature cross-reader fallback in
+[member-body-substrate.md](member-body-substrate.md#address-identity-not-an-ordinal)
+for declared-source projection; that document continues to describe current
+behavior until slice 0 performs the migration.
 
 Ordinary async projection does not realize comparison endpoints, mint
 participants or work items, perform cross-version correspondence, or consume
@@ -746,7 +776,7 @@ projection:
   `DecompiledBodyProjection` carry classification, body text/shape
   facts, and `ClassicAsyncOutcome`. API members and accessors use
   `Carried(MetadataBodyTarget)` with a persisted structural key, typed
-  role, and optional MVID-scoped hint; stale-token and cross-reader paths
+  role, and optional MVID-scoped hint; stale-token and cross-MVID paths
   never fall back to name/ordinal. Every existing
   accessor is projected before compact property/event syntax is chosen.
   `ClassificationFailed` maps to `MemberBodyProductionStatus.Failed`;
@@ -1337,7 +1367,8 @@ gate ordinary reconstruction.
 | Gate | Surface | Fails if |
 | --- | --- | --- |
 | Ordinary-path independence | Decompiler + Research + Queries source-architecture tests | Async projection mints or consumes an Implementation Diff participant, correspondence receipt, work item, mechanism, budget, query lifetime, completion, or result; or body projection bypasses exact address resolution |
-| Carried target resolution | Metadata + Decompiler projector | A carried target omits key version or relationship role; strict keys omit signature/modifier/scope evidence; a stale or cross-reader hint bypasses key/role validation; unknown, duplicate, malformed, or budget-exhausted input guesses; or resolution uses name, ordinal, presentation anchor, or raw token equality |
+| Carried target resolution | Metadata + Decompiler projector | A carried target omits key version or its sole relationship role; strict keys omit signature/modifier/scope evidence or duplicate the role; a same-MVID reopened-reader hint that passes row/key/role validation is rejected; a cross-MVID hint or role mismatch is not `Rejected`; unavailable/rejected/ambiguous/failed outcomes collapse or lose candidates/reasons; or resolution uses name, ordinal, presentation anchor, or raw token equality |
+| Legacy body-target migration | Exact declared-source caller/sink manifest plus one non-vacuity removal test | `ResolvedMemberTarget.Body`, `BodyTarget.MetadataToken`, `DeclaringOverloadIndex`, or name/ordinal `ResolveMethod` still addresses a declared-source body; a live-reader selection omits `MetadataBodyTarget`; or a non-body compatibility consumer is forced through the projector |
 | Exact async population matrix | Metadata + Decompiler top-level and foreign imports | Runtime, classic, and iterator evidence collapse; contradictory positives do not fail before body/import; or custom classic builders escape visible decline |
 | Exact state-machine relationship index | `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations` over Metadata fixtures | Explicit/implicit interface implementation, signature, custom modifiers, `MethodImpl`, claim kind, named decoys, or metadata order select the wrong MethodDef |
 | State-machine relationship totality | `StateMachineRelationshipIndex_PropagatesTypedFailures` over Metadata fixtures | Missing, duplicate, cross-kind, unresolved, malformed, foreign-module, budget, or ambiguous evidence becomes empty success, throws an expected decode failure, or loses its candidates and reason |
