@@ -217,10 +217,11 @@ package payloads. Once selected, the normal output-shape rules apply:
 | `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
-| `-n N` / `--tail` | Select the first/last N rows in the version Vector. | May stop natural-order metadata enumeration early; acquires zero package payloads by itself. |
+| `-n N` | Select the first N rows in the version Vector. | May stop natural-order metadata enumeration early; acquires zero package payloads by itself. |
+| `-n N --tail` | Select the last N rows in the version Vector. | Must exhaust the applicable metadata input before choosing rows; acquires zero package payloads by itself. |
 | `--rows N..M` | Select an absolute range of stable version rows. | May stop at a closed upper bound; acquires zero package payloads by itself. |
 | `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
-| `-n N --lines` | Reject: the version Vector has no printable text payload. | None. A line limit cannot create a payload. |
+| `-n N --lines` | Clip the rendered version report to its first N lines. | None. A line window does not bound version-metadata enumeration. |
 
 Shape reducers do not revise operation arity. In particular:
 

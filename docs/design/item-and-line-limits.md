@@ -121,8 +121,9 @@ select subject and section/lens
 the full matched-row count, so it is mutually exclusive with `-n`, `--top`,
 `--rows`, `--tail`, and `--lines`; no accepted limiter may be silently ignored.
 
-`--row` remains an exactly-one address and is mutually exclusive with item
-windows. It may combine with `--print`, `--value`, `--urls`, or `--paths`.
+`--row` remains an exactly-one address and is mutually exclusive with item-mode
+`-n`/`--tail`, `--top`, and `--rows`. It may combine with `--print`, `--value`,
+`--urls`, or `--paths`, and with line-mode `-n`/`--tail` under `--lines`.
 
 ### Cost and completion
 
@@ -295,7 +296,7 @@ Line windows are rejected for structured shapes that cannot preserve a complete
 value. JSON/JSONL print projections support them by clipping each content string
 before serialization, not by clipping the encoded output.
 
-## Retired result-limit spellings
+## Compatibility and migration
 
 The implementation removes command-specific result counts and short selector
 aliases without a deprecation period:
@@ -306,6 +307,12 @@ aliases without a deprecation period:
 - package-search `--take`;
 - count-form `--rows N` and `--rows N --tail`;
 - implicit line mode on `-n`.
+
+The target also changes the default text presentation of `--print`: normal
+stdout is framed and guttered even when one row is selected. Maintained guidance
+that consumes one payload body adds `--bare`; guidance that consumes multiple
+results uses the framed form or a structured batch format. This audit is part of
+the same atomic implementation change as the retired syntax migration.
 
 Long `--type` and `--member` selectors remain where the command needs them;
 positional member syntax remains. `--versions` and `--versions-with-feed`
@@ -330,23 +337,26 @@ The implementation must add named Release gates for these target properties:
 
 | Gate | Contract |
 | --- | --- |
-| `ItemLimitsUseDeclaredRowsAcrossFormats` | Every renderer selects the same first/last logical rows per declared row set and preserves non-row sections. |
+| `ItemLimitsUseDeclaredRowsAcrossFormats` | After filtering and effective ordering, every renderer selects the same first/last logical rows per declared row set and preserves non-row sections, including fixtures where limiting the unfiltered or naturally ordered prefix would select different rows. |
 | `AbsoluteRangesIntersectWithoutRenumbering` | `--rows` range intersections retain stable row addresses across item limits and rankings. |
+| `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
 | `CountRejectsItemAndLineWindows` | `--count` never silently ignores or applies a result/line window. |
 | `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects item-mode `-n`/`--tail`. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
 | `MultiPrintRequiresOneRowSet` | `--print` rejects selections spanning multiple declared row sets before capability checks, acquisition, stdout, or destination mutation. |
-| `NonPrintableRowSetsRejectOnce` | A selected row set with no printable capability emits one preflight diagnostic and performs no payload acquisition. |
+| `NonPrintableRowSetsRejectOnce` | A selected row set with no printable capability emits one preflight diagnostic without payload acquisition or stdout and leaves an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `MultiPrintPreservesIdentityAndFailures` | After print-capability preflight, every selected row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
 | `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
 | `MultiPrintPayloadCannotForgeFrames` | Payload lines matching the frame grammar, mixed line terminators, empty lines, and missing final newlines remain guttered payload and cannot create a sibling frame. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
 | `OrdinaryLineWindowsApplyAfterRendering` | Ordinary head/tail line windows and `--top` plus line-mode `-n` preserve the selected item set and clip the final text only. |
 | `NonPrintJsonRejectsLineWindows` | Typed and lowered document JSON reject `--lines` with empty stdout; printable JSON clips content before complete-value encoding. |
-| `RemoteMultiPrintRequiresBoundedSelection` | A per-row network payload source rejects multi-row `--print` without an explicit finite item bound and performs no fetch. |
+| `RemoteMultiPrintRequiresBoundedSelection` | A per-row network payload source rejects multi-row `--print` without an explicit finite item bound, performs no fetch or stdout, and leaves an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `SelectedRowsBoundPayloadAcquisition` | Instrumented payload providers are called exactly once for each selected row with an acquired payload, and never for non-printable, filtered, unselected, or windowed-out rows. |
+| `RejectedExportsPreserveDestination` | Every preflight rejection path produces no stdout, leaves an absent destination absent, and leaves an existing destination byte-for-byte unchanged. |
 | `ExactPayloadOutRejectsLineWindows` | Exact `--out` rejects line windows before acquisition or destination mutation; structured file output may carry clipped content. |
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
 | `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
-| `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; affected generated routes execute successfully. |
+| `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including value-bearing `--versions`/`--versions-with-feed` and count-form `--rows`, while affected replacement routes execute successfully. |
+| `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter. |

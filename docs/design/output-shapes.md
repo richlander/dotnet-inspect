@@ -225,7 +225,9 @@ declared printable payload:
 | 1 | Print one framed or structured result. | Print one framed or structured result for the addressed row; any other number is an error. |
 | More than 1 | Print one framed or structured result per selected row. | Print one framed or structured result for the addressed row. |
 
-`-n`, `--rows`, `--top`, and `--where` narrow the rows before projection.
+`--where` filters rows; item-mode `-n`, `--rows`, and `--top` then narrow them
+before projection. `--row` is the mutually exclusive exactly-one alternative to
+the item/range windows; line-mode `-n` remains available under `--lines`.
 `--paths` and `--urls` project the same selected rows without acquiring their
 content.
 
