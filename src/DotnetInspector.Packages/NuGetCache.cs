@@ -1034,6 +1034,33 @@ public static class NuGetCache
         return GetCanonicalSourceKey(sourceIdentity.Value);
     }
 
+    /// <summary>
+    /// Returns the stable cache identity for an ordered candidate-metadata route.
+    /// </summary>
+    /// <remarks>
+    /// A single endpoint preserves the historical source key. Multi-endpoint routes
+    /// include every endpoint in order, but never credentials, so routes with a shared
+    /// primary alias and different fallbacks cannot share version or listing metadata.
+    /// </remarks>
+    public static string GetCandidateRouteKey(IEnumerable<string> endpoints)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+
+        List<string> endpointKeys = [.. endpoints.Select(GetSourceKey)];
+        if (endpointKeys.Count == 0)
+        {
+            throw new ArgumentException(
+                "A candidate route must contain at least one endpoint.",
+                nameof(endpoints));
+        }
+
+        if (endpointKeys.Count == 1)
+            return endpointKeys[0];
+
+        return GetCanonicalSourceKey(
+            $"candidate-route-v1:{string.Join(':', endpointKeys)}");
+    }
+
     private static string GetCanonicalSourceKey(string normalized)
     {
         byte[] digest = SHA256.HashData(

@@ -143,6 +143,17 @@ public static class NuGetSourceResolver
         => SourceKeys(ResolveSourcesForPackage(options, packageId, workingDirectory));
 
     /// <summary>
+    /// Resolves the ordered candidate-metadata routes eligible to serve
+    /// <paramref name="packageId"/> and reduces each route to its durable cache identity.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveCandidateCacheKeysForPackage(
+        NuGetSourceOptions? options,
+        string packageId,
+        string? workingDirectory = null)
+        => CandidateCacheKeys(
+            ResolveSourcesForPackage(options, packageId, workingDirectory));
+
+    /// <summary>
     /// Reduces already-resolved sources to their cache identities, preserving
     /// configured order.
     /// </summary>
@@ -178,6 +189,49 @@ public static class NuGetSourceResolver
     {
         ArgumentNullException.ThrowIfNull(source);
         return PackageSourceClientProvider.ProducerKey(source);
+    }
+
+    /// <summary>
+    /// Reduces already-resolved sources to ordered candidate-metadata route identities.
+    /// </summary>
+    public static IReadOnlyList<string> CandidateCacheKeys(
+        IEnumerable<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var keys = new List<string>();
+        foreach (NuGetSource source in sources)
+        {
+            string key = CandidateCacheKey(source);
+            if (seen.Add(key))
+                keys.Add(key);
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// Returns the candidate-metadata cache identity for one resolved route.
+    /// </summary>
+    public static string CandidateCacheKey(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return NuGetCache.GetCandidateRouteKey(
+            source is RoutedPackageSource route
+                ? route.Transports.Select(transport => transport.Url)
+                : [source.Url]);
+    }
+
+    /// <summary>
+    /// Enumerates the transport aliases represented by one resolved source.
+    /// </summary>
+    public static IReadOnlyList<NuGetSource> Transports(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source is RoutedPackageSource route
+            ? route.Transports
+            : [source];
     }
 
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)

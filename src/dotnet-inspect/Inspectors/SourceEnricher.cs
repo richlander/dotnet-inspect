@@ -433,7 +433,7 @@ internal static class SourceEnricher
     internal static string? FindCachedPackageVersion(string packageName, ApiOptions options)
         => PackageExtractor.TryGetLatestCachedCandidateVersion(
             packageName,
-            SourceResolver.ResolveSourceKeysForProbe(
+            SourceResolver.ResolveCandidateCacheKeysForProbe(
                 options.SourceOptions,
                 packageName));
 

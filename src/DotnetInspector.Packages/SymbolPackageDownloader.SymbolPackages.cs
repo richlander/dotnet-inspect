@@ -15,7 +15,8 @@ public partial class SymbolPackageDownloader
                 _sourceAuthorization.AuthorizeSourcesFor(
                     packageName.ToLowerInvariant());
             return authorization.Sources.Any(
-                source => source.IsNuGetOrg);
+                source => NuGetSourceResolver.Transports(source)
+                    .Any(transport => transport.IsNuGetOrg));
         }
 
         try
@@ -23,7 +24,8 @@ public partial class SymbolPackageDownloader
             return NuGetSourceResolver.ResolveSourcesForPackage(
                     sourceOptions,
                     packageName)
-                .Any(source => source.IsNuGetOrg);
+                .Any(source => NuGetSourceResolver.Transports(source)
+                    .Any(transport => transport.IsNuGetOrg));
         }
         catch (PackageSourceMappingException ex)
             when (ex.Failure is

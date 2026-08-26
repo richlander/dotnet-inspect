@@ -148,6 +148,35 @@ public class LocalFolderSourceTests : IDisposable
         Assert.Contains("<id>TestPackage</id>", nuspec);
     }
 
+    [Fact]
+    public async Task SignedSourceAliases_FailOverStandaloneNuspecLookup()
+    {
+        const string Expired =
+            "https://feed.example.test/v3/index.json?token=expired";
+        const string Current =
+            "https://feed.example.test/v3/index.json?token=current";
+        var handler = new StubHandler();
+        handler.Add(Expired, "{");
+        handler.Add(
+            Current,
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage/1.0.0/testpackage.nuspec",
+            """<?xml version="1.0"?><package><metadata><id>TestPackage</id><version>1.0.0</version></metadata></package>""");
+        using var client = new HttpClient(handler);
+
+        string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+            client,
+            "TestPackage",
+            "1.0.0",
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [Expired, Current],
+            });
+
+        Assert.Contains("<id>TestPackage</id>", nuspec);
+    }
+
     /// <summary>
     /// HTTP handler that throws on any request — proves no network call was attempted.
     /// </summary>

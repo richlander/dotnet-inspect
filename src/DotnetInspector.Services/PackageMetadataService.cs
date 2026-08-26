@@ -147,35 +147,49 @@ public static class PackageMetadataService
                 }
             }
 
-            if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? sourceUri)
-                || sourceUri.Scheme is not ("http" or "https"))
+            SourceMetadataResult? result = null;
+            foreach (PackageSource transport in NuGetSourceResolver.Transports(source))
             {
-                log?.Invoke(
-                    $"Skipping non-HTTP NuGet metadata source "
-                    + $"'{source.Name}': {source.Url}");
-                return new PackageMetadata();
+                if (!Uri.TryCreate(
+                        transport.Url,
+                        UriKind.Absolute,
+                        out Uri? sourceUri)
+                    || sourceUri.Scheme is not ("http" or "https"))
+                {
+                    log?.Invoke(
+                        $"Skipping non-HTTP NuGet metadata source "
+                        + $"'{transport.Name}': {transport.Url}");
+                    result = new SourceMetadataResult(SourcePresence.Indeterminate);
+                    continue;
+                }
+
+                HttpClient sourceClient =
+                    ReferenceEquals(client, HttpClientFactory.Shared)
+                        ? HttpClientFactory.GetPackageSourceClient(transport.Url)
+                        : client;
+                SourceMetadataResult transportResult =
+                    await FetchAllMetadataFromSourceAsync(
+                        sourceClient,
+                        transport,
+                        normalizedName,
+                        normalizedVersion,
+                        log,
+                        registrationOnly,
+                        untrustedClient).ConfigureAwait(false);
+                result = transportResult;
+                if (transportResult.Presence != SourcePresence.Indeterminate)
+                    break;
             }
 
-            HttpClient sourceClient =
-                ReferenceEquals(client, HttpClientFactory.Shared)
-                    ? HttpClientFactory.GetPackageSourceClient(source.Url)
-                    : client;
-            SourceMetadataResult result = await FetchAllMetadataFromSourceAsync(
-                sourceClient,
-                source,
-                normalizedName,
-                normalizedVersion,
-                log,
-                registrationOnly,
-                untrustedClient).ConfigureAwait(false);
-            if (result.Presence == SourcePresence.Indeterminate)
+            if (result is not { } routeResult
+                || routeResult.Presence == SourcePresence.Indeterminate)
             {
                 log?.Invoke(
                     $"Metadata from higher-precedence source '{source.Name}' is unavailable; "
                     + "lower sources were not consulted.");
                 return new PackageMetadata();
             }
-            if (result.Presence == SourcePresence.Absent)
+            if (routeResult.Presence == SourcePresence.Absent)
             {
                 using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
                 {
@@ -184,8 +198,8 @@ public static class PackageMetadataService
                 continue;
             }
 
-            PackageMetadata metadata = result.Metadata ?? new PackageMetadata();
-            if (result.Cacheable)
+            PackageMetadata metadata = routeResult.Metadata ?? new PackageMetadata();
+            if (routeResult.Cacheable)
             {
                 using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
                 {
@@ -229,7 +243,7 @@ public static class PackageMetadataService
         string normalizedVersion,
         bool registrationOnly) =>
         $"v6-{(registrationOnly ? "published" : "full")}-"
-        + $"{NuGetCache.GetSourceKey(source.Url)}-"
+        + $"{NuGetSourceResolver.CandidateCacheKey(source)}-"
         + $"{normalizedName}@{normalizedVersion}";
 
     private static string NormalizeVersion(string version) =>

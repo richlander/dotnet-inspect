@@ -1462,6 +1462,99 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void SignedSourceRoutes_UseCompleteCandidateCacheIdentity()
+    {
+        const string Common =
+            "https://feed.invalid/v3/index.json?signature=common";
+        NuGetFetch.PackageSource routeA = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        Common,
+                        "https://feed.invalid/v3/index.json?signature=fallback-a",
+                    ],
+                },
+                "example"));
+        NuGetFetch.PackageSource routeB = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        Common,
+                        "https://feed.invalid/v3/index.json?signature=fallback-b",
+                    ],
+                },
+                "example"));
+        NuGetFetch.PackageSource reversed = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://feed.invalid/v3/index.json?signature=fallback-a",
+                        Common,
+                    ],
+                },
+                "example"));
+
+        Assert.NotEqual(
+            PackageExtractor.GetLatestVersionCacheKey("example", routeA),
+            PackageExtractor.GetLatestVersionCacheKey("example", routeB));
+        Assert.NotEqual(
+            PackageExtractor.GetLatestVersionCacheKey("example", routeA),
+            PackageExtractor.GetLatestVersionCacheKey("example", reversed));
+        Assert.NotEqual(
+            PackageExtractor.GetListingsVersionCacheKey("example", routeA),
+            PackageExtractor.GetListingsVersionCacheKey("example", routeB));
+        Assert.Equal(
+            NuGetCache.GetSourceKey(Common),
+            NuGetCache.GetCandidateRouteKey([Common]));
+        Assert.Equal(
+            NuGetSourceResolver.CandidateCacheKey(
+                new NuGetFetch.PackageSource(
+                    "first",
+                    Common,
+                    new NuGetFetch.PackageSourceCredential("user", "first"))),
+            NuGetSourceResolver.CandidateCacheKey(
+                new NuGetFetch.PackageSource(
+                    "second",
+                    Common,
+                    new NuGetFetch.PackageSourceCredential("user", "second"))));
+    }
+
+    [Fact]
+    public void SignedSourceCandidateCache_IsReadableByResolvedProbe()
+    {
+        const string PackageId = "signed.route.candidate";
+        var options = new NuGetSourceOptions
+        {
+            Sources =
+            [
+                "https://feed.invalid/v3/index.json?signature=expired",
+                "https://feed.invalid/v3/index.json?signature=current",
+            ],
+        };
+        NuGetFetch.PackageSource route = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(options, PackageId));
+        Core.CoreCache.Set(
+            "versions-v5",
+            PackageExtractor.GetLatestVersionCacheKey(PackageId, route),
+            "2.0.0",
+            extension: "txt");
+
+        string? cached = PackageExtractor.TryGetLatestCachedCandidateVersion(
+            PackageId,
+            NuGetSourceResolver.ResolveCandidateCacheKeysForPackage(
+                options,
+                PackageId));
+
+        Assert.Equal("2.0.0", cached);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_DoesNotShareFlightsAcrossHttpClients()
     {
         string packageName = $"clientflight.test.{Guid.NewGuid():N}";

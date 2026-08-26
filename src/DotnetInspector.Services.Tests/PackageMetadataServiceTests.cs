@@ -370,6 +370,57 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchAllMetadataAsync_SignedAliasesFailOverWithinProducer()
+    {
+        const string packageId = "Signed.Metadata.Route";
+        const string expired =
+            "https://private.example/v3/index.json?token=expired";
+        const string current =
+            "https://private.example/v3/index.json?token=current";
+        var handler = new RoutingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/v3/index.json")
+            {
+                return request.RequestUri.Query == "?token=expired"
+                    ? new HttpResponseMessage(
+                        System.Net.HttpStatusCode.Unauthorized)
+                    : Json("""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                          ]
+                        }
+                        """);
+            }
+
+            return request.RequestUri.AbsolutePath
+                == "/registration/signed.metadata.route/1.0.0.json"
+                    ? Json("""{ "published": "2024-01-02T03:04:05Z" }""")
+                    : new HttpResponseMessage(
+                        System.Net.HttpStatusCode.NotFound);
+        });
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            packageId,
+            "1.0.0",
+            log: null,
+            forceLatest: true,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [expired, current],
+            });
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
+            result.Published);
+        Assert.Contains(
+            handler.Requests,
+            request => request.Uri.Query == "?token=current");
+    }
+
+    [Fact]
     public async Task FetchAllMetadataAsync_AuthoritativeAbsenceFallsBackInSourceOrder()
     {
         const string sourceA = "https://a.example/v3/index.json";

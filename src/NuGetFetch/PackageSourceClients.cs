@@ -389,19 +389,21 @@ public static class PackageSourceClientFactory
             ? ""
             : original[suffixStart..];
 
+        string pathWithoutOptionalSlash =
+            path.EndsWith("/", StringComparison.Ordinal)
+                ? path[..^1]
+                : path;
         if (endpoint.AbsolutePath.TrimEnd('/').EndsWith(
                 "index.json",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return path.EndsWith("/", StringComparison.Ordinal)
-                ? new Uri(
-                    $"{path.TrimEnd('/')}{suffix}",
-                    UriKind.Absolute)
-                : endpoint;
+            return new Uri(
+                $"{pathWithoutOptionalSlash}{suffix}",
+                UriKind.Absolute);
         }
 
         return new Uri(
-            $"{path.TrimEnd('/')}/v3/index.json{suffix}",
+            $"{pathWithoutOptionalSlash}/v3/index.json{suffix}",
             UriKind.Absolute);
     }
 

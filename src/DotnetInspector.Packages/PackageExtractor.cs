@@ -809,39 +809,47 @@ public static class PackageExtractor
             sourceOptions,
             packageId))
         {
-            var url = await GetNuspecUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
-            if (url == null)
-                continue;
-
-            try
+            foreach (NuGetSource transport in NuGetSourceResolver.Transports(source))
             {
-                HttpRetryHelper.HttpBodyFetchResult body =
-                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                        client,
-                        url,
-                        static _ => true,
-                        log: log,
-                        auth: NuGetCredentialScope.AuthFor(source, url, log),
-                        trafficKind: NetworkTrafficKind.PackageManifest,
-                        maxDownloadSize: MaxNuspecBytes).ConfigureAwait(false);
-                if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
-                    && body.Bytes is { Length: > 0 })
-                {
-                    return Encoding.UTF8.GetString(body.Bytes);
-                }
+                var url = await GetNuspecUrlAsync(
+                    client,
+                    transport,
+                    normalizedName,
+                    normalizedVersion,
+                    log).ConfigureAwait(false);
+                if (url == null)
+                    continue;
 
-                if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                try
+                {
+                    HttpRetryHelper.HttpBodyFetchResult body =
+                        await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                            client,
+                            url,
+                            static _ => true,
+                            log: log,
+                            auth: NuGetCredentialScope.AuthFor(transport, url, log),
+                            trafficKind: NetworkTrafficKind.PackageManifest,
+                            maxDownloadSize: MaxNuspecBytes).ConfigureAwait(false);
+                    if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
+                        && body.Bytes is { Length: > 0 })
+                    {
+                        return Encoding.UTF8.GetString(body.Bytes);
+                    }
+
+                    if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                    {
+                        log?.Invoke(
+                            $"Nuspec from {PackageSourceDisplay.ForDiagnostics(transport)} "
+                            + $"exceeded {MaxNuspecBytes} byte cap.");
+                    }
+                }
+                catch (HttpRequestException ex)
                 {
                     log?.Invoke(
-                        $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
-                        + $"exceeded {MaxNuspecBytes} byte cap.");
+                        $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(transport)} failed: "
+                        + $"{ex.GetType().Name}");
                 }
-            }
-            catch (HttpRequestException ex)
-            {
-                log?.Invoke(
-                    $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(source)} failed: "
-                    + $"{ex.GetType().Name}");
             }
         }
 
@@ -1451,7 +1459,7 @@ public static class PackageExtractor
         NuGetSource source,
         bool includePrerelease = false)
         => LatestVersionCacheKey(
-            NuGetCache.GetSourceKey(source.Url),
+            NuGetSourceResolver.CandidateCacheKey(source),
             packageName.ToLowerInvariant(),
             includePrerelease);
 
@@ -1459,7 +1467,7 @@ public static class PackageExtractor
         string packageName,
         NuGetSource source)
         => ListingsVersionCacheKey(
-            NuGetCache.GetSourceKey(source.Url),
+            NuGetSourceResolver.CandidateCacheKey(source),
             packageName.ToLowerInvariant());
 
     /// <summary>
@@ -1647,7 +1655,7 @@ public static class PackageExtractor
             {
                 version = TryGetCachedLatestForSource(
                     normalizedName,
-                    NuGetCache.GetSourceKey(source.Url),
+                    NuGetSourceResolver.CandidateCacheKey(source),
                     includePrerelease);
                 if (version is not null)
                     log?.Invoke(
@@ -1689,7 +1697,7 @@ public static class PackageExtractor
                         CoreCache.Set(
                             VersionCacheCategory,
                             LatestVersionCacheKey(
-                                NuGetCache.GetSourceKey(source.Url),
+                                NuGetSourceResolver.CandidateCacheKey(source),
                                 normalizedName,
                                 includePrerelease),
                             version,
@@ -2477,7 +2485,7 @@ public static class PackageExtractor
         {
             string? candidate = TryGetCachedLatestEntryForSource(
                 normalizedName,
-                NuGetCache.GetSourceKey(source.Url),
+                NuGetSourceResolver.CandidateCacheKey(source),
                 includePrerelease);
             if (candidate is not null)
             {
@@ -2906,7 +2914,7 @@ public static class PackageExtractor
             bool fetchedSourceMissing = false;
             bool fromCache = false;
             string cacheKey = ListingsVersionCacheKey(
-                NuGetCache.GetSourceKey(source.Url),
+                NuGetSourceResolver.CandidateCacheKey(source),
                 normalizedName);
 
             string? cached = useCache

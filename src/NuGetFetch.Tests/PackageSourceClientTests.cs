@@ -749,6 +749,46 @@ public sealed class PackageSourceClientTests
             runtime.Identity);
     }
 
+    [Theory]
+    [InlineData(
+        "https://feed.example/v3/index.json//?sig=Ab%2f",
+        "https://feed.example/v3/index.json/?sig=Ab%2f")]
+    [InlineData(
+        "https://feed.example/nuget//?sig=Ab%2f",
+        "https://feed.example/nuget//v3/index.json?sig=Ab%2f")]
+    public async Task V3SourceNormalizationRemovesAtMostOneTrailingSlash(
+        string source,
+        string normalized)
+    {
+        var handler = new RecordingHandler
+        {
+            [normalized] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [Versions] = """{"versions":["1.0.0"]}""",
+        };
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", source),
+                client);
+
+        _ = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal([normalized, Versions], handler.Requested);
+    }
+
     [Fact]
     public async Task V3ServiceIndexVersionAndPackageRetryTransientResponses()
     {

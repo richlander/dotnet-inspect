@@ -117,16 +117,23 @@ between a single optional trailing slash and repeated trailing slashes. The
 `ProducerKey_DistinguishesRepeatedTrailingSlashes` gate enforces that boundary.
 Payload authorization, alias collapse, cache admission, and
 realized-coordinate reload all compare that producer identity;
-transport-scoped version metadata continues to use the configured endpoint
-identity. Portable descriptors reject queries and fragments. Two immutable
-content domains that need distinct producer identities require distinct
-endpoint paths rather than a query-only distinction.
+transport-scoped candidate metadata uses the complete ordered route identity.
+A single-transport route preserves its existing configured-endpoint cache key.
+A multi-transport route hashes every canonical endpoint identity in order,
+without credentials, so routes with a shared primary alias and different
+fallbacks cannot share version or listing observations. Portable descriptors
+reject queries and fragments. Two immutable content domains that need distinct
+producer identities require distinct endpoint paths rather than a query-only
+distinction.
 `PackagePayloadAcquisitionTests.SignedSourceAlias_CommitsUnderProducerIdentity`,
 `PackagePayloadAcquisitionTests.SignedGlobalPackageMetadata_AuthorizesStableProducerOffline`,
 and
 `SourceScopedRoutingTests.SignedSourceRestrictionAuthorizesStableProducerIdentity`
 gate payload admission, cache publication, and authorization at that producer
 boundary.
+`SignedSourceRoutes_UseCompleteCandidateCacheIdentity` and
+`SignedSourceCandidateCache_IsReadableByResolvedProbe` gate the distinct
+candidate-cache identity.
 
 Package-source identity is broader than a NuGet v3 service-index URL. A
 standard v3 feed, the built-in NuGet Gallery browser implementation, and a
@@ -547,18 +554,20 @@ Desktop version discovery, floating resolution, workspace payload acquisition,
 and ordinary package extraction adapt each authorized HTTP source to that typed
 client. The package layer supplies a host-owned transport rather than allowing
 the protocol factory to accept an arbitrary shared `HttpClient`: production
-selects the per-origin client owned by `HttpClientFactory`, while tests may
-retain an explicitly injected transport. Typed failures are projected into the
-existing feed-failure diagnostics during this compatibility migration. The
-typed v3 resource owner retries transient service-index, version-index, and
+selects a producer-scoped authentication transport over a credential-free
+connection pipeline shared by origin, while tests may retain an explicitly
+injected transport. Typed failures are projected into the existing
+feed-failure diagnostics during this compatibility migration. The typed v3
+resource owner retries transient service-index, version-index, and
 exact-package requests within one bounded operation deadline; package-layer
 aggregation does not add another retry loop. The adapter derives the typed
 request deadline and four-request operation ceiling from the selected host
 transport, preserving the configured `--http-timeout` contract across ordinary
 and signed-alias sources.
 Configured HTTP base sources are normalized to `/v3/index.json` for typed
-service-index requests while retaining signed query bytes; producer identity
-continues to describe the configured endpoint path. Service-index `@type`
+service-index requests while retaining signed query bytes and removing at most
+one optional trailing slash; producer identity continues to describe the
+configured endpoint path. Service-index `@type`
 accepts the JSON-LD string and array forms. Parsing counts every type
 observation, including malformed array entries, against the 4,096-observation
 limit and checks cancellation during traversal. Malformed optional or unrelated

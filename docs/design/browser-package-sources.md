@@ -735,13 +735,15 @@ reimplemented in the host.
 Desktop version discovery and exact package acquisition now cross the same
 typed source-client boundary. `PackageSourceClientProvider` adapts the desktop
 host transport: the process-wide shared client selects
-`HttpClientFactory.GetPackageSourceClient` for each configured source origin,
-retaining authentication plugins, offline behavior, telemetry, and the
-configured-origin destination policy, while an explicitly injected test client
-remains authoritative. The typed client borrows that host transport and does
-not dispose it. Package-layer aggregation still owns source order, reporting
-feeds, NuGet.org listing enrichment, complete-source requirements, the
-cache-first authorized-producer pass, payload admission, and source failover.
+`HttpClientFactory.GetPackageSourceTransport` for each configured producer,
+retaining producer-scoped authentication plugins, offline behavior, telemetry,
+and the configured-origin destination policy. Credential-free connections
+remain reusable across producers on one origin, while an explicitly injected
+test client remains authoritative. The typed client borrows that host transport
+and does not dispose it. Package-layer aggregation still owns source order,
+reporting feeds, NuGet.org listing enrichment, complete-source requirements,
+the cache-first authorized-producer pass, payload admission, and source
+failover.
 `SourcePrecedenceTests`, `VersionCacheTests`,
 `PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`,
 `PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,

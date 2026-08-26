@@ -32,8 +32,8 @@ and cached permanently under that producer.
 
 This is the default and the most common case. Resolution follows this order:
 
-1. **Version cache** — check each eligible feed's version-resolution cache
-   (1-hour TTL) for a source-scoped candidate list.
+1. **Version cache** — check each eligible transport route's version-resolution
+   cache (1-hour TTL) for a route-scoped candidate list.
 2. **Network** — if the version cache misses, query NuGet for the latest stable
    version.
 3. **Package cache** — after resolving the version and retaining the feeds that
@@ -79,18 +79,20 @@ coordinate retains the serving producer for exact re-acquisition.
 
 HTTP version enumeration and exact package payload requests use
 `IPackageSourceClient`. The desktop adapter chooses the application-owned
-per-origin transport for production and preserves an injected transport for
-tests; multi-source semantic-version selection, NuGet.org registration
+producer-scoped authentication transport for production over a credential-free
+connection pipeline shared by origin, and preserves an injected transport for
+tests. Multi-source semantic-version selection, NuGet.org registration
 enrichment, cache authority, and source failover remain package-layer policy.
-The Browser workspace supplies its host-bound Gallery client through the same
-borrowed-client seam, so platform version and payload acquisition use the
-Gallery flat-container, registration, and package CDN routes without requesting
-the blocked NuGet.org service index.
+Candidate metadata is keyed by the complete ordered transport route, distinct
+from producer-scoped payload authorization. The Browser workspace supplies its
+host-bound Gallery client through the same borrowed-client seam, so platform
+version and payload acquisition use the Gallery flat-container, registration,
+and package CDN routes without requesting the blocked NuGet.org service index.
 Every advertised `PackageBaseAddress` resource is validated before one is
 selected, including siblings named by an array-valued JSON-LD `@type`, so an
 unusable or credential-bearing sibling still makes the source incomplete.
 Configured base sources are normalized to `/v3/index.json` while signed query
-bytes remain unchanged, including when a trailing slash must be removed from an
+bytes remain unchanged, removing at most one optional trailing slash from an
 otherwise canonical index path. Exact package pins are normalized once before
 cache lookup and payload acquisition. Borrowed clients retain authoritative
 listing state for floating selection, exclude unlisted candidates, and reject
