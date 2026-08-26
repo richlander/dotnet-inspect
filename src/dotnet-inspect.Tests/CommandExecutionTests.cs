@@ -13304,6 +13304,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NamedCallerDiscoveryRetainsCallerSection()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            $"{nameof(MemberCallGraphFixture.Inner)}:1", "-D", SectionNames.Callers,
+            "--bin", fixtureDirectory, "--json", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
+    }
+
+    [Fact]
     public async Task Member_BareNameCallersWithCallerScope_AmbiguousOverloadReportsSelectorHint()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;

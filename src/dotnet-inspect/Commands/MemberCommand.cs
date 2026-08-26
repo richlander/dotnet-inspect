@@ -296,10 +296,17 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
+            var discoveredCallerSections =
+                GetDiscoveredCallerSections(effectiveOptions);
             var callersImplicitlySelected = effectiveOptions.HasCallerScope
-                && !HasAuthoredSectionRequest(effectiveOptions);
+                && (!HasAuthoredSectionRequest(effectiveOptions)
+                    || discoveredCallerSections.Count > 0);
             if (callersImplicitlySelected)
-                effectiveOptions = IncludeCallersSection(effectiveOptions);
+            {
+                effectiveOptions = IncludeCallerScopeSections(
+                    effectiveOptions,
+                    discoveredCallerSections);
+            }
             var authoredSelection = effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
@@ -341,7 +348,9 @@ public static class MemberCommand
                         is not { } detailOptions)
                         return 1;
                     effectiveOptions = callersImplicitlySelected
-                        ? IncludeCallersSection(detailOptions)
+                        ? IncludeCallerScopeSections(
+                            detailOptions,
+                            discoveredCallerSections)
                         : detailOptions;
                 }
             }
@@ -867,17 +876,49 @@ public static class MemberCommand
         return sections.Count > 0;
     }
 
-    private static MemberOptions IncludeCallersSection(MemberOptions options)
+    private static MemberOptions IncludeCallerScopeSections(
+        MemberOptions options,
+        IReadOnlySet<string> discoveredCallerSections)
     {
         var includeSections = options.IncludeSections is { Count: > 0 } existing
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        includeSections.Add(SectionNames.Callers);
+        if (discoveredCallerSections.Count > 0)
+            includeSections.UnionWith(discoveredCallerSections);
+        else
+            includeSections.Add(SectionNames.Callers);
         return options with
         {
             IncludeSections = includeSections,
-            CallerScopeSectionImplicitlySelected = true
+            CallerScopeSectionImplicitlySelected =
+                includeSections.Contains(SectionNames.Callers)
         };
+    }
+
+    private static HashSet<string> GetDiscoveredCallerSections(
+        MemberOptions options)
+    {
+        if (options.Discover is not { Length: > 0 } discover)
+            return [];
+
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        var resolved = SelectResolver.ResolveSelectAsSections(
+            discover,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap());
+        if (resolved.HasError || resolved.Sections is not { } sections)
+            return [];
+
+        return sections
+            .Where(section =>
+                section.Equals(
+                    SectionNames.Callers,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.CallGraph,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool RequiresCallerScopeResolution(MemberOptions options)
