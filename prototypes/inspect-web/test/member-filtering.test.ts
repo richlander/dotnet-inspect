@@ -12,6 +12,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectedConcreteOverload,
 } from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
@@ -223,6 +224,13 @@ test("member navigation enters the nearest edge from no selection", () => {
   assert.equal(memberNavTargetIndex(-1, 3, -1), 2);
   assert.equal(memberNavTargetIndex(0, 3, 1), 1);
   assert.equal(memberNavTargetIndex(2, 3, 1), 2);
+});
+
+test("a multi-overload picker has no concrete overload", () => {
+  const overloads = ["first", "second"];
+  assert.equal(selectedConcreteOverload(overloads, null), undefined);
+  assert.equal(selectedConcreteOverload(overloads, 0), "first");
+  assert.equal(selectedConcreteOverload(["only"], null), "only");
 });
 
 test("Call graph invalidation releases every asynchronous owner", () => {
