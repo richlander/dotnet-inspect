@@ -32,15 +32,27 @@ dotnet-inspect type --package System.Text.Json -20
 dotnet-inspect package System.Text.Json --versions -n 5
 ```
 
-`-n N` and bare `-N` mean the first N items in each declared row set after
-filtering and effective ordering. They make no ranking claim. `--tail` changes
-the direction to the last N items.
+`-n N` and bare `-N` take a positive decimal integer and mean the first N items
+in each declared row set after filtering and effective ordering. Zero,
+negative, and non-integer counts reject. They make no ranking claim. `--head`
+names the default first-N direction explicitly; `--tail` changes it to last N.
+
+Bare `-N` is an option token, not a textual rewrite of every dash-digit token.
+It is recognized only before the `--` option terminator and when the token is
+not the required value of a preceding option. Thus target value-less
+`--versions -5` selects five version rows, while `--type -5` binds `-5` as the
+required selector value and rejects it under the retired numeric-selector
+rule. Value-less and optional-value options do not consume a following
+dash-digit token; a valid negative optional value must use that option's inline
+form. One invocation may carry only one count spelling; `-n=5` is the inline
+form of `-n 5`, while combining either with `-5` rejects.
 
 The adjacent concepts keep distinct names:
 
 | Gesture | Meaning |
 | --- | --- |
 | `-n N` / bare `-N` | First N items in each declared row set. |
+| `-n N --head` | First N items, with the default direction explicit. |
 | `-n N --tail` | Last N items in each declared row set. |
 | `--rows N..M` / `N+K` / `N..` | Absolute 1-based row range. |
 | `--top N --order-by "Field desc"` | Ranked first N; `--order-by` is mandatory unless the section declares a ranking default. |
@@ -90,9 +102,9 @@ Filtering and effective ordering establish those 1-based addresses before any
 item window. Consequently, rows 21 through 40 in the second example are ranked
 positions 21 through 40, and retain those addresses after the intersection.
 
-An empty intersection is an honest empty result. `--tail` cannot modify an
-absolute row range. It can modify an accompanying item count or an independent
-line window:
+An empty intersection is an honest empty result. `--head` and `--tail` cannot
+modify an absolute row range. Either can modify an accompanying item count or
+an independent line window:
 
 ```bash
 # Stable rows 90 through 95, if they occur among the last 20 items.
@@ -111,7 +123,7 @@ select subject and section/lens
 -> produce rows
 -> apply --where and command-owned filters
 -> apply effective order and assign 1-based row addresses
--> apply item-mode -n/--tail or --top
+-> apply item-mode -n/--head|--tail or --top
 -> intersect --rows range
 -> project columns, fields, values, paths, URLs, or printable payloads
 -> apply per-payload --lines window when requested
@@ -120,11 +132,18 @@ select subject and section/lens
 
 `--count` branches after filtering and before ordering or windows. It reports
 the full matched-row count, so it is mutually exclusive with `-n`, `--top`,
-`--rows`, `--tail`, and `--lines`; no accepted limiter may be silently ignored.
+`--rows`, `--head`, `--tail`, and `--lines`; no accepted limiter may be
+silently ignored.
 
 `--row` remains an exactly-one address and is mutually exclusive with item-mode
-`-n`/`--tail`, `--top`, and `--rows`. It may combine with `--print`, `--value`,
-`--urls`, or `--paths`, and with line-mode `-n`/`--tail` under `--lines`.
+`-n`/`--head`/`--tail`, `--top`, and `--rows`. It may combine with `--print`,
+`--value`, `--urls`, or `--paths`, and with line-mode
+`-n`/`--head`/`--tail` under `--lines`.
+
+Direction flags require an active item or line `-n` window and reject when
+bare. `--head` and `--tail` are mutually exclusive. An absolute range alone
+rejects either direction, while a range may intersect an independently
+directed item or line window as shown above.
 
 ### Cost and completion
 
@@ -168,8 +187,8 @@ Rules:
   declares that its default order is a ranking order.
 - A stable but non-ranking default, such as alphabetical or producer order,
   cannot satisfy bare `--top`.
-- `--top` is mutually exclusive with item-mode `-n` and `--tail`. It may
-  combine with `-n N --lines` and line-mode `--tail`.
+- `--top` is mutually exclusive with item-mode `-n`, `--head`, and `--tail`. It
+  may combine with `-n N --lines` and a line-mode direction.
 - The order's `asc`/`desc` direction chooses lowest/highest ranking; `--tail`
   does not reverse it.
 - `--top` may combine with an absolute `--rows` range to intersect ranked
@@ -260,6 +279,20 @@ requires a structured format or a separately designed directory export.
 Line windows reject exact `--out`; structured output written to a file may
 carry clipped content because it is not an exact-payload export.
 
+These unary modes do not invent a per-row envelope. After successful
+capability preflight, an acquisition failure under `--bare` emits no stdout,
+writes a diagnostic to stderr, and exits nonzero. Exact `--out` completes
+acquisition before opening its destination; an acquisition failure therefore
+leaves an absent destination absent and an existing destination unchanged,
+emits a diagnostic, and exits nonzero. Successful `--bare` emits only the
+terminal-safe payload, while successful exact `--out` emits only the original
+bytes.
+
+The destination guarantees in this design cover validation, preflight, and
+acquisition before publication. They do not add crash-safe or disk-failure
+transaction semantics once an otherwise valid file write begins; that broader
+filesystem contract is outside #4677.
+
 Plain `--json` also remains unary and preserves its one-object contract.
 Multi-item structured print requires `--jsonl` or `--json-array`; accepting
 multiple rows with plain `--json` would leave its envelope ambiguous.
@@ -277,11 +310,13 @@ If the selected row set declares no printable capability, `--print` rejects the
 request once before payload acquisition or stdout. It does not emit one failure
 per row for a shape that cannot print any row.
 
-After that row-set preflight, every selected row produces a visible success or
-failure result. A heterogeneous row that does not declare a printable payload,
-or whose payload acquisition fails, is not skipped. Text output emits a framed
-failure; structured output emits a typed failure row. Other selected rows
-continue, and the command exits nonzero when any row failed.
+After that row-set preflight, every selected row in framed or structured batch
+output produces a visible success or failure result. A heterogeneous row that
+does not declare a printable payload, or whose payload acquisition fails, is
+not skipped. Text output emits a framed failure; structured output emits a
+typed failure row. Other selected rows continue, and the command exits nonzero
+when any row failed. Unary `--bare` and exact `--out` use the diagnostic-only
+failure contract above instead of an output envelope.
 
 This is batch-result behavior, not a success-shaped fallback. A zero-row
 selection remains an error for `--print` and rejects before acquisition,
@@ -325,7 +360,9 @@ The target also changes the default text presentation of `--print`: normal
 stdout is framed and guttered even when one row is selected. Maintained guidance
 that consumes one payload body adds `--bare`; guidance that consumes multiple
 results uses the framed form or a structured batch format. This audit is part of
-the same atomic implementation change as the retired syntax migration.
+the same atomic implementation change as the retired syntax migration. Every
+command that exposes `--print` must also register `--bare`; `library` is the
+known released gap that the implementation closes.
 
 Surviving-spelling compositions also change. Current `--count --rows N..M`
 returns the size of the window, while current `--count --top N` succeeds after
@@ -370,15 +407,17 @@ The implementation must provide named Release gates for these target properties:
 | --- | --- |
 | `ItemLimitsUseDeclaredRowsAcrossFormats` | After filtering and effective ordering, every renderer selects the same first/last logical rows per declared row set and preserves non-row sections, including fixtures where limiting the unfiltered or naturally ordered prefix would select different rows. |
 | `AbsoluteRangesIntersectWithoutRenumbering` | `--rows` range intersections retain stable row addresses across item limits and rankings. |
-| `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
-| `First_And_Last_ResolveToDisplayedEndpoints` | Gap-producing `--value`, `--urls`, and `--paths` projections resolve `first` and `last` to the first and last projected rows without renumbering their stable addresses; `--print` retains every selected row as a success or failure. |
+| `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--head`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
+| `First_And_Last_ResolveToDisplayedEndpoints` | Gap-producing `--value`, `--urls`, and `--paths` projections resolve `first` and `last` to the first and last projected rows without renumbering their stable addresses; normal framed and structured `--print` retains every selected row as a success or failure. |
 | `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality after filters and before ordering or windows, including zero matches and every declared row set or inspection contributing to an aggregate count. |
-| `CountRejectsItemAndLineWindows` | `--count` rejects every result/line window, with explicit negative fixtures for current windowed `--rows` counting and silently ignored `--top`. |
-| `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default and rejects item-mode `-n`/`--tail`. |
+| `CountRejectsItemAndLineWindows` | `--count` rejects every result/line window or direction, with explicit negative fixtures for `--head`, current windowed `--rows` counting, and silently ignored `--top`. |
+| `DirectionBindsOnlyToActiveCount` | `--head` and `--tail` require and modify one active item or line `-n` window, reject together or bare, and never modify an absolute range or ranking. Positive fixtures cover `-n N --tail --rows A..B` and `--rows A..B --print -n N --lines --tail`; negative fixtures cover a range with bare `--head` or `--tail`. |
+| `UniversalLimitShorthandIsArityAware` | Separate and inline `-n`, bare `-N`, zero, duplicate counts, the `--` terminator, required-value, optional-value, and value-less options prove that only one positive count option is recognized; numeric long `--type`/`--member` values remain selector values and reject. |
+| `TopRequiresRankingOrder` | `--top` requires explicit order or a schema-declared ranking default, rejects item-mode `-n`/`--head`/`--tail`, renders "top N by ..." only for `--top`, renders "first N"/"last N" for plain `-n`, and suppresses those human notes in structured and quiet output. |
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
 | `MultiPrintRequiresOneRowSet` | `--print` rejects selections spanning multiple declared row sets before capability checks, acquisition, stdout, or destination mutation. |
 | `NonPrintableRowSetsRejectOnce` | A selected row set with no printable capability emits one preflight diagnostic without payload acquisition or stdout and leaves an absent destination absent and an existing destination byte-for-byte unchanged. |
-| `MultiPrintPreservesIdentityAndFailures` | After print-capability preflight, every selected row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
+| `MultiPrintPreservesIdentityAndFailures` | After print-capability preflight, every selected row in framed or structured output emits one success/failure result, and any failure makes the exit nonzero. |
 | `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
 | `MultiPrintPayloadCannotForgeFrames` | Payload lines matching the frame grammar, mixed line terminators, empty lines, and missing final newlines remain guttered payload and cannot create a sibling frame. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
@@ -391,9 +430,11 @@ The implementation must provide named Release gates for these target properties:
 | `RejectedExportsPreserveDestination` | Every preflight rejection path produces no stdout, leaves an absent destination absent, and leaves an existing destination byte-for-byte unchanged. |
 | `ExactPayloadOutRejectsLineWindows` | Exact `--out` rejects line windows before acquisition or destination mutation; structured file output may carry clipped content. |
 | `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before stdout or acquisition, leaving an absent destination absent and an existing destination byte-for-byte unchanged. |
+| `UnaryPrintFailuresAreVisible` | A unary acquisition failure under `--bare` or exact `--out` emits no payload/stdout, reports a diagnostic, exits nonzero, and for exact `--out` preserves an absent or existing destination because acquisition precedes publication. |
 | `ZeroRowPrintRejectsAtomically` | An empty selection exits nonzero without acquisition, stdout, file creation, truncation, overwrite, or replacement. |
 | `ResultLimitCompletionStatesAreHonest` | Source-exhausted, cap-reached, upstream-bounded, failed, and cancelled inputs retain distinct completion states. |
 | `VersionSelectionRespectsProviderOrder` | An instrumented ascending lazy source proves bare newest-first and both caller-directed range Vectors preserve their declared addresses; both literal endpoints are validated before any limited range result; missing far endpoints reject in both directions; first-N, last-N, and absolute ranges exhaust or stop only when provider order can determine the requested rows; and report line windows do not shorten metadata enumeration. |
 | `VersionFeedLimitsCountRows` | `--versions-with-feed -n N` selects N `(version, feed)` rows in the containing Vector's direction rather than N distinct versions with unbounded feed-row expansion; both range directions retain that order, and equal-version fixtures use labels ordered opposite their canonical producer keys to prove the exact key-ordered cutoff under reversed source declarations. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, generated argv, router paths, runtime diagnostics/tips, help, and maintained invocations in README, docs, prompts, workflows, and embedded skills contain no retired spelling; negative execution tests reject every retired grammar, including numeric long `--type`/`--member`, value-bearing `--versions`/`--versions-with-feed`, and count-form `--rows`, while affected replacement routes execute successfully. |
-| `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter. |
+| `PrintCommandsExposeUnaryBare` | A registry-derived fixture enumerates every command exposing `--print`, asserts that the same command parses `--bare`, and includes `library` so the gate is non-vacuous against the released mismatch. |
+| `PrintGuidanceMatchesFramingContract` | Maintained `--print` guidance uses `--bare` for a unary payload body and uses framed text or a structured batch format when row identity and boundaries matter; representative maintained invocations for each print-capable command parse through the real command tree. |

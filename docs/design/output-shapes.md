@@ -217,7 +217,7 @@ modifier changes how a selected payload is rendered.
 ### Printable payload projections
 
 The target contract from
-[Item and line limits](item-and-line-limits.md) makes `--print` a batch
+[Item and line limits](item-and-line-limits.md) makes normal `--print` a batch
 projection over the selected rows. Every selected row is projected to its
 declared printable payload:
 
@@ -258,13 +258,15 @@ preflight rather than emitting one failure per row. Per-row failures apply to a
 print-capable row set after that preflight, including heterogeneous rows that do
 not individually carry a payload.
 
-After successful preflight, every selected print row emits a visible success or
-failure result. A heterogeneous row that does not declare a printable payload,
-or whose payload cannot be acquired, is not omitted. Other rows continue, and
-any failure makes the command exit non-zero. Normal text frames every result
-with typed row identity; JSONL and JSON-array output retain that identity in one
-complete object per row. Plain `--json` retains its unary one-object contract
-and rejects multiple selected rows.
+After successful preflight, every selected print row in normal framed or
+structured output emits a visible success or failure result. A heterogeneous
+row that does not declare a printable payload, or whose payload cannot be
+acquired, is not omitted. Other rows continue, and any failure makes the command
+exit non-zero. Normal text frames every result with typed row identity; JSONL
+and JSON-array output retain that identity in one complete object per row.
+Plain `--json` retains its unary one-object contract and rejects multiple
+selected rows. Unary `--bare` and exact `--out` report acquisition failures as
+diagnostics with no payload envelope.
 
 A printed document is the document the package shipped. Markdown conventions --
 YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
@@ -317,8 +319,9 @@ diff it uses unary `--out`, which preserves the package bytes exactly,
 including any byte order mark.
 
 `-n N` and bare `-N` are semantic item windows applied independently to each
-declared row set after filtering and ordering. `--tail` selects the last N
-items. Non-row sections remain unchanged:
+declared row set after filtering and ordering. `--head` names the first-N
+direction explicitly, and `--tail` selects the last N items. Non-row sections
+remain unchanged:
 
 ```text
 --print -n 1
@@ -516,9 +519,11 @@ the caller made.
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
 | `-n N` / numeric shorthand such as `-20` | keep the first N declared items per row set |
+| `-n N --head` | keep the first N declared items with the default direction explicit |
 | `-n N --tail` | keep the last N declared items per row set |
 | `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those stable numbers name**, inclusive; absolute, so no item direction applies |
 | `-n N --lines` | keep the first N lines of the rendered report, or of each multi-print payload |
+| `-n N --lines --head` | keep the first N lines with the default direction explicit |
 | `-n N --tail-lines` | keep the last N lines; sugar for `--lines --tail` |
 | `--bare` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
@@ -720,15 +725,18 @@ The stable vocabulary is:
   single scalar count. It rejects item and line windows rather than silently
   ignoring them.
 - `-n N` / bare `-N` select the first N declared items per row set after
-  filtering and ordering. `--tail` reverses that item direction.
+  filtering and ordering. `--head` names that direction explicitly and
+  `--tail` reverses it.
 - `--rows` selects absolute stable row ranges and carries no count-only form.
-- `--print` projects every selected row to one framed or structured
-  success/failure result. It neither invents printability nor evaluates new
+- Normal `--print` projects every selected row to one framed or structured
+  success/failure result. Unary `--bare` and exact `--out` carry no result
+  envelope. None of these modes invents printability or evaluates new
   addresses.
 - `--lines` changes the `-n` unit to rendered lines. For multi-item print the
   line window applies independently to each payload.
-- `--head` / `--tail` name a direction, not a count. They modify the active
-  item or line window; they never modify an absolute row range.
+- `--head` / `--tail` name a direction, not a count. They require and modify an
+  active item or line `-n` window; they never modify an absolute row range or
+  ranking.
 - `--row` addresses a rendered row by its position in the section, counting from
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no
