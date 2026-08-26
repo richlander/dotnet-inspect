@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Xml.Linq;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -64,6 +65,9 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Decompiler.MemberBodyProducer", banned);
+        Assert.Contains("T:ILInspector.SourceLink.SourceLinkService", banned);
+        Assert.Contains("T:ILInspector.Instructions.IlAssemblyDiff", banned);
+        Assert.Contains("T:DotnetInspector.Services.PdbAcquisitionService", banned);
         Assert.Contains(
             "T:ILInspector.Analysis.CallerScopeReachabilityPlan",
             banned);
@@ -169,34 +173,51 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EveryPublicMetadataStreamOwnerIsBanned()
+    public void EveryPublicInspectionStreamOwnerIsBannedOrApprovedAcquisitionSurface()
     {
         IReadOnlyList<string> banned = BannedSymbols();
+        string[] approvedOwners =
+        [
+            "DotnetInspector.Core.HardenedXml",
+            "DotnetInspector.Packages.BoundedContentReader",
+            "DotnetInspector.Packages.FileSystemPackageStore",
+            "DotnetInspector.Packages.FileSystemPdbStore",
+            "DotnetInspector.Packages.IPackageStore",
+            "DotnetInspector.Packages.IPdbStore",
+            "DotnetInspector.Packages.InMemoryPackageStore",
+            "DotnetInspector.Packages.InMemoryPdbStore",
+            "DotnetInspector.Packages.SnupkgPdbReader",
+            "DotnetInspector.Services.NuspecParser",
+            "NuGetFetch.NuGetApi",
+            "NuGetFetch.PackageExtractor",
+            "NuGetFetch.PackageSignatureVerifier",
+            "NuGetFetch.PackageSourcePayload",
+        ];
+        HashSet<string> approved =
+            approvedOwners.ToHashSet(StringComparer.Ordinal);
         Type[] streamOwners =
         [
-            .. typeof(ILInspector.Metadata.AssemblyInspectionSession).Assembly
-                .GetExportedTypes()
-                .Where(type => type
-                    .GetMembers(
-                        BindingFlags.Public
-                        | BindingFlags.Instance
-                        | BindingFlags.Static
-                        | BindingFlags.DeclaredOnly)
-                    .OfType<MethodBase>()
-                    .Any(method => method
-                        .GetParameters()
-                        .Any(parameter =>
-                            typeof(Stream).IsAssignableFrom(parameter.ParameterType))))
+            .. ProductAssemblies
+                .SelectMany(assembly => assembly.GetExportedTypes())
+                .Distinct()
+                .Where(type =>
+                    type.GetMembers(
+                            BindingFlags.Public
+                            | BindingFlags.Instance
+                            | BindingFlags.Static
+                            | BindingFlags.DeclaredOnly)
+                        .OfType<MethodBase>()
+                        .Any(method => method.GetParameters().Any(
+                            parameter => typeof(Stream).IsAssignableFrom(
+                                parameter.ParameterType))))
                 .OrderBy(type => type.FullName, StringComparer.Ordinal),
         ];
 
-        Assert.NotEmpty(streamOwners);
-        foreach (Type owner in streamOwners)
-        {
-            Assert.Contains(
-                $"T:{owner.FullName}",
-                banned);
-        }
+        AssertGuardedOwners(
+            streamOwners,
+            approved,
+            banned,
+            "Direct-Stream owner");
     }
 
     [Fact]
@@ -216,12 +237,14 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+Rejected",
             "DotnetInspector.Queries.MemberCallGraphSession",
             "DotnetInspector.Queries.PackageAssemblyRoleCorrespondence",
+            "DotnetInspector.Services.PlatformTypeLookupCandidate",
             "ILInspector.Analysis.CallerResolutionPlan",
             "ILInspector.Analysis.CatalogCallGraphParticipant",
             "ILInspector.Analysis.CatalogMemberCorrespondencePlan",
             "ILInspector.Metadata.AssemblyBindingOrigin",
             "ILInspector.Metadata.AssemblyBindingSelection",
             "ILInspector.Metadata.TypeResolutionRequest",
+            "ILInspector.Research.ImplementationAssemblyInput",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);
@@ -243,27 +266,11 @@ public sealed class BrowserEngineLayeringTests
                 .OrderBy(type => type.FullName, StringComparer.Ordinal),
         ];
 
-        string[] staleApprovals =
-        [
-            .. approved.Except(
-                consumers.Select(type => type.FullName!),
-                StringComparer.Ordinal),
-        ];
-        string[] unguardedConsumers =
-        [
-            .. consumers
-                .Where(type =>
-                    !approved.Contains(type.FullName!)
-                    && !banned.Contains(
-                        "T:" + type.FullName!.Replace('+', '.')))
-                .Select(type => type.FullName!),
-        ];
-
-        Assert.True(
-            staleApprovals.Length == 0 && unguardedConsumers.Length == 0,
-            "Descriptor-owner guard is stale. "
-            + $"Stale approvals: {string.Join(", ", staleApprovals)}. "
-            + $"Unguarded consumers: {string.Join(", ", unguardedConsumers)}.");
+        AssertGuardedOwners(
+            consumers,
+            approved,
+            banned,
+            "Descriptor owner");
     }
 
     [Fact]
@@ -297,12 +304,7 @@ public sealed class BrowserEngineLayeringTests
         .FirstOrDefault();
 
     static IReadOnlyList<Assembly> ProductAssemblies { get; } =
-    [
-        typeof(ILInspector.Metadata.AssemblyInspectionSession).Assembly,
-        typeof(ILInspector.Decompiler.Pipeline.MetadataSource).Assembly,
-        typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly,
-        typeof(DotnetInspector.Queries.AssemblyContextGroup).Assembly,
-    ];
+        ProductReferenceClosure();
 
     static CSharpCompilation ProductCompilation { get; } = CSharpCompilation.Create(
         "BrowserEngineBannedSymbols",
@@ -333,6 +335,93 @@ public sealed class BrowserEngineLayeringTests
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
+
+    static IReadOnlyList<Assembly> ProductReferenceClosure()
+    {
+        var projects = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>();
+        pending.Push(EngineProjectPath);
+        while (pending.TryPop(out string? project))
+        {
+            if (!projects.Add(project))
+                continue;
+
+            XDocument document = XDocument.Load(project);
+            foreach (XElement reference in document
+                .Descendants()
+                .Where(element =>
+                    element.Name.LocalName == "ProjectReference"))
+            {
+                string include = reference.Attribute("Include")?.Value
+                    ?? throw new InvalidOperationException(
+                        $"ProjectReference in '{project}' has no Include.");
+                string normalized = include.Replace(
+                    '\\',
+                    Path.DirectorySeparatorChar);
+                pending.Push(Path.GetFullPath(
+                    Path.Combine(
+                        Path.GetDirectoryName(project)!,
+                        normalized)));
+            }
+        }
+
+        return
+        [
+            .. projects
+                .Where(project =>
+                    !project.Equals(
+                        EngineProjectPath,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(ProjectAssemblyName)
+                .Distinct(StringComparer.Ordinal)
+                .Select(name => Assembly.Load(new AssemblyName(name)))
+                .OrderBy(assembly => assembly.GetName().Name, StringComparer.Ordinal),
+        ];
+    }
+
+    static string ProjectAssemblyName(string project)
+    {
+        XDocument document = XDocument.Load(project);
+        string? assemblyName = document
+            .Descendants()
+            .FirstOrDefault(element =>
+                element.Name.LocalName == "AssemblyName")
+            ?.Value;
+        return assemblyName is { Length: > 0 }
+            ? assemblyName
+            : Path.GetFileNameWithoutExtension(project);
+    }
+
+    static void AssertGuardedOwners(
+        IReadOnlyCollection<Type> owners,
+        IReadOnlySet<string> approved,
+        IReadOnlyList<string> banned,
+        string category)
+    {
+        Assert.NotEmpty(owners);
+        string[] staleApprovals =
+        [
+            .. approved.Except(
+                owners.Select(type => type.FullName!),
+                StringComparer.Ordinal),
+        ];
+        string[] unguardedOwners =
+        [
+            .. owners
+                .Where(type =>
+                    !approved.Contains(type.FullName!)
+                    && !banned.Contains(
+                        "T:" + type.FullName!.Replace('+', '.')))
+                .Select(type => type.FullName!),
+        ];
+
+        Assert.True(
+            staleApprovals.Length == 0 && unguardedOwners.Length == 0,
+            $"{category} guard is stale. "
+            + $"Stale approvals: {string.Join(", ", staleApprovals)}. "
+            + $"Unguarded owners: {string.Join(", ", unguardedOwners)}.");
+    }
 
     static string RepositoryRoot()
     {
