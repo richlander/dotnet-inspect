@@ -63,7 +63,8 @@ public static class ResearchMemberIdentity
             return false;
 
         string apiDeclaringType = MetadataTypeNameFormatter.FormatFullName(target.ApiType);
-        bool reuseApiAnchor = ApiMemberIdentity.IsConversionOperator(member.Name)
+        bool reuseApiAnchor = member.CSharpOperatorDeclaration == true
+            && ApiMemberIdentity.IsConversionOperator(member.Name)
             && target.Body is { } body
             && string.Equals(
                 body.DeclaringType,

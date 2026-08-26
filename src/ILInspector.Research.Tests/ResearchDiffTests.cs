@@ -385,6 +385,92 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ResearchMemberIdentity_OrdinaryConversionNamedExtensionUsesBodyIdentity()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "method",
+            DeclaringType = "Samples.ConversionExtensions",
+            IsStatic = true,
+            IsExtension = true,
+            CSharpOperatorDeclaration = false,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                CanonicalReturnType = "System.Int32",
+                MemberName = "op_Implicit",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "Widget",
+                        CanonicalType = "Samples.Widget",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "ConversionExtensions",
+            Kind = "class",
+            Members = [member],
+        };
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        var target = new ResolvedMemberTarget(
+            type,
+            new ApiMemberHandle(type, member, anchor),
+            anchor,
+            "extension:op_Implicit",
+            "extension:op_Implicit",
+            0,
+            0,
+            0,
+            null,
+            null,
+            MemberTargetKind.Method,
+            new BodyTarget(
+                "Samples.ConversionExtensions",
+                anchor.CanonicalSignature,
+                MetadataToken: 0x06000001));
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+
+        Assert.True(
+            ResearchMemberIdentity.TryAddTargetIdentity(
+                target,
+                identities));
+        string identity = Assert.Single(identities);
+        Assert.StartsWith(
+            "extension:op_Implicit~",
+            identity,
+            StringComparison.Ordinal);
+        var bodySubject = ResearchMemberIdentity.SubjectFromMethod(
+            new MethodIdentity(
+                "Samples",
+                Guid.Empty,
+                TypeRef.Definition(
+                    "Samples",
+                    "Samples",
+                    "ConversionExtensions"),
+                "op_Implicit",
+                [TypeRef.Definition(
+                    "Samples",
+                    "Samples",
+                    "Widget")],
+                TypeRef.CoreLib("System", "Int32"),
+                MetadataToken: 0x06000001,
+                IsStatic: true,
+                IsExtension: true)
+            {
+                IsOperator = MetadataOperatorFact.No,
+            });
+        Assert.Equal(bodySubject.Id, identity);
+        Assert.NotEqual(anchor.StableSelector, identity);
+    }
+
+    [Fact]
     public void ResearchMemberIdentity_UnknownMemberReferenceUsesMetadataOperatorFallback()
     {
         var widget = TypeRef.Definition("Asm", "Sample", "Widget");

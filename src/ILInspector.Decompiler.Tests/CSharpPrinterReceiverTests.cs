@@ -498,6 +498,23 @@ public sealed class CSharpPrinterReceiverTests
         AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
     }
 
+    [Theory]
+    [InlineData(nameof(InstanceAssignmentFixtures.CheckedAssignmentLambda), "box += 1;")]
+    [InlineData(nameof(InstanceAssignmentFixtures.CheckedIncrementLambda), "box++;")]
+    public void CheckedInstanceAssignment_VoidLambdaStaysBlockBodied(
+        string methodName,
+        string statement)
+    {
+        string body = PrintFixtureWithCrossMethodImport(methodName);
+
+        Assert.Contains($"return () => {{ checked {{ {statement} }} }};", body);
+        Assert.DoesNotContain("=> checked(", body);
+        AssertCompiles(
+            "public static Action M(InstanceAssignmentBox box)",
+            Indent(body),
+            InstanceAssignmentDeclarations);
+    }
+
     [Fact]
     public void ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace()
     {
@@ -768,6 +785,8 @@ public sealed class CSharpPrinterReceiverTests
             public int Value;
             public void operator +=(int value) => Value += value;
             public void operator checked +=(int value) => Value = checked(Value + value);
+            public void operator ++() => Value++;
+            public void operator checked ++() => Value = checked(Value + 1);
         }
 
         public static class InstanceAssignmentBoxFactory
@@ -778,6 +797,24 @@ public sealed class CSharpPrinterReceiverTests
 
     static string PrintFixture(string methodName)
         => PrintFixtureResult(methodName).Output!.TrimEnd();
+
+    static string PrintFixtureWithCrossMethodImport(string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(InstanceAssignmentFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(InstanceAssignmentFixtures).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+        Assert.True(
+            result.Succeeded,
+            string.Join("\n", result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        return result.Output!.TrimEnd();
+    }
 
     static string PrintFixture(Type type, string methodName)
     {
@@ -903,6 +940,10 @@ public sealed class InstanceAssignmentBox
     public void operator +=(int value) => Value += value;
 
     public void operator checked +=(int value) => Value = checked(Value + value);
+
+    public void operator ++() => Value++;
+
+    public void operator checked ++() => Value = checked(Value + 1);
 }
 
 public static class InstanceAssignmentBoxFactory
@@ -926,6 +967,24 @@ public static class InstanceAssignmentFixtures
             box += 1;
         }
     }
+
+    public static Action CheckedAssignmentLambda(InstanceAssignmentBox box)
+        => () =>
+        {
+            checked
+            {
+                box += 1;
+            }
+        };
+
+    public static Action CheckedIncrementLambda(InstanceAssignmentBox box)
+        => () =>
+        {
+            checked
+            {
+                box++;
+            }
+        };
 
     public static void AssignableReceiver()
     {

@@ -1,7 +1,15 @@
 using System.Reflection.PortableExecutable;
 using AssemblyName = System.Reflection.AssemblyName;
+using BlobHandle = System.Reflection.Metadata.BlobHandle;
+using BlobReader = System.Reflection.Metadata.BlobReader;
+using HandleKind = System.Reflection.Metadata.HandleKind;
 using MethodAttributes = System.Reflection.MethodAttributes;
+using MethodDefinition = System.Reflection.Metadata.MethodDefinition;
+using MetadataReader = System.Reflection.Metadata.MetadataReader;
+using MethodSpecification = System.Reflection.Metadata.MethodSpecification;
+using MethodSpecificationHandle = System.Reflection.Metadata.MethodSpecificationHandle;
 using ParameterAttributes = System.Reflection.ParameterAttributes;
+using TypeDefinition = System.Reflection.Metadata.TypeDefinition;
 using TypeAttributes = System.Reflection.TypeAttributes;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Fixtures;
@@ -1213,6 +1221,162 @@ public class IrImporterTests
             TypeRefKind.MethodGenericParameter,
             call.Callee.DefinitionParameterTypes[1].Kind);
     }
+
+    [Fact]
+    public void MalformedMethodSpecificationArity_StopsBeforeStackCorruption()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-methodspec-arity-").FullName;
+        string assemblyPath = Path.Combine(
+            directory,
+            "ILInspector.Decompiler.Tests.dll");
+        try
+        {
+            File.Copy(
+                typeof(MethodSpecArityFixture).Assembly.Location,
+                assemblyPath);
+            PatchMethodSpecificationArity(
+                assemblyPath,
+                typeof(MethodSpecArityFixture).FullName!,
+                nameof(MethodSpecArityFixture.Helper),
+                originalArity: 2,
+                replacementArity: 1);
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(
+                source,
+                typeof(MethodSpecArityFixture).FullName!,
+                nameof(MethodSpecArityFixture.Invoke));
+
+            Assert.NotNull(function);
+            Assert.Equal(
+                DecompilationFidelity.Partial,
+                function.Fidelity);
+            Assert.DoesNotContain(
+                function.Descendants.OfType<Call>(),
+                call => call.Callee.Name
+                    == nameof(MethodSpecArityFixture.Helper));
+            Assert.Contains(
+                function.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
+                    "method specification supplies 1 type arguments for generic arity 2",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void PatchMethodSpecificationArity(
+        string assemblyPath,
+        string declaringType,
+        string methodName,
+        int originalArity,
+        byte replacementArity)
+    {
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader =
+            System.Reflection.Metadata.PEReaderExtensions
+                .GetMetadataReader(pe);
+        BlobHandle signatureHandle = default;
+        for (int row = 1;
+            row <= reader.GetTableRowCount(TableIndex.MethodSpec);
+            row++)
+        {
+            MethodSpecificationHandle handle =
+                MetadataTokens.MethodSpecificationHandle(row);
+            MethodSpecification specification =
+                reader.GetMethodSpecification(handle);
+            if (specification.Method.Kind
+                != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            MethodDefinition definition =
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)specification.Method);
+            TypeDefinition owner = reader.GetTypeDefinition(
+                definition.GetDeclaringType());
+            BlobReader signature = reader.GetBlobReader(
+                specification.Signature);
+            if (reader.GetFullTypeName(owner) == declaringType
+                && reader.GetString(definition.Name) == methodName
+                && signature.ReadByte() == 0x0A
+                && signature.ReadCompressedInteger()
+                    == originalArity)
+            {
+                signatureHandle = specification.Signature;
+                break;
+            }
+        }
+
+        Assert.False(signatureHandle.IsNil);
+        int blobStreamOffset = FindMetadataStreamOffset(
+            image,
+            pe.PEHeaders.MetadataStartOffset,
+            "#Blob");
+        int heapOffset = MetadataTokens.GetHeapOffset(
+            signatureHandle);
+        int entryOffset = blobStreamOffset + heapOffset;
+        int payloadOffset = entryOffset
+            + CompressedIntegerSize(image[entryOffset]);
+        Assert.Equal(0x0A, image[payloadOffset]);
+        Assert.Equal(originalArity, image[payloadOffset + 1]);
+        Assert.True(image[entryOffset] >= 4);
+        Assert.True((image[entryOffset] & 0x80) == 0);
+        image[entryOffset]--;
+        image[payloadOffset + 1] = replacementArity;
+        File.WriteAllBytes(assemblyPath, image);
+    }
+
+    static int FindMetadataStreamOffset(
+        byte[] image,
+        int metadataOffset,
+        string targetName)
+    {
+        int offset = metadataOffset + 12;
+        int versionLength = BitConverter.ToInt32(
+            image,
+            offset);
+        offset += 4 + versionLength;
+        offset = (offset + 3) & ~3;
+        offset += 2;
+        ushort streamCount = BitConverter.ToUInt16(
+            image,
+            offset);
+        offset += 2;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int streamOffset = BitConverter.ToInt32(
+                image,
+                offset);
+            offset += 8;
+            int nameStart = offset;
+            while (image[offset] != 0)
+                offset++;
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                offset - nameStart);
+            offset = (offset + 4) & ~3;
+            if (name == targetName)
+                return metadataOffset + streamOffset;
+        }
+
+        throw new InvalidOperationException(
+            $"Metadata stream {targetName} was not found.");
+    }
+
+    static int CompressedIntegerSize(byte first)
+        => (first & 0x80) == 0
+            ? 1
+            : (first & 0xC0) == 0x80
+                ? 2
+                : 4;
 
     [Fact]
     public void NestedType_ImportsByFullyQualifiedName()

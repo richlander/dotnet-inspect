@@ -1461,6 +1461,17 @@ internal sealed class CrossAssemblyTypeResolver
         TypeRef right,
         ResolvedAssemblyReference rightOrigin)
     {
+        if (NamedDefinition(left) is { } leftLocalDefinition
+            && IsSelf(leftLocalDefinition))
+        {
+            leftOrigin = _selfAssembly;
+        }
+        if (NamedDefinition(right) is { } rightLocalDefinition
+            && IsSelf(rightLocalDefinition))
+        {
+            rightOrigin = _selfAssembly;
+        }
+
         if (left.Kind != right.Kind)
             return false;
         if (left.Kind == TypeRefKind.GenericInstance)

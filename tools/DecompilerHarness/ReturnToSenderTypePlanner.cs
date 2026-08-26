@@ -4520,6 +4520,8 @@ public static class CompileBackSourceComposer
         {
             if (reader.GetString(method.Name) != methodRef.Name)
                 return false;
+            if (methodRef.GenericParameterCount != methodRef.TypeArguments.Length)
+                return false;
             if (method.GetGenericParameters().Count != methodRef.TypeArguments.Length)
                 return false;
             try

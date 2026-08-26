@@ -1748,14 +1748,28 @@ public static class IrImporter
 
                 case ILOpCode.Ldftn:
                 {
-                    var target = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var target = ResolveMethod(
+                        source.Reader,
+                        MetadataTokens.EntityHandle(reader.ReadILToken()),
+                        callerScope,
+                        source.CrossAssembly);
+                    target = source.CrossAssembly.Upgrade(
+                        target,
+                        function.UsesUpdatedMemorySafetyRules);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
                     break;
                 }
 
                 case ILOpCode.Ldvirtftn:
                 {
-                    var target = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var target = ResolveMethod(
+                        source.Reader,
+                        MetadataTokens.EntityHandle(reader.ReadILToken()),
+                        callerScope,
+                        source.CrossAssembly);
+                    target = source.CrossAssembly.Upgrade(
+                        target,
+                        function.UsesUpdatedMemorySafetyRules);
                     var instance = Pop(stack);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
                     break;
@@ -2431,6 +2445,16 @@ public static class IrImporter
                     callerScope,
                     relationshipResolver);
                 var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
+                if (methodArguments.Length != generic.GenericParameterCount)
+                {
+                    return generic with
+                    {
+                        DeclaringType = TypeRef.Unsupported(
+                            $"method specification supplies {methodArguments.Length} type arguments "
+                            + $"for generic arity {generic.GenericParameterCount}"),
+                        TypeArguments = methodArguments,
+                    };
+                }
                 var definitionParameterTypes = generic.DefinitionParameterTypes.IsDefaultOrEmpty
                     ? generic.ParameterTypes
                     : generic.DefinitionParameterTypes;

@@ -120,7 +120,9 @@ public sealed partial class CSharpPrinter
                 ? CSharpNaming.ContainedIdentifier(single.Name)
                 : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
 
-        if (lambda.ExpressionBody is { } expr)
+        if (lambda.ExpressionBody is { } expr
+            && (expr is not Call call
+                || !IsCheckedInstanceAssignmentOperatorCall(call)))
         {
             if (_stackSlotTelemetry is not null
                 && NeedsNestedLambdaScope(lambda))

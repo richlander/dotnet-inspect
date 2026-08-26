@@ -569,6 +569,35 @@ public class CrossAssemblyMethodFactsTests
         Assert.False(conversion.Callee.IsSpecialNameInferred);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeStaticPointer),
+        "op_Addition",
+        false)]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeVirtualPointer),
+        "op_Addition",
+        true)]
+    public void CrossAssemblyOperatorNameLookalike_FunctionPointerRecoversNotOperatorFact(
+        string methodName,
+        string targetName,
+        bool isVirtual)
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var pointer = Assert.Single(
+            ImportFunction(source, methodName)
+                .Descendants
+                .OfType<LoadFunctionPointer>());
+
+        Assert.Equal(targetName, pointer.Method.Name);
+        Assert.Equal(isVirtual, pointer.IsVirtual);
+        Assert.Equal(MetadataFactState.No, pointer.Method.IsOperator);
+        Assert.False(pointer.Method.IsSpecialName);
+        Assert.False(pointer.Method.IsSpecialNameInferred);
+    }
+
     [Fact]
     public void CrossAssemblyOperatorNameLookalike_RendersMethodCall()
     {
@@ -1498,6 +1527,7 @@ public class CrossAssemblyMethodFactsTests
                         otherArgument));
                 holder.CreateType();
                 subject.Save(subjectPath);
+                ClearMvid(subjectPath);
             }
             finally
             {
@@ -1525,6 +1555,55 @@ public class CrossAssemblyMethodFactsTests
                 il.Emit(OpCodes.Ldnull);
                 il.Emit(OpCodes.Ret);
             }
+        }
+
+        static void ClearMvid(string path)
+        {
+            byte[] image = File.ReadAllBytes(path);
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            MetadataReader reader = pe.GetMetadataReader();
+            GuidHandle handle = reader.GetModuleDefinition().Mvid;
+            int streamOffset = FindMetadataStreamOffset(
+                image,
+                pe.PEHeaders.MetadataStartOffset,
+                "#GUID");
+            int fileOffset = streamOffset
+                + ((MetadataTokens.GetHeapOffset(handle) - 1) * 16);
+            Array.Clear(image, fileOffset, 16);
+            File.WriteAllBytes(path, image);
+        }
+
+        static int FindMetadataStreamOffset(
+            byte[] image,
+            int metadataOffset,
+            string targetName)
+        {
+            int offset = metadataOffset + 12;
+            int versionLength = BitConverter.ToInt32(image, offset);
+            offset += 4 + versionLength;
+            offset = (offset + 3) & ~3;
+            offset += 2;
+            ushort streamCount = BitConverter.ToUInt16(image, offset);
+            offset += 2;
+            for (int index = 0; index < streamCount; index++)
+            {
+                int streamOffset = BitConverter.ToInt32(image, offset);
+                offset += 8;
+                int nameStart = offset;
+                while (image[offset] != 0)
+                    offset++;
+                string name = System.Text.Encoding.ASCII.GetString(
+                    image,
+                    nameStart,
+                    offset - nameStart);
+                offset = (offset + 4) & ~3;
+                if (name == targetName)
+                    return metadataOffset + streamOffset;
+            }
+
+            throw new InvalidOperationException(
+                $"Metadata stream {targetName} was not found.");
         }
 
         public ResolvedAssemblyReference? Resolve(
@@ -1985,6 +2064,9 @@ public class CrossAssemblyMethodFactsTests
                     }
 
                     public delegate int ExternalDelegate(int value);
+                    public delegate int ExternalBinaryDelegate(
+                        int left,
+                        int right);
 
                     public static class DelegateLibrary
                     {
@@ -1995,6 +2077,11 @@ public class CrossAssemblyMethodFactsTests
                     {
                         public static int op_Addition(int left, int right) => left - right;
                         public static int op_Implicit(int value) => value + 1;
+                    }
+
+                    public class OperatorLikeInstance
+                    {
+                        public virtual int op_Addition(int value) => value + 1;
                     }
 
                     public sealed class PropertyLibrary
@@ -2204,6 +2291,13 @@ public class CrossAssemblyMethodFactsTests
                         public static int UseOperatorLikeImplicit(int value)
                             => OperatorLikeLibrary.op_Implicit(value);
 
+                        public static ExternalBinaryDelegate UseOperatorLikeStaticPointer()
+                            => OperatorLikeLibrary.op_Addition;
+
+                        public static ExternalDelegate UseOperatorLikeVirtualPointer(
+                            OperatorLikeInstance instance)
+                            => instance.op_Addition;
+
                         public static ExternalNumber UseRealOperator(ExternalNumber left, ExternalNumber right)
                             => left + right;
 
@@ -2398,6 +2492,10 @@ public class CrossAssemblyMethodFactsTests
         public const string UseExternalDelegate = nameof(UseExternalDelegate);
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
         public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
+        public const string UseOperatorLikeStaticPointer =
+            nameof(UseOperatorLikeStaticPointer);
+        public const string UseOperatorLikeVirtualPointer =
+            nameof(UseOperatorLikeVirtualPointer);
         public const string UseRealOperator = nameof(UseRealOperator);
         public const string UseExternalDependentOperator =
             nameof(UseExternalDependentOperator);
