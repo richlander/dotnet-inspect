@@ -44,7 +44,9 @@ import {
   memberRequestKey,
   memberSectionDefinitions,
   memberSectionIdsFor,
+  mergeInspectionErrorEntries,
   mergeInspectionErrors,
+  renderInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -626,12 +628,32 @@ test("platform inspection notices survive cumulative surface loads", () => {
       "First: omitted 1 metadata row.",
       "First: omitted 1 metadata row."),
     "First: omitted 1 metadata row.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: truncated; 0 assemblies were not projected.",
+      "Second: omitted 2 metadata rows."),
+    "First: truncated; 0 assemblies were not projected.; "
+      + "Second: omitted 2 metadata rows.");
+  const entries = mergeInspectionErrorEntries(
+    [
+      "First: truncated; 0 assemblies were not projected.",
+      "Second: truncated; 0 assemblies were not projected.",
+    ],
+    ["Second: truncated; 0 assemblies were not projected."]);
+  assert.deepEqual(entries, [
+    "First: truncated; 0 assemblies were not projected.",
+    "Second: truncated; 0 assemblies were not projected.",
+  ]);
+  assert.equal(
+    renderInspectionErrors(entries),
+    "First: truncated; 0 assemblies were not projected.; "
+      + "Second: truncated; 0 assemblies were not projected.");
   assert.match(
     packageAcquisitionSource,
-    /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);
+    /existing\.inspectionErrors\s*=\s*mergeInspectionErrorEntries\(/);
   assert.match(
     packageAcquisitionSource,
-    /inspectionError:\s*result\.inspectionError\s*\|\|\s*""/);
+    /inspectionError:\s*renderInspectionErrors\(inspectionErrors\)/);
 });
 
 test("typed Spotlight owns search presentation and hosts commands", () => {
@@ -971,7 +993,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
-    /onDismissPackageNotice: \(\) => \{[\s\S]*currentPackage\(\)\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
   assert.match(
     workbenchActions,
     /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
@@ -2167,6 +2189,29 @@ test("shared member views retain scope and filter state", () => {
   assert.match(
     appSource,
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
+});
+
+test("initial workspace packet resolution waits for the engine phase", () => {
+  assert.match(
+    appSource,
+    /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
+  assert.match(
+    appSource,
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
+  const restore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /const loc = initialWorkspace\.resolve\(\);[\s\S]*framework: loc\.framework \|\| DEFAULT_REQUESTED_FRAMEWORK[\s\S]*state\.requestedPackage = resolvedLocation\.package;[\s\S]*state\.requestedVersion = resolvedLocation\.version;[\s\S]*state\.requestedFramework = resolvedLocation\.framework;[\s\S]*restoreWorkspaceFromLocation\(\s*resolvedLocation,\s*deepLinkFromLocation\(resolvedLocation\)\)/);
+  const bootstrap = appSource.match(
+    /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
+    ?? "";
+  const initializeAt = bootstrap.indexOf("await initializeEngine(reportEngineStatus);");
+  const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
+  assert.notEqual(initializeAt, -1);
+  assert.notEqual(restoreAt, -1);
+  assert.ok(initializeAt < restoreAt);
 });
 
 test("member entry controls move focus into the resulting member navigation", () => {
