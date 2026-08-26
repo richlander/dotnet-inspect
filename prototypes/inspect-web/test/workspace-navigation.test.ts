@@ -8,6 +8,8 @@ import {
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
+  resolveWorkspaceMemberFilters,
+  resolveWorkspaceMemberOverload,
   resolveWorkspaceRoute,
   shouldInterceptLinkClick,
   workspaceViewSignature,
@@ -293,6 +295,58 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
   assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.equal(parsed.memberTraitFilter, "isStatic");
   assert.equal(parsed.workspaceNotice, "");
+});
+
+test("member share context reports unavailable filters and overloads", () => {
+  assert.deepEqual(
+    resolveWorkspaceMemberFilters({
+      memberKindFilter: "unknown-kind",
+      memberAccessibilityFilter: "unknown-accessibility",
+      memberTraitFilter: "unknown-trait",
+    }, {
+      kinds: ["method", "property"],
+      accessibilities: ["public", "protected"],
+      traits: ["isStatic", "isVirtual"],
+    }),
+    {
+      kind: "all",
+      accessibility: "all",
+      trait: "",
+      rejectedFields: [
+        "member kind filter",
+        "member accessibility filter",
+        "member trait filter",
+      ],
+    });
+  assert.deepEqual(
+    resolveWorkspaceMemberFilters({
+      memberKindFilter: "method",
+      memberAccessibilityFilter: "public",
+      memberTraitFilter: "isStatic",
+    }, {
+      kinds: ["method"],
+      accessibilities: ["public"],
+      traits: ["isStatic"],
+    }),
+    {
+      kind: "method",
+      accessibility: "public",
+      trait: "isStatic",
+      rejectedFields: [],
+    });
+
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(2, 2),
+    { overload: null, rejected: true });
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(1, 2),
+    { overload: 1, rejected: false });
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(-0, 2),
+    { overload: null, rejected: true });
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(null, 1),
+    { overload: null, rejected: false });
 });
 
 test("workspace route preflight defers packet decoding", () => {

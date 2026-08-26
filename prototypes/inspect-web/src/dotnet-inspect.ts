@@ -84,6 +84,8 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  resolveWorkspaceMemberFilters,
+  resolveWorkspaceMemberOverload,
   workspaceViewSignature,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
@@ -5970,20 +5972,16 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     if (!type) return;
     revealTypeInFilters(type);
     const groups = memberGroups(type);
+    const restoredFilters = resolveWorkspaceMemberFilters(deep, {
+      kinds: memberKinds(type),
+      accessibilities: memberAccessibilities(type),
+      traits: MEMBER_TRAITS.map(([property]) => property),
+    });
+    const rejectedContextFields = [...restoredFilters.rejectedFields];
     state.memberTextFilter = deep.memberTextFilter || "";
-    state.memberKindFilter = deep.memberKindFilter
-      && memberKinds(type).includes(deep.memberKindFilter)
-      ? deep.memberKindFilter
-      : "all";
-    state.memberAccessibilityFilter = deep.memberAccessibilityFilter
-      && memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
-      ? deep.memberAccessibilityFilter
-      : "all";
-    state.memberTraitFilter = deep.memberTraitFilter
-      && MEMBER_TRAITS.some(([property]) =>
-        property === deep.memberTraitFilter)
-      ? deep.memberTraitFilter
-      : "";
+    state.memberKindFilter = restoredFilters.kind;
+    state.memberAccessibilityFilter = restoredFilters.accessibility;
+    state.memberTraitFilter = restoredFilters.trait;
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
@@ -6054,11 +6052,11 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     } else if (disposition === "public" && group && deep.member) {
       state.memberBrowseTypeId = type.id;
       state.selectedMemberKey = deep.member ?? "";
-      // `deep.overload` arrives already parsed by the canonical validator at the URL
-      // boundary, so the only question left here is whether it names a real overload.
-      if (deep.overload != null && deep.overload < group.overloads.length) {
-        state.selectedOverloadIndex = deep.overload;
-      }
+      const restoredSelection = resolveWorkspaceMemberOverload(
+        deep.overload,
+        group.overloads.length);
+      state.selectedOverloadIndex = restoredSelection.overload;
+      if (restoredSelection.rejected) rejectedContextFields.push("overload");
       const restoredOverload = group.overloads[
         state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
       const hasSelectedBody = bodyTargetMatchesOverload(
@@ -6076,6 +6074,11 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       if (hasSelectedBody) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
+    }
+    if (rejectedContextFields.length) {
+      appendQueryNotice(
+        `Part of this link could not be applied and was ignored: ${
+          rejectedContextFields.join(", ")}.`);
     }
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));

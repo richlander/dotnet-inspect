@@ -268,6 +268,66 @@ export interface WorkspaceDeepLink {
   graphTarget?: GraphMemberShareIdentity | null;
 }
 
+export interface WorkspaceMemberFilterContext {
+  kinds: readonly string[];
+  accessibilities: readonly string[];
+  traits: readonly string[];
+}
+
+export interface ResolvedWorkspaceMemberFilters {
+  kind: string;
+  accessibility: string;
+  trait: string;
+  rejectedFields: string[];
+}
+
+export function resolveWorkspaceMemberFilters(
+  deep: WorkspaceDeepLink,
+  context: WorkspaceMemberFilterContext,
+): ResolvedWorkspaceMemberFilters {
+  const rejectedFields: string[] = [];
+  const resolve = (
+    value: string | null | undefined,
+    fallback: string,
+    allowed: readonly string[],
+    field: string,
+  ) => {
+    if (!value || value === fallback) return fallback;
+    if (allowed.includes(value)) return value;
+    rejectedFields.push(field);
+    return fallback;
+  };
+  const kind = resolve(
+    deep.memberKindFilter,
+    "all",
+    context.kinds,
+    "member kind filter");
+  const accessibility = resolve(
+    deep.memberAccessibilityFilter,
+    "all",
+    context.accessibilities,
+    "member accessibility filter");
+  const trait = resolve(
+    deep.memberTraitFilter,
+    "",
+    context.traits,
+    "member trait filter");
+  return { kind, accessibility, trait, rejectedFields };
+}
+
+export function resolveWorkspaceMemberOverload(
+  overload: number | null | undefined,
+  overloadCount: number,
+): { overload: number | null; rejected: boolean } {
+  if (overload == null) return { overload: null, rejected: false };
+  return Number.isSafeInteger(overload)
+    && overload >= 0
+    && !Object.is(overload, -0)
+    && overload < overloadCount
+    ? { overload, rejected: false }
+    : { overload: null, rejected: true };
+}
+
 export interface WorkspaceUrlState {
   package: string;
   tabs: WorkspaceTab[];

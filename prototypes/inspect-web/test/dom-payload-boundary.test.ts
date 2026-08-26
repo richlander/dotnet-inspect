@@ -43,6 +43,7 @@ interface AttributeRead {
 
 interface DomAliases {
   datasets: Map<string, ScopedAlias<true>[]>;
+  computedDatasets: Map<string, ScopedAlias<true>[]>;
   attributes: Map<string, ScopedAlias<string>[]>;
 }
 
@@ -222,13 +223,37 @@ function isDatasetExpression(node: Node, aliases: DomAliases): boolean {
       && scopedAliasValues(aliases.datasets, name, expression.start).has(true));
 }
 
+function isPotentialComputedDatasetExpression(
+  node: Node,
+  aliases: DomAliases,
+): boolean {
+  const expression = unwrapExpression(node);
+  const name = identifierName(expression);
+  return (expression.type === "MemberExpression"
+      && expression.computed
+      && memberName(expression) === null)
+    || (name !== null
+      && scopedAliasValues(
+        aliases.computedDatasets,
+        name,
+        expression.start).has(true));
+}
+
 function domAttribute(
   node: Node,
-  aliases: DomAliases = { datasets: new Map(), attributes: new Map() },
+  aliases: DomAliases = {
+    datasets: new Map(),
+    computedDatasets: new Map(),
+    attributes: new Map(),
+  },
 ): string | null {
   const expression = unwrapExpression(node);
   if (expression.type === "MemberExpression"
-    && isDatasetExpression(expression.object, aliases)) {
+    && (isDatasetExpression(expression.object, aliases)
+      || (isPotentialComputedDatasetExpression(expression.object, aliases)
+        && Object.hasOwn(
+          numericDomAttributes,
+          memberName(expression) ?? "")))) {
     return memberName(expression) ?? dynamicAttribute;
   }
   const alias = identifierName(expression);
@@ -356,6 +381,7 @@ function addBindingMasks(
 ) {
   for (const name of patterns.flatMap(bindingNames)) {
     addScopedAlias(aliases.datasets, name, null, scope);
+    addScopedAlias(aliases.computedDatasets, name, null, scope);
     addScopedAlias(aliases.attributes, name, null, scope);
   }
 }
@@ -452,11 +478,16 @@ function patternContainsDatasetProperty(pattern: Node): boolean {
 function domAliases(program: Program): DomAliases {
   const aliases: DomAliases = {
     datasets: new Map(),
+    computedDatasets: new Map(),
     attributes: new Map(),
   };
   let previousSize = -1;
   const aliasCount = () =>
-    [...aliases.datasets.values(), ...aliases.attributes.values()]
+    [
+      ...aliases.datasets.values(),
+      ...aliases.computedDatasets.values(),
+      ...aliases.attributes.values(),
+    ]
       .reduce((sum, entries) => sum + entries.length, 0);
   while (previousSize !== aliasCount()) {
     previousSize = aliasCount();
@@ -499,6 +530,10 @@ function domAliases(program: Program): DomAliases {
           addScopedAlias(aliases.datasets, binding, true, scope);
           return;
         }
+        if (isPotentialComputedDatasetExpression(init, aliases)) {
+          addScopedAlias(aliases.computedDatasets, binding, true, scope);
+          return;
+        }
         const attribute = domAttribute(init, aliases);
         if (attribute !== null) {
           addScopedAlias(
@@ -516,7 +551,8 @@ function domAliases(program: Program): DomAliases {
         addBindingMasks(aliases, [id], scope);
         return;
       }
-      if (isDatasetExpression(init, aliases)) {
+      if (isDatasetExpression(init, aliases)
+        || isPotentialComputedDatasetExpression(init, aliases)) {
         addDatasetProperties(id, aliases, scope);
         return;
       }
@@ -883,9 +919,17 @@ function assignmentAliasViolations(files: readonly SourceFile[]): string[] {
 }
 
 const unsupportedAttributeReadMethods = new Set([
+  "attributes",
   "getAttributeNS",
   "getAttributeNode",
   "getAttributeNodeNS",
+  "getNamedItem",
+  "getNamedItemNS",
+]);
+
+const exemptAttributeReadMembers = new Map([
+  ["type-panel.ts:meta.attributes",
+    "Browser metadata owns a typed custom-attribute-name array, not an Element NamedNodeMap."],
 ]);
 
 function getAttributeEscapeViolations(files: readonly SourceFile[]): string[] {
@@ -908,9 +952,11 @@ function getAttributeEscapeViolations(files: readonly SourceFile[]): string[] {
       }
       const method = memberName(node);
       if (method && unsupportedAttributeReadMethods.has(method)) {
+        const text = file.text.slice(node.start, node.end);
+        if (exemptAttributeReadMembers.has(`${file.name}:${text}`)) return;
         violations.push(
           `${file.name}:${lineOf(file.text, node.start)}: `
-          + file.text.slice(node.start, node.end));
+          + text);
         return;
       }
       if (method !== "getAttribute") return;
@@ -924,6 +970,20 @@ function getAttributeEscapeViolations(files: readonly SourceFile[]): string[] {
     });
   }
   return violations;
+}
+
+function observedAttributeReadExemptions(
+  files: readonly SourceFile[],
+): string[] {
+  const observed = new Set<string>();
+  for (const file of files) {
+    walk(file.program, node => {
+      if (node.type !== "MemberExpression") return;
+      const key = `${file.name}:${file.text.slice(node.start, node.end)}`;
+      if (exemptAttributeReadMembers.has(key)) observed.add(key);
+    });
+  }
+  return [...observed].sort((left, right) => left.localeCompare(right));
 }
 
 test("no browser payload is numerically coerced outside the canonical parsers", () => {
@@ -942,6 +1002,11 @@ test("no browser payload is numerically coerced outside the canonical parsers", 
     getAttributeEscapeViolations(files),
     [],
     "an attribute read escaped direct-call inspection");
+  assert.deepEqual(
+    observedAttributeReadExemptions(files),
+    [...exemptAttributeReadMembers.keys()]
+      .sort((left, right) => left.localeCompare(right)),
+    "an alternate-attribute exemption is missing or no longer needed");
 });
 
 test("the gate rejects preprocessing, dynamic reads, and defaulted aliases", () => {
@@ -954,6 +1019,10 @@ parseNonNegativeInteger(button.dataset.mdeRow);
 Number(button.getAttribute("DATA-MDE-ROW"));
 const key = "overload";
 Number(button.dataset[key]);
+const datasetKey = "dataset" as const;
+Number(button[datasetKey].overload);
+const computedDataset = button[datasetKey];
+Number(computedDataset.overload);
 consume(button.dataset[key]);
 const { [key]: computed } = button.dataset;
 consume(computed);
@@ -964,7 +1033,7 @@ consume(button.getAttribute(key));
 
   assert.deepEqual(
     reads.get("overload")?.map(site => site.decoder),
-    [null]);
+    [null, null, null]);
   assert.deepEqual(
     reads.get("slIndex")?.map(site => site.decoder),
     [null]);
@@ -980,6 +1049,12 @@ consume(button.getAttribute(key));
   assert.ok(
     numericCoercionViolations([probe]).some(site =>
       site.endsWith("Number(button.dataset[key])")));
+  assert.ok(
+    numericCoercionViolations([probe]).some(site =>
+      site.endsWith("Number(button[datasetKey].overload)")));
+  assert.ok(
+    numericCoercionViolations([probe]).some(site =>
+      site.endsWith("Number(computedDataset.overload)")));
   const assignmentProbe = sourceFile("assignment-probe.ts", `
 let assigned;
 assigned = button.dataset.overload;
@@ -1099,10 +1174,13 @@ const { getAttribute: extracted } = button;
 Number(extracted("data-overload"));
 Number(button.getAttributeNS(null, "data-overload"));
 const { getAttributeNode } = button;
+Number(button.attributes.getNamedItem("data-overload")?.value);
+const { attributes } = button;
+Number(attributes.getNamedItemNS(null, "data-overload")?.value);
 `);
   assert.equal(
     getAttributeEscapeViolations([getAttributeEscapeProbe]).length,
-    4);
+    8);
 });
 
 test("the gate requires unshadowed decoder imports", () => {

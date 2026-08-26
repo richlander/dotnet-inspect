@@ -653,9 +653,9 @@ cannot escape to unaudited helpers, dynamic property reads cannot masquerade as
 named attributes, alternate attribute APIs fail closed, and only unshadowed
 imports from `dom-data` count as canonical decoders.
 A malformed URL field -- a bad percent-escape in a package route, an unknown
-lens or member section, or a non-canonical overload in query or rich share
-state -- is reported in the workspace notice rather than becoming a default
-view.
+lens or member section, a non-canonical overload, or a member filter or overload
+that is unavailable in the restored type -- is reported in the workspace notice
+rather than becoming a default view.
 
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while

@@ -244,6 +244,30 @@ function sourceText(node) {
   return appSource.slice(node.start, node.end).replace(/\s+/g, " ");
 }
 
+function documentSelectorArguments(root, source) {
+  return syntaxNodes(
+    root,
+    node => {
+      if (node.type !== "CallExpression"
+        || node.callee?.type !== "MemberExpression"
+        || node.callee.object?.type !== "Identifier"
+        || node.callee.object.name !== "document") {
+        return false;
+      }
+      const property = node.callee.property;
+      const name = property?.type === "Identifier"
+        ? property.name
+        : property?.type === "Literal" && typeof property.value === "string"
+          ? property.value
+          : "";
+      return name === "querySelector" || name === "querySelectorAll";
+    })
+    .flatMap(node => {
+      const argument = node.arguments[0];
+      return argument ? [source.slice(argument.start, argument.end)] : [];
+    });
+}
+
 function callbackProperty(actions, name) {
   const property = onlySyntaxNode(
     actions.properties.filter(
@@ -878,14 +902,21 @@ test("typed package view owns package navigation bindings", () => {
   // chip update too, so package-view owns every read rather than requiring an exemption.
   const ownedAttributes =
     /data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)/;
-  const appRootReads = [...appSource.matchAll(/document\.querySelector(?:All)?<[^>]*>\("([^"]*)"\)/g)]
-    .map(match => match[1])
+  const appRootReads = documentSelectorArguments(appSyntax, appSource)
     .filter(selector => ownedAttributes.test(selector))
-    .sort();
+    .sort((left, right) => left.localeCompare(right));
   assert.deepEqual(
     appRootReads,
     [],
     "the application root reads a DOM attribute that the extracted binding module owns");
+  const nongenericProbe =
+    'document.querySelectorAll("[data-perf-selector]");';
+  const nongenericProbeSyntax =
+    parseSync("package-view-ownership-probe.ts", nongenericProbe).program;
+  assert.deepEqual(
+    documentSelectorArguments(nongenericProbeSyntax, nongenericProbe),
+    ['"[data-perf-selector]"'],
+    "nongeneric selector calls must remain visible to the ownership scan");
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]"\)/);
@@ -2206,6 +2237,9 @@ test("shared member views retain scope and filter state", () => {
   assert.match(capture, /memberAccessibilityFilter: state\.memberAccessibilityFilter/);
   assert.match(capture, /memberTraitFilter: state\.memberTraitFilter/);
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
+  assert.match(
+    deepLink,
+    /resolveWorkspaceMemberFilters\(deep,[\s\S]*const rejectedContextFields = \[\.\.\.restoredFilters\.rejectedFields\][\s\S]*resolveWorkspaceMemberOverload\([\s\S]*if \(restoredSelection\.rejected\) rejectedContextFields\.push\("overload"\)[\s\S]*appendQueryNotice/);
   assert.match(
     deepLink,
     /state\.memberSection = "overview";[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody\)\.includes\(deep\.section\)[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
