@@ -1749,7 +1749,9 @@ public sealed class PackageCoordinateResolverTests
                         """{"version":"3.0.0","resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://incomplete.test/flat/{PackageId}/index.json" =>
                     mixedMalformedPackageBaseAddress
-                        || credentialBearingPackageBaseAddress
+                        ? Json(
+                            """{"versions":["1.0.0","9.0.0"]}""")
+                    : credentialBearingPackageBaseAddress
                         ? Task.FromResult(
                             new HttpResponseMessage(
                                 HttpStatusCode.NotFound))

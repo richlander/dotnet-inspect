@@ -3153,9 +3153,12 @@ public static class PackageExtractor
             source,
             log,
             cancellationToken).ConfigureAwait(false);
+        if (lookup.Failed)
+            return SourceLatestVersion.Failure;
+
         if (lookup.Versions is not { } versions)
         {
-            return lookup.Failed || lookup.SourceMissing
+            return lookup.SourceMissing
                 ? SourceLatestVersion.Failure
                 : SourceLatestVersion.Absent;
         }
