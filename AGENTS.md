@@ -272,13 +272,20 @@ routine development queries that the production tool can answer.
 ## Design scope and composition
 
 Default every design effort to exactly one architectural owner and name its
-owning document. For this rule, a component is an independently owned
-architecture unit whose authority was already stated in
+owning document. A focused owner is either an independently owned architecture
+unit whose authority was already stated in
 [the overview](docs/overview.md) or an existing focused owning document before
-the effort began. The effort may not create an umbrella owner to evade the
+the effort began, or exactly one new unit established by the effort. A
+new-owner effort adds the unit's authority entry to the overview, creates or
+names its focused owning document, and declares its responsibility, immediate
+boundaries, and non-claims. It may introduce a new responsibility or transfer
+one cohesive responsibility from one existing owner when that transfer is the
+effort's single claim and the donor's other authority is unchanged. Any other
+normative donor change is a separate effort. A new owner may not aggregate
+responsibilities from multiple owners or create an umbrella owner to evade the
 broad-design gate. A project boundary alone neither creates nor erases a
 component boundary. Every focused issue and PR names the owner and owning
-document.
+document. For this rule, each such owner is one component.
 
 A focused design may specify its owner's immediate typed input and output
 obligations. It may reference an adjacent component's owner-issued types and
