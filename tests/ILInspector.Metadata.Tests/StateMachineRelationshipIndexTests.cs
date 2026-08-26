@@ -302,6 +302,7 @@ public sealed class StateMachineRelationshipIndexTests
                 index.GetByKickoff(
                     MetadataTokens.MethodDefinitionHandle(2)));
         Assert.Same(result.Failure, otherKickoff.Failure);
+        Assert.Equal(2, result.Failure.KickoffCandidates.Length);
     }
 
     [Fact]
@@ -398,6 +399,13 @@ public sealed class StateMachineRelationshipIndexTests
             StateMachineRelationshipFailureKind.Ambiguous,
             result.Failure.Kind);
         Assert.Single(result.Failure.ClaimedTypes);
+        Assert.Equal(2, result.Failure.StateMachineCandidates.Length);
+        Assert.IsType<StateMachineRelationshipResult.Rejected>(
+            index.GetByStateMachine(
+                MetadataTokens.TypeDefinitionHandle(3)));
+        Assert.IsType<StateMachineRelationshipResult.Rejected>(
+            index.GetByStateMachine(
+                MetadataTokens.TypeDefinitionHandle(4)));
     }
 
     [Theory]
@@ -490,7 +498,7 @@ public sealed class StateMachineRelationshipIndexTests
                 serializedTypeName: new string(
                     'A',
                     MetadataSafetyPolicy.MaxTypeNameCharacters
-                        * 4
+                        * 3
                         + 1)));
 
         StateMachineRelationshipIndex index =
@@ -511,6 +519,8 @@ public sealed class StateMachineRelationshipIndexTests
     [Theory]
     [InlineData(AsyncEnumeratorShape.Bare)]
     [InlineData(AsyncEnumeratorShape.WrongArity)]
+    [InlineData(AsyncEnumeratorShape.CrossConstruction)]
+    [InlineData(AsyncEnumeratorShape.ModifiedArgument)]
     public void
         StateMachineRelationshipIndex_RejectsMalformedAsyncEnumeratorShape(
             AsyncEnumeratorShape shape)
@@ -551,6 +561,50 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(
             StateMachineRelationshipFailureKind.BudgetExceeded,
             result.Failure.Kind);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_BoundsAttributeNameMaterialization()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [],
+                unrelatedAttributeCount: 1));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 10,
+                nameWorkBudget: 1);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_CachesConstructorAuthentication()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [],
+                unrelatedAttributeCount: 100));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 101,
+                nameWorkBudget: 64);
+
+        Assert.IsType<StateMachineRelationshipResult.Absent>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
     }
 
     static MethodDefinitionHandle FindMethod(
@@ -1087,6 +1141,10 @@ public sealed class StateMachineRelationshipIndexTests
             AddTypeReference(
                 "System.Threading.Tasks",
                 "ValueTask`1");
+        TypeReferenceHandle modifier =
+            AddTypeReference(
+                "System.Runtime.CompilerServices",
+                "IsReadOnlyAttribute");
 
         var staticVoid = new BlobBuilder();
         new BlobEncoder(staticVoid)
@@ -1122,17 +1180,14 @@ public sealed class StateMachineRelationshipIndexTests
             disposeAsync,
             valueTask);
 
-        var asyncEnumeratorSpecification = new BlobBuilder();
-        asyncEnumeratorSpecification.WriteByte(0x15);
-        asyncEnumeratorSpecification.WriteByte(0x12);
-        WriteTypeDefOrRefEncoded(
-            asyncEnumeratorSpecification,
-            asyncEnumerator);
-        asyncEnumeratorSpecification.WriteCompressedInteger(
-            shape == AsyncEnumeratorShape.Bare ? 1 : 2);
-        asyncEnumeratorSpecification.WriteByte(0x02);
-        if (shape == AsyncEnumeratorShape.WrongArity)
-            asyncEnumeratorSpecification.WriteByte(0x02);
+        BlobBuilder asyncEnumeratorSpecification =
+            GenericInterfaceSpecification(
+                asyncEnumerator,
+                argumentCount:
+                    shape == AsyncEnumeratorShape.WrongArity
+                        ? 2
+                        : 1,
+                argumentTypeCode: 0x08);
         EntityHandle implementedAsyncEnumerator =
             shape == AsyncEnumeratorShape.Bare
                 ? asyncEnumerator
@@ -1202,16 +1257,58 @@ public sealed class StateMachineRelationshipIndexTests
             setStateMachine,
             MethodAttributes.Public
                 | MethodAttributes.Virtual);
-        AddMethod(
+        MethodDefinitionHandle moveNextAsyncMethod =
+            AddMethod(
             "MoveNextAsync",
             moveNextAsync,
-            MethodAttributes.Public
-                | MethodAttributes.Virtual);
+            shape is AsyncEnumeratorShape.CrossConstruction
+                    or AsyncEnumeratorShape.ModifiedArgument
+                ? MethodAttributes.Private
+                    | MethodAttributes.Virtual
+                : MethodAttributes.Public
+                    | MethodAttributes.Virtual);
         AddMethod(
             "DisposeAsync",
             disposeAsync,
             MethodAttributes.Public
                 | MethodAttributes.Virtual);
+
+        if (shape is AsyncEnumeratorShape.CrossConstruction
+            or AsyncEnumeratorShape.ModifiedArgument)
+        {
+            var declarationType = new BlobBuilder();
+            declarationType.WriteByte(0x15);
+            declarationType.WriteByte(0x12);
+            WriteTypeDefOrRefEncoded(
+                declarationType,
+                asyncEnumerator);
+            declarationType.WriteCompressedInteger(1);
+            if (shape
+                == AsyncEnumeratorShape.ModifiedArgument)
+            {
+                declarationType.WriteByte(0x1F);
+                WriteTypeDefOrRefEncoded(
+                    declarationType,
+                    modifier);
+                declarationType.WriteByte(0x08);
+            }
+            else
+            {
+                declarationType.WriteByte(0x0E);
+            }
+            TypeSpecificationHandle declarationParent =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(declarationType));
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    declarationParent,
+                    metadata.GetOrAddString("MoveNextAsync"),
+                    metadata.GetOrAddBlob(moveNextAsync));
+            metadata.AddMethodImplementation(
+                machine,
+                moveNextAsyncMethod,
+                declaration);
+        }
 
         MemberReferenceHandle constructor =
             metadata.AddMemberReference(
@@ -1258,6 +1355,21 @@ public sealed class StateMachineRelationshipIndexTests
                 metadata.GetOrAddBlob(signature),
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+    }
+
+    static BlobBuilder GenericInterfaceSpecification(
+        TypeReferenceHandle genericType,
+        int argumentCount,
+        byte argumentTypeCode)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRefEncoded(signature, genericType);
+        signature.WriteCompressedInteger(argumentCount);
+        for (int i = 0; i < argumentCount; i++)
+            signature.WriteByte(argumentTypeCode);
+        return signature;
     }
 
     static BlobBuilder SetStateMachineSignature(
@@ -1367,6 +1479,8 @@ public sealed class StateMachineRelationshipIndexTests
     {
         Bare,
         WrongArity,
+        CrossConstruction,
+        ModifiedArgument,
     }
 
     sealed class LoadedImage(byte[] image) : IDisposable

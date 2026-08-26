@@ -15,8 +15,9 @@ namespace ILInspector.Metadata;
 /// <remarks>
 /// <c>StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations</c>
 /// gates exact role selection and
-/// <c>StateMachineRelationshipIndex_PropagatesTypedFailures</c> gates total
-/// typed rejection.
+/// <c>StateMachineRelationshipIndex_PropagatesTypedBudgetFailure</c> and
+/// <c>StateMachineRelationshipIndex_RejectsInvalidImplementationShapes</c>
+/// gate typed rejection.
 /// </remarks>
 public sealed class StateMachineRelationshipIndex
 {
@@ -61,26 +62,32 @@ public sealed class StateMachineRelationshipIndex
         => Create(
             reader,
             MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
-            MetadataSafetyPolicy.MaxCorrespondenceMethodRows);
+            MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars);
 
     internal static StateMachineRelationshipIndex Create(
         MetadataReader reader,
         int relationshipBudget,
         int methodRowBudget =
-            MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+            MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+        int nameWorkBudget =
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             relationshipBudget);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             methodRowBudget);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            nameWorkBudget);
 
         try
         {
             return new Builder(
                 reader,
                 relationshipBudget,
-                methodRowBudget).Build();
+                methodRowBudget,
+                nameWorkBudget).Build();
         }
         catch (RelationshipBudgetException)
         {
@@ -209,6 +216,10 @@ public sealed class StateMachineRelationshipIndex
         readonly Guid _moduleVersionId;
         readonly MetadataTypeDefinitionIndex _typeDefinitions;
         readonly StateMachineSignatureProvider _signatures;
+        readonly Dictionary<
+            EntityHandle,
+            AttributeConstructorClassification>
+            _attributeConstructors = [];
         readonly Dictionary<int, StateMachineRelationshipResult> _byKickoff =
             [];
         readonly Dictionary<int, StateMachineRelationshipResult>
@@ -217,21 +228,26 @@ public sealed class StateMachineRelationshipIndex
             _byImplementation = [];
         readonly List<StateMachineRelationship> _relationships = [];
         readonly List<Claim> _claims = [];
+        long _remainingNameWork;
         int _work;
 
         internal Builder(
             MetadataReader reader,
             int relationshipBudget,
-            int methodRowBudget)
+            int methodRowBudget,
+            int nameWorkBudget)
         {
             _reader = reader;
             _relationshipBudget = relationshipBudget;
             _methodRowBudget = methodRowBudget;
+            _remainingNameWork = nameWorkBudget;
             _moduleVersionId =
                 reader.GetGuid(reader.GetModuleDefinition().Mvid);
             _typeDefinitions =
                 MetadataTypeDefinitionIndex.Create(reader);
-            _signatures = new(reader);
+            _signatures = new(
+                reader,
+                ChargeNameWork);
         }
 
         internal StateMachineRelationshipIndex Build()
@@ -254,22 +270,30 @@ public sealed class StateMachineRelationshipIndex
                     claim => claim.StateMachineName))
             {
                 Claim[] claims = group.ToArray();
-                if (!_typeDefinitions.TryGetDefinition(
+                if (!_typeDefinitions.TryGetDefinitions(
                         group.Key,
-                        out TypeDefinitionHandle stateMachine,
+                        out ImmutableArray<TypeDefinitionHandle>
+                            stateMachines,
                         out bool ambiguous))
                 {
                     RejectClaims(
                         claims,
-                        ambiguous
-                            ? StateMachineRelationshipFailureKind.Ambiguous
-                            : StateMachineRelationshipFailureKind.Unresolved,
-                        ambiguous
-                            ? "The claimed state-machine type is ambiguous."
-                            : "The claimed state-machine type could not be resolved.");
+                        StateMachineRelationshipFailureKind.Unresolved,
+                        "The claimed state-machine type could not be resolved.");
+                    continue;
+                }
+                if (ambiguous)
+                {
+                    RejectClaims(
+                        claims,
+                        StateMachineRelationshipFailureKind.Ambiguous,
+                        "The claimed state-machine type is ambiguous.",
+                        stateMachines);
                     continue;
                 }
 
+                TypeDefinitionHandle stateMachine =
+                    stateMachines[0];
                 if (claims.Length > 1)
                 {
                     bool crossKind =
@@ -285,7 +309,7 @@ public sealed class StateMachineRelationshipIndex
                         crossKind
                             ? "The state-machine type has cross-kind kickoff claims."
                             : "The state-machine type has duplicate kickoff claims.",
-                        stateMachine);
+                        [stateMachine]);
                     continue;
                 }
 
@@ -314,22 +338,21 @@ public sealed class StateMachineRelationshipIndex
                 Charge();
                 CustomAttribute attribute =
                     _reader.GetCustomAttribute(attributeHandle);
-                string? attributeName =
-                    AttributeReader.GetAttributeTypeName(
-                        _reader,
-                        attribute.Constructor);
-                StateMachineClaimKind? kind =
-                    attributeName switch
-                    {
-                        KnownAttributeNames.AsyncStateMachineAttribute
-                            => StateMachineClaimKind.ClassicAsync,
-                        KnownAttributeNames.AsyncIteratorStateMachineAttribute
-                            => StateMachineClaimKind.AsyncIterator,
-                        KnownAttributeNames.IteratorStateMachineAttribute
-                            => StateMachineClaimKind.Iterator,
-                        _ => null,
-                    };
-                if (kind is null)
+                if (!_attributeConstructors.TryGetValue(
+                        attribute.Constructor,
+                        out AttributeConstructorClassification
+                            classification))
+                {
+                    classification =
+                        _signatures.ClassifyAttributeConstructor(
+                            attribute.Constructor);
+                    _attributeConstructors.Add(
+                        attribute.Constructor,
+                        classification);
+                }
+
+                if (classification.Status
+                    == AttributeConstructorStatus.NotTrusted)
                 {
                     continue;
                 }
@@ -345,24 +368,14 @@ public sealed class StateMachineRelationshipIndex
                     return;
                 }
 
-                AttributeConstructorStatus constructorStatus =
-                    _signatures.ClassifyAttributeConstructor(
-                        attribute.Constructor,
-                        attributeName!);
-                if (constructorStatus
-                    == AttributeConstructorStatus.NotTrusted)
-                {
-                    continue;
-                }
-
                 candidates.Add(
-                    constructorStatus
+                    classification.Status
                         == AttributeConstructorStatus.Valid
                             ? ReadClaimCandidate(
-                                kind.Value,
+                                classification.Kind,
                                 attribute)
                             : ClaimCandidate.Rejected(
-                                kind.Value,
+                                classification.Kind,
                                 StateMachineRelationshipFailureKind.Malformed,
                                 "The state-machine attribute constructor is malformed."));
             }
@@ -480,8 +493,7 @@ public sealed class StateMachineRelationshipIndex
                 value.Offset = offset;
                 int byteCount = value.ReadCompressedInteger();
                 return byteCount
-                    > MetadataSafetyPolicy.MaxTypeNameCharacters
-                        * 4;
+                    > MetadataTypeNameBudget.MaxEncodedBytes;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
@@ -603,12 +615,18 @@ public sealed class StateMachineRelationshipIndex
             foreach (MetadataTypeDefinitionName claimedType
                 in claimedTypes)
             {
-                if (_typeDefinitions.TryGetDefinition(
+                if (_typeDefinitions.TryGetDefinitions(
                         claimedType,
-                        out TypeDefinitionHandle stateMachine,
+                        out ImmutableArray<TypeDefinitionHandle>
+                            matchingTypes,
                         out _))
                 {
-                    stateMachines.Add(TypeAddress(stateMachine));
+                    foreach (TypeDefinitionHandle stateMachine
+                        in matchingTypes)
+                    {
+                        stateMachines.Add(
+                            TypeAddress(stateMachine));
+                    }
                 }
             }
 
@@ -641,7 +659,15 @@ public sealed class StateMachineRelationshipIndex
                     out StateMachineRelationshipResult?
                         priorRejection))
             {
-                _byKickoff[kickoff.Token] = priorRejection;
+                StateMachineRelationshipResult merged =
+                    MergePriorRejection(
+                        priorRejection,
+                        kickoff,
+                        stateMachineAddress,
+                        claim.StateMachineName);
+                _byKickoff[kickoff.Token] = merged;
+                _byStateMachine[
+                    stateMachineAddress.Definition.Value] = merged;
                 return;
             }
             if (!HasManagedIlBody(
@@ -822,7 +848,9 @@ public sealed class StateMachineRelationshipIndex
         {
             TypeDefinition type =
                 _reader.GetTypeDefinition(stateMachine);
-            if (!ImplementsInterface(type, role.Interface))
+            EntityHandle implementedInterface =
+                FindImplementedInterface(type, role.Interface);
+            if (implementedInterface.IsNil)
             {
                 return RoleResolution.Rejected(
                     StateMachineRelationshipFailureKind.Unresolved,
@@ -838,7 +866,13 @@ public sealed class StateMachineRelationshipIndex
                     _reader.GetMethodImplementation(handle);
                 if (!_signatures.MatchesDeclaration(
                         implementation.MethodDeclaration,
-                        role))
+                        role,
+                        out EntityHandle declaredInterface)
+                    || role.Interface
+                            == KnownStateMachineType.IAsyncEnumerator
+                        && !SameConstructedInterface(
+                            implementedInterface,
+                            declaredInterface))
                 {
                     continue;
                 }
@@ -901,11 +935,11 @@ public sealed class StateMachineRelationshipIndex
                 : RoleResolution.Resolved(implicitMethod);
         }
 
-        bool ImplementsInterface(
+        EntityHandle FindImplementedInterface(
             TypeDefinition type,
             KnownStateMachineType required)
         {
-            int matches = 0;
+            EntityHandle match = default;
             foreach (InterfaceImplementationHandle handle
                 in type.GetInterfaceImplementations())
             {
@@ -916,10 +950,45 @@ public sealed class StateMachineRelationshipIndex
                         implementation.Interface,
                         required))
                 {
-                    matches++;
+                    if (!match.IsNil)
+                        return default;
+                    match = implementation.Interface;
                 }
             }
-            return matches == 1;
+            return match;
+        }
+
+        bool SameConstructedInterface(
+            EntityHandle left,
+            EntityHandle right)
+        {
+            if (left == right)
+                return true;
+            if (left.Kind != HandleKind.TypeSpecification
+                || right.Kind != HandleKind.TypeSpecification)
+            {
+                return false;
+            }
+
+            BlobReader leftSignature =
+                _reader.GetBlobReader(
+                    _reader.GetTypeSpecification(
+                        (TypeSpecificationHandle)left).Signature);
+            BlobReader rightSignature =
+                _reader.GetBlobReader(
+                    _reader.GetTypeSpecification(
+                        (TypeSpecificationHandle)right).Signature);
+            if (leftSignature.Length != rightSignature.Length)
+                return false;
+            while (leftSignature.RemainingBytes > 0)
+            {
+                if (leftSignature.ReadByte()
+                    != rightSignature.ReadByte())
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         bool IsImplementationCandidate(
@@ -960,20 +1029,23 @@ public sealed class StateMachineRelationshipIndex
             IReadOnlyList<Claim> claims,
             StateMachineRelationshipFailureKind kind,
             string detail,
-            TypeDefinitionHandle stateMachine = default)
+            ImmutableArray<TypeDefinitionHandle> stateMachines = default)
         {
             ImmutableArray<MetadataMethodAddress> kickoffs =
-                [.. claims.Select(claim => Address(claim.Kickoff))];
-            ImmutableArray<MetadataTypeDefinitionAddress> stateMachines =
-                stateMachine.IsNil
+                [.. claims
+                    .Select(claim => Address(claim.Kickoff))
+                    .Distinct()];
+            ImmutableArray<MetadataTypeDefinitionAddress>
+                stateMachineAddresses =
+                stateMachines.IsDefaultOrEmpty
                     ? []
-                    : [TypeAddress(stateMachine)];
+                    : [.. stateMachines.Select(TypeAddress)];
             StateMachineRelationshipResult.Rejected rejection =
                 Rejected(
                     kind,
                     detail,
                     kickoffs,
-                    stateMachines,
+                    stateMachineAddresses,
                     [.. claims
                         .Select(claim => claim.StateMachineName)
                         .Distinct()]);
@@ -982,12 +1054,69 @@ public sealed class StateMachineRelationshipIndex
                 _byKickoff[MetadataTokens.GetToken(claim.Kickoff)] =
                     rejection;
             }
-            if (!stateMachine.IsNil)
+            foreach (TypeDefinitionHandle stateMachine
+                in stateMachines.IsDefault
+                    ? []
+                    : stateMachines)
             {
                 _byStateMachine[
                     MetadataTokens.GetToken(stateMachine)] =
                         rejection;
             }
+        }
+
+        StateMachineRelationshipResult.Rejected MergePriorRejection(
+            StateMachineRelationshipResult prior,
+            MetadataMethodAddress kickoff,
+            MetadataTypeDefinitionAddress stateMachine,
+            MetadataTypeDefinitionName claimedType)
+        {
+            if (prior
+                is not StateMachineRelationshipResult.Rejected rejected)
+            {
+                return Rejected(
+                    StateMachineRelationshipFailureKind.Ambiguous,
+                    "The state-machine type has conflicting relationships.",
+                    [kickoff],
+                    [stateMachine],
+                    [claimedType]);
+            }
+
+            StateMachineRelationshipFailure failure =
+                rejected.Failure;
+            var merged = Rejected(
+                failure.Kind,
+                failure.Detail,
+                failure.KickoffCandidates
+                    .Append(kickoff)
+                    .Distinct()
+                    .ToImmutableArray(),
+                failure.StateMachineCandidates
+                    .Append(stateMachine)
+                    .Distinct()
+                    .ToImmutableArray(),
+                failure.ClaimedTypes
+                    .Append(claimedType)
+                    .Distinct()
+                    .ToImmutableArray());
+            ReplaceRejection(_byKickoff, rejected, merged);
+            ReplaceRejection(_byStateMachine, rejected, merged);
+            ReplaceRejection(_byImplementation, rejected, merged);
+            return merged;
+        }
+
+        static void ReplaceRejection(
+            Dictionary<int, StateMachineRelationshipResult> index,
+            StateMachineRelationshipResult.Rejected previous,
+            StateMachineRelationshipResult.Rejected replacement)
+        {
+            int[] keys =
+                [.. index
+                    .Where(pair =>
+                        ReferenceEquals(pair.Value, previous))
+                    .Select(pair => pair.Key)];
+            foreach (int key in keys)
+                index[key] = replacement;
         }
 
         MetadataMethodAddress Address(
@@ -1007,6 +1136,13 @@ public sealed class StateMachineRelationshipIndex
             if (++_work > _relationshipBudget)
                 throw new RelationshipBudgetException();
         }
+
+        void ChargeNameWork(int characters)
+        {
+            _remainingNameWork -= Math.Max(characters, 1);
+            if (_remainingNameWork < 0)
+                throw new RelationshipBudgetException();
+        }
     }
 
     sealed class StateMachineSignatureProvider :
@@ -1017,31 +1153,33 @@ public sealed class StateMachineRelationshipIndex
 
         readonly MetadataReader _reader;
         readonly bool _currentAssemblyIsCoreLibrary;
+        readonly Action<int> _beforeMaterialize;
 
         internal StateMachineSignatureProvider(
-            MetadataReader reader)
+            MetadataReader reader,
+            Action<int> beforeMaterialize)
         {
             _reader = reader;
+            _beforeMaterialize = beforeMaterialize;
             _currentAssemblyIsCoreLibrary =
                 CoreLibraryRootAuthentication
                     .DeclaresUniqueTopLevelCoreLibraryRoot(reader);
         }
 
-        internal AttributeConstructorStatus
+        internal AttributeConstructorClassification
             ClassifyAttributeConstructor(
-            EntityHandle constructor,
-            string attributeName)
+            EntityHandle constructor)
         {
             MethodSignature<SignatureType>? signature;
             EntityHandle declaringType;
-            string? methodName;
+            StringHandle methodName;
             if (constructor.Kind == HandleKind.MemberReference)
             {
                 MemberReference member =
                     _reader.GetMemberReference(
                         (MemberReferenceHandle)constructor);
                 declaringType = member.Parent;
-                methodName = _reader.GetString(member.Name);
+                methodName = member.Name;
                 signature = Decode(member);
             }
             else if (constructor.Kind
@@ -1051,22 +1189,42 @@ public sealed class StateMachineRelationshipIndex
                     _reader.GetMethodDefinition(
                         (MethodDefinitionHandle)constructor);
                 declaringType = method.GetDeclaringType();
-                methodName = _reader.GetString(method.Name);
+                methodName = method.Name;
                 signature = Decode(method);
             }
             else
             {
-                return AttributeConstructorStatus.Malformed;
+                return new(
+                    StateMachineClaimKind.ClassicAsync,
+                    AttributeConstructorStatus.NotTrusted);
             }
 
-            if (!IsKnownType(
-                    declaringType,
-                    AttributeType(attributeName)))
+            SignatureType attributeType =
+                DecodeType(declaringType, ClassTypeCode);
+            StateMachineClaimKind? kind =
+                attributeType.Type switch
+                {
+                    KnownStateMachineType.AsyncStateMachineAttribute =>
+                        StateMachineClaimKind.ClassicAsync,
+                    KnownStateMachineType
+                        .AsyncIteratorStateMachineAttribute =>
+                        StateMachineClaimKind.AsyncIterator,
+                    KnownStateMachineType.IteratorStateMachineAttribute =>
+                        StateMachineClaimKind.Iterator,
+                    _ => null,
+                };
+            if (kind is null
+                || !attributeType.Is(
+                    AttributeType(kind.Value)))
             {
-                return AttributeConstructorStatus.NotTrusted;
+                return new(
+                    StateMachineClaimKind.ClassicAsync,
+                    AttributeConstructorStatus.NotTrusted);
             }
 
-            if (methodName != ".ctor"
+            if (!_reader.StringComparer.Equals(
+                    methodName,
+                    ".ctor")
                 || signature is not { } value
                 || !IsInstanceDefault(value)
                 || value.GenericParameterCount != 0
@@ -1077,26 +1235,30 @@ public sealed class StateMachineRelationshipIndex
                 || !value.ParameterTypes[0].Is(
                     KnownStateMachineType.Type))
             {
-                return AttributeConstructorStatus.Malformed;
+                return new(
+                    kind.Value,
+                    AttributeConstructorStatus.Malformed);
             }
 
-            return AttributeConstructorStatus.Valid;
+            return new(
+                kind.Value,
+                AttributeConstructorStatus.Valid);
         }
 
         internal bool MatchesDeclaration(
             EntityHandle declaration,
-            RoleSpec role)
+            RoleSpec role,
+            out EntityHandle declaringType)
         {
             MethodSignature<SignatureType>? signature;
-            EntityHandle declaringType;
-            string? name;
+            StringHandle name;
             if (declaration.Kind == HandleKind.MemberReference)
             {
                 MemberReference member =
                     _reader.GetMemberReference(
                         (MemberReferenceHandle)declaration);
                 declaringType = member.Parent;
-                name = _reader.GetString(member.Name);
+                name = member.Name;
                 signature = Decode(member);
             }
             else if (declaration.Kind
@@ -1106,15 +1268,19 @@ public sealed class StateMachineRelationshipIndex
                     _reader.GetMethodDefinition(
                         (MethodDefinitionHandle)declaration);
                 declaringType = method.GetDeclaringType();
-                name = _reader.GetString(method.Name);
+                name = method.Name;
                 signature = Decode(method);
             }
             else
             {
+                declaringType = default;
+                name = default;
                 return false;
             }
 
-            return name == role.Name
+            return _reader.StringComparer.Equals(
+                    name,
+                    role.Name)
                 && IsKnownType(declaringType, role.Interface)
                 && signature is { } value
                 && Matches(value, role);
@@ -1239,9 +1405,10 @@ public sealed class StateMachineRelationshipIndex
             if (!_currentAssemblyIsCoreLibrary)
                 return SignatureType.Unknown;
             return ReadKnownType(
-                MetadataTypeDefinitionName.Read(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
-                    handle),
+                    handle,
+                    _beforeMaterialize),
                 rawTypeKind);
         }
 
@@ -1273,9 +1440,10 @@ public sealed class StateMachineRelationshipIndex
             }
 
             return ReadKnownType(
-                MetadataTypeDefinitionName.Read(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
-                    handle),
+                    handle,
+                    _beforeMaterialize),
                 rawTypeKind);
         }
 
@@ -1393,14 +1561,14 @@ public sealed class StateMachineRelationshipIndex
             };
 
         static KnownStateMachineType AttributeType(
-            string name)
-            => name switch
+            StateMachineClaimKind kind)
+            => kind switch
             {
-                KnownAttributeNames.AsyncStateMachineAttribute =>
+                StateMachineClaimKind.ClassicAsync =>
                     KnownStateMachineType.AsyncStateMachineAttribute,
-                KnownAttributeNames.AsyncIteratorStateMachineAttribute =>
+                StateMachineClaimKind.AsyncIterator =>
                     KnownStateMachineType.AsyncIteratorStateMachineAttribute,
-                KnownAttributeNames.IteratorStateMachineAttribute =>
+                StateMachineClaimKind.Iterator =>
                     KnownStateMachineType.IteratorStateMachineAttribute,
                 _ => KnownStateMachineType.Unknown,
             };
@@ -1520,6 +1688,10 @@ public sealed class StateMachineRelationshipIndex
         Malformed,
         Valid,
     }
+
+    readonly record struct AttributeConstructorClassification(
+        StateMachineClaimKind Kind,
+        AttributeConstructorStatus Status);
 
     sealed record RoleSpec(
         StateMachineMethodRole Role,

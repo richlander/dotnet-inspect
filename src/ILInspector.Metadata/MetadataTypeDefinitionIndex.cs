@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -138,6 +139,8 @@ public sealed class MetadataTypeDefinitionIndex
                     IndexedNode existing = nodes[existingNode];
                     nodes[existingNode] = existing with
                     {
+                        Handles = existing.Handles.Add(
+                            definitionHandle),
                         Ambiguous = true,
                     };
                     parentNode = existingNode;
@@ -147,7 +150,7 @@ public sealed class MetadataTypeDefinitionIndex
                     parentNode = nodes.Count;
                     nodesByKey.Add(key, parentNode);
                     nodes.Add(new(
-                        definitionHandle,
+                        [definitionHandle],
                         nodes[key.Parent].Depth + 1,
                         Ambiguous: false));
                 }
@@ -173,6 +176,21 @@ public sealed class MetadataTypeDefinitionIndex
         out TypeDefinitionHandle handle,
         out bool ambiguous)
     {
+        bool found = TryGetDefinitions(
+            name,
+            out ImmutableArray<TypeDefinitionHandle> handles,
+            out ambiguous);
+        handle = found && !ambiguous
+            ? handles[0]
+            : default;
+        return found && !ambiguous;
+    }
+
+    internal bool TryGetDefinitions(
+        MetadataTypeDefinitionName name,
+        out ImmutableArray<TypeDefinitionHandle> handles,
+        out bool ambiguous)
+    {
         ArgumentNullException.ThrowIfNull(name);
         ambiguous = false;
         int parentNode = 0;
@@ -184,19 +202,15 @@ public sealed class MetadataTypeDefinitionIndex
                 name.Segments[i]);
             if (!nodesByKey.TryGetValue(key, out parentNode))
             {
-                handle = default;
+                handles = [];
                 return false;
             }
             if (nodes[parentNode].Ambiguous)
-            {
-                handle = default;
                 ambiguous = true;
-                return false;
-            }
         }
 
         IndexedNode definition = nodes[parentNode];
-        handle = definition.Handle;
+        handles = definition.Handles;
         return true;
     }
 
@@ -240,7 +254,7 @@ public sealed class MetadataTypeDefinitionIndex
         string Name);
 
     readonly record struct IndexedNode(
-        TypeDefinitionHandle Handle,
+        ImmutableArray<TypeDefinitionHandle> Handles,
         int Depth,
         bool Ambiguous);
 }
