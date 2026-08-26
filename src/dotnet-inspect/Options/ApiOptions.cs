@@ -116,6 +116,16 @@ public partial record ApiOptions : IProjectionOptions
 
     // Shared output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+
+    /// <summary>
+    /// The user's requested verbosity before internal section-selection promotion.
+    /// Defaults to <see cref="Verbosity"/> for callers that bypass command setup.
+    /// </summary>
+    public Verbosity? UserVerbosityOverride { get; init; }
+
+    /// <summary>Effective user verbosity before internal promotion.</summary>
+    public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
+
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Tabular { get; init; }
@@ -395,4 +405,18 @@ public record MemberOptions : ApiOptions
 /// <summary>
 /// Resolved source context for a single method, ready for rendering.
 /// </summary>
-public record MethodSourceContext(string SourceCode, string? SourceUrl);
+public record MethodSourceContext(
+    string SourceCode,
+    string? SourceUrl,
+    string? ChecksumAlgorithm = null,
+    string? Checksum = null,
+    DotnetInspector.Services.SourceChecksumVerification ChecksumVerification =
+        DotnetInspector.Services.SourceChecksumVerification.Unavailable)
+{
+    public bool HasChecksumEvidence =>
+        !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
+        && !string.IsNullOrWhiteSpace(Checksum)
+        && ChecksumVerification is
+            DotnetInspector.Services.SourceChecksumVerification.Exact
+            or DotnetInspector.Services.SourceChecksumVerification.LineEndingNormalized;
+}
