@@ -3777,7 +3777,7 @@ public class PackageCommand
 
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var queryRegistry = catalog.QueryRegistry;
+        var queryCatalog = catalog.QueryCatalog;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         libraryOptions = LibraryCommand.NormalizeBareSelect(libraryOptions);
@@ -3854,6 +3854,8 @@ public class PackageCommand
             RequiresGroupedIntegrations(
                 queries,
                 out bool includeIntegrationOpportunities);
+        InspectionQueryPlan<InspectionQueryContext> queryPlan =
+            queryCatalog.Plan(queries);
         using PackageIntegrationsWorkspace? integrationsWorkspace =
             requiresGroupedIntegrations
                 ? PackageIntegrationsWorkspace.Create(
@@ -3894,8 +3896,7 @@ public class PackageCommand
                     packageName,
                     version,
                     context.HttpClient,
-                    queries: queries,
-                    queryRegistry: queryRegistry,
+                    queryPlan: queryPlan,
                     assemblyReference: assemblyReference,
                     integrationsEntry: integrations,
                     integrationOpportunitiesEntry: opportunities);

@@ -8,8 +8,8 @@ namespace DotnetInspector.Sections;
 
 public sealed record LibrarySectionCatalog(
     SectionPipeline<LibraryInspection> Pipeline,
-    InspectionQueryRegistry<InspectionQueryContext> QueryRegistry,
-    InspectionQueryRegistry<AssemblyContextGroup> GroupQueryRegistry);
+    InspectionQueryCatalog<InspectionQueryContext> QueryCatalog,
+    InspectionQueryCatalog<AssemblyContextGroup> GroupQueryCatalog);
 
 /// <summary>
 /// Section descriptors for the library command.
@@ -18,33 +18,49 @@ public sealed record LibrarySectionCatalog(
 /// </summary>
 public static class LibrarySections
 {
+    /// <summary>The reusable fixed-domain catalog for per-assembly library queries.</summary>
+    public static InspectionQueryCatalog<InspectionQueryContext> QueryCatalog { get; } =
+        BuildQueryCatalog();
+
+    /// <summary>The reusable fixed-domain catalog for assembly-context group queries.</summary>
+    public static InspectionQueryCatalog<AssemblyContextGroup> GroupQueryCatalog { get; } =
+        BuildGroupQueryCatalog();
+
     /// <summary>
     /// Builds the library catalog from typed query catalogs, so section costs, demand, and
     /// execution use the same immutable declarations.
     /// </summary>
     public static LibrarySectionCatalog CreateCatalog()
     {
-        var queryRegistry = CreateQueryRegistry();
-        var groupQueryRegistry = CreateGroupQueryRegistry();
         return new LibrarySectionCatalog(
             CreatePipeline(
-                query => groupQueryRegistry.RegisteredQueries.Contains(query)
-                    ? groupQueryRegistry.CostOf(query)
-                    : queryRegistry.CostOf(query)),
-            queryRegistry,
-            groupQueryRegistry);
+                query => GroupQueryCatalog.RegisteredQueries.Contains(query)
+                    ? GroupQueryCatalog.CostOf(query)
+                    : QueryCatalog.CostOf(query)),
+            QueryCatalog,
+            GroupQueryCatalog);
     }
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
-    {
-        var queryRegistry = CreateQueryRegistry();
-        var groupQueryRegistry = CreateGroupQueryRegistry();
-        return CreatePipeline(
-            query => groupQueryRegistry.RegisteredQueries.Contains(query)
-                ? groupQueryRegistry.CostOf(query)
-                : queryRegistry.CostOf(query));
-    }
+        => CreatePipeline(
+            query => GroupQueryCatalog.RegisteredQueries.Contains(query)
+                ? GroupQueryCatalog.CostOf(query)
+                : QueryCatalog.CostOf(query));
+
+    /// <summary>
+    /// Creates an independently mutable builder initialized from the production query catalog.
+    /// Intended for focused host tests and extensions; production execution uses
+    /// <see cref="QueryCatalog"/>.
+    /// </summary>
+    public static InspectionQueryRegistry<InspectionQueryContext> CreateQueryRegistry()
+        => QueryCatalog.ToBuilder();
+
+    /// <summary>
+    /// Returns the reusable assembly-context group catalog.
+    /// </summary>
+    public static InspectionQueryCatalog<AssemblyContextGroup> CreateGroupQueryRegistry()
+        => GroupQueryCatalog;
 
     private static SectionPipeline<LibraryInspection> CreatePipeline(
         Func<InspectionQueryDefinition, InspectionCost> queryCost)
@@ -197,8 +213,7 @@ public static class LibrarySections
                 SectionNames.CostContext);
     }
 
-    /// <summary>Builds the typed query registry used by library sections.</summary>
-    public static InspectionQueryRegistry<InspectionQueryContext> CreateQueryRegistry()
+    private static InspectionQueryCatalog<InspectionQueryContext> BuildQueryCatalog()
     {
         return new InspectionQueryRegistry<InspectionQueryContext>(
             static (context, query, cost) =>
@@ -308,7 +323,8 @@ public static class LibrarySections
             .Add(
                 TopLeverageQuery.Definition,
                 ExecuteTopLeverageQuery)
-            .AddSourceLinkQueries(RequireSourceLinkContext);
+            .AddSourceLinkQueries(RequireSourceLinkContext)
+            .Compile();
     }
 
     internal static UnsafeEvidenceResult ExecuteUnsafeEvidenceQuery(
@@ -514,9 +530,8 @@ public static class LibrarySections
         }
     }
 
-    /// <summary>Builds the typed query registry for assembly-context group sections.</summary>
-    public static InspectionQueryRegistry<AssemblyContextGroup>
-        CreateGroupQueryRegistry()
+    private static InspectionQueryCatalog<AssemblyContextGroup>
+        BuildGroupQueryCatalog()
         => new InspectionQueryRegistry<AssemblyContextGroup>()
             .Add(
                 AssemblyContextIntegrationsQuery.Definition,
@@ -524,7 +539,8 @@ public static class LibrarySections
             .Add(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
                 AssemblyContextIntegrationOpportunitiesQuery.Execute,
-                AssemblyContextIntegrationsQuery.Definition);
+                AssemblyContextIntegrationsQuery.Definition)
+            .Compile();
 
     private static SourceLinkQueryContext RequireSourceLinkContext(InspectionQueryContext context)
         => context.SourceLinkContext

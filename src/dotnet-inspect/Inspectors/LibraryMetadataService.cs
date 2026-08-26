@@ -40,7 +40,8 @@ internal static class LibraryMetadataService
         HttpClient httpClient,
         bool isPlatformAssembly = false,
         HashSet<InspectionQueryDefinition>? queries = null,
-        InspectionQueryRegistry<InspectionQueryContext>? queryRegistry = null,
+        InspectionQueryCatalog<InspectionQueryContext>? queryCatalog = null,
+        InspectionQueryPlan<InspectionQueryContext>? queryPlan = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
         AssemblyIntegrationOpportunitiesEntry?
@@ -52,9 +53,13 @@ internal static class LibraryMetadataService
 
         try
         {
-            var requiredQueries = queryRegistry is not null && queries is not null
-                ? queryRegistry.ExpandRequired(queries)
-                : queries;
+            queryPlan ??= queryCatalog is not null && queries is not null
+                ? queryCatalog.Plan(queries)
+                : null;
+            IReadOnlyCollection<InspectionQueryDefinition>? requiredQueries =
+                queryPlan is null
+                    ? queries
+                    : queryPlan.Queries;
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(requiredQueries);
@@ -135,7 +140,7 @@ internal static class LibraryMetadataService
                 nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
                 nativeAudit.IsDeterministic = pdbContext.HasReproducibleFlag;
 
-                if (queryRegistry is not null && requiredQueries is not null)
+                if (queryPlan is not null)
                 {
                     using var queryContext = new Sections.InspectionQueryContext
                     {
@@ -153,8 +158,7 @@ internal static class LibraryMetadataService
                         path,
                         nativeAudit,
                         logger,
-                        queryRegistry,
-                        requiredQueries,
+                        queryPlan,
                         queryContext,
                         projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
@@ -260,7 +264,7 @@ internal static class LibraryMetadataService
             // Run typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
             var referencesWillRun =
-                queryRegistry is not null
+                queryPlan is not null
                 && requiredQueries?.Contains(AssemblyReferencesQuery.Definition) == true;
             if ((collectReferenceTree || needsAuditSignals) && !referencesWillRun)
             {
@@ -272,7 +276,7 @@ internal static class LibraryMetadataService
                     AssemblyReferencesQuery.Execute(session));
             }
 
-            if (queryRegistry is not null && requiredQueries is not null)
+            if (queryPlan is not null)
             {
                 using var queryContext = new Sections.InspectionQueryContext
                 {
@@ -291,8 +295,7 @@ internal static class LibraryMetadataService
                     path,
                     inspection,
                     logger,
-                    queryRegistry,
-                    requiredQueries,
+                    queryPlan,
                     queryContext,
                     projectOptimizationOpportunities,
                     trace).ConfigureAwait(false);
@@ -504,7 +507,7 @@ internal static class LibraryMetadataService
     }
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
-        IReadOnlySet<InspectionQueryDefinition>? queries)
+        IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
@@ -2905,8 +2908,7 @@ internal static class LibraryMetadataService
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        InspectionQueryRegistry<InspectionQueryContext> queryRegistry,
-        HashSet<InspectionQueryDefinition> requiredQueries,
+        InspectionQueryPlan<InspectionQueryContext> queryPlan,
         InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities,
         Sections.InspectionTrace? trace)
@@ -2917,8 +2919,7 @@ internal static class LibraryMetadataService
         InspectionQueryResults results;
         try
         {
-            results = await queryRegistry.RunAsync(
-                requiredQueries,
+            results = await queryPlan.RunAsync(
                 queryContext,
                 recordQuery).ConfigureAwait(false);
         }
