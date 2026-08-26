@@ -515,7 +515,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task ImplicitCallers_DoesNotInvalidateAuthoredInventorySection()
+    public async Task CallerScope_DoesNotMutateAuthoredInventorySection()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
             new MemberOptions
@@ -534,7 +534,7 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Contains($"## {SectionNames.MemberIndex}", result.Output);
-        Assert.Contains($"## {SectionNames.Callers}", result.Output);
+        Assert.DoesNotContain($"## {SectionNames.Callers}", result.Output);
     }
 
     [Fact]
