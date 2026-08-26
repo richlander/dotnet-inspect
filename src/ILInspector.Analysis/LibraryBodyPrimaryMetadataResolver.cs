@@ -520,8 +520,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             {
                 parent = (TypeDefinitionHandle)member.Parent;
             }
-            else if (member.Parent.Kind == HandleKind.TypeReference
-                && CouldReferenceCurrentModule(declaringType!))
+            else if (CouldReferenceCurrentModule(declaringType!))
             {
                 if (!CanCanonicalizeCurrentModuleReference(
                         declaringType!)

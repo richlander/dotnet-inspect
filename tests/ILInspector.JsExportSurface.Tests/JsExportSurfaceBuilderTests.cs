@@ -3904,6 +3904,50 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     /// <summary>
+    /// Gates the "might be this field" half of candidate selection: a static
+    /// write carrying an identity that names this exact field but never
+    /// canonicalized to its local definition is neither null nor equal, so
+    /// selecting candidates by equality alone would silently drop it — and drop
+    /// precisely the write with the least provenance behind it.
+    /// </summary>
+    [Fact]
+    public void Build_RejectsUnprovenSecondStaticWriteNamingTheSameField()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        FieldStoreFact instanceStore = Assert.Single(
+            bodyIndex.FieldStores,
+            store => store.IsStatic
+                && store.FieldName == "<Default>k__BackingField"
+                && store.DeclaringType?.Name == "FixtureJsonContext");
+        FieldIdentity? unproven = FieldIdentity.TryCreate(
+            instanceStore.DeclaringType,
+            instanceStore.FieldName);
+        Assert.NotNull(unproven);
+        Assert.Equal(0, unproven.LocalDefinitionToken);
+
+        // The state that made this reachable: not equal to the authenticated
+        // identity, and not null either.
+        Assert.NotEqual(instanceStore.Identity, unproven);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildWith(
+                    path,
+                    bodyIndex,
+                    instanceStore with
+                    {
+                        ILOffset = instanceStore.ILOffset + 0x1000,
+                        FieldToken = instanceStore.FieldToken + 0x100,
+                        Identity = unproven,
+                    }));
+        Assert.Contains(
+            "no authentic source-generated implementation",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Gates the fail-closed half of <see cref="FieldIdentity"/>: a static
     /// write whose own field could not be resolved might be a write to the
     /// authenticated field, and "might be" has to reject.

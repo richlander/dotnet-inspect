@@ -779,6 +779,37 @@ public sealed class FieldIdentity : IEquatable<FieldIdentity>
                     == other.LocalDefinitionToken;
         }
 
+        return DeclaringTypeMatches(other);
+    }
+
+    /// <summary>
+    /// True when <paramref name="other"/> could name the same field as this one.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Equals(FieldIdentity)"/> answers "is this provably the same field"; a consumer
+    /// counting writes to a field needs the weaker "might this be the same field", because a
+    /// write it cannot rule out has to fail closed the same way a proven duplicate does. Two
+    /// identities that both canonicalized to a local definition are compared by that definition,
+    /// so distinct local fields sharing a name stay distinct. When either side was never
+    /// canonicalized, the declaring-type spelling and name are all the evidence there is, and
+    /// agreement on both is treated as "might be". A null <paramref name="other"/> is an
+    /// unresolved access, which might be any field at all.
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsUnprovenSecondStaticWriteNamingTheSameField</c>
+    /// and <c>LibraryBodyIndexTests.FieldIdentity_DistinguishesUnprovenForeignFields</c> gate it.
+    /// </remarks>
+    public bool MightBeSameFieldAs(FieldIdentity? other)
+    {
+        if (other is null)
+            return true;
+        if (Name != other.Name)
+            return false;
+        return LocalDefinitionToken != 0 && other.LocalDefinitionToken != 0
+            ? LocalDefinitionToken == other.LocalDefinitionToken
+            : DeclaringTypeMatches(other);
+    }
+
+    bool DeclaringTypeMatches(FieldIdentity other)
+    {
         ResolvableTypeReference? left = DeclaringType.Resolution;
         ResolvableTypeReference? right = other.DeclaringType.Resolution;
         return left is not null || right is not null
@@ -794,6 +825,9 @@ public sealed class FieldIdentity : IEquatable<FieldIdentity>
         var hash = new HashCode();
         hash.Add(Name);
         hash.Add(LocalDefinitionToken);
+        if (LocalDefinitionToken != 0)
+            return hash.ToHashCode();
+
         if (DeclaringType.Resolution is { } resolution)
             hash.Add(resolution);
         else

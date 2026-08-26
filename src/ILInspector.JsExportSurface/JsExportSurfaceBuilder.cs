@@ -1841,12 +1841,18 @@ public static class JsExportSurfaceBuilder
     /// <remarks>
     /// Candidates are selected by <see cref="FieldIdentity"/>, not by metadata
     /// token, so a second write through a <c>MemberRef</c> alias for the same
-    /// field is still a second write. A static store whose own identity could
-    /// not be resolved is counted as a candidate rather than skipped, because
-    /// "might be this field" has to fail closed the same way "is this field
-    /// twice" does.
+    /// field is still a second write. Selection uses
+    /// <see cref="FieldIdentity.MightBeSameFieldAs"/> rather than equality:
+    /// a static store whose own identity could not be resolved, or which named
+    /// this field without canonicalizing to its local definition, is counted as
+    /// a candidate rather than skipped, because "might be this field" has to
+    /// fail closed the same way "is this field twice" does. Selecting by
+    /// equality alone would silently drop exactly the writes that are least
+    /// proven.
     /// <c>JsExportSurfaceBuilderTests.Build_RejectsAliasedSecondWriteToGeneratedDefaultInstanceField</c>
-    /// gates the aliasing case.
+    /// gates the aliasing case and
+    /// <c>JsExportSurfaceBuilderTests.Build_RejectsUnprovenSecondStaticWriteNamingTheSameField</c>
+    /// gates the unproven case.
     /// </remarks>
     static bool TryGetSingleStaticInitialization(
         LibraryBodyIndex bodyIndex,
@@ -1859,8 +1865,7 @@ public static class JsExportSurfaceBuilder
         [
             .. bodyIndex.FieldStores.Where(store =>
                 store.IsStatic
-                && (store.Identity is null
-                    || field.Equals(store.Identity))),
+                && field.MightBeSameFieldAs(store.Identity)),
         ];
         if (stores is not [{ Identity: { } storedField } store]
             || !field.Equals(storedField)

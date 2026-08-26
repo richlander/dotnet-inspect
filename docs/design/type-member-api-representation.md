@@ -194,7 +194,7 @@ the unpatched control still publishes.
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
 | `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
 | `FieldStoreFact`, `FieldLoadFact` | One `stsfld`/`stfld` or `ldsfld`/`ldfld` instruction | Which field the instruction touches, whether its receiver is an argument, whether the block is reachable, and (for stores) the resolved stored value | Whether some other body also writes the field, or aliased/indirect access |
-| `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef`; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
+| `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef` whatever its parent encoding; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
 | `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
 
@@ -233,13 +233,27 @@ fact's independent wiring.
 carry different metadata tokens for the same runtime field. A consumer asking
 "is this the only write to this field?" and linking by token would count one
 write where there are two, so field accesses are linked by identity instead.
-For a local parent, including a `TypeRef` scoped back to the current module or
-assembly, Analysis matches both name and field signature and canonicalizes a
-unique match to its reader-local `FieldDef` token. Duplicate matches, a
-signature mismatch, or an unresolvable potentially local operand produce no
-identity. This also keeps an external same-simple-name assembly reference from
-standing in for a current-module field.
+For a local parent — a `TypeDef`, or any `TypeRef`, `TypeSpec`, or `ModuleRef`
+whose declaring type resolves back to the current module or assembly — Analysis
+matches both name and field signature and canonicalizes a unique match to its
+reader-local `FieldDef` token. The parent's *encoding* is not what makes an
+alias local; only the type it names is, so adding a parent kind cannot quietly
+reopen the bypass. Duplicate matches, a signature mismatch, or an unresolvable
+potentially local operand produce no identity. This also keeps an external
+same-simple-name assembly reference from standing in for a current-module
+field.
+
+Equality answers "provably the same field": two canonicalized identities are
+compared by local definition token alone, because canonicalization deliberately
+retains each alias's own declaring-type spelling. `GetHashCode` therefore
+ignores the declaring type whenever a local token is present, or identities that
+compare equal would land in different hash buckets. A consumer counting writes
+needs the weaker `MightBeSameFieldAs`, which additionally treats an unresolved
+access, or one that named the field without canonicalizing, as a candidate:
+"might be this field" has to fail closed exactly as "is this field twice" does.
 `LibraryBodyIndexTests.FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature`,
+`FieldIdentity_LocalAliases_HashConsistentlyWithEquality`,
+`FieldIdentity_DistinguishesUnprovenForeignFields`,
 `MethodCallResolvedValueTests.FieldIdentity_DistinguishesDeclaringTypeOrigins`,
 and `LeavesUnresolvableFieldAccessesWithoutIdentity` gate it.
 

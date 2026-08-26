@@ -69,9 +69,12 @@ of return alternatives comes from Analysis's `MethodReturnFlow`, and a null,
 unresolved, or extra alternative fails closed. Cache field loads and stores are
 linked by `FieldIdentity`, which canonicalizes a unique local `MemberRef`
 name-and-signature match to its reader-local `FieldDef`, including when the
-member parent is a `TypeRef` scoped back to the current module or assembly. A
-colliding external scope, duplicate match, signature mismatch, or otherwise
-unresolved access cannot stand in for that field and fails closed.
+member parent is a `TypeRef`, `TypeSpec`, or `ModuleRef` whose declaring type
+resolves back to the current module or assembly. A colliding external scope,
+duplicate match, signature mismatch, or otherwise unresolved access cannot stand
+in for that field and fails closed. Write candidates are selected with
+`MightBeSameFieldAs` rather than equality, so a store that names the field
+without canonicalizing to its definition is counted rather than dropped.
 The context initializer must construct the default options
 into a static field, load that field into the `JsonSerializerOptions` copy
 constructor, pass the copy to the context constructor, and store the constructed
