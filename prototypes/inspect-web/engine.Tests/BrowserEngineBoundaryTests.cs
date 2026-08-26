@@ -25,6 +25,85 @@ public sealed class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     [Fact]
+    public void QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
+    {
+        const string artifactText = "Artifact\u202e";
+        var identity = new AssemblyReferenceIdentity(
+            artifactText,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                identity,
+                "test",
+                () => new MemoryStream([0x01, 0x02, 0x03]),
+                AssemblyResolutionProvenance.Package(
+                    "Package.Sample",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null));
+        var participant = new AssemblyContextParticipant(
+            assembly,
+            new RejectingBindingPolicy());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+
+        AssemblyContextApiSurfaceResult surface =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits);
+        AssemblyContextIntegrationsResult integrations =
+            AssemblyContextIntegrationsQuery.Execute(group);
+        AssemblyIntegrationOpportunitiesEntry opportunity =
+            AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(
+                group,
+                participant);
+        string[] failures =
+        [
+            BrowserSurfaceProjection.ApiSurfaceFailures(
+                surface.Assemblies.Assemblies)!,
+            InspectionEngine.CreateIntegrations(
+                "Package.Sample",
+                "1.0.0",
+                "net11.0",
+                integrations.Assemblies).InspectionError!,
+            InspectionEngine.CreateOpportunities(
+                "Package.Sample",
+                "1.0.0",
+                "net11.0",
+                [opportunity]).InspectionError!,
+            BrowserSurfaceProjection.RejectedAssembly(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    artifactText)),
+            BrowserSurfaceProjection.FailedAssembly(
+                new InvalidDataException(artifactText)),
+            BrowserSurfaceProjection.PartialApiSurface(1),
+        ];
+
+        Assert.All(
+            failures,
+            failure =>
+            {
+                Assert.DoesNotContain(
+                    artifactText,
+                    failure,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain('\u202e', failure);
+            });
+        Assert.Equal("Assembly unavailable: InvalidImage.", failures[0]);
+        Assert.Equal(
+            "Assembly inspection failed (InvalidDataException).",
+            failures[4]);
+        Assert.Equal(
+            "An assembly API surface omitted 1 metadata row(s).",
+            failures[5]);
+    }
+
+    [Fact]
     public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
     {
         var type = new ApiType
@@ -1429,7 +1508,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task QueryPackage_AllSelectedFailuresPreserveTheTypedDiagnosis()
+    public async Task QueryPackage_AllSelectedFailuresPreserveKindWithoutArtifactDetail()
     {
         const string packageId = "Malformed.Surface";
         const string version = "1.0.0";
@@ -1450,10 +1529,10 @@ public sealed class BrowserEngineBoundaryTests
                     "net11.0"));
 
         Assert.Contains(
-            "InvalidImage",
+            "Assembly unavailable: InvalidImage.",
             failure.Message,
             StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.DoesNotContain(
             "invalid metadata",
             failure.Message,
             StringComparison.Ordinal);
@@ -4322,6 +4401,17 @@ public sealed class BrowserEngineBoundaryTests
                 new HttpResponseMessage(
                     System.Net.HttpStatusCode.NotFound));
         }
+    }
+
+    sealed class RejectingBindingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable));
     }
 
 }

@@ -512,7 +512,7 @@ public static partial class InspectionEngine
             BrowserJsonContext.Default.BrowserPackageOpportunities);
     }
 
-    static BrowserPackageIntegrations CreateIntegrations(
+    internal static BrowserPackageIntegrations CreateIntegrations(
         string package,
         string version,
         string framework,
@@ -530,12 +530,12 @@ public static partial class InspectionEngine
                     break;
                 case AssemblyIntegrationsEntry.Rejected rejected:
                     failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
-                        + $"({rejected.Failure.Detail})");
+                        BrowserSurfaceProjection.RejectedAssembly(
+                            rejected.Failure));
                     break;
                 case AssemblyIntegrationsEntry.Failed failed:
                     failures.Add(
-                        $"{failed.Subject.Identity.Name}: {failed.Error.Message}");
+                        BrowserSurfaceProjection.FailedAssembly(failed.Error));
                     break;
                 default:
                     throw new InvalidOperationException(
@@ -582,7 +582,7 @@ public static partial class InspectionEngine
                     : string.Join("; ", failures));
     }
 
-    static BrowserPackageOpportunities CreateOpportunities(
+    internal static BrowserPackageOpportunities CreateOpportunities(
         string package,
         string version,
         string framework,
@@ -607,12 +607,12 @@ public static partial class InspectionEngine
                     break;
                 case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
                     failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
-                        + $"({rejected.Failure.Detail})");
+                        BrowserSurfaceProjection.RejectedAssembly(
+                            rejected.Failure));
                     break;
                 case AssemblyIntegrationOpportunitiesEntry.Failed failed:
                     failures.Add(
-                        $"{failed.Subject.Identity.Name}: {failed.Error.Message}");
+                        BrowserSurfaceProjection.FailedAssembly(failed.Error));
                     break;
                 default:
                     throw new InvalidOperationException(

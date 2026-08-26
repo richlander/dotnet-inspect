@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -203,6 +204,8 @@ public sealed partial class InspectionWorkspace
                 package.AssetSelection.ImplementationAssets.Select(asset =>
                     new RoleAsset(package, asset))),
         ];
+        ValidateAssetCount(surfaceAssets.Length, options);
+        ValidateAssetCount(implementationAssets.Length, options);
         bool shared = SameAssets(surfaceAssets, implementationAssets);
         bool hasSeparateImplementation =
             !shared && !implementationAssets.IsEmpty;
@@ -340,13 +343,6 @@ public sealed partial class InspectionWorkspace
         long groupBudget,
         PackageAssemblyContextRealizationOptions options)
     {
-        if (assets.Length > options.MaxAssembliesPerRole)
-        {
-            throw new InvalidOperationException(
-                "The selected package workspace role exceeds the configured "
-                + "assembly-count limit.");
-        }
-
         long expandedBytes = 0;
         foreach (RoleAsset asset in assets)
         {
@@ -389,6 +385,18 @@ public sealed partial class InspectionWorkspace
             throw new InvalidOperationException(
                 "The selected package workspace role exceeds the configured "
                 + "retained-image budget before assembly identity decoding.");
+        }
+    }
+
+    static void ValidateAssetCount(
+        int assetCount,
+        PackageAssemblyContextRealizationOptions options)
+    {
+        if (assetCount > options.MaxAssembliesPerRole)
+        {
+            throw new InvalidOperationException(
+                "The selected package workspace role exceeds the configured "
+                + "assembly-count limit.");
         }
     }
 
@@ -469,19 +477,44 @@ public sealed partial class InspectionWorkspace
     static bool SameAssets(
         ImmutableArray<RoleAsset> left,
         ImmutableArray<RoleAsset> right)
-        => left.Length == right.Length
-            && left.All(leftAsset =>
-                right.Any(rightAsset =>
-                    ReferenceEquals(
-                        leftAsset.Package,
-                        rightAsset.Package)
-                    && leftAsset.Asset.Path.Equals(
-                        rightAsset.Asset.Path,
-                        StringComparison.Ordinal)));
+    {
+        if (left.Length != right.Length)
+            return false;
+
+        var remaining = new HashSet<RoleAsset>(
+            left,
+            RoleAssetIdentityComparer.Instance);
+        if (remaining.Count != left.Length)
+        {
+            throw new InvalidOperationException(
+                "Package asset selection produced duplicate role assets.");
+        }
+
+        return right.All(remaining.Remove) && remaining.Count == 0;
+    }
 
     sealed record RoleAsset(
         PackageAssemblyContextSelection Package,
         PackageCompileAsset Asset);
+
+    sealed class RoleAssetIdentityComparer : IEqualityComparer<RoleAsset>
+    {
+        internal static RoleAssetIdentityComparer Instance { get; } = new();
+
+        public bool Equals(RoleAsset? left, RoleAsset? right) =>
+            ReferenceEquals(left, right)
+            || (left is not null
+                && right is not null
+                && ReferenceEquals(left.Package, right.Package)
+                && left.Asset.Path.Equals(
+                    right.Asset.Path,
+                    StringComparison.Ordinal));
+
+        public int GetHashCode(RoleAsset asset) =>
+            HashCode.Combine(
+                RuntimeHelpers.GetHashCode(asset.Package),
+                StringComparer.Ordinal.GetHashCode(asset.Asset.Path));
+    }
 
     sealed record RoleAssembly(
         PackageAssemblyContextSelection Package,

@@ -477,14 +477,14 @@ internal static class BrowserSurfaceProjection
 
     /// <summary>
     /// The failure text for one participant outcome, or null when the participant projected. A
-    /// rejected or failed participant is named beside the results rather than dropped.
+    /// rejected or failed participant remains visible without carrying artifact-authored fields.
     /// </summary>
     internal static string? Failure<TValue>(AssemblyContextEntry<TValue> entry) => entry switch
     {
         AssemblyContextEntry<TValue>.Rejected rejected =>
-            $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} ({rejected.Failure.Detail})",
+            RejectedAssembly(rejected.Failure),
         AssemblyContextEntry<TValue>.Failed failed =>
-            $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+            FailedAssembly(failed.Error),
         _ => null,
     };
 
@@ -504,13 +504,22 @@ internal static class BrowserSurfaceProjection
                 && available.Value.InspectionFailures.Length > 0)
             {
                 failures.Add(
-                    $"{available.Subject.Identity.Name}: API surface omitted "
-                    + $"{available.Value.InspectionFailures.Length} metadata row(s).");
+                    PartialApiSurface(
+                        available.Value.InspectionFailures.Length));
             }
         }
 
         return failures.Count == 0 ? null : string.Join("; ", failures);
     }
+
+    internal static string RejectedAssembly(CandidateOpenFailure failure) =>
+        $"Assembly unavailable: {failure.Kind}.";
+
+    internal static string FailedAssembly(Exception error) =>
+        $"Assembly inspection failed ({error.GetType().Name}).";
+
+    internal static string PartialApiSurface(int omittedRows) =>
+        $"An assembly API surface omitted {omittedRows} metadata row(s).";
 
     /// <summary>
     /// The response's visible notice: participant failures, partial extraction, and an explicit

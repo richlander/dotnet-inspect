@@ -1,4 +1,5 @@
 using System.Reflection;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -50,9 +51,11 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
+        Assert.Contains("T:ILInspector.Metadata.AssemblyIdentityScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.ExtensionMethodScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.MethodClassificationScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.ResourceScanner", banned);
+        Assert.Contains("T:ILInspector.Metadata.TypeDependencyScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.TypeHierarchyScanner", banned);
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
         Assert.Contains("T:ILInspector.Metadata.IAssemblyReferenceResolver", banned);
@@ -60,6 +63,7 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
+        Assert.Contains("T:ILInspector.Decompiler.MemberBodyProducer", banned);
         Assert.Contains(
             "T:ILInspector.Analysis.CallerScopeReachabilityPlan",
             banned);
@@ -193,6 +197,73 @@ public sealed class BrowserEngineLayeringTests
                 $"T:{owner.FullName}",
                 banned);
         }
+    }
+
+    [Fact]
+    public void EveryPublicDescriptorConsumerIsBannedOrApprovedProductCurrency()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        string[] approvedOwners =
+        [
+            // Product queries and typed carriers may exchange descriptors without opening them
+            // through an unaccounted inspection primitive.
+            "DotnetInspector.Queries.AssemblyContextGroup",
+            "DotnetInspector.Queries.AssemblyContextParticipant",
+            "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+Rejected",
+            "DotnetInspector.Queries.InspectionGraphSubject",
+            "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure",
+            "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+InvalidImage",
+            "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+Rejected",
+            "DotnetInspector.Queries.MemberCallGraphSession",
+            "DotnetInspector.Queries.PackageAssemblyRoleCorrespondence",
+            "ILInspector.Analysis.CallerResolutionPlan",
+            "ILInspector.Analysis.CatalogCallGraphParticipant",
+            "ILInspector.Analysis.CatalogMemberCorrespondencePlan",
+            "ILInspector.Metadata.AssemblyBindingOrigin",
+            "ILInspector.Metadata.AssemblyBindingSelection",
+            "ILInspector.Metadata.TypeResolutionRequest",
+        ];
+        HashSet<string> approved =
+            approvedOwners.ToHashSet(StringComparer.Ordinal);
+        Type[] consumers =
+        [
+            .. ProductAssemblies
+                .SelectMany(assembly => assembly.GetExportedTypes())
+                .Where(type =>
+                    type.GetMembers(
+                            BindingFlags.Public
+                            | BindingFlags.Instance
+                            | BindingFlags.Static
+                            | BindingFlags.DeclaredOnly)
+                        .OfType<MethodBase>()
+                        .Any(method => method.GetParameters().Any(
+                            parameter => parameter.ParameterType
+                                == typeof(ResolvedAssemblyReference))))
+                .Distinct()
+                .OrderBy(type => type.FullName, StringComparer.Ordinal),
+        ];
+
+        string[] staleApprovals =
+        [
+            .. approved.Except(
+                consumers.Select(type => type.FullName!),
+                StringComparer.Ordinal),
+        ];
+        string[] unguardedConsumers =
+        [
+            .. consumers
+                .Where(type =>
+                    !approved.Contains(type.FullName!)
+                    && !banned.Contains(
+                        "T:" + type.FullName!.Replace('+', '.')))
+                .Select(type => type.FullName!),
+        ];
+
+        Assert.True(
+            staleApprovals.Length == 0 && unguardedConsumers.Length == 0,
+            "Descriptor-owner guard is stale. "
+            + $"Stale approvals: {string.Join(", ", staleApprovals)}. "
+            + $"Unguarded consumers: {string.Join(", ", unguardedConsumers)}.");
     }
 
     [Fact]

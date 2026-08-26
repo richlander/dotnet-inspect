@@ -370,6 +370,41 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void AssemblyCountLimit_IsCheckedBeforeEntryPreflightOrOpen()
+    {
+        string[] paths =
+        [
+            .. Enumerable.Range(0, 257).Select(
+                index => $"lib/net11.0/Asset{index:D3}.dll"),
+        ];
+        var content = new CountingPackageContent(paths);
+        var package = new PackageAssemblyContextSelection(
+            content,
+            "Count.Sample",
+            "1.0.0",
+            Framework);
+        using var workspace = new InspectionWorkspace();
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => workspace.RealizePackageAssemblyContextRoles(
+                    [package],
+                    new PackageAssemblyContextRealizationOptions
+                    {
+                        MaxAssembliesPerRole = 256,
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "assembly-count limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, content.EntryLengthRequests);
+        Assert.Equal(0, content.EntryOpenRequests);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public void DeclaredEntryBudget_FailureDoesNotExposeArtifactPath()
     {
         byte[] image =
@@ -547,6 +582,51 @@ public sealed class PackageAssemblyContextRealizationTests
         {
             yield return path;
         }
+    }
+
+    sealed class CountingPackageContent(
+        IReadOnlyList<string> paths)
+        : IPackageContent, IPackageContentEntryManifest
+    {
+        public int EntryLengthRequests { get; private set; }
+        public int EntryOpenRequests { get; private set; }
+        public string? RootPath => null;
+        public string? NupkgPath => null;
+        public bool FromCache => false;
+        public string ProducerKey => "tests";
+        public bool RequiresArchiveTreeMatch => false;
+
+        public bool TryOpenArchive(
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            stream = null;
+            return false;
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            EntryOpenRequests++;
+            stream = Stream.Null;
+            return true;
+        }
+
+        public IEnumerable<string> EnumerateEntries() => paths;
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long length)
+        {
+            EntryLengthRequests++;
+            length = 0;
+            return true;
+        }
+
+        public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths() =>
+        [
+            .. paths.Select(path => new PackageContentEntry(path, 0)),
+        ];
     }
 
     sealed class UnderreportingLengthStream(
