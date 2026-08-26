@@ -91,7 +91,9 @@ result. Raw assembly public-key material is charged once per reader; repeated
 signature occurrences account only for the normalized token they retain,
 including the token derived from a non-nil empty full key. Deterministic
 assembly-reference projection failures are cached as well, so repeated malformed
-rows cannot multiply work already charged to the operation.
+rows cannot multiply work already charged to the operation. Storage successfully
+read before a later malformed field is charged before the failure is cached,
+including for distinct rows that share heap storage.
 Direct exported-root implementations are range-validated before their flags or
 target kind can classify them as ordinary rejected evidence.
 

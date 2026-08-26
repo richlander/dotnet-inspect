@@ -114,7 +114,10 @@ once per expected source segment. Raw public-key material contributes only to
 that one-time operation charge; each signature occurrence accounts for the
 normalized token that correspondence actually retains, including a non-nil
 empty full-key blob whose SHA-1-derived token is non-empty. Deterministic
-projection failures are replayed without repeating completed charges.
+projection failures are replayed without repeating completed charges. Storage
+successfully read before a later malformed field is charged before the failure
+is cached, including for distinct assembly-reference rows that share heap
+storage.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -138,6 +141,7 @@ identity.
 `ResolveApiMember_InvalidImplementationTagForMatchedRootFails`,
 `ResolveApiMember_ReusedMalformedForwarderAssemblyReferenceIsProjectedOnce`,
 `ResolveApiMember_MalformedAssemblyReferenceStorageDoesNotRepeatCharges`,
+`ResolveApiMember_DistinctMalformedAssemblyReferenceStorageIsCharged`,
 `ResolveApiMember_NestedForwarderFanoutDoesNotRescanParentChains`,
 `ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget`,

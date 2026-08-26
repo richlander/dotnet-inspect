@@ -163,9 +163,10 @@ public static class ApiMemberIdentity
             {
                 if (added)
                 {
-                    int nameLength;
-                    int cultureLength;
-                    int keyLength;
+                    int nameLength = 0;
+                    int cultureLength = 0;
+                    int keyLength = 0;
+                    ExceptionDispatchInfo? storageFailure = null;
                     try
                     {
                         System.Reflection.Metadata.AssemblyReference
@@ -188,15 +189,19 @@ public static class ApiMemberIdentity
                         ex is BadImageFormatException
                             or ArgumentOutOfRangeException)
                     {
-                        failures[handle] =
+                        storageFailure =
                             ExceptionDispatchInfo.Capture(ex);
-                        failureCached = true;
-                        throw;
                     }
 
                     charge(nameLength);
                     charge(cultureLength);
                     charge(keyLength);
+                    if (storageFailure is not null)
+                    {
+                        failures[handle] = storageFailure;
+                        failureCached = true;
+                        storageFailure.Throw();
+                    }
                     chargeCompleted = true;
                 }
 

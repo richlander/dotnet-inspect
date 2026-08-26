@@ -930,6 +930,27 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_DistinctMalformedAssemblyReferenceStorageIsCharged()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: true,
+                includeForwarder: false),
+            BuildCurrentToCoreLibraryForwarderImage(
+                useTypeDefinition: false,
+                includeForwarder: true,
+                noiseForwarderCount: 8,
+                noisePublicKeyBytes: 8,
+                noisePublicKeyIsToken: true,
+                noiseAssemblyNameLength: 512 * 1024,
+                invalidNoiseCultureHandle: true,
+                distinctNoiseAssemblyReferences: true));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("work budget", result.Failure);
+    }
+
+    [Fact]
     public void ResolveApiMember_ReusedForwarderAssemblyReferenceIsProjectedOnce()
     {
         byte[] source =
@@ -2686,6 +2707,7 @@ public sealed class MethodCorrespondenceResolverTests
         bool noisePublicKeyIsToken = false,
         int noiseAssemblyNameLength = 0,
         bool invalidNoiseCultureHandle = false,
+        bool distinctNoiseAssemblyReferences = false,
         bool includeInvalidImplementationTagForwarder = false,
         bool invalidImplementationTagMatchesRoot = false,
         bool malformedForwarderHasForwarderFlag = true,
@@ -2868,31 +2890,52 @@ public sealed class MethodCorrespondenceResolverTests
         }
         EntityHandle noiseTarget = coreLibrary;
         AssemblyReferenceHandle noiseAssemblyReference = default;
+        var noiseAssemblyReferences =
+            new List<AssemblyReferenceHandle>();
+        StringHandle noiseAssemblyName = default;
+        StringHandle noiseAssemblyCulture = default;
+        BlobHandle noiseAssemblyKey = default;
+        AssemblyFlags noiseAssemblyFlags = default;
         if (noisePublicKeyBytes > 0)
         {
             var key = new byte[noisePublicKeyBytes];
             key[0] = 1;
-            noiseAssemblyReference =
-                metadata.AddAssemblyReference(
-                    metadata.GetOrAddString(
-                        noiseAssemblyNameLength > 0
-                            ? new string(
-                                'h',
-                                noiseAssemblyNameLength)
-                            : "Hostile"),
-                    new Version(1, 0, 0, 0),
-                    invalidNoiseCultureHandle
-                        ? metadata.GetOrAddString("en-US")
-                        : default,
-                    metadata.GetOrAddBlob(key),
-                    noisePublicKeyIsToken
-                        ? default
-                        : AssemblyFlags.PublicKey,
-                    default);
-            noiseTarget = noiseAssemblyReference;
+            noiseAssemblyName =
+                metadata.GetOrAddString(
+                    noiseAssemblyNameLength > 0
+                        ? new string(
+                            'h',
+                            noiseAssemblyNameLength)
+                        : "Hostile");
+            noiseAssemblyCulture =
+                invalidNoiseCultureHandle
+                    ? metadata.GetOrAddString("en-US")
+                    : default;
+            noiseAssemblyKey =
+                metadata.GetOrAddBlob(key);
+            noiseAssemblyFlags =
+                noisePublicKeyIsToken
+                    ? default
+                    : AssemblyFlags.PublicKey;
+            if (!distinctNoiseAssemblyReferences)
+            {
+                noiseAssemblyReference =
+                    AddNoiseAssemblyReference();
+                noiseAssemblyReferences.Add(
+                    noiseAssemblyReference);
+                noiseTarget = noiseAssemblyReference;
+            }
         }
         for (int i = 0; i < noiseForwarderCount; i++)
         {
+            if (distinctNoiseAssemblyReferences)
+            {
+                noiseAssemblyReference =
+                    AddNoiseAssemblyReference();
+                noiseAssemblyReferences.Add(
+                    noiseAssemblyReference);
+                noiseTarget = noiseAssemblyReference;
+            }
             metadata.AddExportedType(
                 TypeAttributes.Public
                     | (TypeAttributes)0x00200000,
@@ -2992,21 +3035,25 @@ public sealed class MethodCorrespondenceResolverTests
                     : 2;
             int rowSize =
                 reader.GetTableRowSize(TableIndex.AssemblyRef);
-            int cultureOffset =
-                pe.PEHeaders.MetadataStartOffset
-                + reader.GetTableMetadataOffset(TableIndex.AssemblyRef)
-                + (MetadataTokens.GetRowNumber(
-                        noiseAssemblyReference) - 1)
-                    * rowSize
-                + 12
-                + blobIndexSize
-                + stringIndexSize;
-            image.AsSpan(
-                    cultureOffset,
-                    stringIndexSize)
-                .Fill(0xff);
-            if (stringIndexSize == 4)
-                image[cultureOffset + 3] = 0x7f;
+            foreach (AssemblyReferenceHandle assembly
+                in noiseAssemblyReferences)
+            {
+                int cultureOffset =
+                    pe.PEHeaders.MetadataStartOffset
+                    + reader.GetTableMetadataOffset(
+                        TableIndex.AssemblyRef)
+                    + (MetadataTokens.GetRowNumber(assembly) - 1)
+                        * rowSize
+                    + 12
+                    + blobIndexSize
+                    + stringIndexSize;
+                image.AsSpan(
+                        cultureOffset,
+                        stringIndexSize)
+                    .Fill(0xff);
+                if (stringIndexSize == 4)
+                    image[cultureOffset + 3] = 0x7f;
+            }
         }
         if (!invalidImplementationTagForwarder.IsNil)
         {
@@ -3034,6 +3081,15 @@ public sealed class MethodCorrespondenceResolverTests
             image[implementationOffset] |= 0x03;
         }
         return image;
+
+        AssemblyReferenceHandle AddNoiseAssemblyReference() =>
+            metadata.AddAssemblyReference(
+                noiseAssemblyName,
+                new Version(1, 0, 0, 0),
+                noiseAssemblyCulture,
+                noiseAssemblyKey,
+                noiseAssemblyFlags,
+                default);
     }
 
     static byte[] BuildForwarderBudgetAmbiguityImage(
