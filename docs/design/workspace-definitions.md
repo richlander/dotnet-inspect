@@ -12,8 +12,9 @@ contract, lifetime rules, and authorization model.
 This is a design proposal. Implementation has begun: the `package`,
 `platform`, and `embedded` member coordinates and one loader that realizes a
 selected context into exactly one `AssemblyContextGroup` now exist in product
-code. Product code also realizes exact already-acquired descriptors into
-coordinated surface and implementation roles for Browser package workspaces.
+code. Product code also selects and realizes exact already-acquired package
+content into coordinated surface and implementation roles for Browser package
+workspaces.
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -449,9 +450,9 @@ workspace, focus, member anchor, and section, opens one aggregate browser
 workspace, and returns its package surfaces, exact activation identity, and
 ordinary Call Graph projection. TypeScript applies that typed result to the UI
 without parsing definition member keys or reconstructing package/query inputs.
-Browser package scopes now adapt their exact selected descriptors into
-product-owned `PackageAssemblyContextRoles`; Browser still owns Wasm
-acquisition, cache/deadline budgets, and package/asset provenance.
+Browser package scopes now adapt product-selected, product-realized package
+participants into Browser coordinate/asset provenance; Browser still owns Wasm
+transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) minted facet ids replacing display-name allow list; (2) realize
 definitions via `WorkspaceContextLoader` instead of CLI package/
 `--caller-package` encoding and the browser runtime-pack share encoding for
@@ -673,6 +674,15 @@ scalar as raw UTF-8. The packet uses a purpose-built writer: none of
 `JavaScriptEncoder.Create(UnicodeRanges.All)` implements that complete rule.
 Packet identity below is semantic identity after decoding; canonical emission
 has one byte representation.
+
+The product codec also exposes the JSON boundary directly. `ParseJson` accepts
+the same bounded, duplicate-free semantic shape with insignificant whitespace,
+property reordering, and equivalent string escapes, while `SerializeJson`
+emits the exact compact text used by canonical packet encoding. This is a
+conversion boundary, not a second packet format: parsing JSON followed by
+`Encode` always restores the one canonical base64url representation, and
+decoding a packet followed by `SerializeJson` exposes the JSON that packet
+actually commits to.
 
 The packet separates navigation from binding:
 
@@ -975,6 +985,8 @@ Implementation must add, at minimum:
   proving rejection rather than U+FFFD substitution —
   `WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly`,
   `Decode_UnicodeAndSignatureVector_RoundTripsExactly`,
+  `JsonConversion_AcceptsEquivalentInputAndRestoresCanonicalPacket`,
+  `JsonConversion_UsesTheSameTypedValidityAndCancellationGates`,
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
@@ -1073,7 +1085,22 @@ Definition records and product demos (this slice):
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
-  signatures, and the pinned scalar-escaping rules;
+  signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
+  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  those commands accept inline input or bounded strict UTF-8 stdin/file input
+  and emit BOM-free UTF-8 without acquisition or execution. Stream and file
+  input may carry one terminal LF or CRLF outside the declared payload bound.
+  `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
+  `Dash_ReadsBoundedStandardInputInBothDirections`,
+  `MaximumPacket_DecodePipeEncode_RoundTrips`,
+  `RepeatedTerminalLineEndings_DoNotBypassLimits`,
+  `Encode_RejectsInvalidUtf8FromStandardInput`, and
+  `Encode_RejectsNonUtf8File` gate that CLI boundary.
+  `UnicodePacket_PipesAsUtf8UnderLegacyWindowsCodePage` gates process output
+  under a non-UTF-8 Windows console code page.
+  `Encode_RejectsEmptyFilePathWithoutStackTrace` and
+  `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
+  diagnostics across platform path rules;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;
@@ -1093,12 +1120,15 @@ Definition records and product demos (this slice):
   transposer validates forward input and reverse output through
   `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
   bind a query, or execute the scenario; and
-- `InspectionWorkspace.CreatePackageAssemblyContextRoles` realizes exact,
-  already-acquired package descriptors as coordinated surface and
-  implementation groups. It owns role-local binding, identity collision
-  rejection, reference-only surfaces, explicit shared-group reuse, and exact
-  participant correspondence. `PackageAssemblyContextRolesTests` gate the
-  product contract;
+- `PackageAssemblyContextSelection` and
+  `InspectionWorkspace.RealizePackageAssemblyContextRoles` select exact,
+  already-acquired package content and realize it as coordinated surface and
+  implementation groups. Product code owns reference-preferred selection,
+  bounded identity decoding, descriptor minting, rejection carriers,
+  role-local binding, identity collision rejection, reference-only surfaces,
+  shared-group reuse, and exact asset/participant correspondence.
+  `PackageAssemblyContextRealizationTests` and
+  `PackageAssemblyContextRolesTests` gate the product contract;
   `BrowserEngineBoundaryTests.WorkspaceBinding_RejectsPackageParticipantsForPlatformScope`,
   `WorkspaceBinding_RejectsEquivalentAssemblyIdentities`,
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
@@ -1107,8 +1137,7 @@ Definition records and product demos (this slice):
 - **not yet:** minted view-facet ids, packet view/query binding, or CLI and
   browser use of the codec and transposer;
   `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
-  package + `--caller-package` encoding, the Browser package path still
-  supplies exact already-acquired descriptors to the product role owner, and
+  package + `--caller-package` encoding, and
   platform still uses the resident runtime-pack share encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and
