@@ -15,6 +15,7 @@
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <Project Path="src/DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
+    <Project Path="src/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />

@@ -929,6 +929,18 @@ Product-wide default
 aggregate expansion, entry-count, and retention budgets remain an open
 requirement below.
 
+RID companion verification has a narrower aggregate compressed-input bound:
+one operation reads at most 500 MB across all local sibling archives, in
+addition to the per-archive limit. Exhaustion leaves unexamined existing
+candidates indeterminate rather than reporting authoritative absence, while
+missing paths need no byte reservation. Reservation uses the length of the
+opened handle and the bounded reader consumes that same handle, preventing a
+path replacement from acquiring an uncharged allowance. The two cases of
+`RidPackageVerifierTests.VerifyAsync_LocalArchiveReadBudgetIsShared` gate
+exhaustion and positive evidence within the budget;
+`ProbeLocalPackageArchiveAsync_MissingThenCreatedArchiveConsumesBudgetWhenOpened`
+gates reservation ownership.
+
 ### Untrusted JSON rejects duplicate properties
 
 JSON does not define how duplicate object keys resolve, so two readers of one payload can

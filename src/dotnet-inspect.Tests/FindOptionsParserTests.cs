@@ -11,6 +11,27 @@ public class FindOptionsParserTests
         => tips.Where(t => t.Subcommand == FindCommand.Name).Select(t => t.Args);
 
     [Fact]
+    public void PackagePrefixWithoutPattern_SelectsManifestProfile()
+    {
+        Assert.True(
+            new FindOptions
+            {
+                PackagePrefix = "Microsoft.",
+            }.IsPackageProfile);
+    }
+
+    [Fact]
+    public void PackagePrefixWithPattern_PreservesApiSearch()
+    {
+        Assert.False(
+            new FindOptions
+            {
+                Pattern = "JsonSerializer",
+                PackagePrefix = "Microsoft.",
+            }.IsPackageProfile);
+    }
+
+    [Fact]
     public void BuildTips_MemberMode_PreservesLensAndCanonicalizesPattern()
     {
         var explicitTips = FindOptionsParser.BuildTips(
