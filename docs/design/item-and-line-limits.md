@@ -314,6 +314,13 @@ that consumes one payload body adds `--bare`; guidance that consumes multiple
 results uses the framed form or a structured batch format. This audit is part of
 the same atomic implementation change as the retired syntax migration.
 
+One surviving-spelling composition also changes: current `--count --rows N..M`
+returns the size of the window, while the target rejects `--count` with every
+item, range, or line window. This preserves the existing requirement that a
+count describe the payload it accompanies by refusing a request for both a full
+matched-row count and a windowed payload. Existing count/window tests migrate to
+the `CountRejectsItemAndLineWindows` gate rather than retaining windowed counts.
+
 Long `--type` and `--member` selectors remain where the command needs them;
 positional member syntax remains. `--versions` and `--versions-with-feed`
 become value-less lens selectors and compose with `-n`.
@@ -351,6 +358,7 @@ The implementation must add named Release gates for these target properties:
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
 | `OrdinaryLineWindowsApplyAfterRendering` | Ordinary head/tail line windows and `--top` plus line-mode `-n` preserve the selected item set and clip the final text only. |
 | `NonPrintJsonRejectsLineWindows` | Typed and lowered document JSON reject `--lines` with empty stdout; printable JSON clips content before complete-value encoding. |
+| `MarkdownScopeRejectsMixedSelectionAtomically` | `--frontmatter` and `--body` inspect only selected rows, but one selected non-Markdown document rejects the whole `--print` or `--content` request before acquisition, per-row output, stdout, or destination mutation. |
 | `RemoteMultiPrintRequiresBoundedSelection` | A per-row network payload source rejects multi-row `--print` without an explicit finite item bound, performs no fetch or stdout, and leaves an absent destination absent and an existing destination byte-for-byte unchanged. |
 | `SelectedRowsBoundPayloadAcquisition` | Instrumented payload providers are called exactly once for each selected row with an acquired payload, and never for non-printable, filtered, unselected, or windowed-out rows. |
 | `RejectedExportsPreserveDestination` | Every preflight rejection path produces no stdout, leaves an absent destination absent, and leaves an existing destination byte-for-byte unchanged. |

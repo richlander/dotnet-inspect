@@ -62,8 +62,10 @@ select logical edges consistently across Markdown, tree, Mermaid, tabular, and
 structured output. Isolated explicit packages remain node/group context in
 graph and JSON views, but never become empty data rows in the default Markdown
 edge table.
-`OutputModes_UseTheSameWindowedLogicalEdges` gates the rendered Markdown table
-row count against the selected logical-edge count.
+`OutputModes_UseTheSameWindowedLogicalEdges` gates the same selected logical
+edges across the non-count output modes. Its current windowed-count assertion
+migrates to `CountRejectsItemAndLineWindows`: the target rejects `--count` with
+`--rows` instead of returning the size of the selected edge window.
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
@@ -296,6 +298,14 @@ not apply to. A selection that matches Markdown and non-Markdown alike --
 dropping the rest reports success for files that were never scoped. The refusal
 names the first such document so the selection can be narrowed, for example with
 `--path "*.md"`.
+
+This request-level scope preflight runs after filters and item, range, or
+single-row selection establish the selected documents, but before payload
+acquisition or output. It inspects only selected rows, so an unselected
+non-Markdown row does not reject the request. If any selected row is not
+Markdown, one preflight rejection preempts the per-row batch failure model; the
+requested transformation itself is invalid rather than one row's payload being
+missing or unavailable.
 
 Normal `--print` stdout is a framed, visually encoded projection, even for one
 row. Unary `--bare` removes the frame but remains terminal-safe rather than an
