@@ -107,6 +107,61 @@ public static class ProjectionDiagnostics
     public static void DiagnoseRendered(string[]? requestedNames, string renderedOutput)
     {
         var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
+        WriteMissing(missing);
+    }
+
+    /// <summary>
+    /// Compares projected patterns against rendered output after resolving them to concrete
+    /// schema names. A pattern has data when any name it selected was rendered.
+    /// </summary>
+    public static void DiagnoseRendered(
+        string[]? requestedNames,
+        string renderedOutput,
+        IEnumerable<string> availableNames)
+    {
+        if (requestedNames is not { Length: > 0 })
+            return;
+
+        var candidates = availableNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var missing = requestedNames
+            .Where(name =>
+            {
+                var matches = SelectResolver.ResolveSingle(name, candidates)
+                    .Matches;
+                string[] concreteNames = matches.Count > 0
+                    ? [.. matches]
+                    : [name];
+                return DocumentSchema.DiagnoseRendered(
+                    concreteNames, renderedOutput).Length
+                    == concreteNames.Length;
+            })
+            .ToArray();
+        WriteMissing(missing);
+    }
+
+    /// <summary>
+    /// Reports requested names that matched the schema but are absent from a typed projection.
+    /// </summary>
+    public static void DiagnoseProjected(
+        string[]? requestedNames,
+        IEnumerable<string> presentNames)
+    {
+        if (requestedNames is not { Length: > 0 })
+            return;
+
+        var candidates = presentNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var missing = requestedNames
+            .Where(name => SelectResolver.ResolveSingle(name, candidates).Matches.Count == 0)
+            .ToArray();
+        WriteMissing(missing);
+    }
+
+    private static void WriteMissing(string[] missing)
+    {
         if (missing.Length == 0)
             return;
 

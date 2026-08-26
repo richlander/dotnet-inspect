@@ -279,7 +279,7 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains(OtherPackageId, markdown.Output, StringComparison.Ordinal);
         Assert.Equal(
             1,
-            CountOutput.CountMarkdownTableRows(markdown.Output));
+            MarkdownTableTestOracle.CountRows(markdown.Output));
         Assert.Contains(PackageId, table.Output, StringComparison.Ordinal);
         Assert.DoesNotContain(ThirdPackageId, table.Output, StringComparison.Ordinal);
         Assert.Equal("1", count.Output.Trim());

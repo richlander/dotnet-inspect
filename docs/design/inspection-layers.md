@@ -64,7 +64,13 @@ body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
 Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, and group-scoped PDB-mapped-or-decompiled type/member source. The
+slices, group-scoped PDB-mapped-or-decompiled type/member source, immutable
+package-manifest facts, and bounded package-prefix profiles. Package dependency
+selection and package-prefix profiles consume the same validated manifest-facts
+query. The profile's L2 `Packages` section owns package/dependency row grain,
+schema, projection, and visible failure or truncation evidence; `find` retains
+only request binding, acquisition authorization, diagnostics, and format
+selection. The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired
@@ -81,14 +87,13 @@ extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, method-classification, audit-metadata, unsafe-evidence,
 top-leverage, optimization-opportunity, and resource-triage queries, plus the
 Research-backed
-switch query through a typed,
-content-shaped registry
+switch query through a typed, immutable, content-shaped catalog
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
 `Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
 `Top Leverage`, `Body Shapes`, the Performance section family, and `Library
 Info` sections bind to concrete query definitions, and the CLI and package
-convenience route lower section selection into that same registry.
+convenience route lower section selection into that same catalog.
 Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
@@ -148,9 +153,11 @@ MethodDef scope. `LibraryMetadataService` still projects query results into the
 mutable `LibraryInspection` compatibility aggregate, and transitive reference
 resolution remains host-owned. The SourceLink document query delegates PDB
 acquisition to shared Services while the host supplies trusted symbol and
-SSRF-hardened source clients. The registry supports deterministic synchronous
-and asynchronous execution and passes each query's maximum transitive cost
-into the host execution scope.
+SSRF-hardened source clients. The catalog supports stable enumeration plus
+deterministic synchronous and asynchronous execution. It precomputes each
+query's required closure, transitive cost, and single-query execution plan, and
+passes that cost into the host execution scope. Commands compile multi-query
+plans once and may reuse them across assembly contexts.
 
 `DotnetInspector.Artifacts` now provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
@@ -420,7 +427,7 @@ canaries:
   as `InspectionQueryException`; cancellation and cost-declaration failures
   retain their specific exception types. The `ProductionQueryCatchBoundary_*`
   tests gate this fail-visible boundary.
-- The query registry exposes each executor's maximum transitive
+- The query catalog exposes each executor's maximum transitive
   `InspectionCost` to a host execution scope. The CLI adapter maps it to
   `SectionCost` and enforces body-index and drill-map acquisition through
   `InspectionQueryContext`; the

@@ -353,6 +353,70 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 $"Web canary did not select only web: {FormatValues(web)}");
         }
+        foreach (string webDocumentation in new[]
+        {
+            "prototypes/inspect-web/README.md",
+            "prototypes/inspect-web/docs/hosting.md",
+        })
+        {
+            Dictionary<string, string> webDocs = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                webDocumentation,
+                outputs);
+            if (webDocs["code"] != "false"
+                || webDocs["docs"] != "true"
+                || webDocs["web"] != "false")
+            {
+                throw new InvalidOperationException(
+                    $"Web documentation {webDocumentation} selected the wrong " +
+                    $"lanes: {FormatValues(webDocs)}");
+            }
+        }
+        Dictionary<string, string> webDocsAndSource = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            """
+            prototypes/inspect-web/README.md
+            prototypes/inspect-web/src/dotnet-inspect.ts
+            """,
+            outputs);
+        if (webDocsAndSource["docs"] != "true"
+            || webDocsAndSource["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Mixed web documentation and source did not select both lanes: "
+                + FormatValues(webDocsAndSource));
+        }
+        Dictionary<string, string> webSourceRenamedToDocs = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/inspect-web/archived-design.md",
+            outputs,
+            previousFiles: "prototypes/inspect-web/src/archived-design.ts");
+        if (webSourceRenamedToDocs["docs"] != "true"
+            || webSourceRenamedToDocs["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Web source renamed to documentation escaped the web lane: "
+                + FormatValues(webSourceRenamedToDocs));
+        }
+        Dictionary<string, string> webTextFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/inspect-web/test/fixture.txt",
+            outputs);
+        if (webTextFixture["docs"] != "true"
+            || webTextFixture["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Non-Markdown web fixture escaped the web lane: "
+                + FormatValues(webTextFixture));
+        }
         Dictionary<string, string> webGenerator = RunDetection(
             repository,
             body,
