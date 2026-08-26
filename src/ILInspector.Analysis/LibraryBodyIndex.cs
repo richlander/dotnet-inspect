@@ -40,13 +40,18 @@ public enum LibraryBodyAnalysisFeatures
     /// <see cref="MethodEvidence"/>.
     /// </summary>
     AsyncSiblingOpportunities = 1 << 5,
+    /// <summary>
+    /// Produce call argument provenance and return-sink value flow required to
+    /// authenticate source-generated System.Text.Json wire contracts.
+    /// </summary>
+    JsonWireContractFlow = 1 << 6,
     /// <summary>The body-analysis features used by the general index.</summary>
     Default = MethodEvidence
         | Allocations
         | OptimizationOpportunities
         | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
-    All = Default | LeakTriage | OwnershipFlow,
+    All = Default | LeakTriage | OwnershipFlow | JsonWireContractFlow,
 }
 
 /// <summary>
@@ -71,6 +76,10 @@ public sealed class LibraryBodyIndex
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
+        ResultSinks = analysis.Methods.ResultSinks;
+        FieldStores = analysis.Methods.FieldStores;
+        FieldLoads = analysis.Methods.FieldLoads;
+        ReturnFlows = analysis.Methods.ReturnFlows;
         _physicalDirectCalls =
         [
             .. DirectCalls.Select(static call =>
@@ -133,6 +142,40 @@ public sealed class LibraryBodyIndex
     /// contract and its iterator non-action boundary.
     /// </summary>
     public ImmutableArray<DirectCall> DirectCalls { get; }
+    /// <summary>
+    /// Conservative physical return and single-argument call sinks, with
+    /// reaching-definition-backed direct-call provenance for their values,
+    /// when <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested.
+    /// </summary>
+    public ImmutableArray<MethodResultSink> ResultSinks { get; }
+
+    /// <summary>
+    /// Every physical <c>stsfld</c>/<c>stfld</c> site with the resolved
+    /// provenance of the value it stores, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. Unproven stores are present with an unresolved value so a
+    /// consumer asking "is this the only write to this field?" fails closed.
+    /// </summary>
+    public ImmutableArray<FieldStoreFact> FieldStores { get; }
+
+    /// <summary>
+    /// Every physical <c>ldsfld</c>/<c>ldfld</c> site, with the receiver
+    /// argument Analysis proved for an instance load, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. The load counterpart of <see cref="FieldStores"/>, needed
+    /// where a cached read never reaches a resolvable stack slot.
+    /// </summary>
+    public ImmutableArray<FieldLoadFact> FieldLoads { get; }
+
+    /// <summary>
+    /// The union of proven producers each non-void body can return, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. Present with an unresolved value whenever any reachable
+    /// return went unproven, so a consumer asking "can this method return
+    /// anything else?" fails closed.
+    /// </summary>
+    public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
@@ -1033,14 +1076,24 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null,
-        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null)
+        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null,
+        ImmutableArray<AnalysisDiagnostic> diagnostics = default,
+        ImmutableArray<DirectCall> directCalls = default,
+        ImmutableArray<MethodResultSink> resultSinks = default,
+        ImmutableArray<FieldStoreFact> fieldStores = default,
+        ImmutableArray<FieldLoadFact> fieldLoads = default,
+        ImmutableArray<MethodReturnFlow> returnFlows = default)
         => new(
             path: "",
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
                     Methods: methods,
-                    DirectCalls: [],
+                    DirectCalls: directCalls.IsDefault ? [] : directCalls,
+                    ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
+                    FieldStores: fieldStores.IsDefault ? [] : fieldStores,
+                    FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
+                    ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),
@@ -1077,7 +1130,7 @@ public sealed class LibraryBodyIndex
                         new HashSet<string>(StringComparer.Ordinal)),
                 OwnershipFlow: new(Methods: []),
                 Resources: new(LeakTriage: null),
-                Diagnostics: []),
+                Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None

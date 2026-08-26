@@ -71,6 +71,11 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
 
+    MethodIdentity? ResolveAsyncStateMachineSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated);
+
     ImmutableArray<OptimizationOpportunity>
         CollectAsyncSiblingOpportunities(
             MethodBodyAnalysisContext context,
@@ -133,6 +138,10 @@ internal sealed class LibraryMethodAnalysisResult
     public bool HasBody;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
     public ImmutableArray<DirectCall> Calls;
+    public ImmutableArray<MethodResultSink> ResultSinks;
+    public ImmutableArray<FieldStoreFact> FieldStores;
+    public ImmutableArray<FieldLoadFact> FieldLoads;
+    public ImmutableArray<MethodReturnFlow> ReturnFlows;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
@@ -522,6 +531,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
+        bool includeJsonWireContractFlow = plan.Includes(
+            LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         IReadOnlySet<int>? requestedMethodScope =
@@ -541,6 +552,22 @@ internal sealed class LibraryMethodAnalysisRunner(
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
+        ImmutableArray<MethodResultSink>.Builder? resultSinks =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<MethodResultSink>()
+                : null;
+        ImmutableArray<FieldStoreFact>.Builder? fieldStores =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<FieldStoreFact>()
+                : null;
+        ImmutableArray<FieldLoadFact>.Builder? fieldLoads =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<FieldLoadFact>()
+                : null;
+        ImmutableArray<MethodReturnFlow>.Builder? returnFlows =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<MethodReturnFlow>()
+                : null;
         MetadataReader reader = _infrastructure.Reader;
         LeakTriageFailureKind leakFailureKind =
             LeakTriageFailureKind.MethodMetadata;
@@ -642,6 +669,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             bool requiresDeclaredOwner =
                 CompilerGeneratedNames.RequiresDeclaredOwner(
                     caller);
+            MethodIdentity? asyncStateMachineSource = null;
             bool opportunityOwnershipResolved = true;
             DeclaredOwnerResolution ownerResolution =
                 DeclaredOwnerResolution.None;
@@ -661,6 +689,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                         requestedMethodScope,
                         directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
+                asyncStateMachineSource =
+                    _infrastructure.ResolveAsyncStateMachineSource(
+                        caller,
+                        methodDefinition,
+                        typeSourceGenerated);
                 MethodIdentity? ultimateOwner =
                     declaredMethod;
                 ownerResolution =
@@ -875,7 +908,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                     includeIndirectOpcodes:
                         hasUnsafeApiMember
                         || hasUnsafeSignature
-                        || hasUnsafeLocals);
+                        || hasUnsafeLocals,
+                    includeCallValueFlow:
+                        includeJsonWireContractFlow,
+                    resultSinks: resultSinks,
+                    fieldStores: fieldStores,
+                    fieldLoads: fieldLoads,
+                    returnFlows: returnFlows);
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -886,7 +925,23 @@ internal sealed class LibraryMethodAnalysisRunner(
                         typeHandle,
                         methodHandle),
                     $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: caller.DeclaringType);
+                    SourceMethodToken:
+                        result.DeclaredSource?.MetadataToken,
+                    DeclaringType: caller.DeclaringType,
+                    SourceDeclaringType:
+                        result.DeclaredSource?.DeclaringType);
+            }
+            if (asyncStateMachineSource is not null
+                && resultSinks is not null)
+            {
+                for (int index = 0; index < resultSinks.Count; index++)
+                {
+                    resultSinks[index] = resultSinks[index] with
+                    {
+                        AsyncStateMachineSource =
+                            asyncStateMachineSource,
+                    };
+                }
             }
             if (includeOpportunities)
             {
@@ -1031,7 +1086,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                     typeHandle,
                     methodHandle),
                 $"{ex.GetType().Name}: {ex.Message}",
-                DeclaringType: result.Caller?.DeclaringType);
+                SourceMethodToken:
+                    result.DeclaredSource?.MetadataToken,
+                DeclaringType: result.Caller?.DeclaringType,
+                SourceDeclaringType:
+                    result.DeclaredSource?.DeclaringType);
             if (includeLeakTriage
                 && result.LeakTriage is null)
             {
@@ -1048,6 +1107,10 @@ internal sealed class LibraryMethodAnalysisRunner(
             // emitted before a recoverable failure remain visible.
             result.UnsafeEvidence = evidence.ToImmutable();
             result.Calls = calls.ToImmutable();
+            result.ResultSinks = resultSinks?.ToImmutable() ?? [];
+            result.FieldStores = fieldStores?.ToImmutable() ?? [];
+            result.FieldLoads = fieldLoads?.ToImmutable() ?? [];
+            result.ReturnFlows = returnFlows?.ToImmutable() ?? [];
         }
         return result;
     }

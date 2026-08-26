@@ -179,7 +179,8 @@ public sealed class CustomAttributeValueGuardTests
                 count => charged = checked(charged + count)));
         Assert.Equal(
             100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge
-                + CustomAttributeValueGuard.DeclaredSlotCharge,
+                + CustomAttributeValueGuard.DeclaredSlotCharge
+                + "V".Length,
             charged);
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
@@ -312,7 +313,11 @@ public sealed class CustomAttributeValueGuardTests
                 attribute,
                 count => charged = checked(charged + count)));
         Assert.Equal(
-            (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            (2 + 100_000_000)
+                * CustomAttributeValueGuard.DeclaredSlotCharge
+                + "Samples.E, Other".Length
+                + "F".Length
+                + "V".Length,
             charged);
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
@@ -684,7 +689,9 @@ public sealed class CustomAttributeValueGuardTests
                 attribute,
                 count => charged = checked(charged + count)));
         Assert.Equal(
-            (1 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            (1 + 100_000_000)
+                * CustomAttributeValueGuard.DeclaredSlotCharge
+                + "F".Length,
             charged);
         Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
