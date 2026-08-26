@@ -814,10 +814,13 @@ multiple selected libraries, unknown lenses or sections, package-root facets,
 unresolved graph targets,
 ambiguous overloads, graph-discovered members, accessor-specific bodies, and
 members without a portable product identity fail visibly rather than producing
-lossy state. `canonical tabs must remain distinct and ordered after resolution`,
-`missing Platform reacquisition retains only an aligned canonical pin`, and
-`canonical restoration is atomic and history adopts the active packet basis`
-gate these boundaries. Filters and browse presentation stay
+lossy state. These boundaries are gated by `canonical tabs must remain distinct
+and ordered after resolution`, `missing Platform reacquisition retains only an
+aligned canonical pin`, and `canonical restoration is atomic and history adopts
+the active packet basis`. `canonical transitions cancel visible source work
+before snapshot` and `canonical transitions settle annotated source before
+snapshot` specifically gate source-request settlement. Filters and browse
+presentation stay
 session-local. A package-root view drops stale `w=` state and uses the ordinary
 Browser package route for address-bar synchronization and explicit Share until
 product facet ids exist. Other transient,

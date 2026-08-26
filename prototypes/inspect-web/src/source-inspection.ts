@@ -85,6 +85,7 @@ export interface SourceInspectionDependencies {
 }
 
 export interface SourceInspectionCoordinator {
+  cancelCurrentRequest(): boolean;
   cancelHiddenRequest(): void;
   loadMemberSource(request: MemberSourceLoadRequest): Promise<void>;
   loadTypeSource(request: TypeSourceLoadRequest): Promise<void>;
@@ -99,13 +100,16 @@ export function createSourceInspectionCoordinator(
   dependencies: SourceInspectionDependencies,
 ): SourceInspectionCoordinator {
   const { state } = dependencies;
+  const cancelCurrentRequest = () => {
+    const cancelled = cancelSourceRequestState(state);
+    if (cancelled) dependencies.cancelEngineSourceRequest();
+    return cancelled;
+  };
 
   return {
+    cancelCurrentRequest,
     cancelHiddenRequest() {
-      if (!sourceSurfaceIsVisible(state)
-        && cancelSourceRequestState(state)) {
-        dependencies.cancelEngineSourceRequest();
-      }
+      if (!sourceSurfaceIsVisible(state)) cancelCurrentRequest();
     },
 
     async loadMemberSource(request) {
@@ -216,9 +220,7 @@ export function createSourceInspectionCoordinator(
     },
 
     closeGraphSource() {
-      if (cancelSourceRequestState(state)) {
-        dependencies.cancelEngineSourceRequest();
-      }
+      cancelCurrentRequest();
       state.graphSourceSeq++;
       state.graphSourceOpen = false;
       state.graphSource = null;

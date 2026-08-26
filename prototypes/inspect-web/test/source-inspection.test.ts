@@ -119,6 +119,26 @@ test("hidden source work is cancelled through the shared engine boundary", () =>
   assert.equal(state.memberSourceLoading, true);
 });
 
+test("canonical transitions cancel visible source work before snapshot", () => {
+  let cancellations = 0;
+  const state = inspectionState({
+    memberSourceLoading: true,
+    memberSourceKey: "member",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      cancelEngineSourceRequest: () => cancellations++,
+    }));
+
+  assert.equal(coordinator.cancelCurrentRequest(), true);
+  assert.equal(cancellations, 1);
+  assert.equal(state.sourceRequestGeneration, 1);
+  assert.equal(state.memberSourceLoading, false);
+  assert.equal(state.memberSourceKey, "");
+  assert.equal(coordinator.cancelCurrentRequest(), false);
+  assert.equal(cancellations, 1);
+});
+
 test("member source publishes only for the current member selection", async () => {
   const query = deferred<BrowserSource>();
   const focusRenders: Array<string | null> = [];

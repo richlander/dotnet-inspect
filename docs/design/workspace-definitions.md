@@ -1184,10 +1184,12 @@ Definition records and product demos (this slice):
   facets, pending graph targets, graph-discovered members, accessor-specific
   bodies, and members without portable anchor/signature identity fail visibly
   instead of being flattened.
-  `canonical tabs must remain distinct and ordered after resolution`,
-  `missing Platform reacquisition retains only an aligned canonical pin`, and
-  `canonical restoration is atomic and history adopts the active packet basis`
-  gate these Browser boundaries.
+  These Browser boundaries are gated by `canonical tabs must remain distinct
+  and ordered after resolution`, `missing Platform reacquisition retains only
+  an aligned canonical pin`, and `canonical restoration is atomic and history
+  adopts the active packet basis`. `canonical transitions cancel visible source
+  work before snapshot` and `canonical transitions settle annotated source
+  before snapshot` specifically gate source-request settlement.
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet ids exist; and
 - **not yet:** minted view-facet ids, complete packet view/query binding, CLI

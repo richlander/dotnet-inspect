@@ -148,6 +148,7 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  cancelAnnotatedSourceRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
@@ -766,6 +767,8 @@ interface CanonicalWorkspaceRestoreSnapshot {
 
 function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
+  sourceInspection.cancelCurrentRequest();
+  cancelAnnotatedSourceRequest(state);
   const packages = structuredClone(state.packages);
   const activeKey = state.package
     ? packageIdentityKey(state.package)

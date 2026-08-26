@@ -2271,6 +2271,9 @@ test("canonical restoration is atomic and history adopts the active packet basis
     appSource,
     /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
   assert.match(
+    appSource,
+    /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*cancelAnnotatedSourceRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);
+  assert.match(
     history,
     /invalidateMemberCallGraphWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
@@ -2933,7 +2936,7 @@ test("source operations cancel when superseded or hidden", () => {
     /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
   assert.match(
     sourceInspectionSource,
-    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+    /const cancelCurrentRequest = \(\) => \{[\s\S]*cancelSourceRequestState\(state\)[\s\S]*cancelHiddenRequest\(\)[\s\S]*!sourceSurfaceIsVisible\(state\)\) cancelCurrentRequest\(\)/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
